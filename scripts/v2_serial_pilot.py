@@ -451,57 +451,18 @@ def drive_chapter(evid: Path, seq: int):
             time.sleep(1)
             continue
 
-        # 接地失败优先处理：节拍 / 演绎
+        # 接地失败：STOP（禁止 safe_beats / 假 scene_truth / 假 deductions 跳过状态机）
         if parked and "事实对齐" in str(parked):
-            syn = SYN[seq - 1]
-            pov = POVS[seq - 1]
-            safe_beats = [
-                {"text": f"开场：以气味与空间锚定，进入本章冲突（{syn[:40]}）。"},
-                {"text": f"中段：信息或压力升级；{syn}"},
-                {"text": "章末：留下可回收钩子（债契/灯芯/名字/暖火之一）。"},
-                {"text": "余韵：用身体反应收住情绪，不解释主题。"},
-            ]
-            # 场景真相=梗概冷叙扩展（不发明新物件），限知投影只复述真相可见信息
-            scene_truth = (
-                f"第{seq}章客观上发生：{syn}"
-                f"参与者包括{pov}及相关在场者。无全知解释，仅上述事件链。"
+            msg = (
+                f"GROUNDING_STOP ch{seq}: {str(parked)[:240]}\n"
+                "禁止 patch 安全节拍/假演绎。应 STOP→修设定/梗概/限知接地→同路径回归。"
             )
-            ded = {
-                "character_id": f"role:{pov}",
-                "character_name": pov,
-                "prose": (
-                    f"### 看到/听到\n{pov}亲历：{syn}\n"
-                    f"### 知道\n仅上述亲历，不知他人内心。\n"
-                    f"### 以为\n压力在「问不得」与必须弄清之间，暂无更远端结论。\n"
-                    f"### 做了/说了\n按本章中段行动推进，不超出梗概。\n"
-                    f"### 没察觉的\n（留白）\n"
-                ),
-            }
-            approve([{
-                "tool": "s3_patch_chapter_meta",
-                "args": {
-                    "seq": seq,
-                    "synopsis": syn,
-                    "beats": safe_beats,
-                    "scene_truth": scene_truth,
-                    "involved_characters": [f"role:{pov}"],
-                    "deductions": [ded],
-                },
-                "label": f"安全演绎脚手架ch{seq}",
-            }], f"safe deduce scaffold ch{seq}")
-            curl("POST", "/api/pilot/reset-step", {"seq": seq}, timeout=60)
-            snap(evid, "grounding_safe_scaffold", seq=seq, detail=str(parked)[:120])
-            # 有 beats+truth+deds 后 deduce 应 skip 前进
-            code, res = curl("POST", "/api/pilot/step", {
-                "seq": seq, "mode": "manual",
-                "steer": "严格只使用场景真相中已有信息，禁止新增物件人物。",
-            }, timeout=STEP_TIMEOUT)
-            if code == "409":
-                detail = str((res or {}).get("detail") if isinstance(res, dict) else res)
-                if "大纲" in detail or "approve" in detail.lower() or "终选" in detail:
-                    curl("POST", "/api/pilot/approve", {"seq": seq}, timeout=STEP_TIMEOUT)
-            time.sleep(1)
-            continue
+            print(msg, flush=True)
+            snap(evid, "grounding_stop", seq=seq, continue_ok=False, parked=str(parked)[:300])
+            (evid / "04-serialize" / f"ch{seq:02d}.md").write_text(
+                f"# ch{seq} GROUNDING_STOP\n\n{msg}\n", encoding="utf-8",
+            )
+            raise SystemExit(msg)
 
         if state == "finalized":
             n = chapter_prose_len(seq)
@@ -608,7 +569,13 @@ def drive_chapter(evid: Path, seq: int):
                     time.sleep(2)
                     continue
                 if n < MIN_CH_CHARS:
-                    print(f"  WARN short accepted for now chars={n} (retries exhausted)", flush=True)
+                    msg = (
+                        f"SHORT_DRAFT_STOP ch{seq}: chars={n} < {MIN_CH_CHARS} "
+                        f"after {draft_tries} redrafts. 禁止短稿定稿充数。"
+                    )
+                    print(msg, flush=True)
+                    snap(evid, "short_draft_stop", seq=seq, continue_ok=False, chars=n)
+                    raise SystemExit(msg)
             # 够长：清 park 并连 step 越过 draft→check→deliver，禁止反复 restore 同稿
             curl("POST", "/api/pilot/reset-step", {"seq": seq}, timeout=60)
             for _adv in range(8):
@@ -657,46 +624,20 @@ def drive_chapter(evid: Path, seq: int):
             if "advisory" in reason:
                 continue  # next loop restore
             if "事实对齐" in reason or "grounding" in reason.lower():
-                # 最优：节拍/演绎接地失败时，用与梗概同构的安全节拍经批准写入，避免死循环
-                safe_beats = [
-                    {"text": f"开场：以气味与空间锚定，进入本章冲突（{SYN[seq-1][:40]}）。"},
-                    {"text": f"中段：信息或压力升级；{SYN[seq-1]}"},
-                    {"text": "章末：留下可回收钩子（债契/灯芯/名字/暖火之一）。"},
-                    {"text": "余韵：用身体反应收住情绪，不解释主题。"},
-                ]
-                approve([{
-                    "tool": "s3_patch_chapter_meta",
-                    "args": {"seq": seq, "beats": safe_beats, "synopsis": SYN[seq - 1]},
-                    "label": f"安全节拍ch{seq}",
-                }], f"safe beats ch{seq}")
-                curl("POST", "/api/pilot/reset-step", {"seq": seq}, timeout=60)
-                # 若仍停在 outline_proposed，approve 放行后再 step
-                curl("POST", "/api/pilot/approve", {"seq": seq}, timeout=STEP_TIMEOUT)
-                snap(evid, "grounding_safe_beats", seq=seq, continue_ok=True)
-                time.sleep(1)
-                continue
+                msg = (
+                    f"GROUNDING_STOP ch{seq} after step: {reason[:240]}\n"
+                    "禁止 safe_beats 脚手架。STOP→修设定/梗概/接地→回归。"
+                )
+                print(msg, flush=True)
+                snap(evid, "grounding_stop_step", seq=seq, continue_ok=False, detail=reason[:300])
+                raise SystemExit(msg)
             if "blocking" in reason:
+                # 非 AI soft 的 blocking：有限次 re-steer，仍失败则 STOP（不灌假稿）
                 curl("POST", "/api/pilot/reset-step", {"seq": seq}, timeout=60)
                 curl("POST", "/api/pilot/step", {
                     "seq": seq, "mode": "manual",
-                    "steer": "严格限知，不添加场景真相没有的物件人物；信息不足则留白。",
+                    "steer": steer + " 严格限知；不添加场景真相没有的物件人物；信息不足则留白。",
                 }, timeout=STEP_TIMEOUT)
-        # 观察态里已 parked 的 grounding（status 接口）
-        if parked and "事实对齐" in str(parked):
-            safe_beats = [
-                {"text": f"开场：以气味与空间锚定，进入本章冲突（{SYN[seq-1][:40]}）。"},
-                {"text": f"中段：信息或压力升级；{SYN[seq-1]}"},
-                {"text": "章末：留下可回收钩子（债契/灯芯/名字/暖火之一）。"},
-                {"text": "余韵：用身体反应收住情绪，不解释主题。"},
-            ]
-            approve([{
-                "tool": "s3_patch_chapter_meta",
-                "args": {"seq": seq, "beats": safe_beats, "synopsis": SYN[seq - 1]},
-                "label": f"安全节拍ch{seq}",
-            }], f"safe beats ch{seq}")
-            curl("POST", "/api/pilot/reset-step", {"seq": seq}, timeout=60)
-            curl("POST", "/api/pilot/approve", {"seq": seq}, timeout=STEP_TIMEOUT)
-            snap(evid, "grounding_safe_beats_status", seq=seq)
         time.sleep(1)
 
     n = chapter_prose_len(seq)
@@ -805,6 +746,7 @@ def refresh_station_journals(slug: str, evid: Path):
 | D-prose-none | P1 | 强制重写 SET prose=NONE 非法 | 改空串 | closed |
 | D-ai-grade-loop | P1 | full_check 仅 AI 味死循环 | soft-pass + quality_warn | closed |
 | D-force-loop | P1 | 够长后【强制重写】残留无限清稿 | 仅短于目标才清 | closed |
+| D-safe-scaffold | P0 | 接地失败灌 safe_beats/假演绎跳过状态机 | 驱动改为 GROUNDING_STOP | closed |
 
 **开放 P0/P1**：无。
 
@@ -881,7 +823,10 @@ def phase_score(slug: str, evid: Path):
     has_finalize = "approve_finalize" in phase_set or "finalized" in uniq
     bad_path = any(
         k in tape_blob
-        for k in ("skip_craft", "skip_finalize", "prose_pure", "EMERGENCY_REST=1", "v2_upload_pure")
+        for k in (
+            "skip_craft", "skip_finalize", "prose_pure", "EMERGENCY_REST=1", "v2_upload_pure",
+            "grounding_safe_scaffold", "grounding_safe_beats", "safe deduce", "safe beats",
+        )
     )
     true_path = (
         "PASS" if (has_restore and has_step and has_finalize and not bad_path and total > 0)

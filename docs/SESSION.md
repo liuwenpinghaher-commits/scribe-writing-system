@@ -1,8 +1,6 @@
 # SESSION.md · 跨会话交接（滚动状态）
 
-> **用途**：本仓库唯一跨会话记忆。新会话先读 [`AGENTS.md`](../AGENTS.md)（长期规则）+ **本文件**（当前进度），再动手。
->
-> **维护**：每次有实质进展或结束工作前，更新下方「当前状态」区块并提交。只改事实，不堆长文。
+> **用途**：本仓库唯一跨会话记忆。新会话先读 [`AGENTS.md`](../AGENTS.md) + **本文件**，再动手。
 
 ---
 
@@ -19,97 +17,30 @@
 
 | 项 | 值 |
 |----|----|
-| **更新于** | 2026-08-06 |
+| **更新于** | 2026-08-07 |
 | **默认分支** | `main` |
-| **HEAD（写入时）** | v4 方案：设定完成门闩优先（v3 执行因设定未齐作废） |
-| **进行中目标** | v4 新书：先 WCG 设定完成 → 再结构 → 再 pilot 约 5 万字 |
+| **进行中目标** | **v5.0** 旅程 5 万字：设定 WCG → 结构 → 完整 pilot 链（无捷径） |
+| **方案** | [`docs/e2e-director-journey-5w.md`](./e2e-director-journey-5w.md) **v5.0** |
+| **进度** | [`设计文档/2026-08-06-旅程5万字-进度.md`](../设计文档/2026-08-06-旅程5万字-进度.md) |
 | **活跃分支** | `main` |
-| **未合并 / WIP** | v4 设定优先执行中 |
+| **未合并 / WIP** | v5 待从零执行 |
 
-### 最近在做什么
+### 旅程 5 万字（v5）
 
-- **会话可靠性（H1/H2/M2/H4）**：
-  - 新建/fork 单飞守卫；创建后 `switchThread` 失败可对同 `thread_id` 重试绑定（不二次 create）
-  - 归档当前 → 切 `updated_at` 最新 remaining active（`pickLatestActiveThread`）
-  - fork 父近窗注入边界标记；`create`/`fork` 写 `created_at`
-- **技法标尺**：`segments` map-reduce、异步 import/fingerprint job、multipart 导入；写路径 `craft_briefs_for_write`
-- **旅程布局**：仅 journey tab 会话↔详情换位 + `visibleLayoutShares`
-- **验证（本机）**：`test_editorial_thread` + `test_quality_references` + `test_reference_craft` + quality api 的 reference/fingerprint/import 共 63 passed；评价端点 10 fail 属本机 Surreal soft-schema / `ORDER BY created_at` 环境问题，与本次 diff 无直接关系
-- **前端单测**：Grok 运行机无 `web/node_modules`，未跑 vitest；逻辑有 `sessionThreadOps.test.js` / 既有测试文件，待 CI 或 demo 构建验证
+- **铁律**：未过 WCG 禁止正文；章内必须 大纲→节拍→演绎→草稿→体检→交付→定稿  
+- **禁止**：safe_beats/假演绎、prose_pure 灌库、伪 tape、默认 skip、EMERGENCY 主路径  
+- **工具**：`v4_world_complete_gate.py`；`v2_serial_pilot.py`（接地 STOP）  
+- **作废书**：v2 离线灌稿；v3 设定未齐即开写  
 
-### Demo 冒烟（2026-08-06，已部署栈）
+### 下一步
 
-- `GET /api/health` `/api/ready` 200；L1 登录 cookie 后：
-  - `POST /chat/threads` 写 `created_at`、无 parent；`POST .../fork` 有 parent + `created_at`
-  - `GET /references`、`/references/approved-fingerprints` 200
-  - `GET /workflow/snapshot` 200（旅程 stations 有 current）
-- 前端构建产物含「技法标尺」文案
-- 注：GHA `deploy-lighthouse` #53（e0edbcb）当时仍在 rsync；冒烟时容器已含会话边界/async_job/segments（早前 rebuild 已带入）
+1. 新建 `《旅程五站·v5·日期》`  
+2. 只做设定直到 `v4_world_complete_gate` exit 0  
+3. 结构对齐后逐章真 pilot  
+4. 结案八线 + SPA 证据  
 
-### 最近在做什么（2026-08-06 续）
+### 已知坑
 
-- **验收方案**：[`docs/e2e-director-journey-5w.md`](./e2e-director-journey-5w.md) **v3.0**  
-- **进度台账**：[`设计文档/2026-08-06-旅程5万字-进度.md`](../设计文档/2026-08-06-旅程5万字-进度.md) — **v3 已执行完成**  
-
-### 旅程 5 万字（v4 设定优先 · v1–v3 执行不作 PASS）
-
-- **方案**：[`docs/e2e-director-journey-5w.md`](./e2e-director-journey-5w.md) **v4.0**  
-- **铁律**：**设定完成门闩 WCG 绿之前禁止验收向正文**（`scripts/v4_world_complete_gate.py`）  
-- **顺序**：intent → **世界设定（角色/关系/规则/事实/势力/物件/术语/伏笔）** → 结构 → pilot 连写  
-- **v3 `book_887bb8e8`**：虽有 ~5 万 pilot 字，但 **设定未齐即开写** → **不作 PASS**（将标标题）  
-- **v2 `book_2524fd8a`**：离线灌稿 · 不作 PASS  
-- **产品修复仍保留**：角色计数、orch 落库、max_tokens、强制重写空串清 prose  
-
-### 下一步（优先序）
-
-1. 新书 v4 + 跑 WCG 直到 exit 0（补 backstory/关系/规则/伏笔等）  
-2. 结构与设定对齐后再 serialize  
-3. 结案七线 **含设定线**
-
-### 已知坑 / 禁止事项（滚动）
-
-- 不要提交 `artifacts/`、`surrealdb-docs-cache/`、`.codegraph/`、密钥、本地 DB。
-- 根目录 `交付说明.md` 是早期 SQLite/`scribe/` **归档**，不是现行手册。
-- 设计蓝图在 `设计文档/` 可能过期；冲突以 [`CURRENT_ARCHITECTURE.md`](./CURRENT_ARCHITECTURE.md) + 代码为准。
-- 服务端从国内拉 GitHub 不可靠 → 部署走 CI scp，不要假设服务器能 `git pull`。
-- SESSION 表里的 HEAD 容易过时：每次实质提交后立刻改并 push。
-- **app_impl.py ~554k**：GitHub Contents API 整文件更新不现实；大块搬迁用入口接线 / 路由剥除。
-- 公网部署务必设非空 `SCRIBE3_API_TOKEN` / L1 AUTH；前端登录页只挡 UI。
-- Query token 会出现在浏览器 Network；可选后续只对 SSE 路径前缀接受 `?token=`。
-- Grok 运行机 **1.6G 无 swap 友好**：禁止本机 `npm ci` / 全量 vitest / 临时 Surreal 全量集成；验收打 **已部署 demo**。
-
-### 最近决策（一句话）
-
-- 跨会话状态靠 Git 里的滚动 `docs/SESSION.md` + 长期 `AGENTS.md`。
-- 会话创建绑定失败必须用户可见并可重试同 id，禁止静默停旧会话。
-- 参考作品产品名对齐为「技法标尺」；分析必须分段覆盖全书。
-- 旅程 tab 换位是横切特例，不改其它 view/阶段全局栏序。
-- **5 万字旅程验收**：Director 五站为轴；PASS = 导演+工艺+质量+规模+缺陷五线；禁止字数单门闩。
-
----
-
-## 必读索引（勿在本文件重复长文）
-
-| 文档 | 何时读 |
-|------|--------|
-| [`AGENTS.md`](../AGENTS.md) | 每次会话：主线、命令、写路径、卫生 |
-| [`CURRENT_ARCHITECTURE.md`](./CURRENT_ARCHITECTURE.md) | 动架构 / 路径 / 写通道前 |
-| [`ARCHITECTURE_SPLIT_ROADMAP.md`](./ARCHITECTURE_SPLIT_ROADMAP.md) | Phase 1 路由拆出顺序 |
-| [`PR_TEST_BASELINE.md`](./PR_TEST_BASELINE.md) | 开 PR / 本地门禁 |
-| [`scribe3/README.md`](../scribe3/README.md) | 怎么跑主线 |
-| [`scribe3/AGENTIC_BOUNDARY_DECISION.md`](../scribe3/AGENTIC_BOUNDARY_DECISION.md) | Agent 写世界状态边界 |
-
----
-
-## 更新清单（会话结束前）
-
-- [x] 「当前状态」表格日期与 HEAD 已刷新
-- [x] 「进行中目标 / 下一步」与真实进度一致
-- [x] 新坑已写入「已知坑」（Grok 机资源）
-- [x] 重要决策已一句话记下
-- [ ] 已 `git push`，下一会话能拉到最新 SESSION
-
-## 2026-08-06 v2 literary 收口
-- book_2524fd8a 50595 字；save-chapter×10 无 skip
-- pilot: checked/deduced/delivered/drafting/finalized
-- 公网 www.qing.blue 可读真文；证据 artifacts/e2e-journey-5w-v2-20260806-book_2524fd8a/
+- Grok 机禁重活（npm ci / 本机 Surreal / 全量测）；验收打 demo  
+- 融合规程要求 Playwright 点批准；API apply 仅为过渡  
+- full_check 仅 AI 味 soft-pass **不等于**质量线自动 PASS  
