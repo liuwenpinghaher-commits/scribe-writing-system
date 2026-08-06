@@ -1,8 +1,10 @@
-# 旅程五站 5 万字 · 执行结案摘要（2026-08-06）
+# 旅程五站 5 万字 · v1 执行记录（**已作废**）
 
-> 完整证据目录（大文件/正文）在 demo：`/opt/scribe3/app/artifacts/e2e-journey-5w-20260806-book_d3052625/`  
-> 工作区镜像（gitignore）：`artifacts/e2e-journey-5w-20260806-book_d3052625/`  
-> 方案：[`e2e-director-journey-5w.md`](./e2e-director-journey-5w.md)
+> **⚠️ 本文件不是 PASS 结案。** 方案已升为 **v2.0**（[`e2e-director-journey-5w.md`](./e2e-director-journey-5w.md)）。  
+> v1 用紧急 REST + skip 门闩 + 非对话主路径冲字数；Web 易见空壳书/`stats_pending` 误导。**不得再引用为验收通过。**  
+> 保留本文仅作**反面教材**与 API 侧数据痕迹说明。
+
+> 完整证据目录在 demo：`/opt/scribe3/app/artifacts/e2e-journey-5w-20260806-book_d3052625/`
 
 ## 作品
 
