@@ -228,18 +228,19 @@ def create_work() -> str:
 
 
 def archive_label_v2():
-    """把 v2 离线书标题标成不作 PASS（软处理，不删数据）。"""
+    """把 v2/v3 反面教材书标题标成不作 PASS（软处理，不删数据）。"""
+    labels = {
+        "book_2524fd8a": "旅程五站·v2·离线灌稿·不作PASS",
+        "book_887bb8e8": "旅程五站·v3·设定未齐即开写·不作PASS",
+    }
     _, works = curl("GET", "/api/works")
     for w in works or []:
         if not isinstance(w, dict):
             continue
-        if w.get("slug") == "book_2524fd8a":
-            t = w.get("title") or ""
-            if "不作PASS" not in t:
-                code, res = curl("PATCH", f"/api/works/book_2524fd8a", {
-                    "title": "旅程五站·v2·离线灌稿·不作PASS",
-                })
-                print("label v2", code, res, flush=True)
+        slug = w.get("slug") or ""
+        if slug in labels and "不作PASS" not in (w.get("title") or ""):
+            code, res = curl("PATCH", f"/api/works/{slug}", {"title": labels[slug]})
+            print("label", slug, code, res, flush=True)
 
 
 def phase_scaffold(slug: str, evid: Path):
