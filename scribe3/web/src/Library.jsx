@@ -175,12 +175,12 @@ export function Library({ works, reload, onSelect }) {
                           {w.stats_error
                             ? <span className="text-danger">统计查询失败(见后端日志)</span>
                             : statsPending
-                              ? <span className="text-faint">统计将在打开后加载</span>
+                              ? <span className="text-faint">统计加载中…（非空书）</span>
                               : <span className="text-faint">{w.chapter_count ?? 0} 章 · {words.toLocaleString()} 字</span>}
                         </div>
                         <div className="mt-auto">
                           {statsPending ? (
-                            <div className="text-meta text-faint mt-1">打开作品后显示真实进度</div>
+                            <div className="text-meta text-faint mt-1">正在拉取章节/字数，请稍候或点开作品</div>
                           ) : <>
                             <div className="h-1.5 rounded-full bg-soft overflow-hidden">
                               <div className="h-full bg-brand rounded-full transition-all" style={{ width: pct + '%' }} />

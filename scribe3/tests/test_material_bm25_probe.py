@@ -11,9 +11,9 @@ import jieba
 def test_jieba_bm25_chinese_ranking(store):
     # 先定义 analyzer + BM25 索引,再插数据(插入时自动索引)
     store._execute_write("DEFINE ANALYZER probe_zh TOKENIZERS blank FILTERS lowercase", {})
-    # SurrealDB 3.x:FULLTEXT ANALYZER(2.x 是 SEARCH ANALYZER)
+    # SurrealDB 2.1.x: SEARCH ANALYZER；3.x 才是 FULLTEXT（demo/prod 为 2.1.4）
     store._execute_write(
-        "DEFINE INDEX probe_fts ON probe FIELDS tokens FULLTEXT ANALYZER probe_zh BM25", {})
+        "DEFINE INDEX probe_fts ON probe FIELDS tokens SEARCH ANALYZER probe_zh BM25", {})
     docs = [("血玉铜炉在密室中散发寒气", "d1"),
             ("江湖上流传的传说故事", "d2"),
             ("密室里的机关暗器", "d3")]

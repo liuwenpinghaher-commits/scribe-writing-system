@@ -287,25 +287,100 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
 
         def _patch_plan(**kw):
             seq = int(kw.get("seq") or kw.get("chapter") or 1)
+            fields = {k: v for k, v in kw.items()
+                      if k not in ("seq", "chapter", "work") and v is not None}
+            if hasattr(st, "update_chapter_meta") and fields:
+                ok = st.update_chapter_meta(seq, fields)
+                return {"status": "written" if ok else "error", "seq": seq, "fields": list(fields)}
             if hasattr(st, "patch_chapter"):
-                st.patch_chapter(seq, synopsis=kw.get("synopsis"), beats=kw.get("beats"))
+                st.patch_chapter(seq, **fields)
                 return {"status": "written", "seq": seq}
-            if hasattr(st, "chapters"):
-                for c in st.chapters:
-                    if int(c.get("seq") or -1) == seq:
-                        if kw.get("synopsis") is not None:
-                            c["synopsis"] = kw["synopsis"]
-                        if kw.get("beats") is not None:
-                            c["beats"] = kw["beats"]
-                        return {"status": "written", "seq": seq}
             return {"status": "error", "error": "chapter not found"}
+
+        def _set_intent(**kw):
+            fields = {k: v for k, v in kw.items() if v is not None and k not in ("work",)}
+            if not fields:
+                return {"status": "noop"}
+            if hasattr(st, "set_intent"):
+                st.set_intent(fields)
+                return {"status": "written", "fields": list(fields.keys())}
+            return {"status": "error", "error": "no set_intent"}
+
+        def _add_char(**kw):
+            """新建角色：优先 store.add_character / add_entity，否则 patch_character 路径。"""
+            name = (kw.get("name") or kw.get("label") or "").strip()
+            oid = (kw.get("oid") or kw.get("character_id") or "").strip()
+            if not oid and name:
+                oid = f"role:{name}"
+            if not name and oid.startswith("role:"):
+                name = oid.split(":", 1)[-1]
+            if not oid:
+                return {"status": "error", "error": "missing character oid/name"}
+            if hasattr(st, "add_character"):
+                st.add_character(oid, name, **{k: v for k, v in kw.items()
+                    if k not in ("oid", "character_id", "name", "label", "work")})
+                return {"status": "written", "oid": oid, "name": name}
+            if hasattr(st, "add_entity"):
+                from scribe3.ontology import Entity
+                st.add_entity(Entity(oid, "character", name or oid))
+                if hasattr(st, "patch_character"):
+                    st.patch_character(oid, **{k: v for k, v in kw.items()
+                        if k not in ("oid", "character_id", "name", "label", "work")})
+                return {"status": "written", "oid": oid, "name": name}
+            return _patch_char(character_id=oid, oid=oid, name=name, **kw)
+
+        def _add_volume(**kw):
+            title = kw.get("title") or ""
+            if hasattr(st, "add_volume"):
+                row = st.add_volume(title=title, sort_order=int(kw.get("sort_order") or 0),
+                                    intro=kw.get("intro"), color=kw.get("color"))
+                return {"status": "written", "volume": row}
+            return {"status": "error", "error": "no add_volume"}
+
+        def _add_chapter(**kw):
+            title = kw.get("title") or "未命名"
+            vol = kw.get("volume") or kw.get("volume_id")
+            if hasattr(st, "create_chapter"):
+                row = st.create_chapter(title=title, volume_id=vol)
+                return {"status": "written", "chapter": row}
+            if hasattr(st, "save_chapter") and hasattr(st, "max_chapter"):
+                seq = int(st.max_chapter() or 0) + 1
+                st.save_chapter(seq, "", title=title)
+                return {"status": "written", "seq": seq, "title": title}
+            return {"status": "error", "error": "no create_chapter"}
+
+        def _add_fact(**kw):
+            text = kw.get("text") or kw.get("content") or kw.get("value") or ""
+            if not text:
+                return {"status": "error", "error": "empty fact"}
+            if hasattr(st, "add_fact"):
+                from scribe3.ontology import Fact
+                import uuid as _uuid
+                fid = kw.get("id") or f"prop:{_uuid.uuid4().hex[:12]}"
+                entity = kw.get("entity_id") or kw.get("entity") or "world:rule"
+                attr = kw.get("attribute") or kw.get("kind") or "world_rule"
+                f = Fact(
+                    id=fid,
+                    entity_id=entity,
+                    attribute=attr,
+                    value=text,
+                    valid_from=int(kw.get("valid_from") or 1),
+                    secret=bool(kw.get("secret") or False),
+                )
+                row = st.add_fact(f)
+                return {"status": "written", "fact_id": fid, "value": text}
+            return {"status": "error", "error": "no add_fact"}
 
         executors = {
             "s3_plant_promise": _plant,
             "s3_patch_character": _patch_char,
-            "s3_add_character": _patch_char,
+            "s3_add_character": _add_char,
+            "s3_set_intent": _set_intent,
             "s3_patch_chapter_plan": _patch_plan,
             "s3_patch_chapter_meta": _patch_plan,
+            "s3_add_volume": _add_volume,
+            "s3_add_chapter": _add_chapter,
+            "s3_add_fact": _add_fact,
         }
 
     if req.decision != "approve":

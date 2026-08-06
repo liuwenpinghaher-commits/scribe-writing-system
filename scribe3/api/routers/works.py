@@ -1,6 +1,8 @@
 """Domain router (extracted from app_impl). URLs unchanged."""
 from __future__ import annotations
 
+import logging
+import os
 import types
 from typing import Any, Optional, List, Dict, Literal
 
@@ -39,14 +41,27 @@ except Exception:
 
 
 def works():
-    # 作品注册表可有数百本书；为每个书卡建 Surreal 连接、跑迁移再查三次统计，会让
-    # 新作者甚至无法进入刚建的空书。书库只复用已加载的连接；其余明确标待加载，绝不
-    # 以 0 字/0 章冒充真实统计。打开该书后，其连接会进入缓存，下一次列表即可显示真值。
+    # 书库统计：优先复用已加载连接；未加载时**懒加载**最多 _WORKS_LIST_STATS_CAP 本
+    # 取 stats（避免永久 stats_pending 被作者读成「空书」）。超出 cap 的仍标
+    # stats_pending=true（文案由前端显示「统计加载中」），绝不以 0 章/0 字冒充。
+    # 单书 stats 失败 → stats_error，不拖垮全列表。
     with _stores_lock:
         loaded_stores = {slug: _stores.get(slug) for slug in _stores}
     out = []
+    lazy_budget = int(os.environ.get("SCRIBE3_WORKS_LIST_STATS_CAP", "24") or "24")
+    lazy_used = 0
     for w in list_works():
-        store = loaded_stores.get(w["slug"])
+        slug = w.get("slug") or ""
+        store = loaded_stores.get(slug)
+        if store is None and slug and lazy_used < max(0, lazy_budget):
+            try:
+                store = _store_for(slug)
+                lazy_used += 1
+                loaded_stores[slug] = store
+            except Exception:
+                logging.getLogger("scribe3").warning(
+                    "/works 懒加载 store 失败: %s", slug, exc_info=True)
+                store = None
         if store is None:
             out.append({**w, "stats_pending": True})
             continue

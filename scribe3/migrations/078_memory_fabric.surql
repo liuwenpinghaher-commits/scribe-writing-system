@@ -2,8 +2,7 @@
 -- ⚠ 只存【经验性】记忆(working/episodic/procedural/reference/uncertainty);
 --   正典事实不复制进 memory_item——canonical 候选一律来自现有领域表(proposition/promise 等)。
 -- 三时态:valid_from/to = 故事内时间(章),known_from/to = 读者/发现时间(章)。
--- 3.x 语法沿用素材库(070)已验证惯例:FULLTEXT ANALYZER(非 SEARCH)、jieba 预分词进 tokens、
---   HNSW DIMENSION 512 DIST COSINE。
+-- SurrealDB 2.1.x: 全文用 SEARCH ANALYZER；HNSW DIMENSION 512 DIST COSINE。
 DEFINE TABLE IF NOT EXISTS memory_item SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS work ON memory_item TYPE string;
 DEFINE FIELD IF NOT EXISTS scope_type ON memory_item TYPE string ASSERT $value IN ['work', 'thread', 'chapter', 'user_global'];
@@ -35,7 +34,7 @@ DEFINE INDEX IF NOT EXISTS memory_scope_kind_idx ON memory_item FIELDS work, sco
 DEFINE INDEX IF NOT EXISTS memory_source_idx ON memory_item FIELDS work, source_type, source_id;
 DEFINE INDEX IF NOT EXISTS memory_embedding_idx ON memory_item FIELDS embedding HNSW DIMENSION 512 DIST COSINE;
 DEFINE ANALYZER OVERWRITE memory_zh TOKENIZERS blank FILTERS lowercase;
-DEFINE INDEX IF NOT EXISTS memory_fts_idx ON memory_item FIELDS tokens FULLTEXT ANALYZER memory_zh BM25;
+DEFINE INDEX IF NOT EXISTS memory_fts_idx ON memory_item FIELDS tokens SEARCH ANALYZER memory_zh BM25;
 
 DEFINE TABLE IF NOT EXISTS memory_relation TYPE RELATION IN memory_item OUT memory_item SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS relation ON memory_relation TYPE string ASSERT $value IN ['supports', 'contradicts', 'derived_from', 'same_topic', 'caused_by', 'corrects'];
