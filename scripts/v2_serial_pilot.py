@@ -611,9 +611,13 @@ def drive_chapter(evid: Path, seq: int):
             # clear parked and continue
             curl("POST", "/api/pilot/reset-step", {"seq": seq}, timeout=60)
 
-        # normal step
+        # normal step — 每步续写 steer 尾部，防 dismiss 后 pilot_steer 被清空且后续空 steer
+        # 导致 draft_loop 看不到「可见汉字≥/强制重写」
         code, res = curl("POST", "/api/pilot/step", {
-            "seq": seq, "mode": "manual", "steer": steer if steps <= 2 else "",
+            "seq": seq, "mode": "manual",
+            "steer": steer if steps <= 3 else (
+                f"【强制重写】可见汉字≥{MIN_CH_CHARS}。" if chapter_prose_len(seq) < MIN_CH_CHARS else ""
+            ),
         }, timeout=STEP_TIMEOUT)
         gate = (res or {}).get("gate") if isinstance(res, dict) else None
         new_state = (res or {}).get("state") if isinstance(res, dict) else None

@@ -338,19 +338,36 @@ def _pilot_executor(work: str) -> dict:
         )
 
     def draft_loop(st, seq):
+        import re as _re_dl
         ch = st.get_chapter(seq) or {}
-        steer = _pilot_steer(st, seq)
+        steer = _pilot_steer(st, seq) or ""
         prose_now = (ch.get("prose") or "").strip()
-        # 作者显式「【强制重写】」时清正文再生成——真路径扩写/不够长重产，避免只能离线灌库
-        if prose_now and steer and "【强制重写】" in steer:
+        prose_cn = len(_re_dl.sub(r"\s+", "", prose_now))
+        # 清正文再生成的条件（真路径扩写，禁止离线灌库凑字）:
+        # 1) 显式「【强制重写】」
+        # 2) 作者意图要求长章(可见汉字≥N) 且当前 prose 明显偏短 → 视为扩写意图
+        force_clear = False
+        if prose_now and steer:
+            if "【强制重写】" in steer:
+                force_clear = True
+            else:
+                m = _re_dl.search(r"可见汉字\s*≥\s*(\d{3,5})", steer)
+                if m and prose_cn < int(m.group(1)):
+                    force_clear = True
+        if force_clear:
             try:
+                # SCHEMAFULL prose 是 string，不可 SET NONE；空串才合法
                 st._execute_write(
-                    "UPDATE type::thing('chapter',$seq) SET prose=NONE, draft=NONE, qc_word_count=0",
-                    {"seq": seq},
+                    "UPDATE type::thing('chapter',$seq) SET prose=$p, draft=$p, qc_word_count=0",
+                    {"seq": seq, "p": ""},
                 )
                 prose_now = ""
+                logging.getLogger("scribe3").info(
+                    "draft_loop force clear prose work=%s seq=%s was_cn=%s", work, seq, prose_cn)
             except Exception as e:
                 logging.getLogger("scribe3").warning("force redraft clear prose failed: %s", e)
+                # 清库失败仍尝试本轮重生成（不 skip 短稿）
+                prose_now = ""
         if prose_now:
             # 正文已在(pass 落库/作者手动采纳 advisory 稿)→ 跳过生成直接体检
             return {"skipped": "正文已在,跳过生成(advisory 稿手动采纳后走此路)"}
