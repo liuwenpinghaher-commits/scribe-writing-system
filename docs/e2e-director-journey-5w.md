@@ -2,193 +2,259 @@
 
 | 项 | 值 |
 |----|-----|
-| **版本** | **3.0**（作废 1.0 / 2.x 执行 PASS；方案骨架保留并收紧） |
+| **版本** | **4.0**（作废 1.0–3.x 执行 PASS） |
 | **日期** | 2026-08-06 |
-| **状态** | **已重定 · 全量最优真路径执行中** |
+| **状态** | **已重定 · 设定优先 · 待按本版执行** |
 | **产品** | scribe3 |
-| **环境** | **仅 demo 已部署栈**（`www.qing.blue`）；禁止 Grok 机起 Surreal/全量 monorepo |
+| **环境** | **仅 demo 已部署栈**（`www.qing.blue`） |
 | **进度台账** | [`设计文档/2026-08-06-旅程5万字-进度.md`](../设计文档/2026-08-06-旅程5万字-进度.md) |
 
 ---
 
-## 0. 为何再重定（v3）
+## 0. 为何再重定（v4）
 
-### 0.1 作废的「完成」
+### 0.1 用户一票否决（本轮根因）
 
-| 轮次 | 做法 | 否决原因 |
-|------|------|----------|
-| v1 | `EMERGENCY_REST` 灌设定 + 模板扩写 `save-chapter` + skip 门 | 假路径；Web 空/误导 |
-| v2 | 离线 `prose_pure/*.txt` 批量 `save-chapter`（no skip）+ 事后装饰 pilot；`07-director-trace` 同微秒 8 态伪造 | **正文不是 pilot 链产物**；导演线造假；七线 TOTAL 不诚实 |
-| v2 证据 | 宣称 45285 字 PASS | skeptic 三轮 refuted：pilot 装饰、trace 剧场、PNG 非 SPA |
+> **设定都没定好就开始创作，写出来的不是验收要的书。**
 
-**v2 库内数据（审计 2026-08-06，book_2524fd8a）仍在，但不得作为验收 PASS：**
+| 轮次 | 错在哪 |
+|------|--------|
+| v1 | 假路径 + 模板灌文 |
+| v2 | 离线长文灌库 + 伪导演 tape |
+| **v3** | **pilot 能产文，但「世界/设定」只有薄壳**（角色缺 backstory/能力/关系；几乎无世界规则/势力/物件；伏笔单条；章大纲与设定未闭环）就冲 10 章正文 → **顺序反了** |
 
-| 观察 | 含义 |
+产品与融合规程的正确顺序（见 `docs/融合执行规程-真人验收×对话驱动改造.md`）：
+
+```text
+建书 → 北极星(intent)
+     → 世界设定(world bible：角色/关系/规则/势力/物件/术语/伏笔…)
+     → 结构(卷+章 synopsis，可与设定交叉补全)
+     → 才进入 章循环(大纲/节拍/演绎/草稿/定稿)
+```
+
+**铁律（v4 硬条）：**
+
+```text
+未过「设定完成门闩 WCG」 → 禁止任何 chapter.prose 定稿 / draft_loop 作为验收证据
+```
+
+### 0.2 v3 书处置
+
+| slug | 处置 |
 |------|------|
-| API `word_count=45285`，ch1–10 `prose` 有文学正文 | **库有字**，不等于真路径完成 |
-| 角色 4 个但 **backstory/性格等字段全空** | Web 设定面板「像没写设定」 |
-| `workflow/snapshot` **旅程卡在「世界底座」** | 产品 bug：`_char_count` 只认 `list_characters`，生产 Store 只有 `characters()` → 永远 0 |
-| 旅程 structure/serialize 显示 todo | 与「10 章已成」矛盾 → 作者体感「空书/未完成」 |
-| 当前章车道停在 ch11 附录 pilot 烟测 | 干扰主书阅读焦点 |
-| pilot 单次 draft 常 ~1.3–1.6k 字 | 未修 token/驱动前无法靠真链稳达 5k×10 |
+| `book_887bb8e8` | 标题改为 **「设定未齐即开写·不作PASS」**；正文可保留作反面样例，**不得**再报 PASS |
+| `book_2524fd8a` | 继续 **离线灌稿·不作PASS** |
 
-### 0.2 用户可见问题（必须当 P0）
+### 0.3 v4 一句话
 
-作者在 **Web** 打开时：
-
-1. 若默认进错书 / 旅程永远停世界 → **像空书或没进度**  
-2. 角色只有名字 → **设定像没有**  
-3. 即便点开 ch1 有离线灌的散文 → **也不是验收要求的 pilot 真写路径**  
-
-**v3 不以「API 字数够」为完成；以 Web 旅程+设定+正文+真路径证据一致为完成。**
-
-### 0.3 v3 一句话
-
-先 **最优修产品根因**（旅程角色计数、章稿生成上限、设定丰满度），再在 **新 slug** 上用 **对话/编排批准 + pilot/step(+approve) + restore 采纳 pilot 稿** 串行写出约 5 万字；**禁止** 离线 `prose_pure` 灌库作证据；**禁止** 同时间戳伪 multi-state；结案闸 `EMERGENCY=0` / `SOFT=0`。
+先在 **新书** 上用真路径 **把设定写满且 Web 可见**，门闩绿了再 pilot 连写约 5 万字；中途设定返工必须 **STOP 正文 → 改设定 → 同路径回归 → 再续写**。
 
 ---
 
-## 1. 完成定义与七线（更严）
+## 1. 完成定义与七线（在 v3 上再加「设定线」）
 
 ```text
 旅程总 PASS
-  ⇔ Web可见  ∧  导演  ∧  真路径  ∧  工艺  ∧  质量  ∧  规模  ∧  缺陷
+  ⇔ 设定线  ∧  Web可见  ∧  导演  ∧  真路径  ∧  工艺  ∧  质量  ∧  规模  ∧  缺陷
 ```
 
 | 线 | PASS 条件 |
 |----|-----------|
-| **Web 可见** | 登录 SPA → 书库见主书章数/字数 → 目录 10 章 → 打开 1/5/10 章可见 **pilot 源** 正文；设定面板角色 **非空字段**；旅程在结构/连载合理推进（不永卡世界） |
-| **导演** | `07-director-trace.jsonl` **append-only、时间序、间隔合理**；≥5 种 **真实** `pilot_state`；每行来自 live step/approve/restore，禁止批造 |
-| **真路径** | `EMERGENCY_REST=0`；世界写经 orch **approve** 或 Hermes 审批；**禁止** 主证据为 REST 静默灌正典 |
-| **工艺** | 成稿 `skip_craft=false` 且 `skip_finalize=false`；GATE 绿或单次书面 P0 逃生并关闭 |
-| **质量** | 文学正文；pad 标记（条N存档/换位完成/观察条/勒紧半指等）=0；读感可过 |
-| **规模** | 已接受正文合计 **[45000, 55000]**；Web 与 API 一致 |
-| **缺陷** | 无开放 P0/P1；临时逃生已关 |
+| **设定线（新增）** | **WCG 全绿**（§3）；Web Codex/设定面板可见非空字段；**先于**任何验收正文 |
+| **Web 可见** | 书库主书正确；设定/卷章/正文 1·5·10 可见；不误导空书 |
+| **导演** | live append-only tape；≥5 种 `pilot_state`；时间跨度 >10s |
+| **真路径** | `EMERGENCY=0`；世界写 orch approve / Hermes；正文 pilot 链 |
+| **工艺** | 无默认 skip；定稿可审计 |
+| **质量** | 文学正文；无公式注水；**正文须引用已建设定**（人物名/规则/伏笔可回指） |
+| **规模** | 正文合计 **[45000, 55000]** |
+| **缺陷** | 无开放 P0/P1 |
 
-### 1.1 正文唯一合法源（v3 硬条）
+### 1.1 顺序合同（不可颠倒）
 
 ```text
-accepted_prose(seq)
-  := 经 live pilot/step（含 draft_loop）生成的版本
-     → /chapters/{seq}/restore-version 采纳
-     → 后续 full_check / deliver / /pilot/approve 定稿
-     的 chapter.prose
-
-禁止:
-  - 读 prose_pure/*.txt / gen_literary_prose 结果 POST /save-chapter 作为主证据
-  - 短 pilot 稿不够长时用磁盘长文「补齐」
-  - 伪造 07-trace 多状态
+Phase A  建书 + intent
+Phase B  设定完成门闩 WCG（可多日，可 STOP 修产品）
+Phase C  结构确认（3 卷 · 10 章 synopsis · 与设定对齐）
+Phase D  串行正文（仅此时允许 draft_loop）
+Phase E  账本 + 结案
 ```
 
-若单次 draft 仍短：最优路径是 **产品侧** 提高 loop `max_tokens` + 驱动语字数目标，再 **同章 re-steer + 再 draft_loop**（可多次），**不是** 离线扩写灌入。
-
-### 1.2 明确禁止
-
-| 禁止 | 最优替代 |
-|------|----------|
-| 离线长文 bulk `save-chapter` 冒充连载 | pilot 链 + restore + approve |
-| 伪造 director multi-state | live append-only tape |
-| `EMERGENCY_REST` 灌设定 | orch proposal/apply approve |
-| `skip_*_gate` 默认 | 修门闩 / 脚手架 |
-| 七线假绿 | score_closure 只读 tape + API 实读 |
-| 把 v2 book_2524fd8a 当 PASS | 归档为反面教材；主证据用 **新 slug** |
+**禁止：** 为冲字数先写后补设定、用「角色有名字」冒充世界完成、用 v3 字数冒充 v4 PASS。
 
 ---
 
-## 2. 拍板（v3）
+## 2. 设定完成门闩 WCG（World Complete Gate）
+
+> **全部勾选前，驱动脚本必须拒绝 `--phase serialize`。**  
+> 审计命令：`python3 scripts/v4_world_complete_gate.py --slug <slug>` → exit 0 才可开写。
+
+### 2.1 北极星（intent）
+
+| 项 | 最低要求 |
+|----|----------|
+| reader_feeling | 非空，≥10 字 |
+| emotional_arc | 非空 |
+| red_lines | ≥3 条可执行红线 |
+| total_word_goal | 45000–55000 或明确 50000 |
+
+### 2.2 角色 Codex（characters）
+
+| 项 | 最低要求 |
+|----|----------|
+| 数量 | ≥4（含 1 主角 + ≥1 重要配角 + ≥1 对手/阴影/导师类） |
+| 每角色必填 | name, appearance, personality_detail, surface_goal, deep_need, fear, **backstory** |
+| 推荐 | abilities, weaknesses, importance∈{protagonist,major,minor}, voice 若产品有 |
+| Web | 设定面板打开任一角色可见上述字段非空 |
+
+### 2.3 关系网
+
+| 项 | 最低要求 |
+|----|----------|
+| 角色关系 | ≥3 条 character↔character（`s3_add_character_relation` 或等价 approve） |
+| 说明 | 关系类型 + 双方 id 可回读 |
+
+### 2.4 世界规则 / 正典事实
+
+| 项 | 最低要求 |
+|----|----------|
+| 世界规则 | ≥3 条（如「不渡夜魂」「债契三夜」「灯芯写名」）`s3_add_world_rule` 或 fact 等价 |
+| 核心事实 | ≥5 条可引用命题（地点/器物/习俗/禁忌） |
+
+### 2.5 势力 / 物件 / 术语（按题材至少两类非空）
+
+| 项 | 最低要求 |
+|----|----------|
+| 势力 faction | ≥1（高门/收灯一脉/镇衙等） |
+| 关键物件 item | ≥2（纸钱、灯芯、伪契等） |
+| 术语 term | ≥2（「到」、替死、收灯等） |
+
+### 2.6 伏笔账本
+
+| 项 | 最低要求 |
+|----|----------|
+| 书级/卷级 promise | ≥3 条，含 setup 章与 payoff 窗口 |
+| 状态 | open 可追踪；Web 账本可见 |
+
+### 2.7 结构对齐（WCG 出口的一部分）
+
+| 项 | 最低要求 |
+|----|----------|
+| 卷 | 3 卷，标题+intro |
+| 章 | 10 章，每章 title + synopsis（≥40 字）+ focalizer 指向已建角色 |
+| 自检 | 每章 synopsis 至少点名 1 个已建角色或 1 条已建规则/伏笔 |
+
+### 2.8 WCG 出口清单
+
+- [ ] intent 齐  
+- [ ] 角色 Codex 齐（含 backstory）  
+- [ ] 关系 ≥3  
+- [ ] 规则 ≥3 + 事实 ≥5  
+- [ ] 势力/物件/术语满足 §2.5  
+- [ ] 伏笔 ≥3  
+- [ ] 卷章 synopsis 与设定对齐  
+- [ ] Web：设定面板抽样截图或 API 实读入证据 `02-world.md`  
+- [ ] `v4_world_complete_gate.py` exit 0  
+
+**未全勾 → 禁止 Phase D。**
+
+---
+
+## 3. 拍板（v4）
 
 | # | 决定 |
 |---|------|
-| D1 | 新验收书：`《旅程五站·v3·YYYYMMDD》` **新 slug**；v2 书改名/归档标注「离线灌稿·不作 PASS」 |
-| D2 | 10 章 × 约 4.5–5.5k，合计 4.5–5.5 万；质量优先，禁止注水凑数 |
-| D3 | 题材：限知志怪（纸灯/债契线可延续设定骨架，但 **正文必须重产**） |
-| D4 | 串行驱动：`v2_serial_pilot.py`（名沿用实现文件）为 **唯一** 证据序列路径 |
-| D5 | 世界：intent + ≥4 角色（含性格/目标/恐惧等可见字段）+ 卷 + 章 synopsis + 伏笔，均经 **approve** |
-| D6 | 结案：`SCHEMA_SOFT=0` `EMERGENCY_REST=0` |
-| D7 | Web 证据：API prose head **必须** + 尽量 SPA 真截图；禁止把合成 PNG 当 SPA |
+| D1 | **新书** `《旅程五站·v4·YYYYMMDD》` 新 slug；v3 书标注不作 PASS |
+| D2 | **先设定后结构后正文**；驱动默认 `world-gate → structure → serialize` |
+| D3 | 正文仍仅 pilot 真链；禁止 prose_pure 灌库 |
+| D4 | 设定一律 orch **approve+execute**（EMERGENCY=0） |
+| D5 | 字数仍 [45000,55000]；**质量与设定一致性优先于字数** |
+| D6 | 设定返工：STOP 正文 → 改设定 → 回归 WCG → 再续写 |
+| D7 | 证据目录 `artifacts/e2e-journey-5w-v4-YYYYMMDD-<slug>/` |
 
 ---
 
-## 3. 阶段 0 · 根因最优修复（先修后写）
-
-| ID | 问题 | 最优方案 | 状态 |
-|----|------|----------|------|
-| R0.1 | 旅程永卡「世界」 | `director._char_count` 兼容 `characters()` | **已修（代码）** |
-| R0.2 | pilot 稿 ~1.5k | `loop_chapter` `max_tokens=8192` + draft_loop 字数驱动 | **已修（代码）** |
-| R0.3 | 角色设定空壳 | 批准路径写满 codex 字段，非仅 name | 执行期 |
-| R0.4 | 空壳/干扰书 | 归档空书；v2 书标题加「不作PASS」 | 执行期 |
-| R0.5 | 假证据脚本 | 隔离 `v2_upload_pure` / `build_pure_final` 等为 **NON-EVIDENCE** | 执行期 |
-| R1 | 建书 Surreal 2.1 | 已有迁移修复；SOFT=0 建书 | 回归 |
-| R2 | 世界写闸 | 保持 EMERGENCY=0；orch approve | 执行期 |
-| R3 | pilot 停靠/restore | dismiss→step→approve 大纲→…→draft park→restore 最长稿→继续 | 驱动实现 |
-| R5 | 部署 | push main → GHA → demo 冒烟 | 执行期 |
-
-**阶段 0 出口：** 修复已部署；`workflow/snapshot` 在有角色后 **current ≥ structure/serialize**；新建书 SOFT=0 成功。
-
----
-
-## 4. 真路径合同
+## 4. 真路径操作合同
 
 ```text
-【世界】主编意图 → orch proposal ops → decision=approve execute
-         → GET /intent /entities /volumes /promises 回读非空字段
+【设定】
+  主编意图（对话/脚本提案）
+  → orch proposal ops（s3_set_intent / s3_add_character / s3_patch_character /
+     s3_add_character_relation / s3_add_world_rule / s3_add_fact /
+     s3_add_faction / s3_add_item / s3_add_term / s3_plant_promise / …）
+  → decision=approve execute=true
+  → GET 回读 + Web 面板
 
-【正文】每章:
-  dismiss(清僵尸态) → steer(字数+质量) → step/approve 直至 drafting
-  draft_loop 产 version → 若 parked advisory:
-      GET /chapter-versions → 取最长 prose 的 version_id
-      POST /chapters/{seq}/restore-version
-  step → full_check → deliver → /pilot/approve 终选
-  若 cn_len(prose) < 4500: 不灌盘；再 steer 扩写 / 清 prose 重 draft（产品帽已提高后）
-  每步 append 07-director-trace.jsonl（真实 ts）
+【结构】
+  s3_add_volume / s3_add_chapter / s3_patch_chapter_meta（synopsis/focalizer）
+  → 过 §2.7
 
-【禁止】prose_pure → save-chapter；同 ts 伪状态；skip 默认
+【正文 · 仅 WCG 后】
+  pilot/dismiss → step/approve → draft_loop → restore → full_check → deliver → finalize
+  驱动语必须绑定：本章 POV、已建角色、已建规则、本章应触伏笔
+
+【禁止】
+  未过 WCG 的 draft_loop 作证据
+  EMERGENCY REST 灌设定
+  离线长文 save-chapter
+  伪 multi-state tape
 ```
 
 ---
 
-## 5. 五站执行摘要
+## 5. 五站与证据
 
-| 站 | 硬门 |
-|----|------|
-| 0 基线 | env 审计；部署 R0；证据目录；归档 v2 |
-| 1 intent | 批准写北极星；Web/API 可见 |
-| 2 world | ≥4 丰满角色 + 规则/伏笔；旅程离开「世界」 |
-| 3 structure | 3 卷 + 10 章 synopsis |
-| 4 serialize | 10× pilot 真链正文 ≥45k |
-| 5 ledger | 字数 rollup + 诚实七线 + 缺陷关闭 |
+| 站 | 内容 | 硬门 |
+|----|------|------|
+| 0 基线 | env、归档 v2/v3 干扰书、证据目录 | EMERGENCY=0 SOFT=0 |
+| 1 intent | 北极星 | Web/API |
+| 2 world | **WCG 全绿** | `02-world.md` + gate 报告 |
+| 3 structure | 卷+10 synopsis 对齐设定 | `03-structure.md` |
+| 4 serialize | 10 章 pilot 真写 | 每章 journal；禁止先写后设 |
+| 5 ledger | 伏笔/质量/结案 | `05`/`06`/`09` |
 
-章循环 SOP 同 v2 §5.1（S1–S9），**不得**用 save-chapter 替换 S3–S6。
-
----
-
-## 6. 证据包
+证据包：
 
 ```text
-artifacts/e2e-journey-5w-v3-YYYYMMDD-<slug>/
+artifacts/e2e-journey-5w-v4-YYYYMMDD-<slug>/
   00-runtime-baseline.md
   00-rootcause-fixes.md
-  01-intent.md … 06-defect-ledger.md
-  07-director-trace.jsonl   # live only
-  08-wordcount-rollup.md    # 从 API 实读
-  09-final-closure.md       # score_closure(tape) 诚实绿/红
+  00-world-complete-gate.json   # WCG 机器可读
+  01-intent.md
+  02-world.md                   # 丰满设定实读
+  03-structure.md
+  04-serialize/chNN.md
+  05-ledger.md
+  06-defect-ledger.md
+  07-director-trace.jsonl
+  08-wordcount-rollup.md
+  09-final-closure.md           # 含设定线
   10-env-lockdown.md
-  screenshots/              # prose heads 必须；SPA 尽量
+  screenshots/…
 ```
 
-**score_closure 规则：** 导演 PASS 仅当 tape 内 **≥5 不同 pilot_state 且时间跨度 >10s**；规模/质量从 API 正文实算；任何一票否决则 TOTAL 不得 PASS。
+---
+
+## 6. 驱动与产品改动
+
+| 组件 | 要求 |
+|------|------|
+| `scripts/v4_world_complete_gate.py` | 审计 WCG；失败打印缺项；exit≠0 |
+| `scripts/v4_serial_pilot.py`（或改造 v2 脚本） | serialize 前强制 gate；scaffold 拆成 `world` / `structure` / `serialize` 相位 |
+| score_closure | 新增 **设定线**；WCG 文件缺失或 fail → TOTAL 不得 PASS |
+| （可选产品）director world_ok | 不仅 `char_count≥1`，应靠近 WCG 子集，避免旅程「世界 done」但设定空 |
 
 ---
 
 ## 7. 工期（诚实）
 
-| 段 | 估计 |
-|----|------|
-| 根因部署 + 新书脚手架 | 0.5–1 日 |
-| 10 章真 pilot（含 LLM 时延与停靠处理） | 数小时–数日（视网关） |
-| 结案与 Web 验收 | 0.5 日 |
+| 阶段 | 估计 |
+|------|------|
+| 设定 WCG（真路径 + 可能修工具/字段） | 1–3 日 |
+| 结构对齐 | 0.5 日 |
+| 10 章真 pilot | 数小时–数日 |
+| 结案 | 0.5 日 |
 
-**不做「最快灌库」；卡点就修产品再同路径回归。**
+**不做**「先写满再补设定」的最快路径。
 
 ---
 
@@ -196,6 +262,6 @@ artifacts/e2e-journey-5w-v3-YYYYMMDD-<slug>/
 
 | 版本 | 说明 |
 |------|------|
-| 1.0 | 假路径冲字（作废） |
-| 2.0 | 真路径方案对；执行仍 offline 灌稿 + 假 trace（执行作废） |
-| **3.0** | **根因修复 + 正文唯一源=pilot；新书；诚实 scorer；全量最优执行** |
+| 1.0–2.x | 假路径 / 离线灌稿（作废） |
+| 3.0 | pilot 真产文但 **设定未齐即开写**（执行作废） |
+| **4.0** | **设定完成门闩优先；新书；先世界后正文** |

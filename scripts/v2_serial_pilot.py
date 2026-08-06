@@ -936,6 +936,31 @@ def phase_score(slug: str, evid: Path):
     return total_line == "PASS"
 
 
+def require_world_complete_gate(slug: str, evid: Path):
+    """v4 硬门：未过设定完成门闩禁止 serialize/expand 验收路径。"""
+    gate_script = Path(__file__).resolve().parent / "v4_world_complete_gate.py"
+    out = evid / "00-world-complete-gate.json"
+    if not gate_script.exists():
+        raise SystemExit(f"missing WCG script: {gate_script}")
+    env = os.environ.copy()
+    env["API_BASE"] = BASE
+    env["SCRIBE3_BOOTSTRAP_USERS"] = os.environ.get("SCRIBE3_BOOTSTRAP_USERS") or "admin:chris0120"
+    p = subprocess.run(
+        [sys.executable, str(gate_script), "--slug", slug, "--out", str(out)],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    print(p.stdout, flush=True)
+    if p.returncode != 0:
+        print(p.stderr, flush=True)
+        raise SystemExit(
+            f"WCG FAILED (exit {p.returncode}). 设定未完成，禁止 serialize/expand。\n"
+            f"见 {out} 与 docs/e2e-director-journey-5w.md v4 §2"
+        )
+    print("WCG PASS → allow serialize", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--phase", choices=["scaffold", "serialize", "expand", "score", "all"], default="all")
@@ -943,6 +968,11 @@ def main():
     ap.add_argument("--from-seq", type=int, default=1)
     ap.add_argument("--to-seq", type=int, default=10)
     ap.add_argument("--skip-label-v2", action="store_true")
+    ap.add_argument(
+        "--force-skip-world-gate",
+        action="store_true",
+        help="危险：跳过设定门闩（验收禁止；仅调试）",
+    )
     args = ap.parse_args()
     login()
     if not args.skip_label_v2:
@@ -955,12 +985,23 @@ def main():
     os.environ["WORK_SLUG"] = slug
     evid = evid_dir(slug)
     (evid / "00-runtime-baseline.md").write_text(
-        f"# baseline\n\nslug={slug}\nAPI_BASE={BASE}\nEMERGENCY expected 0\n",
+        f"# baseline\n\nslug={slug}\nAPI_BASE={BASE}\nEMERGENCY expected 0\n"
+        f"policy=v4_world_first\n",
         encoding="utf-8",
     )
     print("EVID", evid, flush=True)
     if args.phase in ("scaffold", "all"):
         phase_scaffold(slug, evid)
+        print(
+            "NOTE: scaffold 只是薄壳；必须再跑设定补全并通过 "
+            "v4_world_complete_gate 后才能 serialize",
+            flush=True,
+        )
+    if args.phase in ("serialize", "expand", "all"):
+        if not args.force_skip_world_gate:
+            require_world_complete_gate(slug, evid)
+        else:
+            print("WARN: --force-skip-world-gate 已开，验收不得使用", flush=True)
     if args.phase in ("serialize", "all"):
         phase_serialize(slug, evid, args.from_seq, args.to_seq)
     if args.phase in ("expand", "all"):

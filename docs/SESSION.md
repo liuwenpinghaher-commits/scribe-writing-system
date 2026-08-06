@@ -21,10 +21,10 @@
 |----|----|
 | **更新于** | 2026-08-06 |
 | **默认分支** | `main` |
-| **HEAD（写入时）** | v3 旅程 5 万字 pilot 真路径结案 book_887bb8e8 |
-| **进行中目标** | v3 `book_887bb8e8` **50749** 字 pilot 真路径已结案（artifacts v3） |
+| **HEAD（写入时）** | v4 方案：设定完成门闩优先（v3 执行因设定未齐作废） |
+| **进行中目标** | v4 新书：先 WCG 设定完成 → 再结构 → 再 pilot 约 5 万字 |
 | **活跃分支** | `main` |
-| **未合并 / WIP** | 无 |
+| **未合并 / WIP** | v4 设定优先执行中 |
 
 ### 最近在做什么
 
@@ -51,21 +51,20 @@
 - **验收方案**：[`docs/e2e-director-journey-5w.md`](./e2e-director-journey-5w.md) **v3.0**  
 - **进度台账**：[`设计文档/2026-08-06-旅程5万字-进度.md`](../设计文档/2026-08-06-旅程5万字-进度.md) — **v3 已执行完成**  
 
-### 旅程 5 万字（v3 真路径结案 · v1/v2 执行不作 PASS）
+### 旅程 5 万字（v4 设定优先 · v1–v3 执行不作 PASS）
 
-- **方案**：[`docs/e2e-director-journey-5w.md`](./e2e-director-journey-5w.md) **v3.0**  
-- **主验收书**：`book_887bb8e8`《旅程五站·v3·20260806》**50749** 字 / 10 章  
-- **正文源**：live pilot `draft_loop` → `restore-version` → `pilot/approve` 定稿（**禁止** prose_pure 灌库）  
-- **证据**：`artifacts/e2e-journey-5w-v3-20260806-book_887bb8e8/`（01–06 站日志 + 07 tape + 08/09 结案）  
-- **结案说明**：[`docs/e2e-journey-5w-run-v3-20260806.md`](./e2e-journey-5w-run-v3-20260806.md)  
-- **v2 书 `book_2524fd8a`**：离线 prose_pure 灌库 · 标题已标 **不作PASS**  
-- **根因修复**：`_char_count`→`characters()`；orch 角色真落库；loop `max_tokens`；强制重写空串清 prose；full_check AI 味 soft-pass  
+- **方案**：[`docs/e2e-director-journey-5w.md`](./e2e-director-journey-5w.md) **v4.0**  
+- **铁律**：**设定完成门闩 WCG 绿之前禁止验收向正文**（`scripts/v4_world_complete_gate.py`）  
+- **顺序**：intent → **世界设定（角色/关系/规则/事实/势力/物件/术语/伏笔）** → 结构 → pilot 连写  
+- **v3 `book_887bb8e8`**：虽有 ~5 万 pilot 字，但 **设定未齐即开写** → **不作 PASS**（将标标题）  
+- **v2 `book_2524fd8a`**：离线灌稿 · 不作 PASS  
+- **产品修复仍保留**：角色计数、orch 落库、max_tokens、强制重写空串清 prose  
 
 ### 下一步（优先序）
 
-1. harness / 人工打开 demo 选 **v3 书** 做 SPA 可见确认  
-2. 可选：浏览器真截图替换 API prose-head 证明  
-3. Phase 1 路由抽出（非阻塞）
+1. 新书 v4 + 跑 WCG 直到 exit 0（补 backstory/关系/规则/伏笔等）  
+2. 结构与设定对齐后再 serialize  
+3. 结案七线 **含设定线**
 
 ### 已知坑 / 禁止事项（滚动）
 
