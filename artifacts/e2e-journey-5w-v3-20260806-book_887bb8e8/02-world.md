@@ -1,0 +1,135 @@
+# world
+
+entities_http=200
+station=serialize
+rich_characters=4/4
+
+## 角色摘要（live API）
+
+```json
+[
+  {
+    "id": "role:收灯师父",
+    "name": "收灯师父",
+    "importance": "minor",
+    "appearance": "旧蓑衣，灯钩锈迹，声线干。",
+    "personality_detail": "把守灯当职业账本。",
+    "surface_goal": "维护债链秩序。",
+    "deep_need": "徒弟守暖黄灯。",
+    "fear": "整镇灯冷白。"
+  },
+  {
+    "id": "role:沈拾灯",
+    "name": "沈拾灯",
+    "importance": "protagonist",
+    "appearance": "青布短褂，袖口常湿，掌有收殓薄茧，眼神克制。",
+    "personality_detail": "少言，先触后问；守师训却会在人命前违训。",
+    "surface_goal": "把无名尸体面收殓并弄清「问不得」的来历。",
+    "deep_need": "证明守灯可以暖人。",
+    "fear": "自己的名被写进灯芯。"
+  },
+  {
+    "id": "role:王阿禾",
+    "name": "王阿禾",
+    "importance": "minor",
+    "appearance": "少年脸，眉心青点，衣襟常湿。",
+    "personality_detail": "死也不安分，灯下招手像讨债也像求救。",
+    "surface_goal": "让顶死被看见。",
+    "deep_need": "从替字剥离自己的名。",
+    "fear": "彻底变成灯。"
+  },
+  {
+    "id": "role:阿绣",
+    "name": "阿绣",
+    "importance": "major",
+    "appearance": "绣坊女子，指尖针眼。",
+    "personality_detail": "账比人硬，恨比雨密。",
+    "surface_goal": "查出亡兄被写上灯芯的人。",
+    "deep_need": "让活人名字从灯上消失。",
+    "fear": "兄长小名再被点亮。"
+  }
+]
+```
+
+## 全量 entities
+
+```json
+[
+  {
+    "id": "role:收灯师父",
+    "kind": "character",
+    "name": "收灯师父",
+    "backstory": null,
+    "backstory_secret": false,
+    "importance": "minor",
+    "appearance": "旧蓑衣，灯钩锈迹，声线干。",
+    "personality_tags": [],
+    "aliases": [],
+    "personality_detail": "把守灯当职业账本。",
+    "abilities": [],
+    "weaknesses": [],
+    "first_appearance": null,
+    "surface_goal": "维护债链秩序。",
+    "deep_need": "徒弟守暖黄灯。",
+    "internal_conflict": null,
+    "fear": "整镇灯冷白。"
+  },
+  {
+    "id": "role:沈拾灯",
+    "kind": "character",
+    "name": "沈拾灯",
+    "backstory": null,
+    "backstory_secret": false,
+    "importance": "protagonist",
+    "appearance": "青布短褂，袖口常湿，掌有收殓薄茧，眼神克制。",
+    "personality_tags": [],
+    "aliases": [],
+    "personality_detail": "少言，先触后问；守师训却会在人命前违训。",
+    "abilities": [],
+    "weaknesses": [],
+    "first_appearance": null,
+    "surface_goal": "把无名尸体面收殓并弄清「问不得」的来历。",
+    "deep_need": "证明守灯可以暖人。",
+    "internal_conflict": null,
+    "fear": "自己的名被写进灯芯。"
+  },
+  {
+    "id": "role:王阿禾",
+    "kind": "character",
+    "name": "王阿禾",
+    "backstory": null,
+    "backstory_secret": false,
+    "importance": "minor",
+    "appearance": "少年脸，眉心青点，衣襟常湿。",
+    "personality_tags": [],
+    "aliases": [],
+    "personality_detail": "死也不安分，灯下招手像讨债也像求救。",
+    "abilities": [],
+    "weaknesses": [],
+    "first_appearance": null,
+    "surface_goal": "让顶死被看见。",
+    "deep_need": "从替字剥离自己的名。",
+    "internal_conflict": null,
+    "fear": "彻底变成灯。"
+  },
+  {
+    "id": "role:阿绣",
+    "kind": "character",
+    "name": "阿绣",
+    "backstory": null,
+    "backstory_secret": false,
+    "importance": "major",
+    "appearance": "绣坊女子，指尖针眼。",
+    "personality_tags": [],
+    "aliases": [],
+    "personality_detail": "账比人硬，恨比雨密。",
+    "abilities": [],
+    "weaknesses": [],
+    "first_appearance": null,
+    "surface_goal": "查出亡兄被写上灯芯的人。",
+    "deep_need": "让活人名字从灯上消失。",
+    "internal_conflict": null,
+    "fear": "兄长小名再被点亮。"
+  }
+]
+```
