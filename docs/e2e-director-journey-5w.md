@@ -188,16 +188,47 @@ Phase E  账本 + 结案
   s3_add_volume / s3_add_chapter / s3_patch_chapter_meta（synopsis/focalizer）
   → 过 §2.7
 
-【正文 · 仅 WCG 后】
-  pilot/dismiss → step/approve → draft_loop → restore → full_check → deliver → finalize
-  驱动语必须绑定：本章 POV、已建角色、已建规则、本章应触伏笔
+【正文 · 仅 WCG 后 · 必须贴合 pilot 状态机（禁止跳步）】
+
+  产品状态机（scribe3/pilot.py，不可改成别的顺序）：
+
+    idle
+      → propose_outline     → outline_proposed   【大纲】作者放行 /pilot/approve
+      → expand_beats        → beats_ready        【节拍】由大纲展开，须过接地
+      → deduce              → deduced            【演绎】场景真相 + 限知投影，须过接地
+      → draft_loop          → drafting           【草稿】loop 生成版本（常 advisory 停靠）
+      → （作者采纳）restore-version 落入 chapter.prose
+      → full_check          → checked            【体检】
+      → deliver             → delivered          【交付】
+      → /pilot/approve 终选 → finalized          【正文定稿·宪法】
+
+  驱动：逐步 pilot/step + 大纲/终选处 approve；每步 append 07-trace。
+  驱动语必须绑定：本章 POV、已建角色、已建规则、本章应触伏笔、**本章 synopsis/节拍**。
 
 【禁止】
   未过 WCG 的 draft_loop 作证据
+  用 s3_patch_chapter_meta 灌 safe_beats / 假 scene_truth / 假 deductions
+    来「跳过」expand_beats / deduce 失败（v3 捷径，脱离系统逻辑，验收不算）
+  有 prose 后还宣称走过大纲节拍演绎（须 tape 时间序可证）
   EMERGENCY REST 灌设定
   离线长文 save-chapter
   伪 multi-state tape
 ```
+
+### 4.1 章循环验收（与产品一致，不可删）
+
+| 步 | 状态/动作 | 必须发生的事 | 证据 |
+|----|-----------|--------------|------|
+| S0 | idle | 章已存在，有 synopsis（结构站已写） | chapter.synopsis |
+| S1 | propose_outline | LLM 提案大纲（或明确 skip「大纲已有」且 synopsis 来自结构站） | tape + synopsis |
+| S2 | approve 大纲 | 作者/代理放行 | tape approve_outline |
+| S3 | expand_beats | **真**展开节拍；接地失败 → STOP 修设定/梗概/接地，**禁止** meta 灌安全节拍当 PASS | beats 非脚手架批注 |
+| S4 | deduce | **真**场景真相+限知投影；接地失败同 S3 | deductions/scene_truth |
+| S5 | draft_loop | 草稿版本入库；advisory 则 restore 采纳 | chapter-versions |
+| S6 | full_check → deliver | 体检/交付 | tape |
+| S7 | finalize approve | 宪法终选 | pilot_state=finalized |
+
+**原则一句话：** 大纲→节拍→演绎→草稿→体检→交付→定稿 **串在 pilot 状态机上**；设定未齐不进 S1；接地失败修根因，不灌假脚手架。
 
 ---
 
