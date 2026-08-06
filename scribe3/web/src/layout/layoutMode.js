@@ -2,6 +2,9 @@
  * 四栏布局模式：协作（会话主舞台）vs 阅读（详情主舞台）。
  * 默认按章阶段自动：大纲/节拍/演绎/草稿 → collaboration；正文 final → reading。
  * 非章上下文（设定/素材等）默认 collaboration。全画布 view → reading。
+ *
+ * 特例：顶栏「旅程」tab —— 会话与写作旅程（详情）换位，且会话默认宽继承
+ * 原旅程栏宽（34%），不改其它 view / 写作阶段的全局栏序。
  */
 
 export const LAYOUT_MODE = Object.freeze({
@@ -29,12 +32,39 @@ export function resolveLayoutMode(ctx = {}) {
 
 /**
  * 默认栏宽（%）：协作/阅读共用同一套，避免切 phase 时比例跳变。
- * 差异只在栏序（panelOrder）；directory 次要。
- * 内容(detail):聊天(right) 在去掉目录后按 4:6 分（即聊天:内容 = 6:4），
- * 聊天栏默认更宽；用户拖拽后仍按 mode 分键持久化。
- * 14 + 34 + 52 = 100；剩余 86 中 detail≈40%、right≈60%。
+ * 内容(detail):聊天(right) 在去掉目录后按 4:6 分（聊天:内容 = 6:4）。
+ * 14 + 34 + 52 = 100。
  */
 export const LAYOUT_DEFAULT_SHARES = Object.freeze({ directory: 14, detail: 34, right: 52 })
+
+/**
+ * 旅程 tab 专用（目录隐藏时只剩两栏）：会话 52%、旅程 34% 的份额比。
+ * 三键仍写 directory=0 占位；实际 Group 用 visibleLayoutShares 归一到 100。
+ * 14 + 34 + 52 = 100（与全局份额语义一致：right=会话宽，detail=旅程宽）。
+ */
+export const JOURNEY_LAYOUT_SHARES = Object.freeze({ directory: 14, detail: 34, right: 52 })
+
+/**
+ * 仅保留可见栏 id 的份额并归一到 100（view 隐藏目录时 Group 只有两栏）。
+ * @param {Record<string, number>} defaults
+ * @param {string[]} visibleIds
+ * @returns {Record<string, number>}
+ */
+export function visibleLayoutShares(defaults, visibleIds) {
+  const ids = (visibleIds || []).filter((id) => defaults && defaults[id] != null)
+  if (!ids.length) return { ...(defaults || {}) }
+  let sum = 0
+  for (const id of ids) sum += Number(defaults[id]) || 0
+  if (!(sum > 0)) return { ...(defaults || {}) }
+  const out = {}
+  for (const id of ids) {
+    out[id] = Math.round(((Number(defaults[id]) || 0) / sum) * 1000) / 10
+  }
+  const sum2 = ids.reduce((s, id) => s + out[id], 0)
+  const anchor = ids.includes('detail') ? 'detail' : ids[0]
+  out[anchor] = Math.round((out[anchor] + (100 - sum2)) * 10) / 10
+  return out
+}
 
 export const LAYOUT_DEFAULTS_BY_MODE = Object.freeze({
   collaboration: LAYOUT_DEFAULT_SHARES,
@@ -45,7 +75,6 @@ export const LAYOUT_DEFAULTS_BY_MODE = Object.freeze({
  * 两模式共用拖拽边界。
  * max 用 100（而非 60）：折叠一侧后另一侧才能吃满空位；双栏同开时
  * 对侧 min（28）+ 目录 min（10）仍把单栏有效上限卡在 ~62%，不会拖死邻居。
- * 旧 max=60 在折叠后留下大块空白（截屏：时间线右侧空页）。
  */
 export const LAYOUT_BOUNDS_SHARED = Object.freeze({
   directory: { min: 10, max: 22 },
@@ -68,8 +97,53 @@ export function panelOrderForMode(mode) {
   return ['directory', 'detail', 'right']
 }
 
-/** layout persistence 前缀 v4：聊天默认更宽（内容:聊天 4:6）；作废 v3 对等 43:43 */
-export const FOUR_PANE_LAYOUT_ID_V3 = 's3.fourPane.layout.v4'
+/** 是否顶栏「旅程」横切视图（仅此 tab 会话↔旅程换位） */
+export function isJourneyViewSel(sel) {
+  return sel?.mode === 'view' && String(sel.viewKey || '') === 'journey'
+}
+
+/**
+ * 旅程 tab：目录 | 会话 | 旅程详情 —— 会话占原旅程位。
+ * @returns {Array<'directory'|'detail'|'right'>}
+ */
+export function panelOrderForJourney() {
+  return ['directory', 'right', 'detail']
+}
+
+/**
+ * 解析最终栏序与默认宽（旅程 tab 特例；其余走 layoutMode）。
+ * @param {{ layoutMode: 'collaboration'|'reading', isJourneyView?: boolean }} opts
+ */
+export function resolvePanelLayout(opts = {}) {
+  const mode = opts.layoutMode || LAYOUT_MODE.reading
+  if (opts.isJourneyView) {
+    // 旅程两栏均可拖：detail/right 下限 28（勿用 isView 的 56% 详情下限）
+    const journeyBounds = Object.freeze({
+      directory: LAYOUT_BOUNDS_SHARED.directory,
+      detail: { min: 28, max: 100 },
+      right: { min: 28, max: 100 },
+    })
+    return {
+      panelOrder: panelOrderForJourney(),
+      layoutDefaults: JOURNEY_LAYOUT_SHARES,
+      layoutBounds: journeyBounds,
+      storageMode: 'journey-v2',
+      // 旅程详情不要锁 min 56%，否则默认 34% 无效且几乎拖不动
+      detailMinPercent: 28,
+    }
+  }
+  return {
+    panelOrder: panelOrderForMode(mode),
+    layoutDefaults: LAYOUT_DEFAULTS_BY_MODE[mode] || LAYOUT_DEFAULT_SHARES,
+    layoutBounds: LAYOUT_BOUNDS_BY_MODE[mode] || LAYOUT_BOUNDS_SHARED,
+    storageMode: mode,
+    // 其它 view（图谱等）仍倾向内容更宽
+    detailMinPercent: opts.isView ? 40 : undefined,
+  }
+}
+
+/** layout persistence 前缀 v5；旅程用 journey-v2 清掉错误的 52/34 反转缓存 */
+export const FOUR_PANE_LAYOUT_ID_V3 = 's3.fourPane.layout.v5'
 
 export function layoutStorageId(work, mode) {
   return `${FOUR_PANE_LAYOUT_ID_V3}:${mode}:${work || 'main'}`
@@ -77,15 +151,9 @@ export function layoutStorageId(work, mode) {
 
 /**
  * 折叠还原钮应贴在「相邻仍可见栏」的正确边缘，而不是写死在 detail 上。
- * 协作 order=directory|right|detail 时：目录还原在主编左缘；主编还原在目录右缘。
- * 阅读 order=directory|detail|right 时：两者仍可落在详情左右缘（中间舞台）。
  *
  * @param {Array<'directory'|'detail'|'right'>} panelOrder
  * @param {{ directoryCollapsed?: boolean, rightCollapsed?: boolean, isView?: boolean }} state
- * @returns {{
- *   directory: { hostId: 'directory'|'detail'|'right', edge: 'left'|'right' } | null,
- *   right: { hostId: 'directory'|'detail'|'right', edge: 'left'|'right' } | null,
- * }}
  */
 export function restoreSlotsForOrder(panelOrder, state = {}) {
   const order = Array.isArray(panelOrder) && panelOrder.length
@@ -102,7 +170,6 @@ export function restoreSlotsForOrder(panelOrder, state = {}) {
 
   if (directoryCollapsed && !isView) {
     const afterDir = order.filter((id) => id !== 'directory')
-    // 优先贴在下一块仍展开的栏；主编也折起时落到 detail
     const hostId = afterDir.find((id) => id !== 'right' || !rightCollapsed) || afterDir[afterDir.length - 1] || 'detail'
     directory = { hostId, edge: 'left' }
   }
@@ -121,7 +188,6 @@ export function restoreSlotsForOrder(panelOrder, state = {}) {
     }
   }
 
-  // 同宿主同边时把主编还原拨到对侧，避免叠钮
   if (
     directory
     && right

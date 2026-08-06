@@ -5,6 +5,7 @@
  */
 
 // 兼容导出:与 layoutMode 共用默认（目录次要；内容:聊天 4:6）。阶段自动模式请用 layoutMode.LAYOUT_DEFAULTS_BY_MODE。
+// 旅程 tab 的会话/旅程换位默认见 layoutMode.JOURNEY_LAYOUT_SHARES。
 export const FOUR_PANE_DEFAULT = { directory: 14, detail: 34, right: 52 }
 
 // max=100：折叠一侧后剩余栏可铺满；双栏同开时对侧 min 仍限制有效上限（见 layoutMode）

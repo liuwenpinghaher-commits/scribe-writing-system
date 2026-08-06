@@ -495,7 +495,7 @@ describe('FourPaneShell 四栏钻取', () => {
     const mode = screen.getByTestId('four-col').getAttribute('data-layout-mode')
     expect(mode).toBe('collaboration')
     expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
-      id: `s3.fourPane.layout.v4:${mode}:book-sync`,
+      id: `s3.fourPane.layout.v5:${mode}:book-sync`,
     }))
     expect(screen.getByTestId('detail-panel').getAttribute('data-layout-mode')).toBe(mode)
     expect(screen.getByTestId('right-panel').getAttribute('data-layout-mode')).toBe(mode)
@@ -673,11 +673,11 @@ describe('FourPaneShell 四栏钻取', () => {
     }
   })
 
-  // Task 4 / v4:栏宽按 work + layoutMode 隔离
-  it('scopes panel layout by work and mode (v4)', () => {
+  // Task 4 / v5:栏宽按 work + layoutMode 隔离
+  it('scopes panel layout by work and mode (v5)', () => {
     render(<Harness work="book-a" />)
     expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
-      id: 's3.fourPane.layout.v4:collaboration:book-a',
+      id: 's3.fourPane.layout.v5:collaboration:book-a',
     }))
   })
 
@@ -716,12 +716,51 @@ describe('FourPaneShell 四栏钻取', () => {
     })
     const detailW = Number(screen.getByTestId('detail-panel').getAttribute('data-default-size'))
     const rightW = Number(screen.getByTestId('right-panel').getAttribute('data-default-size'))
-    // 内容:聊天 4:6（聊天更宽）
+    // 内容:聊天 4:6（聊天更宽）—— final 阅读态，非旅程 tab
     expect(rightW).toBeGreaterThan(detailW)
     expect(detailW).toBe(34)
     expect(rightW).toBe(52)
     expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
-      id: 's3.fourPane.layout.v4:reading:demo',
+      id: 's3.fourPane.layout.v5:reading:demo',
+    }))
+  })
+
+  it('旅程 tab：会话与旅程换位，会话默认宽=原旅程宽 34%', async () => {
+    function JourneyHarness() {
+      const [sel, setSel] = useState({ mode: 'view', viewKey: 'journey' })
+      return (
+        <ChiefSlotProvider>
+          <FourPaneShell
+            tree={tree}
+            sel={sel}
+            onSelectNode={(node) => {
+              if (node?.type === 'view') setSel({ mode: 'view', viewKey: node.id.split(':')[1] })
+              else if (!node) setSel({ mode: 'node', node: null })
+              else setSel({ mode: 'node', node })
+            }}
+            work="demo"
+            leftSeq={1}
+            reload={() => {}}
+          />
+        </ChiefSlotProvider>
+      )
+    }
+    render(<JourneyHarness />)
+    await waitFor(() => {
+      expect(screen.getByTestId('four-col').getAttribute('data-layout-mode')).toBe('reading')
+    })
+    expect(screen.getByTestId('four-col').getAttribute('data-journey-layout')).toBe('1')
+    expect(screen.getByTestId('four-col').getAttribute('data-panel-order')).toBe('directory|right|detail')
+    // view 隐藏目录 → 两栏份额归一；会话:旅程 ≈ 52:34，且详情 min 可拖（非 56）
+    const detailW = Number(screen.getByTestId('detail-panel').getAttribute('data-default-size'))
+    const rightW = Number(screen.getByTestId('right-panel').getAttribute('data-default-size'))
+    const detailMin = Number(screen.getByTestId('detail-panel').getAttribute('data-min-size'))
+    expect(rightW).toBeGreaterThan(detailW)
+    expect(rightW / detailW).toBeCloseTo(52 / 34, 1)
+    expect(detailMin).toBe(28)
+    expect(detailMin).toBeLessThanOrEqual(detailW)
+    expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
+      id: 's3.fourPane.layout.v5:journey-v2:demo',
     }))
   })
 })

@@ -17,12 +17,12 @@ import { sanitizeLayout } from './sanitizeLayout'
 import { planEntryChange } from './entrySelection'
 import { useChiefSlot } from '../ChiefSlotContext'
 import {
-  LAYOUT_BOUNDS_BY_MODE,
-  LAYOUT_DEFAULTS_BY_MODE,
+  isJourneyViewSel,
   layoutStorageId,
-  panelOrderForMode,
   resolveLayoutMode,
+  resolvePanelLayout,
   restoreSlotsForOrder,
+  visibleLayoutShares,
 } from './layoutMode'
 // 拖拽把手:不用负 margin 叠层(旧 -mx 会在窄窗/拖拽时挤乱相邻栏命中区)
 const RESIZER_CLASS = 'w-1 shrink-0 bg-transparent cursor-col-resize hover:bg-brand/20 active:bg-brand/30 transition-colors data-[separator]:bg-line/30'
@@ -72,6 +72,7 @@ function entryForActive(tree, active) {
 // 四栏钻取壳:栏1 入口 | 栏2 目录 | 详情 + 主编(顺序/宽度随 layoutMode)。
 // 模式 phase-auto:大纲/节拍/演绎/草稿/非章 → collaboration(会话主);
 // 正文 final / 全画布 view → reading(详情主)。
+// 特例:顶栏「旅程」tab 仅互换会话与旅程详情位，会话默认宽=原旅程栏宽。
 // 两级选中: entry→栏2; sel→详情 + 主编上下文。
 // 唯一布局壳（旧三栏已删除）。
 export function FourPaneShell({
@@ -129,7 +130,9 @@ export function FourPaneShell({
   // effect 全由它驱动,内容也读 effectiveSel——两者同源才不会在跨 view 边界对齐时
   // 布局与内容自相矛盾。降级(navigated=false)时 effectiveSel===sel,行为不变。
   const isView = effectiveSel?.mode === 'view'
+  const isJourneyView = isJourneyViewSel(effectiveSel)
   // 单一 layoutMode:storage id / defaults / bounds / panel order 全部同源,禁止 early/late 双路径。
+  // 旅程 tab 在 reading 之上再套 resolvePanelLayout 特例（仅换位+会话继承原旅程宽）。
   const layoutMode = resolveLayoutMode({
     phase: chapterPhase,
     isView,
@@ -137,16 +140,36 @@ export function FourPaneShell({
       || effectiveSel?.node?.type === 'chapter'
       || effectiveSel?.node?.type === 'scene',
   })
-  const layoutDefaults = LAYOUT_DEFAULTS_BY_MODE[layoutMode]
-  const layoutBounds = LAYOUT_BOUNDS_BY_MODE[layoutMode]
-  const panelOrder = panelOrderForMode(layoutMode)
-  // 栏宽按 work + mode 隔离(v4);协作/阅读各记一份；聊天默认宽于内容
+  const {
+    panelOrder,
+    layoutDefaults,
+    layoutBounds,
+    storageMode,
+    detailMinPercent,
+  } = resolvePanelLayout({ layoutMode, isJourneyView, isView })
+  // view 隐藏目录：Group 内只有可见栏，份额须归一到 100，否则 defaultLayout 含 directory 会拖不动/跳变
+  const visibleOrderPreview = isView
+    ? panelOrder.filter((id) => id !== 'directory')
+    : panelOrder
+  const panelDefaults = isView
+    ? visibleLayoutShares(layoutDefaults, visibleOrderPreview)
+    : layoutDefaults
+  const panelBounds = layoutBounds
+  // 栏宽按 work + storageMode 隔离；旅程用独立 key，不污染其它 reading 视图
   const { defaultLayout: rawLayout, onLayoutChanged: persistLayout } = useDefaultLayout({
-    id: layoutStorageId(work, layoutMode),
+    id: layoutStorageId(work, storageMode),
   })
-  const defaultLayout = sanitizeLayout(rawLayout, { defaults: layoutDefaults, bounds: layoutBounds })
+  const defaultLayout = sanitizeLayout(rawLayout, {
+    defaults: panelDefaults,
+    bounds: panelBounds,
+    keys: Object.keys(panelDefaults),
+  })
   const onLayoutChanged = (layout, meta) => {
-    persistLayout?.(sanitizeLayout(layout, { defaults: layoutDefaults, bounds: layoutBounds }), meta)
+    persistLayout?.(sanitizeLayout(layout, {
+      defaults: panelDefaults,
+      bounds: panelBounds,
+      keys: Object.keys(panelDefaults),
+    }), meta)
   }
   const restoreSlots = restoreSlotsForOrder(panelOrder, {
     directoryCollapsed,
@@ -405,9 +428,9 @@ export function FourPaneShell({
     <Panel
       id="directory"
       panelRef={directoryRef}
-      defaultSize={`${layoutDefaults.directory}%`}
-      minSize={`${layoutBounds.directory.min}%`}
-      maxSize={`${layoutBounds.directory.max}%`}
+      defaultSize={`${panelDefaults.directory ?? layoutDefaults.directory}%`}
+      minSize={`${panelBounds.directory.min}%`}
+      maxSize={`${panelBounds.directory.max}%`}
       collapsible
       collapsedSize="0%"
       onResize={(size) => {
@@ -426,9 +449,9 @@ export function FourPaneShell({
       <div
         className="relative h-full min-h-0 min-w-[10rem] max-w-full overflow-hidden"
         data-testid="col-directory-panel"
-        data-default-size={String(layoutDefaults.directory)}
-        data-min-size={String(layoutBounds.directory.min)}
-        data-max-size={String(layoutBounds.directory.max)}
+        data-default-size={String(panelDefaults.directory ?? layoutDefaults.directory)}
+        data-min-size={String(panelBounds.directory.min)}
+        data-max-size={String(panelBounds.directory.max)}
         data-layout-mode={layoutMode}
       >
         {renderRestoreButtons('directory')}
@@ -452,21 +475,26 @@ export function FourPaneShell({
     </Panel>
   )
 
+  // 详情下限：旅程 tab 用 28% 可拖到 34% 默认；其它 view 略抬高内容下限；写作态用 bounds
+  const detailMin = detailMinPercent != null
+    ? detailMinPercent
+    : panelBounds.detail.min
+
   const renderDetailPanel = () => (
     <Panel
       id="detail"
-      defaultSize={`${layoutDefaults.detail}%`}
-      minSize={isView ? '56%' : `${layoutBounds.detail.min}%`}
-      maxSize={`${layoutBounds.detail.max}%`}
+      defaultSize={`${panelDefaults.detail ?? layoutDefaults.detail}%`}
+      minSize={`${detailMin}%`}
+      maxSize={`${panelBounds.detail.max}%`}
       className="relative min-w-0 min-h-0 overflow-hidden flex flex-col"
     >
       <div
         className="relative h-full min-h-0 min-w-0 overflow-hidden flex flex-col"
         data-testid="detail-panel"
         data-layout-mode={layoutMode}
-        data-default-size={String(layoutDefaults.detail)}
-        data-min-size={String(isView ? 56 : layoutBounds.detail.min)}
-        data-max-size={String(layoutBounds.detail.max)}
+        data-default-size={String(panelDefaults.detail ?? layoutDefaults.detail)}
+        data-min-size={String(detailMin)}
+        data-max-size={String(panelBounds.detail.max)}
       >
         {renderRestoreButtons('detail')}
         <div className="h-full min-h-0 min-w-0 overflow-hidden flex flex-col" data-testid="detail" data-context-revision={ctxRevision}>
@@ -485,9 +513,9 @@ export function FourPaneShell({
     <Panel
       id="right"
       panelRef={rightRef}
-      defaultSize={`${layoutDefaults.right}%`}
-      minSize={`${layoutBounds.right.min}%`}
-      maxSize={`${layoutBounds.right.max}%`}
+      defaultSize={`${panelDefaults.right ?? layoutDefaults.right}%`}
+      minSize={`${panelBounds.right.min}%`}
+      maxSize={`${panelBounds.right.max}%`}
       collapsible
       collapsedSize="0%"
       onResize={(size) => {
@@ -511,9 +539,9 @@ export function FourPaneShell({
         className="relative h-full min-h-0 min-w-0 max-w-full overflow-hidden"
         data-testid="right-panel"
         data-layout-mode={layoutMode}
-        data-default-size={String(layoutDefaults.right)}
-        data-min-size={String(layoutBounds.right.min)}
-        data-max-size={String(layoutBounds.right.max)}
+        data-default-size={String(panelDefaults.right ?? layoutDefaults.right)}
+        data-min-size={String(panelBounds.right.min)}
+        data-max-size={String(panelBounds.right.max)}
         data-collapsed={rightCollapsed ? '1' : '0'}
       >
         {renderRestoreButtons('right')}
@@ -532,7 +560,7 @@ export function FourPaneShell({
     right: renderRightPanel,
   }
 
-  // view 模式隐藏目录;顺序仍按 mode(协作:主编|详情, 阅读:详情|主编)
+  // view 模式隐藏目录;顺序仍按 mode / 旅程特例
   const visibleOrder = isView
     ? panelOrder.filter((id) => id !== 'directory')
     : panelOrder
@@ -542,6 +570,8 @@ export function FourPaneShell({
       className="h-full min-h-0 flex flex-col bg-canvas overflow-hidden"
       data-testid="four-col"
       data-layout-mode={layoutMode}
+      data-journey-layout={isJourneyView ? '1' : '0'}
+      data-panel-order={panelOrder.join('|')}
     >
       <div className="flex-1 min-h-0 min-w-0 flex overflow-hidden">
         <div className="w-14 shrink-0 bg-surface overflow-hidden shadow-[1px_0_0_0_color-mix(in_srgb,var(--color-line)_70%,transparent)]" data-testid="left-entry-rail">
@@ -555,11 +585,11 @@ export function FourPaneShell({
             onSecondaryClick={handleRightCapabilityClick}
           />
         </div>
-        {/* key=mode:切换协作/阅读时重挂 Group,应用该 mode 的 defaultLayout */}
+        {/* key=storageMode:切换协作/阅读/旅程时重挂 Group,应用对应 defaultLayout */}
         <Group
-          key={`layout-${layoutMode}-${work || 'main'}`}
+          key={`layout-${storageMode}-${work || 'main'}`}
           orientation="horizontal"
-          defaultLayout={defaultLayout ?? layoutDefaults}
+          defaultLayout={defaultLayout ?? panelDefaults}
           onLayoutChanged={onLayoutChanged}
           className="flex-1 min-w-0 min-h-0 h-full overflow-hidden"
         >
