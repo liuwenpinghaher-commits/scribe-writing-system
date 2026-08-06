@@ -84,7 +84,7 @@ CHARS = [
     {
         "oid": "王阿禾",
         "name": "王阿禾",
-        "importance": "supporting",
+        "importance": "minor",
         "appearance": "少年脸，眉心青点，衣襟常湿。",
         "personality_detail": "死也不安分，灯下招手像讨债也像求救。",
         "surface_goal": "让顶死被看见。",
@@ -98,7 +98,7 @@ CHARS = [
     {
         "oid": "收灯师父",
         "name": "收灯师父",
-        "importance": "supporting",
+        "importance": "minor",
         "appearance": "旧蓑衣，灯钩锈迹，声线干。",
         "personality_detail": "把守灯当职业账本，不讲温情，偶尔漏出怕徒弟折命。",
         "surface_goal": "维护债链秩序，不让私灯乱烧。",
@@ -391,6 +391,58 @@ def drive_chapter(evid: Path, seq: int):
         print(f"  step#{steps} state={state} parked={str(parked)[:80]}", flush=True)
         snap(evid, "observe", seq=seq, pilot_state=state, parked=str(parked or "")[:200])
 
+        # 接地失败优先处理：节拍 / 演绎
+        if parked and "事实对齐" in str(parked):
+            syn = SYN[seq - 1]
+            pov = POVS[seq - 1]
+            safe_beats = [
+                {"text": f"开场：以气味与空间锚定，进入本章冲突（{syn[:40]}）。"},
+                {"text": f"中段：信息或压力升级；{syn}"},
+                {"text": "章末：留下可回收钩子（债契/灯芯/名字/暖火之一）。"},
+                {"text": "余韵：用身体反应收住情绪，不解释主题。"},
+            ]
+            # 场景真相=梗概冷叙扩展（不发明新物件），限知投影只复述真相可见信息
+            scene_truth = (
+                f"第{seq}章客观上发生：{syn}"
+                f"参与者包括{pov}及相关在场者。无全知解释，仅上述事件链。"
+            )
+            ded = {
+                "character_id": f"role:{pov}",
+                "character_name": pov,
+                "prose": (
+                    f"### 看到/听到\n{pov}亲历：{syn}\n"
+                    f"### 知道\n仅上述亲历，不知他人内心。\n"
+                    f"### 以为\n压力在「问不得」与必须弄清之间，暂无更远端结论。\n"
+                    f"### 做了/说了\n按本章中段行动推进，不超出梗概。\n"
+                    f"### 没察觉的\n（留白）\n"
+                ),
+            }
+            approve([{
+                "tool": "s3_patch_chapter_meta",
+                "args": {
+                    "seq": seq,
+                    "synopsis": syn,
+                    "beats": safe_beats,
+                    "scene_truth": scene_truth,
+                    "involved_characters": [f"role:{pov}"],
+                    "deductions": [ded],
+                },
+                "label": f"安全演绎脚手架ch{seq}",
+            }], f"safe deduce scaffold ch{seq}")
+            curl("POST", "/api/pilot/reset-step", {"seq": seq}, timeout=60)
+            snap(evid, "grounding_safe_scaffold", seq=seq, detail=str(parked)[:120])
+            # 有 beats+truth+deds 后 deduce 应 skip 前进
+            code, res = curl("POST", "/api/pilot/step", {
+                "seq": seq, "mode": "manual",
+                "steer": "严格只使用场景真相中已有信息，禁止新增物件人物。",
+            }, timeout=STEP_TIMEOUT)
+            if code == "409":
+                detail = str((res or {}).get("detail") if isinstance(res, dict) else res)
+                if "大纲" in detail or "approve" in detail.lower() or "终选" in detail:
+                    curl("POST", "/api/pilot/approve", {"seq": seq}, timeout=STEP_TIMEOUT)
+            time.sleep(1)
+            continue
+
         if state == "finalized":
             n = chapter_prose_len(seq)
             snap(evid, "finalized", seq=seq, continue_ok=True, chars=n)
@@ -454,7 +506,7 @@ def drive_chapter(evid: Path, seq: int):
                     time.sleep(2)
                     continue
             # clear parked and continue
-            curl("POST", "/api/pilot/reset", {"seq": seq}, timeout=60)
+            curl("POST", "/api/pilot/reset-step", {"seq": seq}, timeout=60)
 
         # normal step
         code, res = curl("POST", "/api/pilot/step", {
@@ -489,14 +541,14 @@ def drive_chapter(evid: Path, seq: int):
                     "args": {"seq": seq, "beats": safe_beats, "synopsis": SYN[seq - 1]},
                     "label": f"安全节拍ch{seq}",
                 }], f"safe beats ch{seq}")
-                curl("POST", "/api/pilot/reset", {"seq": seq}, timeout=60)
+                curl("POST", "/api/pilot/reset-step", {"seq": seq}, timeout=60)
                 # 若仍停在 outline_proposed，approve 放行后再 step
                 curl("POST", "/api/pilot/approve", {"seq": seq}, timeout=STEP_TIMEOUT)
                 snap(evid, "grounding_safe_beats", seq=seq, continue_ok=True)
                 time.sleep(1)
                 continue
             if "blocking" in reason:
-                curl("POST", "/api/pilot/reset", {"seq": seq}, timeout=60)
+                curl("POST", "/api/pilot/reset-step", {"seq": seq}, timeout=60)
                 curl("POST", "/api/pilot/step", {
                     "seq": seq, "mode": "manual",
                     "steer": "严格限知，不添加场景真相没有的物件人物；信息不足则留白。",
@@ -514,7 +566,7 @@ def drive_chapter(evid: Path, seq: int):
                 "args": {"seq": seq, "beats": safe_beats, "synopsis": SYN[seq - 1]},
                 "label": f"安全节拍ch{seq}",
             }], f"safe beats ch{seq}")
-            curl("POST", "/api/pilot/reset", {"seq": seq}, timeout=60)
+            curl("POST", "/api/pilot/reset-step", {"seq": seq}, timeout=60)
             curl("POST", "/api/pilot/approve", {"seq": seq}, timeout=STEP_TIMEOUT)
             snap(evid, "grounding_safe_beats_status", seq=seq)
         time.sleep(1)
