@@ -274,16 +274,31 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
             return {"status": "written", "promise": row}
 
         def _patch_char(**kw):
-            cid = kw.get("character_id") or kw.get("oid") or ""
+            """角色字段更正。生产 Store 无 patch_character，须走 update_record 真落库。
+            旧实现在无 patch_character 时只写 _orch_chars 内存 → API 仍空 → Web 设定像没写。"""
+            cid = (kw.get("character_id") or kw.get("oid") or "").strip()
+            local = cid.split(":", 1)[-1] if cid else ""
+            if not local:
+                return {"status": "error", "error": "empty character_id"}
+            oid = cid if cid.startswith("role:") else f"role:{local}"
+            fields = {
+                k: v for k, v in kw.items()
+                if k not in ("character_id", "oid", "work", "label") and v is not None
+            }
             if hasattr(st, "patch_character"):
-                ok = st.patch_character(cid, **{k: v for k, v in kw.items()
-                                                if k not in ("character_id", "oid")})
-                return {"status": "written" if ok is not False else "error", "ok": ok}
-            # MiniStore / 测试：挂内存角色
+                ok = st.patch_character(cid, **fields)
+                return {"status": "written" if ok is not False else "error", "ok": ok, "character_id": oid}
+            if hasattr(st, "update_record"):
+                from scribe3.ontology import Entity
+                if hasattr(st, "exists") and not st.exists(oid):
+                    st.add_entity(Entity(oid, "character", local))
+                st.update_record(oid, fields)
+                return {"status": "written", "character_id": oid, "fields": list(fields.keys())}
+            # 测试桩：挂内存角色
             if not hasattr(st, "_orch_chars"):
                 st._orch_chars = {}
-            st._orch_chars[cid] = dict(kw)
-            return {"status": "written", "character_id": cid}
+            st._orch_chars[oid] = dict(fields)
+            return {"status": "written", "character_id": oid}
 
         def _patch_plan(**kw):
             seq = int(kw.get("seq") or kw.get("chapter") or 1)
@@ -307,26 +322,37 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
             return {"status": "error", "error": "no set_intent"}
 
         def _add_char(**kw):
-            """新建角色：优先 store.add_character / add_entity，否则 patch_character 路径。"""
+            """新建角色：优先 store.add_character / add_entity，并写入 traits 字段。"""
             name = (kw.get("name") or kw.get("label") or "").strip()
             oid = (kw.get("oid") or kw.get("character_id") or "").strip()
             if not oid and name:
                 oid = f"role:{name}"
+            if oid and not oid.startswith("role:") and ":" not in oid:
+                oid = f"role:{oid}"
             if not name and oid.startswith("role:"):
                 name = oid.split(":", 1)[-1]
             if not oid:
                 return {"status": "error", "error": "missing character oid/name"}
+            traits = {
+                k: v for k, v in kw.items()
+                if k not in ("oid", "character_id", "name", "label", "work") and v is not None
+            }
             if hasattr(st, "add_character"):
-                st.add_character(oid, name, **{k: v for k, v in kw.items()
-                    if k not in ("oid", "character_id", "name", "label", "work")})
-                return {"status": "written", "oid": oid, "name": name}
+                st.add_character(oid, name, **traits)
+                return {"status": "written", "oid": oid, "name": name, "fields": list(traits.keys())}
             if hasattr(st, "add_entity"):
                 from scribe3.ontology import Entity
-                st.add_entity(Entity(oid, "character", name or oid))
-                if hasattr(st, "patch_character"):
-                    st.patch_character(oid, **{k: v for k, v in kw.items()
-                        if k not in ("oid", "character_id", "name", "label", "work")})
-                return {"status": "written", "oid": oid, "name": name}
+                # traits 进 Entity，避免只建空壳名
+                try:
+                    ent = Entity(oid, "character", name or oid, traits=traits)
+                except TypeError:
+                    ent = Entity(oid, "character", name or oid)
+                st.add_entity(ent)
+                if traits and hasattr(st, "update_record"):
+                    st.update_record(oid, traits)
+                elif traits and hasattr(st, "patch_character"):
+                    st.patch_character(oid, **traits)
+                return {"status": "written", "oid": oid, "name": name, "fields": list(traits.keys())}
             return _patch_char(character_id=oid, oid=oid, name=name, **kw)
 
         def _add_volume(**kw):

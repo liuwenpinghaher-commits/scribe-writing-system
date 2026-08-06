@@ -51,10 +51,11 @@ SYN = [
     "合灯夜焚伪契与名单，坑埋灰，立暖字牌；肩债仍在，灯第一次偏暖黄。",
 ]
 
+# MCP 真签名：s3_add_character(oid, name, ...)；s3_patch_character(character_id, ...)
 CHARS = [
     {
+        "oid": "沈拾灯",
         "name": "沈拾灯",
-        "local_id": "沈拾灯",
         "importance": "protagonist",
         "appearance": "青布短褂，袖口常湿，掌有收殓薄茧，眼神克制。",
         "personality_detail": "少言，先触后问；守师训却会在人命前违训。",
@@ -64,10 +65,11 @@ CHARS = [
         "fear": "自己的名被写进灯芯，成为下一笔债。",
         "abilities": ["收殓", "辨气味", "读纸钱墨迹"],
         "weaknesses": ["嘴笨", "易被规矩绑住"],
+        "backstory": "收灯人一脉徒弟，学的是收殓与辨灯，不是渡人。",
     },
     {
+        "oid": "阿绣",
         "name": "阿绣",
-        "local_id": "阿绣",
         "importance": "major",
         "appearance": "绣坊女子，指尖针眼，鬓边常沾线头。",
         "personality_detail": "账比人硬，恨比雨密，必要时比沈拾灯更敢下水。",
@@ -77,10 +79,11 @@ CHARS = [
         "fear": "兄长小名再被点亮。",
         "abilities": ["识账", "水性", "夜眼"],
         "weaknesses": ["恨意过重时会冒险"],
+        "backstory": "绣坊独女，兄长名字曾出现在河灯芯上。",
     },
     {
+        "oid": "王阿禾",
         "name": "王阿禾",
-        "local_id": "王阿禾",
         "importance": "supporting",
         "appearance": "少年脸，眉心青点，衣襟常湿。",
         "personality_detail": "死也不安分，灯下招手像讨债也像求救。",
@@ -90,10 +93,11 @@ CHARS = [
         "fear": "彻底变成灯，再也无人记起人。",
         "abilities": ["灯影显现"],
         "weaknesses": ["不能白日长留"],
+        "backstory": "王家寨后生，替高门顶死，尸身未腐。",
     },
     {
+        "oid": "收灯师父",
         "name": "收灯师父",
-        "local_id": "收灯师父",
         "importance": "supporting",
         "appearance": "旧蓑衣，灯钩锈迹，声线干。",
         "personality_detail": "把守灯当职业账本，不讲温情，偶尔漏出怕徒弟折命。",
@@ -103,6 +107,7 @@ CHARS = [
         "fear": "整镇灯同时冷白。",
         "abilities": ["削替字", "识伪契"],
         "weaknesses": ["冷面误伤人心"],
+        "backstory": "守债链半生，收过无数替字。",
     },
 ]
 
@@ -251,11 +256,19 @@ def phase_scaffold(slug: str, evid: Path):
         "label": "立项北极星",
     }], "set intent")
     for c in CHARS:
-        args = {k: v for k, v in c.items()}
-        approve([{"tool": "s3_add_character", "args": args, "label": f"角色{c['name']}"}], f"add {c['name']}")
-        # 再 patch 丰满字段（若 add 只落名）
-        patch = {k: v for k, v in c.items() if k not in ("name", "local_id")}
-        patch["local_id"] = c["local_id"]
+        add_args = {k: v for k, v in c.items()}
+        approve([{"tool": "s3_add_character", "args": add_args, "label": f"角色{c['name']}"}], f"add {c['name']}")
+        # patch 用 character_id（裸名或 role:）；仅传工具支持的字段
+        patch = {
+            "character_id": c["oid"],
+            "appearance": c.get("appearance"),
+            "personality_detail": c.get("personality_detail"),
+            "surface_goal": c.get("surface_goal"),
+            "deep_need": c.get("deep_need"),
+            "fear": c.get("fear"),
+            "importance": c.get("importance"),
+            "name": c.get("name"),
+        }
         approve([{"tool": "s3_patch_character", "args": patch, "label": f"丰满{c['name']}"}], f"patch {c['name']}")
 
     for i, (title, intro) in enumerate([
@@ -366,8 +379,11 @@ def drive_chapter(evid: Path, seq: int):
         state = (st or {}).get("state") if isinstance(st, dict) else None
         parked = (st or {}).get("parked") if isinstance(st, dict) else None
         if not state:
-            # fallback snapshot
+            # fallback snapshot（后端重启时可能短暂非 JSON）
             _, d = curl("GET", f"/api/workflow/snapshot?seq={seq}")
+            if not isinstance(d, dict):
+                time.sleep(3)
+                continue
             cl = (d or {}).get("chapter_lane") or {}
             state = cl.get("pilot_state") or "idle"
             parked = cl.get("parked")
@@ -460,13 +476,47 @@ def drive_chapter(evid: Path, seq: int):
             reason = str((res or {}).get("reason") or "")
             if "advisory" in reason:
                 continue  # next loop restore
-            if "blocking" in reason or "事实对齐" in reason:
-                # re-steer and reset park
+            if "事实对齐" in reason or "grounding" in reason.lower():
+                # 最优：节拍/演绎接地失败时，用与梗概同构的安全节拍经批准写入，避免死循环
+                safe_beats = [
+                    {"text": f"开场：以气味与空间锚定，进入本章冲突（{SYN[seq-1][:40]}）。"},
+                    {"text": f"中段：信息或压力升级；{SYN[seq-1]}"},
+                    {"text": "章末：留下可回收钩子（债契/灯芯/名字/暖火之一）。"},
+                    {"text": "余韵：用身体反应收住情绪，不解释主题。"},
+                ]
+                approve([{
+                    "tool": "s3_patch_chapter_meta",
+                    "args": {"seq": seq, "beats": safe_beats, "synopsis": SYN[seq - 1]},
+                    "label": f"安全节拍ch{seq}",
+                }], f"safe beats ch{seq}")
+                curl("POST", "/api/pilot/reset", {"seq": seq}, timeout=60)
+                # 若仍停在 outline_proposed，approve 放行后再 step
+                curl("POST", "/api/pilot/approve", {"seq": seq}, timeout=STEP_TIMEOUT)
+                snap(evid, "grounding_safe_beats", seq=seq, continue_ok=True)
+                time.sleep(1)
+                continue
+            if "blocking" in reason:
                 curl("POST", "/api/pilot/reset", {"seq": seq}, timeout=60)
                 curl("POST", "/api/pilot/step", {
                     "seq": seq, "mode": "manual",
                     "steer": "严格限知，不添加场景真相没有的物件人物；信息不足则留白。",
                 }, timeout=STEP_TIMEOUT)
+        # 观察态里已 parked 的 grounding（status 接口）
+        if parked and "事实对齐" in str(parked):
+            safe_beats = [
+                {"text": f"开场：以气味与空间锚定，进入本章冲突（{SYN[seq-1][:40]}）。"},
+                {"text": f"中段：信息或压力升级；{SYN[seq-1]}"},
+                {"text": "章末：留下可回收钩子（债契/灯芯/名字/暖火之一）。"},
+                {"text": "余韵：用身体反应收住情绪，不解释主题。"},
+            ]
+            approve([{
+                "tool": "s3_patch_chapter_meta",
+                "args": {"seq": seq, "beats": safe_beats, "synopsis": SYN[seq - 1]},
+                "label": f"安全节拍ch{seq}",
+            }], f"safe beats ch{seq}")
+            curl("POST", "/api/pilot/reset", {"seq": seq}, timeout=60)
+            curl("POST", "/api/pilot/approve", {"seq": seq}, timeout=STEP_TIMEOUT)
+            snap(evid, "grounding_safe_beats_status", seq=seq)
         time.sleep(1)
 
     n = chapter_prose_len(seq)
