@@ -445,6 +445,25 @@ def drive_chapter(evid: Path, seq: int):
 
         if state == "finalized":
             n = chapter_prose_len(seq)
+            if n < MIN_CH_CHARS and draft_tries < MAX_DRAFT_RETRIES:
+                draft_tries += 1
+                print(f"  finalized short {n}, reopen redraft {draft_tries}", flush=True)
+                curl("POST", "/api/pilot/dismiss", {"seq": seq}, timeout=60)
+                # 清正文强制重写：step 带【强制重写】；脚手架已在库则 deduce 会 skip
+                force = steer + f" 【强制重写】定稿仅{n}字，必须≥{MIN_CH_CHARS}字。"
+                # 重新从 idle 推进到 draft
+                for _ in range(12):
+                    code, res = curl("POST", "/api/pilot/step", {
+                        "seq": seq, "mode": "manual", "steer": force,
+                    }, timeout=STEP_TIMEOUT)
+                    if code == "409":
+                        curl("POST", "/api/pilot/approve", {"seq": seq}, timeout=STEP_TIMEOUT)
+                    reason = str((res or {}).get("reason") or "") if isinstance(res, dict) else ""
+                    if "advisory" in reason or "事实对齐" in reason:
+                        break
+                snap(evid, "reopen_short_final", seq=seq, chars=n, try_=draft_tries)
+                time.sleep(1)
+                continue
             snap(evid, "finalized", seq=seq, continue_ok=True, chars=n)
             (evid / "04-serialize" / f"ch{seq:02d}.md").write_text(
                 f"# ch{seq}\n\nchars={n}\nsource=pilot\n\n", encoding="utf-8",
@@ -481,30 +500,36 @@ def drive_chapter(evid: Path, seq: int):
                 if n < MIN_CH_CHARS and draft_tries < MAX_DRAFT_RETRIES:
                     draft_tries += 1
                     print(f"  short draft {n} < {MIN_CH_CHARS}, redraft try {draft_tries}", flush=True)
-                    # 产品 draft_loop 见「【强制重写】」会清 prose 再生成（真路径，非离线灌）
-                    curl("POST", "/api/pilot/dismiss", {"seq": seq}, timeout=60)
-                    # 推进到 deduced 后 draft_loop；steer 带强制重写
+                    # 真路径扩写：【强制重写】清 prose 后必须再等到新 advisory 稿，禁止带着短稿去 full_check
                     force = (
                         steer
                         + f" 【强制重写】上一稿仅{n}字，必须扩写到≥{MIN_CH_CHARS}字完整章，"
-                        "不可交短样章。"
+                        "场景连续、对话与气味锚齐全，不可交短样章。"
                     )
-                    # 从 idle 重走可能过慢：直接 step 并注入 steer；若状态仍在 drafting/deduced 亦可
-                    for _ in range(8):
+                    # 保持在 deduced：step 触发 draft_loop；勿 dismiss 清脚手架
+                    curl("POST", "/api/pilot/reset-step", {"seq": seq}, timeout=60)
+                    for _ in range(6):
                         code, res = curl("POST", "/api/pilot/step", {
                             "seq": seq, "mode": "manual", "steer": force,
                         }, timeout=STEP_TIMEOUT)
                         snap(evid, "redraft_step", seq=seq, http=code, chars=n,
                              try_=draft_tries, detail=str(res)[:200])
-                        stt = (res or {}).get("state") if isinstance(res, dict) else None
+                        reason = str((res or {}).get("reason") or "") if isinstance(res, dict) else ""
                         if code == "409":
                             curl("POST", "/api/pilot/approve", {"seq": seq}, timeout=STEP_TIMEOUT)
-                        if isinstance(res, dict) and res.get("gate") == "parked" and "advisory" in str(res.get("reason") or ""):
-                            break
-                        if stt in ("drafting", "checked", "delivered"):
-                            break
+                            continue
+                        if "advisory" in reason:
+                            break  # 回到外层 restore 最长稿
+                        # 若误 skip 进 drafting 且仍短：再强制
+                        stt = (res or {}).get("state") if isinstance(res, dict) else None
+                        if stt in ("drafting", "checked") and chapter_prose_len(seq) < MIN_CH_CHARS:
+                            curl("POST", "/api/pilot/dismiss", {"seq": seq}, timeout=60)
+                            # 补脚手架后再战
+                            continue
                     time.sleep(2)
                     continue
+                if n < MIN_CH_CHARS:
+                    print(f"  WARN short accepted for now chars={n} (retries exhausted)", flush=True)
             # clear parked and continue
             curl("POST", "/api/pilot/reset-step", {"seq": seq}, timeout=60)
 
