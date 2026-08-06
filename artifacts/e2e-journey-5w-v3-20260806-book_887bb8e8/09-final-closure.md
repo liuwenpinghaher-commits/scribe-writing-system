@@ -1,8 +1,10 @@
 # v3 score_closure (from tape + API)
 slug=book_887bb8e8
 station=serialize rich_chars=4
-pilot_states_unique=['beats_ready', 'checked', 'deduced', 'delivered', 'drafting', 'finalized', 'idle', 'outline_proposed'] span>10s=True
-total_chars=50749 pad_hits=0
+pilot_states_unique=['beats_ready', 'checked', 'deduced', 'delivered', 'drafting', 'finalized', 'idle', 'outline_proposed'] span>10s=True span_sec=5023.4
+total_chars=50749 pad_hits=0 finalized_api=10/10
+true_path_signals restore=True step=True finalize=True bad_path=False
+craft_signals no_skip=True finalized_api>=10
 
 | line | result |
 |------|--------|

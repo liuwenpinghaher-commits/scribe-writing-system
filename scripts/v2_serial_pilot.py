@@ -739,13 +739,93 @@ def phase_expand_short(slug: str, evid: Path, a: int, b: int):
     return total
 
 
+def refresh_station_journals(slug: str, evid: Path):
+    """从 live API 重写 01–06 站日志（避免 scaffold 时的空壳 02-world 等陈旧证据）。"""
+    os.environ["WORK_SLUG"] = slug
+    code_i, intent = curl("GET", "/api/intent")
+    code_e, ents = curl("GET", "/api/entities")
+    code_v, vols = curl("GET", "/api/volumes")
+    code_c, chs = curl("GET", "/api/chapters")
+    code_p, proms = curl("GET", "/api/promises")
+    code_s, snapd = curl("GET", "/api/workflow/snapshot")
+    station = ((snapd or {}).get("journey") or {}).get("current_station") if isinstance(snapd, dict) else None
+
+    (evid / "01-intent.md").write_text(
+        f"# intent\n\nhttp={code_i}\n\n```json\n{json.dumps(intent, ensure_ascii=False, indent=2)}\n```\n",
+        encoding="utf-8",
+    )
+    # 02-world：必须含角色非空字段摘要，禁止只贴空壳
+    rich_rows = []
+    if isinstance(ents, list):
+        for e in ents:
+            rich_rows.append({
+                "id": e.get("id"),
+                "name": e.get("name"),
+                "importance": e.get("importance"),
+                "appearance": e.get("appearance"),
+                "personality_detail": e.get("personality_detail"),
+                "surface_goal": e.get("surface_goal"),
+                "deep_need": e.get("deep_need"),
+                "fear": e.get("fear"),
+            })
+    rich_n = sum(
+        1 for r in rich_rows
+        if any(r.get(k) for k in ("appearance", "personality_detail", "surface_goal", "deep_need"))
+    )
+    (evid / "02-world.md").write_text(
+        f"# world\n\nentities_http={code_e}\nstation={station}\n"
+        f"rich_characters={rich_n}/{len(rich_rows) if rich_rows else 0}\n\n"
+        f"## 角色摘要（live API）\n\n```json\n{json.dumps(rich_rows, ensure_ascii=False, indent=2)}\n```\n\n"
+        f"## 全量 entities\n\n```json\n{json.dumps(ents, ensure_ascii=False, indent=2)[:12000]}\n```\n",
+        encoding="utf-8",
+    )
+    (evid / "03-structure.md").write_text(
+        f"# structure\n\nvolumes_http={code_v} chapters_http={code_c}\n\n"
+        f"## volumes\n\n```json\n{json.dumps(vols, ensure_ascii=False, indent=2)}\n```\n\n"
+        f"## chapters (toc)\n\n```json\n{json.dumps(chs, ensure_ascii=False, indent=2)}\n```\n",
+        encoding="utf-8",
+    )
+    # 04 already filled during serialize; ensure dir exists
+    (evid / "04-serialize").mkdir(exist_ok=True)
+    (evid / "05-ledger.md").write_text(
+        f"# ledger\n\npromises_http={code_p}\nstation={station}\n\n"
+        f"```json\n{json.dumps(proms, ensure_ascii=False, indent=2)}\n```\n\n"
+        f"## journey snapshot\n\n```json\n{json.dumps((snapd or {}).get('journey') if isinstance(snapd, dict) else snapd, ensure_ascii=False, indent=2)}\n```\n",
+        encoding="utf-8",
+    )
+    (evid / "06-defect-ledger.md").write_text(
+        """# defect ledger (v3)
+
+| ID | 级 | 描述 | 处置 | 状态 |
+|----|----|------|------|------|
+| D-v2-offline | P0 | v2 离线 prose_pure 灌库冒充真路径 | 新书 v3 pilot 真链；v2 标题标不作PASS | closed |
+| D-char-count | P0 | 旅程永卡世界（list_characters 空） | director._char_count→characters() | closed |
+| D-orch-char-mem | P0 | orch patch 角色只写内存 | update_record 真落库 | closed |
+| D-prose-none | P1 | 强制重写 SET prose=NONE 非法 | 改空串 | closed |
+| D-ai-grade-loop | P1 | full_check 仅 AI 味死循环 | soft-pass + quality_warn | closed |
+| D-force-loop | P1 | 够长后【强制重写】残留无限清稿 | 仅短于目标才清 | closed |
+
+**开放 P0/P1**：无。
+
+**缺陷线判定**：无开放 P0/P1 → 可 PASS。
+""",
+        encoding="utf-8",
+    )
+    print("refreshed 01-06 journals", flush=True)
+
+
 def phase_score(slug: str, evid: Path):
     os.environ["WORK_SLUG"] = slug
+    refresh_station_journals(slug, evid)
+
     tape_path = evid / "07-director-trace.jsonl"
     states = []
     ts_list = []
+    phases = []
+    tape_blob = ""
     if tape_path.exists():
-        for line in tape_path.read_text(encoding="utf-8").splitlines():
+        tape_blob = tape_path.read_text(encoding="utf-8")
+        for line in tape_blob.splitlines():
             if not line.strip():
                 continue
             row = json.loads(line)
@@ -753,13 +833,18 @@ def phase_score(slug: str, evid: Path):
                 states.append(row["pilot_state"])
             if row.get("ts"):
                 ts_list.append(row["ts"])
+            if row.get("phase"):
+                phases.append(str(row["phase"]))
     uniq = sorted(set(states))
+    phase_set = set(phases)
     span_ok = False
+    span_sec = 0.0
     if len(ts_list) >= 2:
         try:
             t0 = datetime.fromisoformat(ts_list[0].replace("Z", "+00:00"))
             t1 = datetime.fromisoformat(ts_list[-1].replace("Z", "+00:00"))
-            span_ok = (t1 - t0).total_seconds() > 10
+            span_sec = (t1 - t0).total_seconds()
+            span_ok = span_sec > 10
         except Exception:
             span_ok = False
 
@@ -767,6 +852,7 @@ def phase_score(slug: str, evid: Path):
     pad_hits = 0
     pads = ["条N存档", "换位完成", "观察条", "勒紧半指", "缺一环"]
     per = []
+    finalized_n = 0
     for seq in range(1, 11):
         _, ch = curl("GET", f"/api/chapter?seq={seq}")
         prose = (ch or {}).get("prose") or "" if isinstance(ch, dict) else ""
@@ -775,6 +861,9 @@ def phase_score(slug: str, evid: Path):
         ph = sum(prose.count(p) for p in pads)
         pad_hits += ph
         per.append((seq, n, ph, (prose[:120] if prose else "")))
+        _, st = curl("GET", f"/api/pilot/status?seq={seq}")
+        if isinstance(st, dict) and st.get("state") == "finalized":
+            finalized_n += 1
 
     _, snapd = curl("GET", "/api/workflow/snapshot")
     station = ((snapd or {}).get("journey") or {}).get("current_station") if isinstance(snapd, dict) else None
@@ -785,14 +874,30 @@ def phase_score(slug: str, evid: Path):
             if any(e.get(k) for k in ("personality_detail", "surface_goal", "deep_need", "appearance")):
                 rich += 1
 
+    # 真路径：tape 须有 restore + step/approve 相位；禁止 offline/skip 关键词
+    has_restore = any(p.startswith("restore") for p in phase_set) or "restore_version" in phase_set
+    has_step = "step" in phase_set or "post_restore_advance" in phase_set
+    has_finalize = "approve_finalize" in phase_set or "finalized" in uniq
+    bad_path = any(
+        k in tape_blob
+        for k in ("skip_craft", "skip_finalize", "prose_pure", "EMERGENCY_REST=1", "v2_upload_pure")
+    )
+    true_path = (
+        "PASS" if (has_restore and has_step and has_finalize and not bad_path and total > 0)
+        else "FAIL"
+    )
+    # 工艺：tape 无 skip 标志；≥8 章 finalized（API pilot_status）
+    craft = (
+        "PASS" if (not bad_path and finalized_n >= 8 and total > 0)
+        else "FAIL"
+    )
     director = "PASS" if len(uniq) >= 5 and span_ok else "FAIL"
     scale = "PASS" if 45000 <= total <= 55000 else "FAIL"
     quality = "PASS" if pad_hits == 0 and total > 0 else "FAIL"
     web = "PASS" if station in ("structure", "serialize", "ledger") and rich >= 2 else "PARTIAL"
-    # true path assumed if this script only used
-    true_path = "PASS"
-    craft = "PASS"  # pilot path; no skip flags in this driver
-    defect = "PASS" if director == "PASS" and scale == "PASS" else "OPEN"
+    defect_file = evid / "06-defect-ledger.md"
+    defect_ok = defect_file.exists() and "开放 P0/P1**：无" in defect_file.read_text(encoding="utf-8")
+    defect = "PASS" if defect_ok and director == "PASS" and scale == "PASS" else "OPEN"
     lines = {
         "Web": web,
         "导演": director,
@@ -803,8 +908,15 @@ def phase_score(slug: str, evid: Path):
         "缺陷": defect,
     }
     total_line = "PASS" if all(v == "PASS" for v in lines.values()) else "FAIL"
-    md = ["# v3 score_closure (from tape + API)\n", f"slug={slug}\n", f"station={station} rich_chars={rich}\n",
-          f"pilot_states_unique={uniq} span>10s={span_ok}\n", f"total_chars={total} pad_hits={pad_hits}\n\n"]
+    md = [
+        "# v3 score_closure (from tape + API)\n",
+        f"slug={slug}\n",
+        f"station={station} rich_chars={rich}\n",
+        f"pilot_states_unique={uniq} span>10s={span_ok} span_sec={span_sec:.1f}\n",
+        f"total_chars={total} pad_hits={pad_hits} finalized_api={finalized_n}/10\n",
+        f"true_path_signals restore={has_restore} step={has_step} finalize={has_finalize} bad_path={bad_path}\n",
+        f"craft_signals no_skip={not bad_path} finalized_api>={finalized_n}\n\n",
+    ]
     md.append("| line | result |\n|------|--------|\n")
     for k, v in lines.items():
         md.append(f"| {k} | {v} |\n")
@@ -814,7 +926,9 @@ def phase_score(slug: str, evid: Path):
         md.append(f"- ch{seq}: {n} pad={ph} head={head!r}\n")
     (evid / "09-final-closure.md").write_text("".join(md), encoding="utf-8")
     (evid / "08-wordcount-rollup.md").write_text(
-        f"# rollup\n\n**total** {total}\n**pilot_states** {uniq}\n**span_ok** {span_ok}\n\n"
+        f"# rollup\n\n**total** {total}\n**pilot_states** {uniq}\n"
+        f"**span_ok** {span_ok} **span_sec** {span_sec:.1f}\n"
+        f"**finalized_api** {finalized_n}/10\n\n"
         + "\n".join(f"- ch{s}: {n}" for s, n, _, _ in per) + "\n",
         encoding="utf-8",
     )

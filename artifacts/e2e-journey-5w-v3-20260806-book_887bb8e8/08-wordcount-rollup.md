@@ -2,7 +2,8 @@
 
 **total** 50749
 **pilot_states** ['beats_ready', 'checked', 'deduced', 'delivered', 'drafting', 'finalized', 'idle', 'outline_proposed']
-**span_ok** True
+**span_ok** True **span_sec** 5023.4
+**finalized_api** 10/10
 
 - ch1: 4690
 - ch2: 5798
