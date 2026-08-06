@@ -159,13 +159,22 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
   const [chapterInput, setChapterInput] = useState(seq == null ? '' : String(seq))
   const [contractId, setContractId] = useState('')
   const [contractRevision, setContractRevision] = useState(1)
-  const [fingerprintIds, setFingerprintIds] = useState('')
+  const [selectedFingerprintIds, setSelectedFingerprintIds] = useState([])
+  const [approvedFingerprints, setApprovedFingerprints] = useState([])
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
   const [retrying, setRetrying] = useState(false)
   const [retryError, setRetryError] = useState('')
   // 创建/重试会切换到新的冻结 job；旧请求晚返回时不得覆盖新 job 的空壳状态。
   const evaluationEpoch = useRef(0)
+
+  useEffect(() => {
+    let live = true
+    api.approvedReferenceFingerprints(work)
+      .then((rows) => { if (live) setApprovedFingerprints(Array.isArray(rows) ? rows : []) })
+      .catch(() => { if (live) setApprovedFingerprints([]) })
+    return () => { live = false }
+  }, [work])
 
   const activeSeq = Number.isInteger(Number(chapterInput)) && Number(chapterInput) > 0
     ? Number(chapterInput) : null
@@ -250,8 +259,7 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
     setCreating(true)
     setCreateError('')
     try {
-      const reference_fingerprint_ids = [...new Set(fingerprintIds.split(',')
-        .map((value) => value.trim()).filter(Boolean))]
+      const reference_fingerprint_ids = [...new Set(selectedFingerprintIds.filter(Boolean))]
       const created = await api.qualityCreateSnapshot({
         work,
         seq: activeSeq,
@@ -313,11 +321,40 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
             onChange={(e) => setContractRevision(e.target.value)}
             className="mt-1 h-8 w-full rounded border border-line bg-canvas px-2 text-f13 text-ink outline-none focus:border-brand" />
         </label>
-        <label className="text-meta text-faint">已批准参考指纹 ID
-          <input aria-label="已批准参考指纹 ID" value={fingerprintIds}
-            onChange={(e) => setFingerprintIds(e.target.value)} placeholder="可选，多个 ID 用逗号分隔"
-            className="mt-1 h-8 w-full rounded border border-line bg-canvas px-2 text-f13 text-ink outline-none focus:border-brand" />
-        </label>
+        <div className="sm:col-span-2 space-y-1.5">
+          <div className="text-meta text-faint">已批准技法标尺（从库选择，非手填 ID）</div>
+          {approvedFingerprints.length === 0 && (
+            <div className="text-meta text-faint" data-testid="quality-no-approved-fps">
+              暂无已批准指纹。请先在「技法标尺」导入、生成并批准。
+            </div>
+          )}
+          <div className="flex flex-col gap-1.5" data-testid="quality-fingerprint-picker" role="group" aria-label="已批准参考指纹">
+            {approvedFingerprints.map((fp) => {
+              const checked = selectedFingerprintIds.includes(fp.fingerprint_id)
+              return (
+                <label key={fp.fingerprint_id} className="inline-flex items-start gap-2 text-f13 text-ink">
+                  <input
+                    type="checkbox"
+                    aria-label={`选择标尺 ${fp.title || fp.fingerprint_id}`}
+                    checked={checked}
+                    onChange={() => setSelectedFingerprintIds((prev) => (
+                      checked
+                        ? prev.filter((id) => id !== fp.fingerprint_id)
+                        : [...prev, fp.fingerprint_id]
+                    ))}
+                  />
+                  <span>
+                    <span className="font-medium">{fp.title || '未命名标尺'}</span>
+                    <span className="text-meta text-faint"> · rev {fp.revision}</span>
+                    {fp.full_book_fingerprint && (
+                      <span className="block text-meta text-faint">{fp.full_book_fingerprint}</span>
+                    )}
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+        </div>
       </div>
       <div className="flex items-center gap-2">
         <Btn size="sm" onClick={createEvaluation} disabled={activeSeq == null || !contractId.trim() || creating}>

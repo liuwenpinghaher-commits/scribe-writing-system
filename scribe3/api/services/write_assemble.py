@@ -965,8 +965,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         if normalized_phase in ("draft", "final"):
             # 参考作品原文永不进入生成输入：这里只消费作者批准后的安全技法投影。
             # 每个指纹独立登记 supplemental source，供 Manifest 与使用账本追溯。
-            from scribe3.reference_craft import approved_craft_briefs
-            reference_craft_briefs = approved_craft_briefs(st, str(work or "main"))
+            # 契约 reference_targets 有绑定时只注入选中标尺；无 targets 则全部已批准。
+            from scribe3.reference_craft import craft_briefs_for_write
+            reference_craft_briefs = craft_briefs_for_write(st, str(work or "main"))
             for brief in reference_craft_briefs:
                 rendered += _domain_input(
                     f"reference_fingerprint:{brief.fingerprint_id}", "reference_craft",

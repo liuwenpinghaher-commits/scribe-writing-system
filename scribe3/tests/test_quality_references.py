@@ -28,9 +28,11 @@ class FakeDeepSeek:
     def complete(self, messages, **kwargs):
         self.calls.append(messages)
         self.call_kwargs.append(kwargs)
-        if self._call_index >= len(self._responses):
+        if not self._responses:
             raise RuntimeError("no more responses")
-        text = self._responses[self._call_index]
+        # map-reduce 会多次调用；用尽后复用最后一条响应
+        idx = min(self._call_index, len(self._responses) - 1)
+        text = self._responses[idx]
         self._call_index += 1
 
         class _Result:
@@ -139,13 +141,15 @@ class TestFingerprintGeneration:
 
         service.generate_fingerprint(reference_work_id=ref.reference_work_id, llm=llm)
 
-        assert llm.call_kwargs == [{
-            "max_tokens": 1200,
-            "timeout_seconds": 120,
-            "retry_count": 1,
-            "response_format": {"type": "json_object"},
-            "hard_deadline": True,
-        }]
+        assert llm.call_kwargs, "应至少有 map+reduce 调用"
+        for kwargs in llm.call_kwargs:
+            assert kwargs["timeout_seconds"] == 120
+            assert kwargs["retry_count"] == 1
+            assert kwargs["response_format"] == {"type": "json_object"}
+            assert kwargs["hard_deadline"] is True
+            assert kwargs["max_tokens"] in (600, 1200)
+        # reduce 使用完整指纹预算
+        assert llm.call_kwargs[-1]["max_tokens"] == 1200
 
     def test_generate_fingerprint_success(self, service, store):
         source_text = "参考正文。" * 50
@@ -168,23 +172,60 @@ class TestFingerprintGeneration:
         assert "transferable_mechanisms" in fp
         assert "non_copyable_elements" in fp
         assert "applicable_scope" in fp
-        assert source_text in llm.calls[0][1]["content"], (
-            "指纹模型必须获得实际导入的参考正文，而不是只有 source_hash 的空壳"
+        # map 阶段必须吃到导入正文（至少一段完整切片），而非只有 source_hash
+        map_user_blobs = [call[1]["content"] for call in llm.calls[:-1]]
+        assert any(source_text[:80] in blob for blob in map_user_blobs) or any(
+            "digest=" in blob for blob in map_user_blobs
         )
+        meta = fp.get("analysis_meta") or {}
+        assert meta.get("pipeline") == "map_reduce"
+        assert meta.get("segment_count", 0) >= 1
+        assert meta.get("chars_analyzed", 0) >= len(source_text)
+
+    def test_multi_segment_map_covers_beyond_leading_12k(self, service, store):
+        """全书级标尺：超过 12k 的正文必须分多段 map，而非只喂首窗。"""
+        chapters = []
+        for i in range(8):
+            # 每章足够长，合计远超 12k，迫使 map 多段覆盖
+            chapters.append(f"## 第{i + 1}章 标尺段{i + 1}\n" + ("悬念递进与环境压迫。" * 260))
+        source_text = "\n\n".join(chapters)
+        assert len(source_text) > 12_000
+        ref = service.import_reference(
+            work=store.db_name, title="长书标尺", text=source_text,
+        )
+        llm = FakeDeepSeek([_fingerprint_json()])
+        fingerprint = service.generate_fingerprint(
+            reference_work_id=ref.reference_work_id, llm=llm,
+        )
+        meta = fingerprint.fingerprint["analysis_meta"]
+        assert meta["segment_count"] >= 2
+        assert meta["map_calls"] == meta["segment_count"]
+        assert len(meta["segment_digests"]) == meta["segment_count"]
+        # 分段会 strip 空白，chars_analyzed 应覆盖全书主体且远超旧 12k 首窗
+        assert meta["chars_analyzed"] > 12_000
+        assert meta["chars_analyzed"] >= int(len(source_text) * 0.95)
+        # 至少两次 map 的 user 内容互不相同，证明不是重复喂同一 12k 窗
+        map_contents = [c[1]["content"] for c in llm.calls[: meta["map_calls"]]]
+        assert len(set(map_contents)) >= 2
+        # 各 map 片段 digest 覆盖分析元数据
+        for digest in meta["segment_digests"]:
+            assert any(digest in blob for blob in map_contents)
 
     def test_generate_fingerprint_persists_observed_tokenplan_metadata(self, service, store):
         ref = service.import_reference(
             work=store.db_name, title="调用证据", text="参考正文。" * 50,
         )
 
+        llm = FakeDeepSeek([_fingerprint_json()])
         fingerprint = service.generate_fingerprint(
             reference_work_id=ref.reference_work_id,
-            llm=FakeDeepSeek([_fingerprint_json()]),
+            llm=llm,
         )
 
         assert fingerprint.provider == "qwen"
         assert fingerprint.model == "qwen3.8-max-preview"
-        assert fingerprint.provider_request_id == "resp-1"
+        # map-reduce 多轮调用后，审计字段取最后一次（reduce）回执
+        assert fingerprint.provider_request_id == f"resp-{llm._call_index}"
         assert fingerprint.usage == {
             "prompt_tokens": 10,
             "completion_tokens": 20,

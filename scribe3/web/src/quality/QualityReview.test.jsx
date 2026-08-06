@@ -7,6 +7,7 @@ const apiMock = vi.hoisted(() => ({
   qualityAuthorJudgment: vi.fn(),
   qualityCreateSnapshot: vi.fn(),
   qualityRetryJob: vi.fn(),
+  approvedReferenceFingerprints: vi.fn(),
 }))
 
 vi.mock('../api', () => ({ api: apiMock }))
@@ -39,6 +40,16 @@ describe('QualityReview 十维三轴审阅', () => {
     apiMock.qualityEvaluation.mockResolvedValue(evaluation())
     apiMock.qualityAuthorJudgment.mockResolvedValue({ ok: true })
     apiMock.qualityCreateSnapshot.mockResolvedValue(evaluation())
+    apiMock.approvedReferenceFingerprints.mockResolvedValue([
+      {
+        fingerprint_id: 'fp-a', reference_work_id: 'rw-a', title: '标尺A', revision: 2,
+        full_book_fingerprint: '冷硬', transferable_mechanisms_preview: ['节奏'],
+      },
+      {
+        fingerprint_id: 'fp-b', reference_work_id: 'rw-b', title: '标尺B', revision: 1,
+        full_book_fingerprint: '克制', transferable_mechanisms_preview: ['视角'],
+      },
+    ])
   })
 
   it('渲染全部十个维度标签', async () => {
@@ -150,9 +161,9 @@ describe('QualityReview 十维三轴审阅', () => {
     fireEvent.change(screen.getByRole('textbox', { name: '质量合同 ID' }), {
       target: { value: 'contract-demo' },
     })
-    fireEvent.change(screen.getByRole('textbox', { name: '已批准参考指纹 ID' }), {
-      target: { value: 'fp-a, fp-b' },
-    })
+    // 主路径：从标尺库勾选，而非手填 ID
+    fireEvent.click(await screen.findByRole('checkbox', { name: /选择标尺 标尺A/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /选择标尺 标尺B/ }))
     fireEvent.click(screen.getByRole('button', { name: '创建章节评价' }))
     await waitFor(() => expect(apiMock.qualityCreateSnapshot).toHaveBeenCalledWith({
       work: 'demo', seq: 7, contract_id: 'contract-demo', contract_revision: 1,

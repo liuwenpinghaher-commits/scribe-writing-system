@@ -62,10 +62,57 @@ def _safe_mechanisms(
     return tuple(approved)
 
 
-def approved_craft_briefs(store, work: str) -> tuple[ReferenceCraftBrief, ...]:
-    """只投影当前作品最新且已批准的指纹；无批准即不注入。"""
+def selected_reference_work_ids_from_contract(
+    store, work: str,
+) -> frozenset[str] | None:
+    """从当前作品**最新已批准**质量合同读取 reference_targets 绑定。
+
+    - ``None``：无已批准合同，或合同未配置任何 reference_targets → 写路径注入
+      **全部**已批准标尺（可测默认）。
+    - ``frozenset``：仅注入 targets 中出现的 ``reference_work_id``（与已批准指纹
+      求交后可能为空 → 不注入）。
+    """
+    quality = QualityStore(store)
+    rows = store._query(
+        "SELECT contract_id, revision FROM quality_contract_revision "
+        "WHERE work=$work AND approved=true ORDER BY revision DESC LIMIT 1",
+        {"work": work},
+    )
+    if not rows:
+        return None
+    try:
+        contract = quality.get_contract(
+            str(rows[0]["contract_id"]), int(rows[0]["revision"]),
+        )
+    except (ValueError, TypeError, KeyError):
+        return None
+    targets = tuple(contract.reference_targets or ())
+    if not targets:
+        return None
+    ids = {
+        str(t.reference_work_id).strip()
+        for t in targets
+        if getattr(t, "reference_work_id", None) and str(t.reference_work_id).strip()
+    }
+    return frozenset(ids) if ids else frozenset()
+
+
+def approved_craft_briefs(
+    store,
+    work: str,
+    *,
+    reference_work_ids: frozenset[str] | None = None,
+) -> tuple[ReferenceCraftBrief, ...]:
+    """只投影当前作品最新且已批准的指纹；无批准即不注入。
+
+    ``reference_work_ids`` 为 ``None`` 时不额外过滤；为集合时仅保留 id 命中的标尺。
+    """
     quality = QualityStore(store)
     records = quality.approved_reference_fingerprints(work)
+    if reference_work_ids is not None:
+        records = tuple(
+            r for r in records if r.reference_work_id in reference_work_ids
+        )
     titles = quality.reference_titles(work)
     briefs: list[ReferenceCraftBrief] = []
     for record in records:
@@ -94,6 +141,12 @@ def approved_craft_briefs(store, work: str) -> tuple[ReferenceCraftBrief, ...]:
             text="\n".join(lines),
         ))
     return tuple(briefs)
+
+
+def craft_briefs_for_write(store, work: str) -> tuple[ReferenceCraftBrief, ...]:
+    """写路径唯一入口：契约有 reference_targets 则只注选中标尺，否则全部已批准。"""
+    selected = selected_reference_work_ids_from_contract(store, work)
+    return approved_craft_briefs(store, work, reference_work_ids=selected)
 
 
 def render_craft_briefs(briefs: tuple[ReferenceCraftBrief, ...]) -> str:

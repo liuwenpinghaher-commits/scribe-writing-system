@@ -62,3 +62,103 @@ def test_reference_craft_is_strictly_scoped_to_current_work(store):
         first.fingerprint_id
     ]
     assert approved_craft_briefs(store, "book-missing") == ()
+
+
+def test_contract_targets_filter_write_craft_to_selected_yardstick(store):
+    """已批准合同带 reference_targets 时，写路径只注入选中标尺；无 targets 则全部。"""
+    from scribe3.quality.models import (
+        DecisionWeights, QualityContractRevision, ReferenceTarget,
+    )
+    from scribe3.quality.store import QualityStore
+    from scribe3.reference_craft import (
+        approved_craft_briefs,
+        craft_briefs_for_write,
+        selected_reference_work_ids_from_contract,
+    )
+
+    a = _approved_fingerprint(store, work="book-a", title="标尺甲")
+    b = _approved_fingerprint(store, work="book-a", title="标尺乙")
+    # 无合同时：全部已批准
+    assert selected_reference_work_ids_from_contract(store, "book-a") is None
+    all_ids = {brief.fingerprint_id for brief in craft_briefs_for_write(store, "book-a")}
+    assert a.fingerprint_id in all_ids and b.fingerprint_id in all_ids
+
+    quality = QualityStore(store)
+    # reference_work_id on fingerprint records
+    rows = store._query(
+        "SELECT reference_work_id, fingerprint_id FROM reference_fingerprint "
+        "WHERE status='approved'",
+        {},
+    )
+    by_fp = {r["fingerprint_id"]: r["reference_work_id"] for r in rows}
+    only_a_work = by_fp[a.fingerprint_id]
+    dims = (
+        "coherence_causality", "character_truth", "scene_necessity", "structure_pacing",
+        "suspense_payoff", "emotional_effect", "reading_experience", "language_voice",
+        "theme_subtext", "originality",
+    )
+    contract = QualityContractRevision(
+        contract_id="quality_contract:book-a",
+        work="book-a",
+        revision=1,
+        primary_genre="悬疑",
+        overlay_genres=(),
+        custom_genre_description="",
+        target_readers="成年读者",
+        reading_context="连续阅读",
+        core_promise="选择推动关系与代价",
+        intended_experience=("好奇",),
+        emotional_arc=("疑惧",),
+        theme_questions=("真相是否值得代价？",),
+        allowed_ambiguities=(),
+        prohibited_preaching=(),
+        success_criteria={
+            "character": "选择来自人物",
+            "relationship": "关系由行动改变",
+            "structure": "章有推进",
+            "language": "克制",
+            "originality": "机制参与因果",
+        },
+        non_negotiables=(),
+        allowed_tradeoffs=(),
+        dimension_weights={d: 1.0 for d in dims},
+        weights=DecisionWeights(),
+        reference_targets=(
+            ReferenceTarget(
+                reference_work_id=only_a_work,
+                dimension="language_voice",
+                mode="inspired",
+                intensity=0.5,
+                mechanism="以环境变化迫使人物选择",
+                difference_requirement="人物与意象必须不同",
+            ),
+        ),
+        evaluation_milestones=("chapter",),
+        attention_budget={"blocking": -1, "major": 5, "ordinary": 10},
+        completion_criteria=("有证据",),
+        approved=False,
+    )
+    quality.save_contract_revision(contract)
+    quality.approve_contract(
+        contract.contract_id, contract.revision, expected_approved=False,
+    )
+    selected = selected_reference_work_ids_from_contract(store, "book-a")
+    assert selected == frozenset({only_a_work})
+    filtered = craft_briefs_for_write(store, "book-a")
+    assert [brief.fingerprint_id for brief in filtered] == [a.fingerprint_id]
+    # 显式 all-approved 路径仍可用
+    assert len(approved_craft_briefs(store, "book-a")) >= 2
+
+
+def test_pending_fingerprint_never_appears_in_craft_briefs(store):
+    from scribe3.quality.references import ReferenceService
+    from scribe3.reference_craft import craft_briefs_for_write
+
+    service = ReferenceService(store)
+    reference = service.import_reference(
+        work="book-p", title="未批准", text="雾港的钟响了。沈浪没有回头。",
+    )
+    service.generate_fingerprint(
+        reference_work_id=reference.reference_work_id, llm=_FingerprintLLM(),
+    )
+    assert craft_briefs_for_write(store, "book-p") == ()

@@ -91,6 +91,9 @@ export function QualityContractEditor({ work }) {
   const [status, setStatus] = useState('loading')
   const [error, setError] = useState('')
   const [approved, setApproved] = useState(false)
+  const [yardsticks, setYardsticks] = useState([])
+  const [pickId, setPickId] = useState('')
+  const [pickDim, setPickDim] = useState('language_voice')
   const patch = (key, value) => setForm((previous) => ({ ...previous, [key]: value }))
 
   useEffect(() => {
@@ -104,8 +107,29 @@ export function QualityContractEditor({ work }) {
         setForm(fromContract(contract, work)); setApproved(!!contract.approved); setStatus('ready')
       })
       .catch((err) => { if (live) { setStatus('ready'); if (err?.status !== 404) setError('读取质量合同失败，请检查连接后重试。') } })
+    api.approvedReferenceFingerprints(work)
+      .then((rows) => { if (live) setYardsticks(Array.isArray(rows) ? rows : []) })
+      .catch(() => { if (live) setYardsticks([]) })
     return () => { live = false }
   }, [work])
+
+  const addTargetFromYardstick = () => {
+    const row = yardsticks.find((item) => item.fingerprint_id === pickId || item.reference_work_id === pickId)
+    if (!row) return
+    let current = []
+    try { current = JSON.parse(form.referenceTargets || '[]') } catch { current = [] }
+    if (!Array.isArray(current)) current = []
+    const mechanism = (row.transferable_mechanisms_preview && row.transferable_mechanisms_preview[0]) || row.full_book_fingerprint || '已批准技法'
+    current.push({
+      reference_work_id: row.reference_work_id,
+      dimension: pickDim,
+      mode: 'inspired',
+      intensity: 0.5,
+      mechanism: String(mechanism).slice(0, 140),
+      difference_requirement: '以本书人物与冲突重新发明，禁止仿写原句与专名',
+    })
+    patch('referenceTargets', JSON.stringify(current, null, 2))
+  }
 
   const save = async () => {
     try {
@@ -151,7 +175,28 @@ export function QualityContractEditor({ work }) {
     </div><LinesField label="允许的取舍" path="contract.allowed_tradeoffs" value={form.allowedTradeoffs} onChange={(value) => patch('allowedTradeoffs', value)} /></Card>
     <Card className="p-4 space-y-3"><h3 className="font-medium text-ink">五类成功标准</h3><div className="grid gap-3">{SUCCESS.map(([key, label]) => <LinesField key={key} label={`${label}成功标准`} path={`contract.success_criteria.${key}`} value={form.success[key] || ''} onChange={(value) => patchNested('success', key, value)} />)}</div></Card>
     <Card className="p-4 space-y-3"><h3 className="font-medium text-ink">十维与三轴</h3><div className="grid sm:grid-cols-2 gap-3">{DIMENSIONS.map(([key, label]) => <TextField key={key} label={`${label}权重`} path={`contract.dimension_weights.${key}`} type="number" value={form.dimensionWeights[key]} onChange={(value) => patchNested('dimensionWeights', key, value)} />)}</div><div className="grid sm:grid-cols-3 gap-3"><TextField label="作者权重" path="contract.weights.author" type="number" value={form.weights.author} onChange={(value) => patchNested('weights', 'author', value)} /><TextField label="系统权重" path="contract.weights.system" type="number" value={form.weights.system} onChange={(value) => patchNested('weights', 'system', value)} /><TextField label="参考权重" path="contract.weights.reference" type="number" value={form.weights.reference} onChange={(value) => patchNested('weights', 'reference', value)} /></div></Card>
-    <Card className="p-4 space-y-3"><h3 className="font-medium text-ink">参考、里程碑与完成</h3><LinesField label="参考目标（JSON 数组）" path="contract.reference_targets" value={form.referenceTargets} onChange={(value) => patch('referenceTargets', value)} placeholder='[{"reference_work_id":"…","dimension":"language_voice","mode":"inspired","intensity":0.5,"mechanism":"…","difference_requirement":"…"}]' /><div className="flex flex-wrap gap-3">{['scene', 'chapter', 'volume', 'book'].map((item) => <label key={item} className="inline-flex items-center gap-1 text-f13 text-ink"><input type="checkbox" checked={form.milestones.includes(item)} onChange={() => patch('milestones', form.milestones.includes(item) ? form.milestones.filter((value) => value !== item) : [...form.milestones, item])} data-field-path={`contract.evaluation_milestones.${item}`} />{item}</label>)}</div><div className="grid sm:grid-cols-3 gap-3"><TextField label="阻断预算" path="contract.attention_budget.blocking" type="number" value={form.attention.blocking} onChange={(value) => patchNested('attention', 'blocking', value)} /><TextField label="主要问题预算" path="contract.attention_budget.major" type="number" value={form.attention.major} onChange={(value) => patchNested('attention', 'major', value)} /><TextField label="普通问题预算" path="contract.attention_budget.ordinary" type="number" value={form.attention.ordinary} onChange={(value) => patchNested('attention', 'ordinary', value)} /></div><LinesField label="完成标准" path="contract.completion_criteria" value={form.completionCriteria} onChange={(value) => patch('completionCriteria', value)} /></Card>
+    <Card className="p-4 space-y-3"><h3 className="font-medium text-ink">参考、里程碑与完成</h3>
+      <div className="rounded-md border border-line bg-canvas p-3 space-y-2" data-testid="contract-yardstick-picker">
+        <div className="text-f12 text-faint">从已批准技法标尺添加参考目标（主路径；JSON 仍可细调）</div>
+        <div className="grid sm:grid-cols-3 gap-2">
+          <label className="grid gap-1 text-f12 text-faint"><span>已批准标尺</span>
+            <select aria-label="选择已批准标尺" value={pickId} onChange={(e) => setPickId(e.target.value)} className="h-8 rounded-md border border-line bg-canvas px-2 text-f13 text-ink">
+              <option value="">选择…</option>
+              {yardsticks.map((row) => (
+                <option key={row.fingerprint_id} value={row.fingerprint_id}>{row.title || row.reference_work_id} · rev {row.revision}</option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1 text-f12 text-faint"><span>维度</span>
+            <select aria-label="参考目标维度" value={pickDim} onChange={(e) => setPickDim(e.target.value)} className="h-8 rounded-md border border-line bg-canvas px-2 text-f13 text-ink">
+              {DIMENSIONS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select>
+          </label>
+          <div className="flex items-end"><Btn size="sm" variant="soft" onClick={addTargetFromYardstick} disabled={!pickId}>加入参考目标</Btn></div>
+        </div>
+        {yardsticks.length === 0 && <div className="text-meta text-faint">暂无已批准指纹。请先在技法标尺模块批准一部参考。</div>}
+      </div>
+      <LinesField label="参考目标（JSON 数组）" path="contract.reference_targets" value={form.referenceTargets} onChange={(value) => patch('referenceTargets', value)} placeholder='[{"reference_work_id":"…","dimension":"language_voice","mode":"inspired","intensity":0.5,"mechanism":"…","difference_requirement":"…"}]' /><div className="flex flex-wrap gap-3">{['scene', 'chapter', 'volume', 'book'].map((item) => <label key={item} className="inline-flex items-center gap-1 text-f13 text-ink"><input type="checkbox" checked={form.milestones.includes(item)} onChange={() => patch('milestones', form.milestones.includes(item) ? form.milestones.filter((value) => value !== item) : [...form.milestones, item])} data-field-path={`contract.evaluation_milestones.${item}`} />{item}</label>)}</div><div className="grid sm:grid-cols-3 gap-3"><TextField label="阻断预算" path="contract.attention_budget.blocking" type="number" value={form.attention.blocking} onChange={(value) => patchNested('attention', 'blocking', value)} /><TextField label="主要问题预算" path="contract.attention_budget.major" type="number" value={form.attention.major} onChange={(value) => patchNested('attention', 'major', value)} /><TextField label="普通问题预算" path="contract.attention_budget.ordinary" type="number" value={form.attention.ordinary} onChange={(value) => patchNested('attention', 'ordinary', value)} /></div><LinesField label="完成标准" path="contract.completion_criteria" value={form.completionCriteria} onChange={(value) => patch('completionCriteria', value)} /></Card>
     <div className="flex items-center gap-2 pb-8"><Btn onClick={save} disabled={status === 'saving'}>{status === 'saving' ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}保存合同草案</Btn><Btn variant="bordered" onClick={approve} disabled={status === 'saving' || approved}>{approved ? <><CheckCircle2 size={14} />已批准</> : '批准本修订'}</Btn></div>
   </div></div>
 }

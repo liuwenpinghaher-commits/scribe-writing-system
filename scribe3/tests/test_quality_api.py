@@ -111,7 +111,7 @@ class TestFingerprintEndpoints:
             "scribe3.quality.api._get_deepseek_client", lambda: FakeClient()
         )
         resp = client.post(f"/references/{ref_id}/fingerprints", json={
-            "work": store.db_name,
+            "work": store.db_name, "async_job": False,
         })
         assert resp.status_code == 201
         body = resp.json()
@@ -140,7 +140,7 @@ class TestFingerprintEndpoints:
         monkeypatch.setattr(
             "scribe3.quality.api._get_deepseek_client", lambda: FakeClient()
         )
-        client.post(f"/references/{ref_id}/fingerprints", json={"work": store.db_name})
+        client.post(f"/references/{ref_id}/fingerprints", json={"work": store.db_name, "async_job": False})
         resp = client.get(f"/references/{ref_id}/fingerprints", params={"work": store.db_name})
         assert resp.status_code == 200
         assert len(resp.json()) >= 1
@@ -166,12 +166,12 @@ class TestFingerprintEndpoints:
 
         monkeypatch.setattr("scribe3.quality.api._get_deepseek_client", lambda: FakeClient())
         pending = client.post(
-            f"/references/{ref_id}/fingerprints", json={"work": store.db_name},
+            f"/references/{ref_id}/fingerprints", json={"work": store.db_name, "async_job": False},
         ).json()
 
         response = client.post(
             f"/references/{ref_id}/fingerprints/{pending['fingerprint_id']}/approve",
-            json={"work": store.db_name},
+            json={"work": store.db_name, "async_job": False},
         )
 
         assert response.status_code == 201
@@ -770,3 +770,136 @@ class TestQualityContractEndpoints:
         body = evaluation.json()
         assert body["weights"] == {"author": 0.6, "system": 0.25, "reference": 0.15}
         assert body["dimensions"][0]["decision_index"] == pytest.approx(4.6)
+
+
+class TestMultipartImportAndApprovedList:
+    def test_import_file_multipart_job_persists_reference_not_material(self, client, store):
+        """multipart 上传走 shipped import-file，不经 JSON 全文 body。"""
+        content = ("第一章内容。" * 200 + "\n\n## 第二章\n" + "二章内容。" * 200).encode("utf-8")
+        resp = client.post(
+            "/references/import-file",
+            data={"work": store.db_name, "title": "上传标尺"},
+            files={"file": ("yardstick.txt", content, "text/plain")},
+        )
+        assert resp.status_code == 202, resp.text
+        job_id = resp.json()["job_id"]
+        job = client.get(
+            f"/references/import-jobs/{job_id}",
+            params={"work": store.db_name},
+        )
+        assert job.status_code == 200
+        body = job.json()
+        assert body["done"] is True
+        assert body["error"] == ""
+        assert body["reference_work_id"]
+        # 列表可见
+        listed = client.get("/references", params={"work": store.db_name})
+        assert any(r["reference_work_id"] == body["reference_work_id"] for r in listed.json())
+        # 不进 material
+        materials = store._query("SELECT * FROM material", {})
+        assert materials == []
+        # 原文在 reference_work 可寻址
+        rows = store._query(
+            "SELECT source_text FROM reference_work WHERE reference_work_id=$rid LIMIT 1",
+            {"rid": body["reference_work_id"]},
+        )
+        assert rows and "第一章内容" in (rows[0].get("source_text") or "")
+
+    def test_approved_fingerprints_list_for_quality_bind(self, client, store, monkeypatch):
+        import json as _json
+        fp_json = _json.dumps({
+            "local_mechanisms": ["x"], "cross_chapter_aggregation": "y",
+            "full_book_fingerprint": "全书冷硬", "evidence": [{"quote": "a", "location": "b"}],
+            "counter_evidence": [], "transferable_mechanisms": ["可迁移节奏"],
+            "non_copyable_elements": ["专名"], "applicable_scope": "s",
+        }, ensure_ascii=False)
+
+        class FakeResult:
+            content = fp_json
+            response_id = "r1"
+            model = "deepseek-chat"
+            usage = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+
+        class FakeClient:
+            def complete(self, messages, **kw):
+                return FakeResult()
+
+        monkeypatch.setattr("scribe3.quality.api._get_deepseek_client", lambda: FakeClient())
+        created = client.post("/references/import", json={
+            "work": store.db_name, "title": "可选标尺", "text": "正文。" * 40,
+        }).json()
+        rid = created["reference_work_id"]
+        pending = client.post(
+            f"/references/{rid}/fingerprints", json={"work": store.db_name, "async_job": False},
+        ).json()
+        client.post(
+            f"/references/{rid}/fingerprints/{pending['fingerprint_id']}/approve",
+            json={"work": store.db_name},
+        )
+        listed = client.get("/references/approved-fingerprints", params={"work": store.db_name})
+        assert listed.status_code == 200
+        rows = listed.json()
+        assert len(rows) >= 1
+        assert rows[0]["fingerprint_id"]
+        assert rows[0]["title"] == "可选标尺"
+        assert "可迁移节奏" in (rows[0].get("transferable_mechanisms_preview") or [])
+        # 与 material 端点分离
+        assert "/materials" not in str(listed.url)
+
+
+class TestAsyncFingerprintJob:
+    def test_async_fingerprint_job_completes_with_pending_review(self, client, store, monkeypatch):
+        """产品路径：202 + job 轮询 → pending_review；多段 coverage 写入 job 与 fingerprint。"""
+        import json as _json
+        chapters = []
+        for i in range(6):
+            chapters.append(f"## 第{i + 1}章\n" + ("悬念递进与环境压迫。" * 220))
+        source = "\n\n".join(chapters)
+        assert len(source) > 12_000
+        created = client.post("/references/import", json={
+            "work": store.db_name, "title": "异步长标尺", "text": source,
+        }).json()
+        rid = created["reference_work_id"]
+        fp_json = _json.dumps({
+            "local_mechanisms": ["悬念"], "cross_chapter_aggregation": "三幕",
+            "full_book_fingerprint": "冷硬", "evidence": [{"quote": "a", "location": "b"}],
+            "counter_evidence": [], "transferable_mechanisms": ["节奏"],
+            "non_copyable_elements": ["专名"], "applicable_scope": "悬疑",
+        }, ensure_ascii=False)
+
+        class FakeResult:
+            content = fp_json
+            response_id = "r1"
+            model = "deepseek-chat"
+            usage = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+
+        class FakeClient:
+            def complete(self, messages, **kw):
+                return FakeResult()
+
+        monkeypatch.setattr("scribe3.quality.api._get_deepseek_client", lambda: FakeClient())
+        resp = client.post(
+            f"/references/{rid}/fingerprints",
+            json={"work": store.db_name, "async_job": True},
+        )
+        assert resp.status_code == 202, resp.text
+        job_id = resp.json()["job_id"]
+        # TestClient runs BackgroundTasks before return; job should be done
+        job = client.get(
+            f"/references/fingerprint-jobs/{job_id}",
+            params={"work": store.db_name},
+        )
+        assert job.status_code == 200
+        body = job.json()
+        assert body["done"] is True
+        assert body["error"] == ""
+        assert body["fingerprint_id"]
+        assert body["status"] == "pending_review"
+        assert (body.get("segment_count") or 0) >= 2 or (body.get("map_calls") or 0) >= 2
+        listed = client.get(f"/references/{rid}/fingerprints", params={"work": store.db_name})
+        fps = listed.json()
+        assert any(f.get("fingerprint_id") == body["fingerprint_id"] for f in fps)
+        pending = next(f for f in fps if f["fingerprint_id"] == body["fingerprint_id"])
+        meta = (pending.get("fingerprint") or {}).get("analysis_meta") or {}
+        assert meta.get("pipeline") == "map_reduce"
+        assert meta.get("segment_count", 0) >= 2

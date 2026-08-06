@@ -1633,7 +1633,10 @@ def _rebind_services() -> None:
         (_svc_pilot_runtime, ['_contextual_review_complete', '_grounding_review', '_pilot_executor', '_pilot_run_bg']),
         (_svc_prompt_blocks, ['_codex_value_repr', '_faction_relation_summary', '_pulse_digest', '_thread_history_for_prompt', '_secret_guard_block', '_strip_preamble', '_avoid_directive', '_arc_state_block', '_motif_block', '_frame_block', '_recap_block', '_revelation_discipline_block', '_final_reminder', '_verbatim_deduction_fallback']),
         (_svc_thread_helpers, ['_resolve_thread_or_raise', '_editor_turn_context', '_context_memory_metrics', '_capture_turn_memory', '_maybe_summarize_thread', '_summarize_thread_inner', '_ChatTurnLog']),
-        (_svc_write_assemble, ['_faction_prompt_block', '_codex_block', '_editor_system', '_editor_identity_block', '_write_protocol_block', '_write_revision_block', '_editor_write_system', '_voice_anchor_block', '_outline_block', '_deduction_context_segments', '_purpose_and_lessons_write_block', '_brief_must_sections_write_block', '_material_recall_block', '_assemble_write_instructions_v1', '_assemble_write_instructions']),
+        # inject_floor_env_enabled + _anti_slop_floor_block：写路径 v1 组装在
+        # _assemble_write_instructions_v1 内调用；漏绑会在 rebind 后 NameError，
+        # 阻断 reference craft 注入与 craft_use 审计（见 test_assembler_v1_parity）。
+        (_svc_write_assemble, ['_faction_prompt_block', '_codex_block', '_editor_system', '_editor_identity_block', '_write_protocol_block', '_write_revision_block', 'inject_floor_env_enabled', '_anti_slop_floor_block', '_editor_write_system', '_voice_anchor_block', '_outline_block', '_deduction_context_segments', '_purpose_and_lessons_write_block', '_brief_must_sections_write_block', '_material_recall_block', '_assemble_write_instructions_v1', '_assemble_write_instructions']),
         (_svc_write_stream, ['_work_has_tools', '_write_phase_allows_tools', '_WRITE_VERB_RE', '_is_write_intent', '_stream_write', '_write_snapshot', '_get_write_retriever', '_build_write_retrieval_query', '_write_context_binding', '_save_write_memory_trace', '_save_write_context_outcome', '_WriteOutcomeBinding', '_collect_write']),
     ):
         for name in names:

@@ -96,7 +96,7 @@ export function useLeftDockCapabilities({
     ] : [
       { key: 'tree', icon: FolderTree, bare: true, group: 'content', label: '项目树', render: () => projectTree(tree) },
     ]
-    base.push({ key: 'references', icon: Library, bare: true, group: 'content', label: '参考作品', render: () => <ReferenceWorks work={work} /> })
+    base.push({ key: 'references', icon: Library, bare: true, group: 'content', label: '技法标尺', render: () => <ReferenceWorks work={work} /> })
     if (includeStageTabs) {
       base.push(
         { key: 'brief', icon: ScrollText, group: 'content', label: '简报', render: () => <BriefPanel seq={seq} /> },

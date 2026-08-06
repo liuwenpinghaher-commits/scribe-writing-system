@@ -2,17 +2,27 @@
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 import threading
+import uuid
 from math import ceil
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from scribe3.quality.references import ReferenceService
+from scribe3.quality.segments import PASTE_MAX_CHARS
 
 quality_router = APIRouter(prefix="/references", tags=["references"])
 quality_eval_router = APIRouter(prefix="/quality", tags=["quality"])
+
+# 技法标尺导入 / 指纹作业（进程内；与素材 job 隔离，实体仍写入 reference_*）
+_ref_import_jobs: dict[str, dict[str, Any]] = {}
+_ref_fp_jobs: dict[str, dict[str, Any]] = {}
+_ref_import_lock = threading.Lock()
+_ref_fp_lock = threading.Lock()
 
 
 def _get_deepseek_client():
@@ -29,6 +39,8 @@ class ImportBody(BaseModel):
 
 class FingerprintBody(BaseModel):
     work: str
+    # 产品默认异步 job；测试可设 async_job=false 走同步 201（仍调用同一 generate_fingerprint）。
+    async_job: bool = True
 
 
 class FingerprintApprovalBody(BaseModel):
@@ -57,33 +69,322 @@ def _service(request: Request, work: str) -> ReferenceService:
     return ReferenceService(_store_for_request(request, work))
 
 
+def _ref_job_set(job_id: str, **fields: Any) -> dict[str, Any]:
+    with _ref_import_lock:
+        job = dict(_ref_import_jobs.get(job_id) or {})
+        fields.pop("job_id", None)
+        job.update(fields)
+        job["job_id"] = job_id
+        _ref_import_jobs[job_id] = job
+        return dict(job)
+
+
+def _ref_job_get(job_id: str) -> dict[str, Any] | None:
+    with _ref_import_lock:
+        job = _ref_import_jobs.get(job_id)
+        return dict(job) if job else None
+
+
+def _fp_job_set(job_id: str, **fields: Any) -> dict[str, Any]:
+    with _ref_fp_lock:
+        job = dict(_ref_fp_jobs.get(job_id) or {})
+        fields.pop("job_id", None)
+        job.update(fields)
+        job["job_id"] = job_id
+        _ref_fp_jobs[job_id] = job
+        return dict(job)
+
+
+def _fp_job_get(job_id: str) -> dict[str, Any] | None:
+    with _ref_fp_lock:
+        job = _ref_fp_jobs.get(job_id)
+        return dict(job) if job else None
+
+
+def _run_fingerprint_job(
+    *,
+    job_id: str,
+    work: str,
+    reference_work_id: str,
+    store_factory,
+    llm_factory,
+) -> None:
+    """后台分层指纹：map-reduce → pending_review 指纹记录。"""
+    try:
+        _fp_job_set(
+            job_id, stage="分析中", done=False, error="", progress=0.1,
+            reference_work_id=reference_work_id, work=work,
+        )
+        store = store_factory(work)
+        svc = ReferenceService(store)
+        llm = llm_factory()
+        _fp_job_set(job_id, stage="分段 map-reduce", progress=0.35)
+        record = svc.generate_fingerprint(
+            reference_work_id=reference_work_id, llm=llm,
+        )
+        meta = (record.fingerprint or {}).get("analysis_meta") or {}
+        _fp_job_set(
+            job_id,
+            stage="完成",
+            done=True,
+            error="",
+            progress=1.0,
+            fingerprint_id=record.fingerprint_id,
+            status=record.status,
+            revision=record.revision,
+            segment_count=meta.get("segment_count"),
+            map_calls=meta.get("map_calls"),
+            chars_analyzed=meta.get("chars_analyzed"),
+            pipeline=meta.get("pipeline"),
+        )
+    except Exception as exc:
+        logging.getLogger("scribe3.quality").warning(
+            "指纹作业 %s 失败: %s", job_id, type(exc).__name__,
+        )
+        _fp_job_set(
+            job_id, stage="错误", done=True, progress=1.0, error=str(exc)[:500],
+        )
+
+
+def _run_reference_file_import(
+    *,
+    job_id: str,
+    work: str,
+    title: str,
+    tmp_path: str,
+    store_factory,
+) -> None:
+    """后台：markitdown 解析临时文件 → 写入 reference_work（非 material）。"""
+    try:
+        _ref_job_set(job_id, stage="解析中", done=False, error="")
+        from scribe3.material_import import parse_to_markdown
+
+        markdown = parse_to_markdown(tmp_path)
+        _ref_job_set(job_id, stage="入库中", chars=len(markdown or ""))
+        store = store_factory(work)
+        svc = ReferenceService(store)
+        record = svc.import_reference(
+            work=work, title=title, text=markdown, paste=False,
+        )
+        _ref_job_set(
+            job_id,
+            stage="完成",
+            done=True,
+            error="",
+            reference_work_id=record.reference_work_id,
+            title=record.title,
+            status=record.status,
+            source_hash=record.source_hash,
+            chars=len(markdown or ""),
+        )
+    except Exception as exc:
+        logging.getLogger("scribe3.quality").warning(
+            "参考导入作业 %s 失败: %s", job_id, type(exc).__name__,
+        )
+        _ref_job_set(
+            job_id, stage="错误", done=True, error=str(exc)[:500],
+        )
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
 @quality_router.get("")
 def list_references(work: str, request: Request):
     records = _service(request, work).list_references(work=work)
     return [record.model_dump(mode="json") for record in records]
 
 
+@quality_router.get("/approved-fingerprints")
+def list_approved_fingerprints(work: str, request: Request):
+    """质量评价/契约选择器：当前作品已批准标尺指纹（无原文）。"""
+    return _service(request, work).list_approved_fingerprints_for_ui(work=work)
+
+
 @quality_router.post("/import", status_code=201)
 def import_reference(body: ImportBody, request: Request):
     if not body.text and not body.file_src:
-        from fastapi import HTTPException
         raise HTTPException(422, "必须提供 text 或 file_src")
     svc = _service(request, body.work)
-    record = svc.import_reference(
-        work=body.work, title=body.title,
-        text=body.text, file_src=body.file_src,
-    )
+    try:
+        record = svc.import_reference(
+            work=body.work, title=body.title,
+            text=body.text, file_src=body.file_src,
+            paste=bool(body.text and not body.file_src),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     return record.model_dump(mode="json")
 
 
-@quality_router.post("/{reference_work_id}/fingerprints", status_code=201)
-def generate_fingerprint(reference_work_id: str, body: FingerprintBody, request: Request):
+@quality_router.post("/import-file", status_code=202)
+async def import_reference_file(
+    request: Request,
+    background: BackgroundTasks,
+    work: str = Form(...),
+    title: str = Form(..., min_length=1),
+    file: UploadFile = File(...),
+):
+    """整书文件导入：multipart + 异步 job，不经浏览器 JSON 粘贴全文。"""
+    if not title.strip():
+        raise HTTPException(422, "标题不能为空")
+    content = await file.read()
+    if not content:
+        raise HTTPException(422, "上传文件为空")
+    suffix = os.path.splitext(file.filename or "")[1] or ".txt"
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    try:
+        tmp.write(content)
+        tmp.close()
+    except Exception:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+        raise
+    job_id = uuid.uuid4().hex[:12]
+    _ref_job_set(
+        job_id,
+        work=work,
+        title=title.strip(),
+        stage="已接收",
+        done=False,
+        error="",
+        source_filename=file.filename or "",
+        bytes=len(content),
+        reference_work_id=None,
+    )
+
+    def store_factory(work_name: str):
+        return _store_for_request(request, work_name)
+
+    background.add_task(
+        _run_reference_file_import,
+        job_id=job_id,
+        work=work,
+        title=title.strip(),
+        tmp_path=tmp.name,
+        store_factory=store_factory,
+    )
+    return {
+        "job_id": job_id,
+        "stage": "已接收",
+        "done": False,
+        "paste_max_chars": PASTE_MAX_CHARS,
+    }
+
+
+@quality_router.get("/import-jobs/{job_id}")
+def get_reference_import_job(job_id: str, work: str, request: Request):
+    job = _ref_job_get(job_id)
+    if job is None:
+        raise HTTPException(404, "导入任务不存在或已清理")
+    if job.get("work") and job["work"] != work:
+        raise HTTPException(404, "导入任务不属于当前作品")
+    return {
+        "job_id": job_id,
+        "work": job.get("work"),
+        "title": job.get("title"),
+        "stage": job.get("stage"),
+        "done": bool(job.get("done")),
+        "error": job.get("error") or "",
+        "reference_work_id": job.get("reference_work_id"),
+        "status": job.get("status"),
+        "source_hash": job.get("source_hash"),
+        "chars": job.get("chars"),
+        "bytes": job.get("bytes"),
+        "source_filename": job.get("source_filename"),
+    }
+
+
+@quality_router.get("/fingerprint-jobs/{job_id}")
+def get_fingerprint_job(job_id: str, work: str, request: Request):
+    """分层指纹异步作业状态（作者可轮询）。"""
+    job = _fp_job_get(job_id)
+    if job is None:
+        raise HTTPException(404, "指纹任务不存在或已清理")
+    if job.get("work") and job["work"] != work:
+        raise HTTPException(404, "指纹任务不属于当前作品")
+    return {
+        "job_id": job_id,
+        "work": job.get("work"),
+        "reference_work_id": job.get("reference_work_id"),
+        "stage": job.get("stage"),
+        "done": bool(job.get("done")),
+        "error": job.get("error") or "",
+        "progress": job.get("progress"),
+        "fingerprint_id": job.get("fingerprint_id"),
+        "status": job.get("status"),
+        "revision": job.get("revision"),
+        "segment_count": job.get("segment_count"),
+        "map_calls": job.get("map_calls"),
+        "chars_analyzed": job.get("chars_analyzed"),
+        "pipeline": job.get("pipeline"),
+    }
+
+
+@quality_router.post("/{reference_work_id}/fingerprints")
+def generate_fingerprint(
+    reference_work_id: str,
+    body: FingerprintBody,
+    request: Request,
+    background: BackgroundTasks,
+):
+    """生成指纹：默认异步 job（202）；``async_job=false`` 时同步返回 201（测试/兼容）。"""
+    from fastapi.responses import JSONResponse
+
     svc = _service(request, body.work)
+    # 存在性预检，避免后台 job 才发现 404
+    try:
+        text = svc._get_reference_text(reference_work_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    if not (text or "").strip():
+        raise HTTPException(422, "参考作品原文为空，无法生成指纹")
+
+    if body.async_job:
+        job_id = uuid.uuid4().hex[:12]
+        _fp_job_set(
+            job_id,
+            work=body.work,
+            reference_work_id=reference_work_id,
+            stage="已排队",
+            done=False,
+            error="",
+            progress=0.0,
+        )
+
+        def store_factory(work_name: str):
+            return _store_for_request(request, work_name)
+
+        background.add_task(
+            _run_fingerprint_job,
+            job_id=job_id,
+            work=body.work,
+            reference_work_id=reference_work_id,
+            store_factory=store_factory,
+            llm_factory=_get_deepseek_client,
+        )
+        return JSONResponse(
+            status_code=202,
+            content={
+                "job_id": job_id,
+                "stage": "已排队",
+                "done": False,
+                "reference_work_id": reference_work_id,
+            },
+        )
+
     llm = _get_deepseek_client()
-    record = svc.generate_fingerprint(
-        reference_work_id=reference_work_id, llm=llm,
-    )
-    return record.model_dump(mode="json")
+    try:
+        record = svc.generate_fingerprint(
+            reference_work_id=reference_work_id, llm=llm,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return JSONResponse(status_code=201, content=record.model_dump(mode="json"))
 
 
 @quality_router.get("/{reference_work_id}/fingerprints")

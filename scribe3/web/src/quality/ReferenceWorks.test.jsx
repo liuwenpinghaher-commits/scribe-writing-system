@@ -5,6 +5,8 @@ import { ReferenceWorks } from './ReferenceWorks'
 const apiMock = vi.hoisted(() => ({
   referenceWorks: vi.fn(),
   referenceImport: vi.fn(),
+  referenceImportFile: vi.fn(),
+  referenceImportJob: vi.fn(),
   referenceFingerprints: vi.fn(),
   referenceGenerateFingerprint: vi.fn(),
   referenceApproveFingerprint: vi.fn(),
@@ -18,6 +20,10 @@ describe('ReferenceWorks 参考作品工作台', () => {
     apiMock.referenceWorks.mockResolvedValue([])
     apiMock.referenceFingerprints.mockResolvedValue([])
     apiMock.referenceImport.mockResolvedValue({ reference_work_id: 'rw1', title: '参考A', status: 'imported' })
+    apiMock.referenceImportFile.mockResolvedValue({ job_id: 'job1', done: false })
+    apiMock.referenceImportJob.mockResolvedValue({
+      job_id: 'job1', done: true, error: '', reference_work_id: 'rw-file', title: '文件标尺', stage: '完成',
+    })
     apiMock.referenceGenerateFingerprint.mockResolvedValue({ fingerprint_id: 'fp1', status: 'pending_review' })
     apiMock.referenceApproveFingerprint.mockResolvedValue({ fingerprint_id: 'fp1', status: 'approved', revision: 2 })
   })
@@ -25,7 +31,7 @@ describe('ReferenceWorks 参考作品工作台', () => {
   it('粘贴文本导入参考作品', async () => {
     render(<ReferenceWorks work="demo" />)
     const titleInput = screen.getByLabelText(/标题/)
-    const textInput = screen.getByLabelText(/正文|文本/)
+    const textInput = screen.getByLabelText(/短样|正文|文本/)
     fireEvent.change(titleInput, { target: { value: '参考A' } })
     fireEvent.change(textInput, { target: { value: '一段参考文本' } })
     fireEvent.click(screen.getByRole('button', { name: /导入/ }))

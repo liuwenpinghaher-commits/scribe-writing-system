@@ -131,11 +131,28 @@ export const api = {
   quality: () => j('/quality'),
   // 质量缓存由正文保存/回写时维护；规则升级或历史缓存过期时作者可显式刷新。
   refreshQuality: () => post('/quality/refresh', {}),
-  // 质量决策纵向链:参考作品导入/指纹、章节评价与作者评分。
+  // 质量决策纵向链:技法标尺导入/指纹、章节评价与作者评分（与素材库分离）。
   referenceWorks: () => j('/references'),
   referenceImport: (b) => post('/references/import', b),
+  /** multipart 整书导入 → { job_id }；轮询 referenceImportJob */
+  referenceImportFile: ({ work, title, file }) => {
+    const fd = new FormData()
+    fd.append('work', work ?? WORK)
+    fd.append('title', title)
+    fd.append('file', file)
+    return fetch(BASE + ww('/references/import-file', work), {
+      method: 'POST',
+      body: fd,
+    }).then(handle)
+  },
+  referenceImportJob: (jobId, work) => j(`/references/import-jobs/${enc(jobId)}`, work),
+  approvedReferenceFingerprints: (work) => j('/references/approved-fingerprints', work),
   referenceFingerprints: (id) => j(`/references/${enc(id)}/fingerprints`),
-  referenceGenerateFingerprint: (id, b) => post(`/references/${enc(id)}/fingerprints`, b),
+  /** 默认异步 job：返回 { job_id }；轮询 referenceFingerprintJob */
+  referenceGenerateFingerprint: (id, b) => post(`/references/${enc(id)}/fingerprints`, {
+    async_job: true, ...b,
+  }),
+  referenceFingerprintJob: (jobId, work) => j(`/references/fingerprint-jobs/${enc(jobId)}`, work),
   referenceApproveFingerprint: (referenceWorkId, fingerprintId, b) => post(
     `/references/${enc(referenceWorkId)}/fingerprints/${enc(fingerprintId)}/approve`, b,
   ),
