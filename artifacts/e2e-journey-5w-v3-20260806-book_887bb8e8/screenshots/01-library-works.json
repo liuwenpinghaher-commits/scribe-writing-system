@@ -1,0 +1,25 @@
+[
+  {
+    "slug": "book_2524fd8a",
+    "title": "旅程五站·v2·离线灌稿·不作PASS",
+    "owner_user_id": "admin",
+    "chapter_count": 11,
+    "word_count": 45285,
+    "total_word_goal": 50000
+  },
+  {
+    "slug": "book_2acba371",
+    "title": "印迹",
+    "owner_user_id": null,
+    "chapter_count": 5,
+    "word_count": 96
+  },
+  {
+    "slug": "book_887bb8e8",
+    "title": "旅程五站·v3·20260806",
+    "owner_user_id": "admin",
+    "chapter_count": 10,
+    "word_count": 50749,
+    "total_word_goal": 50000
+  }
+]

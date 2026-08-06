@@ -348,12 +348,14 @@ def _pilot_executor(work: str) -> dict:
         # 2) 作者意图要求长章(可见汉字≥N) 且当前 prose 明显偏短 → 视为扩写意图
         force_clear = False
         if prose_now and steer:
-            if "【强制重写】" in steer:
+            m = _re_dl.search(r"可见汉字\s*≥\s*(\d{3,5})", steer)
+            target = int(m.group(1)) if m else 0
+            # 显式强制重写 或 意图要求长章：仅当当前仍短于目标才清稿。
+            # 若已够长仍见「【强制重写】」残留在 pilot_steer，不得再清（否则无限 advisory 环）。
+            if target and prose_cn < target:
                 force_clear = True
-            else:
-                m = _re_dl.search(r"可见汉字\s*≥\s*(\d{3,5})", steer)
-                if m and prose_cn < int(m.group(1)):
-                    force_clear = True
+            elif "【强制重写】" in steer and (not target) and prose_cn < 4500:
+                force_clear = True
         if force_clear:
             try:
                 # SCHEMAFULL prose 是 string，不可 SET NONE；空串才合法

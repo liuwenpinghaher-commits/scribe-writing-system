@@ -608,8 +608,28 @@ def drive_chapter(evid: Path, seq: int):
                     continue
                 if n < MIN_CH_CHARS:
                     print(f"  WARN short accepted for now chars={n} (retries exhausted)", flush=True)
-            # clear parked and continue
+            # 够长：清 park 并连 step 越过 draft→check→deliver，禁止反复 restore 同稿
             curl("POST", "/api/pilot/reset-step", {"seq": seq}, timeout=60)
+            for _adv in range(8):
+                code, res = curl("POST", "/api/pilot/step", {
+                    "seq": seq, "mode": "manual", "steer": "",
+                }, timeout=STEP_TIMEOUT)
+                snap(evid, "post_restore_advance", seq=seq, http=code,
+                     detail=str(res)[:200], chars=n)
+                if code == "409" and isinstance(res, dict):
+                    detail = str(res.get("detail") or "")
+                    if "大纲" in detail or "终选" in detail:
+                        curl("POST", "/api/pilot/approve", {"seq": seq}, timeout=STEP_TIMEOUT)
+                    elif "在途" in detail:
+                        time.sleep(3)
+                    continue
+                stt = (res or {}).get("state") if isinstance(res, dict) else None
+                if stt in ("delivered", "finalized", "checked"):
+                    break
+                if isinstance(res, dict) and res.get("gate") == "parked":
+                    break
+            time.sleep(1)
+            continue
 
         # normal step — 每步续写 steer 尾部，防 dismiss 后 pilot_steer 被清空且后续空 steer
         # 导致 draft_loop 看不到「可见汉字≥/强制重写」

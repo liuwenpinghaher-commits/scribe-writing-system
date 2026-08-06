@@ -1,0 +1,85 @@
+{
+  "journey": {
+    "stations": [
+      {
+        "id": "intent",
+        "label": "立项",
+        "status": "done"
+      },
+      {
+        "id": "world",
+        "label": "世界底座",
+        "status": "done"
+      },
+      {
+        "id": "structure",
+        "label": "结构",
+        "status": "done"
+      },
+      {
+        "id": "serialize",
+        "label": "连载推进",
+        "status": "current"
+      },
+      {
+        "id": "ledger",
+        "label": "账本健康",
+        "status": "todo"
+      }
+    ],
+    "current_station": "serialize"
+  },
+  "chapter_lane": {
+    "seq": 10,
+    "title": "第十章·合灯",
+    "pilot_state": "finalized",
+    "pilot_state_label": "已定稿",
+    "phase_hint": "final",
+    "parked": "",
+    "stalled": false,
+    "next_action": null,
+    "next_action_label": null,
+    "pipeline": [
+      {
+        "id": "idle",
+        "label": "开写",
+        "status": "done"
+      },
+      {
+        "id": "outline_proposed",
+        "label": "大纲",
+        "status": "done"
+      },
+      {
+        "id": "beats_ready",
+        "label": "节拍",
+        "status": "done"
+      },
+      {
+        "id": "deduced",
+        "label": "演绎",
+        "status": "done"
+      },
+      {
+        "id": "drafting",
+        "label": "草稿",
+        "status": "done"
+      },
+      {
+        "id": "checked",
+        "label": "体检",
+        "status": "done"
+      },
+      {
+        "id": "delivered",
+        "label": "交付",
+        "status": "done"
+      },
+      {
+        "id": "finalized",
+        "label": "定稿",
+        "status": "current"
+      }
+    ]
+  }
+}
