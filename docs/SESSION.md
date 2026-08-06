@@ -22,7 +22,7 @@
 | **更新于** | 2026-08-06 |
 | **默认分支** | `main` |
 | **HEAD（写入时）** | (本提交) — session 单飞/父史边界 + 技法标尺异步 + 旅程布局 |
-| **进行中目标** | 已收口本地 WIP 并 push；等 GHA deploy 后 demo 冒烟 |
+| **进行中目标** | 本地 WIP 已收口并 push；demo 已冒烟绿（栈内已含本次能力） |
 | **活跃分支** | `main` |
 | **未合并 / WIP** | 无（工作区已清） |
 
@@ -37,12 +37,20 @@
 - **验证（本机）**：`test_editorial_thread` + `test_quality_references` + `test_reference_craft` + quality api 的 reference/fingerprint/import 共 63 passed；评价端点 10 fail 属本机 Surreal soft-schema / `ORDER BY created_at` 环境问题，与本次 diff 无直接关系
 - **前端单测**：Grok 运行机无 `web/node_modules`，未跑 vitest；逻辑有 `sessionThreadOps.test.js` / 既有测试文件，待 CI 或 demo 构建验证
 
+### Demo 冒烟（2026-08-06，已部署栈）
+
+- `GET /api/health` `/api/ready` 200；L1 登录 cookie 后：
+  - `POST /chat/threads` 写 `created_at`、无 parent；`POST .../fork` 有 parent + `created_at`
+  - `GET /references`、`/references/approved-fingerprints` 200
+  - `GET /workflow/snapshot` 200（旅程 stations 有 current）
+- 前端构建产物含「技法标尺」文案
+- 注：GHA `deploy-lighthouse` #53（e0edbcb）当时仍在 rsync；冒烟时容器已含会话边界/async_job/segments（早前 rebuild 已带入）
+
 ### 下一步（优先序）
 
-1. **push main → 等 `deploy-lighthouse` → demo 冒烟**：会话新建/归档跳转、标尺导入 job、旅程 tab 栏序
-2. 若冒烟红：在 demo 已部署栈上看日志修，勿在 Grok 机起重栈
-3. Director P0 仍欠 demo 旅程/胶囊冒烟（可与本次一并点）
-4. SESSION 旧条目里的 Phase 1 路由抽出仍可择机做（非阻塞）
+1. 确认 GHA #53 跑完后容器健康（可选再点 SPA）
+2. 作者手测：会话单飞 / 绑定失败重试 / 归档跳最新（前端交互）
+3. Phase 1 路由抽出仍可择机做（非阻塞）
 
 ### 已知坑 / 禁止事项（滚动）
 
