@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
-const switchThread = vi.fn()
+const switchThread = vi.fn(() => Promise.resolve({ revision: 1, session_id: 's' }))
 const apiMock = vi.hoisted(() => ({
   threads: vi.fn(),
   createThread: vi.fn(),
@@ -14,19 +14,26 @@ vi.mock('../api', () => ({ api: apiMock }))
 vi.mock('../context/ContextSnapshotContext', () => ({
   useContextSnapshot: () => ({ snapshot: { thread_id: 't1' }, switchThread }),
 }))
-vi.mock('../ui/Toast.jsx', () => ({ showToast: vi.fn() }))
+const showToast = vi.hoisted(() => vi.fn())
+vi.mock('../ui/Toast.jsx', () => ({ showToast }))
 import { ThreadSwitcher } from '../ThreadSwitcher'
 
 const LIST = { threads: [
-  { thread_id: 't1', title: '主编讨论', status: 'active' },
-  { thread_id: 't2', title: '门派支线', status: 'active' },
-  { thread_id: 't3', title: '老支线', status: 'archived' },
+  { thread_id: 't1', title: '主编讨论', status: 'active', updated_at: '2024-01-01T00:00:00Z' },
+  { thread_id: 't2', title: '门派支线', status: 'active', updated_at: '2024-06-01T00:00:00Z' },
+  { thread_id: 't3', title: '旧支线', status: 'archived', updated_at: '2025-01-01T00:00:00Z' },
 ] }
 
 beforeEach(() => {
   switchThread.mockClear()
+  switchThread.mockImplementation(() => Promise.resolve({ revision: 1, session_id: 's' }))
   apiMock.threads.mockReset()
   apiMock.createThread.mockReset()
+  apiMock.forkThread.mockReset()
+  apiMock.forkThread.mockResolvedValue({ thread_id: 't4' })
+  apiMock.patchThread.mockReset()
+  apiMock.patchThread.mockResolvedValue({})
+  showToast.mockClear()
 })
 
 describe('ThreadSwitcher', () => {
@@ -62,6 +69,59 @@ describe('ThreadSwitcher', () => {
     fireEvent.click(screen.getByText('全新会话(不带历史)'))
     await waitFor(() => expect(apiMock.createThread).toHaveBeenCalled())
     await waitFor(() => expect(switchThread).toHaveBeenCalledWith('t9'))
+  })
+
+  it('单飞:创建进行中连点不会二次 fork', async () => {
+    apiMock.threads.mockResolvedValue(LIST)
+    let resolveFork
+    apiMock.forkThread.mockImplementation(() => new Promise((r) => { resolveFork = r }))
+    render(<ThreadSwitcher busy={false} />)
+    fireEvent.click(screen.getByText('主编讨论'))
+    await waitFor(() => screen.getByTestId('thread-new-continue'))
+    fireEvent.click(screen.getByTestId('thread-new-continue'))
+    fireEvent.click(screen.getByTestId('thread-new-continue'))
+    fireEvent.click(screen.getByTestId('thread-new-continue'))
+    expect(apiMock.forkThread).toHaveBeenCalledTimes(1)
+    resolveFork({ thread_id: 't-only', title: '新会话', status: 'active' })
+    await waitFor(() => expect(switchThread).toHaveBeenCalledWith('t-only'))
+  })
+
+  it('绑定失败后展示重试且重试仍用同一 thread_id 不再 create', async () => {
+    apiMock.threads.mockResolvedValue(LIST)
+    apiMock.forkThread.mockResolvedValue({ thread_id: 't-orphan', title: '新会话', status: 'active' })
+    switchThread
+      .mockRejectedValueOnce(new Error('bind fail'))
+      .mockResolvedValueOnce({ revision: 2, session_id: 's2', thread_id: 't-orphan' })
+    render(<ThreadSwitcher busy={false} />)
+    fireEvent.click(screen.getByText('主编讨论'))
+    await waitFor(() => screen.getByTestId('thread-new-continue'))
+    fireEvent.click(screen.getByTestId('thread-new-continue'))
+    await waitFor(() => screen.getByTestId('thread-bind-retry'))
+    expect(apiMock.forkThread).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByTestId('thread-bind-retry-btn'))
+    await waitFor(() => expect(switchThread).toHaveBeenCalledTimes(2))
+    expect(switchThread).toHaveBeenLastCalledWith('t-orphan')
+    expect(apiMock.forkThread).toHaveBeenCalledTimes(1)
+  })
+
+  it('归档当前会话切到 updated_at 最新的其它 active', async () => {
+    apiMock.threads
+      .mockResolvedValueOnce(LIST)
+      .mockResolvedValueOnce({
+        threads: [
+          { thread_id: 't2', title: '门派支线', status: 'active', updated_at: '2024-06-01T00:00:00Z' },
+          { thread_id: 't1', title: '主编讨论', status: 'archived', updated_at: '2024-07-01T00:00:00Z' },
+          { thread_id: 't0', title: '更早但更新', status: 'active', updated_at: '2024-08-01T00:00:00Z', created_at: '2020-01-01T00:00:00Z' },
+        ],
+      })
+    render(<ThreadSwitcher busy={false} />)
+    fireEvent.click(screen.getByText('主编讨论'))
+    await waitFor(() => screen.getByText(/✓ 主编讨论/))
+    // 归档按钮在 group-hover；直接点 title=归档
+    const archiveBtns = screen.getAllByTitle('归档')
+    fireEvent.click(archiveBtns[0]) // 当前 t1 行
+    await waitFor(() => expect(apiMock.patchThread).toHaveBeenCalledWith('t1', { status: 'archived' }))
+    await waitFor(() => expect(switchThread).toHaveBeenCalledWith('t0'))
   })
 
   it('列表加载失败:红字「不代表没有会话」,不装没事', async () => {

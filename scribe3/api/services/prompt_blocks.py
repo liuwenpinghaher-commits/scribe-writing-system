@@ -103,6 +103,13 @@ def _pulse_digest(st, seq: int | None) -> str:
         return ""
 
 
+# fork 延续会话注入父近窗时的边界标记(模型可见;全新会话路径绝不出现)。
+# 注意:函数体用字面量(见下方),因 app_impl rebind 会把 __code__ 绑到其它 globals,
+# 模块级名在 rebind 后不可见;常量仍导出供测试断言同源文案。
+PARENT_SESSION_EXCERPT_BOUNDARY = "【来自上一会话的摘录，非本会话消息】"
+PARENT_SESSION_TURN_TAG = "【上一会话】"
+
+
 def _thread_history_for_prompt(st, thread_id: str | None, *, max_msgs: int = 12,
                                max_chars_each: int = 600,
                                last_assistant_chars: int = 2400,
@@ -135,12 +142,23 @@ def _thread_history_for_prompt(st, thread_id: str | None, *, max_msgs: int = 12,
         # 有 parent 的会话(新建默认=fork 延续)在本会话消息不足近窗时,用直接父会话的
         # 尾部原文补齐——主编无缝记得上一会话聊到哪(零 LLM、无损;fork 已拷父 summary 兜早期)。
         # 全新会话(无 parent,手动"不带历史"通道)不回溯;只回溯一层,父的父由父 summary 承载。
+        # 父摘录必须带边界标记,避免模型把上一会话尾部当成「本会话已说」。
         parent_id = (thread_row.get("parent_thread_id") or "").strip()
         if parent_id and len(kept) < max_msgs:
             prows = st.list_thread_messages(parent_id, limit=max_msgs - len(kept))
             pkept = [(r.get("role"), (r.get("text") or "").strip()) for r in prows
                      if r.get("role") in ("user", "assistant") and (r.get("text") or "").strip()]
-            kept = pkept + kept
+            if pkept:
+                # 字面量:rebind 后不可依赖本模块 globals 中的常量名
+                boundary = "【来自上一会话的摘录，非本会话消息】"
+                turn_tag = "【上一会话】"
+                labeled: list[tuple[str, str]] = []
+                for i, (role, text) in enumerate(pkept):
+                    if i == 0:
+                        labeled.append((role, f"{boundary}\n{text}"))
+                    else:
+                        labeled.append((role, f"{turn_tag}{text}"))
+                kept = labeled + kept
         last_asst = max((i for i, (role, _) in enumerate(kept) if role == "assistant"),
                         default=None)
         out = []

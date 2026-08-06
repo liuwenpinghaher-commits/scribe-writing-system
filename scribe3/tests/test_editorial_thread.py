@@ -455,6 +455,7 @@ def test_daily_digest_partial_source_failure_is_loud(store, monkeypatch):
 def test_forked_thread_history_backfills_from_parent(store, monkeypatch):
     """延续会话(fork)首轮:近窗回溯父会话尾部原文——主编无缝记得上一会话。"""
     import scribe3.app as A
+    from scribe3.api.services.prompt_blocks import PARENT_SESSION_EXCERPT_BOUNDARY
     A.set_store(store)
     parent = store.get_or_create_editorial_thread("main", "author")["thread_id"]
     store.add_chat_message(1, "discuss", "user", "父会话:主角定为守灯人", thread_id=parent)
@@ -463,19 +464,51 @@ def test_forked_thread_history_backfills_from_parent(store, monkeypatch):
     hist = A._thread_history_for_prompt(store, child["thread_id"])
     joined = " ".join(m["content"] for m in hist)
     assert "守灯人" in joined, f"延续会话必须带父会话近窗,实际={hist!r}"
+    assert PARENT_SESSION_EXCERPT_BOUNDARY in joined, (
+        f"父近窗必须带边界标记,实际={hist!r}"
+    )
     # 子会话自己有消息后,父内容仍在前、子在后(时序正确)
     store.add_chat_message(1, "discuss", "user", "子会话新话题", thread_id=child["thread_id"])
     hist2 = A._thread_history_for_prompt(store, child["thread_id"])
     texts = [m["content"] for m in hist2]
     assert any("守灯人" in t for t in texts) and texts[-1] == "子会话新话题"
+    assert any(PARENT_SESSION_EXCERPT_BOUNDARY in t for t in texts)
 
 
 def test_fresh_thread_history_stays_empty(store):
     """全新会话(无 parent,手动'不带历史'):绝不回溯——与线程隔离对抗测试同一约束。"""
     import scribe3.app as A
+    from scribe3.api.services.prompt_blocks import PARENT_SESSION_EXCERPT_BOUNDARY
     A.set_store(store)
     default = store.get_or_create_editorial_thread("main", "author")["thread_id"]
     store.add_chat_message(1, "discuss", "user", "旧会话机密", thread_id=default)
     fresh = store.create_editorial_thread("main", "author")
     hist = A._thread_history_for_prompt(store, fresh["thread_id"])
     assert all("旧会话机密" not in m["content"] for m in hist)
+    assert all(PARENT_SESSION_EXCERPT_BOUNDARY not in m["content"] for m in hist)
+
+
+def test_archive_pick_latest_active_by_updated_at(store):
+    """归档后「下一个会话」应是剩余 active 中 updated_at 最新者(与前端 pick 对齐的数据前提)。"""
+    a = store.get_or_create_editorial_thread(store.db_name, "author")
+    b = store.create_editorial_thread(store.db_name, "author", title="中频")
+    c = store.create_editorial_thread(store.db_name, "author", title="最新活跃")
+    # 人为刷新 updated_at：对 c 写 meta 再对 b 写，使 c 更新
+    store.update_editorial_thread_meta(c["thread_id"], title="最新活跃")
+    import time
+    time.sleep(0.05)
+    store.update_editorial_thread_meta(b["thread_id"], title="中频改")
+    # 再更新 c，确保 c 最新
+    time.sleep(0.05)
+    store.update_editorial_thread_meta(c["thread_id"], title="最新活跃2")
+    store.update_editorial_thread_meta(a["thread_id"], status="archived")
+    threads = store.list_editorial_threads(store.db_name)
+    active = [t for t in threads if t.get("status") == "active"]
+    assert len(active) >= 2
+    # 与前端 pickLatestActiveThread 同序：updated_at 降序
+    ranked = sorted(
+        active,
+        key=lambda t: (str(t.get("updated_at") or ""), str(t.get("thread_id") or "")),
+        reverse=True,
+    )
+    assert ranked[0]["thread_id"] == c["thread_id"], ranked

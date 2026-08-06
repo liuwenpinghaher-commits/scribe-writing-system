@@ -254,8 +254,12 @@ export function ContextSnapshotProvider({ work, children }) {
   // P0a:切换主编会话=重建 context session 绑新线程(snapshot.thread_id 是前端线程唯一
   // 事实源,不裂)。成功:换绑 + localStorage 记偏好;失败:danger toast + **当前状态不变**
   // (零降级:绝不半切/静默回落)。
+  // 成功 resolve(snap)；失败 toast 后 **rethrow**，供新建会话绑定重试(同 thread_id)。
+  // 列表点切换仍可 .catch 忽略；创建路径必须感知失败，避免「库已建、UI 仍停旧会话」。
   const switchThread = useCallback((threadId) => {
-    if (!threadId || typeof api?.createContextSession !== 'function') return Promise.resolve()
+    if (!threadId || typeof api?.createContextSession !== 'function') {
+      return Promise.reject(new Error('无法绑定会话：上下文会话 API 不可用'))
+    }
     const wKey = work ?? api?.getWork?.() ?? 'main'
     return Promise.resolve()
       .then(() => api.createContextSession({ work: wKey, thread_id: threadId }))
@@ -273,10 +277,12 @@ export function ContextSnapshotProvider({ work, children }) {
         setSnapshotConfirmed(true)
         setError(null)
         try { localStorage.setItem('s3.thread.current.' + wKey, threadId) } catch { /* */ }
+        return snap
       })
       .catch((e) => {
         showToast(`切换会话失败:${e?.body?.detail?.message || e?.body?.detail || e?.message || ''}`,
                   { tone: 'danger' })
+        throw e
       })
   }, [work, commit])
 

@@ -147,7 +147,7 @@ class ChatAiMixin:
             "CREATE editorial_thread SET thread_id=$tid, work=$w, actor_id=$a, "
             "parent_thread_id=NONE, title=$title, status='active', "
             "hermes_conversation_id=NONE, previous_response_id=NONE, summary='', "
-            "updated_at=time::now() RETURN NONE",
+            "created_at=time::now(), updated_at=time::now() RETURN NONE",
             {"tid": tid, "w": work, "a": actor_id,
              "title": (title or "").strip() or "新会话"})
         return self._get_editorial_thread(tid)
@@ -193,7 +193,7 @@ class ChatAiMixin:
             "CREATE editorial_thread SET thread_id=$tid, work=$w, actor_id=$a, "
             "parent_thread_id=$parent, title=$title, status='active', "
             "hermes_conversation_id=NONE, previous_response_id=NONE, summary=$sum, "
-            "updated_at=time::now() RETURN NONE",
+            "created_at=time::now(), updated_at=time::now() RETURN NONE",
             {"tid": tid, "w": parent["work"], "a": parent["actor_id"],
              "parent": parent_thread_id,
              "title": title or parent.get("title") or "主编讨论",
