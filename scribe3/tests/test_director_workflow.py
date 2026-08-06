@@ -110,3 +110,31 @@ def test_http_workflow_snapshot(monkeypatch):
     assert body["chapter_lane"]["pilot_state"] == "beats_ready"
     assert body["next_step"]["title"]
     assert "total_score" not in body
+
+
+def test_snapshot_next_step_for_five_pilot_states():
+    """Continue samples: ≥5 distinct pilot_state values each yield next_step + suggested_prompt."""
+    st = MiniStore()
+    states = [
+        "idle",
+        "outline_proposed",
+        "beats_ready",
+        "deduced",
+        "delivered",
+    ]
+    seen_ids = []
+    for s in states:
+        write_state(st, 1, s)
+        snap = build_workflow_snapshot(st, work="demo", seq=1)
+        assert snap["chapter_lane"]["pilot_state"] == s
+        assert snap["next_step"]["id"], s
+        assert snap["suggested_prompt"], s
+        assert snap["ui_directive"]["right_tab"] == "chief"
+        seen_ids.append((s, snap["next_step"]["id"]))
+    assert len({s for s, _ in seen_ids}) >= 5
+    # continue-like: each state has a usable how_chat / title
+    for s, nid in seen_ids:
+        snap = build_workflow_snapshot(st, work="demo", seq=1)
+        write_state(st, 1, s)
+        snap = build_workflow_snapshot(st, work="demo", seq=1)
+        assert snap["next_step"].get("title") or snap["next_step"].get("how_chat")
