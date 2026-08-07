@@ -104,6 +104,9 @@ def is_noise_heuristic(item: dict) -> bool:
         # 「…替高门」类
         if "替" in name and "门" in name and len(name) > 4:
             return True
+        # 泛称单名（无「代还/一脉」等组织后缀）且极短
+        if name in ("高门", "低门", "正门", "侧门", "山门", "家门", "师门") and conf < 0.85:
+            return True
     return False
 
 
@@ -276,6 +279,53 @@ def enrich_candidate(st: Any, item: dict) -> dict[str, Any]:
         except Exception:
             chapter_excerpt = {"seq": seq, "snippet": "", "located": False}
 
+    # 合并候选项：同 module 下可选 target 列表（最多 40）
+    merge_options: list[dict] = []
+    try:
+        if mod == "character" and hasattr(st, "characters"):
+            chars = st.characters() if callable(st.characters) else []
+            for c in chars or []:
+                cn = (getattr(c, "name", None) or "").strip()
+                cid = str(getattr(c, "id", "") or "")
+                if cn or cid:
+                    merge_options.append({
+                        "target": cid if cid.startswith("role:") else f"role:{cn or cid.split(':')[-1]}",
+                        "label": cn or cid,
+                    })
+        elif mod == "faction" and hasattr(st, "list_factions"):
+            for f in st.list_factions() or []:
+                fn = (f.get("name") if isinstance(f, dict) else None) or ""
+                if fn:
+                    merge_options.append({"target": fn, "label": fn})
+        elif mod == "world_rule" and hasattr(st, "list_world_rules"):
+            for r in st.list_world_rules() or []:
+                rn = (r.get("name") if isinstance(r, dict) else None) or ""
+                if rn:
+                    merge_options.append({"target": rn, "label": rn})
+        elif mod == "item" and hasattr(st, "list_items"):
+            for it in st.list_items() or []:
+                n = (it.get("name") if isinstance(it, dict) else None) or ""
+                if n:
+                    merge_options.append({"target": n, "label": n})
+        elif mod == "term" and hasattr(st, "list_terms"):
+            for it in st.list_terms() or []:
+                n = (it.get("name") if isinstance(it, dict) else None) or ""
+                if n:
+                    merge_options.append({"target": n, "label": n})
+    except Exception:
+        pass
+    # 去重
+    seen_t = set()
+    uniq_opts = []
+    for o in merge_options:
+        t = o.get("target")
+        if t and t not in seen_t:
+            seen_t.add(t)
+            uniq_opts.append(o)
+    merge_options = uniq_opts[:40]
+
+    group_key = f"{mod}|{(a.get('target') or '').split(':')[-1]}"
+
     return {
         "item": a,
         "title": a["title"],
@@ -285,4 +335,8 @@ def enrich_candidate(st: Any, item: dict) -> dict[str, Any]:
         "chapter_excerpt": chapter_excerpt,
         "impact": a.get("impact") or {},
         "is_noise": a.get("is_noise"),
+        "merge_options": merge_options,
+        "group_key": group_key,
+        "modules_enum": list(MODULE_LABELS.keys()),
+        "module_labels": MODULE_LABELS,
     }

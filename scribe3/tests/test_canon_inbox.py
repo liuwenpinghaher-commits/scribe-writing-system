@@ -61,3 +61,40 @@ def test_batch_decide_empty_ids():
         assert out.get("processed") == 0
     finally:
         cl._store = old
+
+
+def test_batch_decide_group_key_reject():
+    from scribe3.api.routers import canon_loop as cl
+    rejected = []
+
+    class _St:
+        def list_canon_candidates(self, **kw):
+            return [
+                {"id": "a1", "module": "faction", "target": "高门", "extractor": "heuristic", "confidence": 0.5},
+                {"id": "a2", "module": "faction", "target": "高门", "extractor": "heuristic", "confidence": 0.5},
+                {"id": "b1", "module": "character", "target": "role:沈拾灯", "extractor": "marker"},
+            ]
+        def get_canon_candidate(self, uid):
+            for r in self.list_canon_candidates():
+                if r["id"] == uid:
+                    return r
+            return None
+        def set_canon_candidate_status(self, uid, status):
+            rejected.append((uid, status))
+
+    old = cl._store
+    cl._store = lambda w: _St()
+    try:
+        out = cl.batch_decide(cl.BatchDecideReq(
+            work="t", decision="reject", group_key="faction|高门",
+        ))
+        assert out["ok_count"] == 2
+        assert {x[0] for x in rejected} == {"a1", "a2"}
+    finally:
+        cl._store = old
+
+
+def test_generic_faction_noise():
+    assert is_noise_heuristic({
+        "module": "faction", "target": "高门", "extractor": "heuristic", "confidence": 0.5,
+    })

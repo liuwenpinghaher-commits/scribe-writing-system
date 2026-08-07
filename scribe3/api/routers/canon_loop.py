@@ -126,6 +126,8 @@ class BatchDecideReq(BaseModel):
     reason: str = ""
     # 便捷：忽略当前噪声桶
     noise_only: bool = False
+    # 同 target 分组：传 group_key = "module|bare" 批该组全部 pending
+    group_key: str = ""
 
 
 def _claims(req_claims: list[ClaimIn] | None) -> list[CanonClaim] | None:
@@ -324,9 +326,20 @@ def batch_decide(req: BatchDecideReq, work: str | None = None):
     if not hasattr(st, "list_canon_candidates"):
         raise HTTPException(503, "no candidate store")
     ids = list(req.ids or [])
+    pending = st.list_canon_candidates(status="pending") if hasattr(st, "list_canon_candidates") else []
     if req.noise_only:
-        pending = st.list_canon_candidates(status="pending")
         ids = [i["id"] for i in pending if i.get("id") and is_noise_heuristic(annotate_flags(i))]
+    if (req.group_key or "").strip():
+        gk = req.group_key.strip()
+        g_ids = []
+        for i in pending:
+            mod = (i.get("module") or "").lower()
+            bare = (i.get("target") or "").split(":")[-1]
+            if f"{mod}|{bare}" == gk and i.get("id"):
+                g_ids.append(i["id"])
+        ids = g_ids if not ids else [x for x in ids if x in set(g_ids)]
+        if not ids:
+            ids = g_ids
     if not ids:
         return {"ok": True, "processed": 0, "results": []}
     if len(ids) > 300:
