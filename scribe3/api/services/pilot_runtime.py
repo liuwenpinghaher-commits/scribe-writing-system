@@ -209,10 +209,22 @@ def _pilot_executor(work: str) -> dict:
         ch = st.get_chapter(seq) or {}
         if ch.get("beats"):
             return {"skipped": "节拍已有内容,按既有推进(不覆盖)"}
+        import re as _re_b
+
+        def _beats_from_synopsis(syn: str) -> list[dict]:
+            """确定性回退：只切大纲原文，不引入新主张（与接地 fail-closed 同口径）。"""
+            parts = [p.strip() for p in _re_b.split(r"[；;。！？!?\n]+", syn or "") if p.strip()]
+            out_b = [{"text": p} for p in parts if len(p) >= 4][:7]
+            if len(out_b) < 2 and (syn or "").strip():
+                s = syn.strip()
+                mid = max(8, len(s) // 2)
+                out_b = [{"text": s[:mid].strip()}, {"text": s[mid:].strip() or s[:mid].strip()}]
+            return [b for b in out_b if b["text"]]
+
         out = _pilot_llm_gen(st, work, seq, "plan",
                              f"据本章大纲展开节拍:4-7条,每条一行一个动作/转折,"
-                             f"不写成正文。只输出节拍行,每行一条。\n大纲:{ch.get('synopsis') or ''}")
-        import re as _re_b
+                             f"不写成正文。只输出节拍行,每行一条。"
+                             f"禁止新增大纲没有的人物/物件/规则。\n大纲:{ch.get('synopsis') or ''}")
         beats = [{"text": _re_b.sub(r"^\s*(?:[-·•]|\d{1,2}[.、])\s*", "", ln).strip()}
                  for ln in out.splitlines() if ln.strip()]
         beats = [b for b in beats if b["text"]][:8]
@@ -225,6 +237,14 @@ def _pilot_executor(work: str) -> dict:
             st=st, work=work, chapter=seq,
         )
         if not review["ok"]:
+            # 产品最优：不用外部脚手架，而用大纲原文切分作节拍（零新增主张）
+            fb = _beats_from_synopsis(ch.get("synopsis") or "")
+            if len(fb) >= 2:
+                st.update_chapter_meta(seq, {"beats": fb})
+                logging.getLogger("scribe3").info(
+                    "expand_beats synopsis-segment fallback work=%s seq=%s n=%s", work, seq, len(fb))
+                return {"beats": fb, "grounding": {"ok": True, "fallback": "synopsis_segments"},
+                        "llm_rejected": review}
             return {"pilot_park": "事实对齐失败:节拍含无来源主张，请修订后再推进",
                     "grounding": review, "candidate_beats": beats}
         st.update_chapter_meta(seq, {"beats": beats})
@@ -257,9 +277,36 @@ def _pilot_executor(work: str) -> dict:
         if have_truth:
             truth = (ch.get("scene_truth") or "").strip()
         else:
-            truth = _pilot_llm_gen(st, work, seq, "deduce",
-                                   f"写第{seq}章这一场的「场景真相」:全知冷叙,客观上真正发生了什么,"
-                                   f"含角色们察觉不到的隐藏机制。只输出真相正文。")
+            syn0 = (ch.get("synopsis") or "").strip()
+            truth = ""
+            try:
+                truth = _pilot_llm_gen(st, work, seq, "deduce",
+                                       f"写第{seq}章这一场的「场景真相」:全知冷叙,客观上真正发生了什么。"
+                                       f"只能使用大纲已有信息,禁止新增人物/物件/规则。"
+                                       f"只输出真相正文。\n大纲:{syn0}")
+            except Exception as e:
+                logging.getLogger("scribe3").warning(
+                    "scene_truth LLM fail work=%s seq=%s: %s", work, seq, e)
+                truth = ""
+            # 真相须钉回大纲；LLM 失败或未过接地 → 用大纲作真相（零幻觉）
+            if truth.strip():
+                gr_t = _grounding_review(syn0, truth, mode="beats", st=st, work=work, chapter=seq)
+                if not gr_t.get("ok") and syn0:
+                    logging.getLogger("scribe3").info(
+                        "scene_truth fall back to synopsis work=%s seq=%s", work, seq)
+                    truth = syn0
+            elif syn0:
+                logging.getLogger("scribe3").info(
+                    "scene_truth LLM empty/fail → synopsis work=%s seq=%s", work, seq)
+                truth = syn0
+            else:
+                return pilot_deduce_observation(
+                    park="场景真相生成失败且无大纲可回退",
+                    made=0, missing=[], stale=[], truth_revision=0,
+                    scene_truth_chars=0, deductions_count=0,
+                    inferred_involved=inferred_involved,
+                    involved_written=involved_written,
+                )
             st.update_chapter_meta(seq, {"scene_truth": truth})
             ch = st.get_chapter(seq) or ch
         # 刷新 ch 以拿最新 deductions / rev
@@ -274,31 +321,64 @@ def _pilot_executor(work: str) -> dict:
                 existing[key] = d
         deds = list(ch.get("deductions") or [])
         made = 0
+        try:
+            from scribe3.api.services.prompt_blocks import _verbatim_deduction_fallback
+        except Exception:
+            _verbatim_deduction_fallback = None
+
         for cid in involved:
             key = normalize_role_id(cid)
             if key in existing:
                 continue   # 该角色投影已有(可能作者手编)——不覆盖
             name = key.split(":", 1)[-1] if key else str(cid).split(":")[-1]
-            prose = _pilot_llm_gen(
-                st, work, seq, "deduce",
-                f"以「{name}」截至第{seq}章的限知,写该角色这一场的限知投影,分五个小标题:"
-                f"看到/听到、知道、以为(误读)、做了/说了、没察觉的;每个小标题用 ### 起行。"
-                f"只含该角色所知所感。严格遵循角色档案已有的称谓和代词;档案未给出时只用角色姓名,不能臆造性别。"
-                f"不得新增场景真相中不存在的人物、物件、动作、时间、物理现象或人物前史;信息不足时明确留白。", focalizer=key or str(cid))
+            prose = ""
+            try:
+                prose = _pilot_llm_gen(
+                    st, work, seq, "deduce",
+                    f"以「{name}」截至第{seq}章的限知,写该角色这一场的限知投影,分五个小标题:"
+                    f"看到/听到、知道、以为(误读)、做了/说了、没察觉的;每个小标题用 ### 起行。"
+                    f"只含该角色所知所感。严格遵循角色档案已有的称谓和代词;档案未给出时只用角色姓名,不能臆造性别。"
+                    f"不得新增场景真相中不存在的人物、物件、动作、时间、物理现象或人物前史;信息不足时明确留白。"
+                    f"能逐字摘录场景真相的句子优先。", focalizer=key or str(cid))
+            except Exception as e:
+                logging.getLogger("scribe3").warning(
+                    "deduction LLM fail work=%s seq=%s role=%s: %s", work, seq, name, e)
+                prose = ""
             review = _grounding_review(
                 truth, prose, mode="deduction", st=st, work=work, chapter=seq,
-            )
-            if not review["ok"]:
-                obs = pilot_deduce_observation(
-                    park=f"事实对齐失败:{name}的限知投影含无来源主张，请修订后再推进",
-                    made=made, missing=missing_roles(involved, deds),
-                    stale=[], truth_revision=rev, scene_truth_chars=len(truth),
-                    deductions_count=len(deds),
-                    inferred_involved=inferred_involved,
-                    involved_written=involved_written,
-                )
-                return {**obs, "grounding": review, "character_id": key or str(cid),
-                        "candidate": prose}
+            ) if (prose or "").strip() else {"ok": False, "reason": "empty_or_llm_fail"}
+            if not review.get("ok"):
+                # 产品最优：可逐字追溯的投影兜底（与 grounded-fallback 同源），禁止编造
+                fb = _verbatim_deduction_fallback(truth, key or str(cid)) if _verbatim_deduction_fallback else ""
+                if fb and fb.strip():
+                    prose = fb.strip()
+                    review = _grounding_review(
+                        truth, prose, mode="deduction", st=st, work=work, chapter=seq,
+                    )
+                    logging.getLogger("scribe3").info(
+                        "deduction verbatim fallback work=%s seq=%s role=%s ok=%s",
+                        work, seq, name, review.get("ok"))
+                if not review.get("ok"):
+                    # 仍失败：用「未能确认」五栏占位（仅当角色名出现在真相中），否则 park
+                    blank = "未能从场景真相确认。"
+                    if name and name in (truth or ""):
+                        from scribe3.deduce_helpers import DEDUCTION_HEADINGS
+                        prose = "\n\n".join(
+                            f"### {h}\n{blank}" for h in DEDUCTION_HEADINGS)
+                        review = {"ok": True, "fallback": "blank_five_panels"}
+                        logging.getLogger("scribe3").info(
+                            "deduction blank panels work=%s seq=%s role=%s", work, seq, name)
+                    else:
+                        obs = pilot_deduce_observation(
+                            park=f"事实对齐失败:{name}的限知投影含无来源主张，请修订后再推进",
+                            made=made, missing=missing_roles(involved, deds),
+                            stale=[], truth_revision=rev, scene_truth_chars=len(truth),
+                            deductions_count=len(deds),
+                            inferred_involved=inferred_involved,
+                            involved_written=involved_written,
+                        )
+                        return {**obs, "grounding": review, "character_id": key or str(cid),
+                                "candidate": prose}
             deds.append(stamp_deduction(
                 {"character_id": key or str(cid), "character_name": name, "prose": prose},
                 rev,
@@ -350,12 +430,20 @@ def _pilot_executor(work: str) -> dict:
         if prose_now and steer:
             m = _re_dl.search(r"可见汉字\s*≥\s*(\d{3,5})", steer)
             target = int(m.group(1)) if m else 0
+            m_cap = _re_dl.search(r"(?:勿超过|不超过|可见汉字\s*≤)\s*(\d{3,5})", steer)
+            cap = int(m_cap.group(1)) if m_cap else 0
             # 显式强制重写 或 意图要求长章：仅当当前仍短于目标才清稿。
             # 若已够长仍见「【强制重写】」残留在 pilot_steer，不得再清（否则无限 advisory 环）。
             if target and prose_cn < target:
                 force_clear = True
             elif "【强制重写】" in steer and (not target) and prose_cn < 4500:
                 force_clear = True
+            # 真路径压缩：作者意图写明上限且当前超长 → 清稿重写（避免 restore 最长旧稿锁死）
+            elif cap and prose_cn > cap and ("【强制重写】" in steer or "压缩" in steer):
+                force_clear = True
+                logging.getLogger("scribe3").info(
+                    "draft_loop force clear overlong work=%s seq=%s was_cn=%s cap=%s",
+                    work, seq, prose_cn, cap)
         if force_clear:
             try:
                 # SCHEMAFULL prose 是 string，不可 SET NONE；空串才合法
@@ -466,7 +554,42 @@ def _pilot_executor(work: str) -> dict:
         if st.latest_version_prose(seq, "final") != prose:
             st.add_chapter_version(seq, prose, label="pilot终选", kind="final",
                                    stage="final", stats=_prose_stats(prose))
-        return {"finalized": True}
+        # v6.1 §5.2：定稿后强制全类型 PostFinalize（持久化候选；不自动 apply L1）
+        post_finalize = None
+        try:
+            from scribe3.api.services.canon_hooks import body_confirmed_report
+            complete_fn = None
+            try:
+                from scribe3.llm import hermes_complete
+                complete_fn = lambda p: hermes_complete(
+                    p, timeout=90.0, max_tokens=2000, retries_override=0)
+            except Exception:
+                complete_fn = None
+            post_finalize = body_confirmed_report(
+                work=work, seq=seq, prose=prose, st=st,
+                complete_fn=complete_fn, persist=True,
+            )
+        except Exception as e:
+            logging.getLogger("scribe3").warning(
+                "post_finalize_report failed work=%s seq=%s: %s", work, seq, e)
+            post_finalize = {
+                "seq": seq,
+                "error": str(e)[:200],
+                "silent_l1_write": False,
+                "sections": {
+                    "l2_objective": {"items": [], "modules": [], "auto_applied": False},
+                    "l1_requires_approval": {"items": [], "modules": [], "auto_applied": False},
+                },
+            }
+        return {
+            "finalized": True,
+            "post_finalize_report": post_finalize,
+            "canon_loop": {
+                "path": "body_confirmed",
+                "silent_l1_write": False,
+                "next": "POST /canon/change-pack/apply with approved_item_ids for L1 items",
+            },
+        }
 
     return {"propose_outline": propose_outline, "expand_beats": expand_beats,
             "deduce": deduce, "draft_loop": draft_loop, "full_check": full_check,

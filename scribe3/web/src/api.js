@@ -467,6 +467,15 @@ export const api = {
   acceptUnverified: (id) => api.post('/ingest-unverified/' + enc(id) + '/accept'),
   ignoreUnverified: (id) => api.post('/ingest-unverified/' + enc(id) + '/ignore'),
   ignoreAllUnverified: (status = 'pending') => api.post('/ingest-unverified/ignore-all' + (status ? `?status=${enc(status)}` : '')),   // R2-12:批量清死水
+  // 全类型设定候选（正文回写 / 讨论 ChangePack）
+  listCanonCandidates: (status = 'pending', module) => j(
+    `/canon/candidates?status=${enc(status)}` + (module ? `&module=${enc(module)}` : '')),
+  canonDebt: () => j('/canon/debt'),
+  decideCanonCandidate: (id, decision = 'approve') => post(`/canon/candidates/${enc(id)}/decide`, { decision }),
+  canonExtractChapter: (seq, use_llm = true) => post('/canon/extract', { seq, use_llm }),
+  canonPostFinalize: (body) => post('/canon/post-finalize-report', body),
+  canonChangePack: (body) => post('/canon/change-pack', body),
+  canonApplyPack: (body) => post('/canon/change-pack/apply', body),
   recall: (text, k = 6) => j(`/recall?q=${enc(text)}&k=${k}`),
   chapters: () => j('/chapters'),
   archivedChapters: () => j('/chapters/archived'),

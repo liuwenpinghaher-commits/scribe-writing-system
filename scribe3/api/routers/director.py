@@ -69,6 +69,9 @@ class OrchFromDiscussionReq(BaseModel):
     package: dict[str, Any] | None = None
     summary: str = ""
     draft_ids: list[str] = Field(default_factory=list)
+    # v6.1：讨论原文（可与 summary 合并）→ ChangePack；claims 可注入确定性主张
+    text: str = ""
+    claims: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def workflow_snapshot_ep(work: str = "main", seq: int | None = None):
@@ -209,7 +212,38 @@ def orch_from_discussion_ep(req: OrchFromDiscussionReq, work: str = "main"):
         if ot:
             drafts = [d for d in drafts if d.get("object_type") == ot]
     prop = proposal_from_discussion(pkg, drafts, summary=req.summary)
-    return {"work": work, "proposal": prop, "drafts_used": [d.get("draft_id") for d in drafts]}
+    # v6.1 §5.1：讨论 → ChangePack（不写库；L1 须另走 /canon/change-pack/apply）
+    change_pack = None
+    try:
+        from scribe3.api.services.canon_hooks import discussion_change_pack
+        st = _store_for(work)
+        disc_text = (req.text or "").strip() or (req.summary or "").strip()
+        claims = req.claims or None
+        change_pack = discussion_change_pack(
+            work=work,
+            text=disc_text,
+            source="discussion",
+            claims=claims,
+            st=st,
+        )
+    except Exception as e:
+        change_pack = {
+            "error": str(e)[:200],
+            "items": [],
+            "status": "error",
+            "note": "change_pack 生成失败，不阻塞 orch proposal",
+        }
+    return {
+        "work": work,
+        "proposal": prop,
+        "drafts_used": [d.get("draft_id") for d in drafts],
+        "change_pack": change_pack,
+        "canon_loop": {
+            "path": "discussion",
+            "silent_l1_write": False,
+            "next": "POST /canon/change-pack/apply with approved_item_ids",
+        },
+    }
 
 
 def orch_active_ep(work: str = "main"):
@@ -397,6 +431,85 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
                 return {"status": "written", "fact_id": fid, "value": text}
             return {"status": "error", "error": "no add_fact"}
 
+        def _add_world_rule(**kw):
+            name = (kw.get("name") or "").strip()
+            if not name or not hasattr(st, "add_world_rule"):
+                return {"status": "error", "error": "no name or add_world_rule"}
+            st.add_world_rule(
+                name=name,
+                category=kw.get("category") or "民俗",
+                source=kw.get("source"),
+                capabilities=kw.get("capabilities"),
+                cost=kw.get("cost"),
+                limitations=kw.get("limitations"),
+                exceptions=kw.get("exceptions"),
+                scope=kw.get("scope") or "global",
+                established_chapter=kw.get("established_chapter"),
+                note=kw.get("note"),
+            )
+            return {"status": "written", "name": name}
+
+        def _add_faction(**kw):
+            name = (kw.get("name") or "").strip()
+            if not name or not hasattr(st, "add_faction"):
+                return {"status": "error", "error": "no name or add_faction"}
+            st.add_faction(
+                name,
+                ideology=kw.get("ideology"),
+                status=kw.get("status") or "active",
+                leader=kw.get("leader"),
+                known_members=kw.get("known_members"),
+                public_face=kw.get("public_face"),
+                private_operation=kw.get("private_operation"),
+                first_mention_chapter=kw.get("first_mention_chapter"),
+            )
+            return {"status": "written", "name": name}
+
+        def _add_item(**kw):
+            name = (kw.get("name") or "").strip()
+            if not name or not hasattr(st, "add_item"):
+                return {"status": "error", "error": "no name or add_item"}
+            st.add_item(
+                name=name,
+                category=kw.get("category"),
+                description=kw.get("description"),
+                current_owner=kw.get("current_owner"),
+                symbolic_state=kw.get("symbolic_state") or "active",
+                special_properties=kw.get("special_properties"),
+                first_chapter=kw.get("first_chapter"),
+            )
+            return {"status": "written", "name": name}
+
+        def _add_term(**kw):
+            name = (kw.get("name") or "").strip()
+            if not name or not hasattr(st, "add_term"):
+                return {"status": "error", "error": "no name or add_term"}
+            st.add_term(
+                name=name,
+                category=kw.get("category"),
+                definition=kw.get("definition"),
+                aliases=kw.get("aliases"),
+                first_mention_chapter=kw.get("first_mention_chapter"),
+            )
+            return {"status": "written", "name": name}
+
+        def _add_char_rel(**kw):
+            src = (kw.get("src_oid") or kw.get("src") or "").strip()
+            dst = (kw.get("dst_oid") or kw.get("dst") or "").strip()
+            rel = (kw.get("relation") or kw.get("relation_type") or "未知").strip()
+            if not src.startswith("role:"):
+                src = f"role:{src}" if src else src
+            if not dst.startswith("role:"):
+                dst = f"role:{dst}" if dst else dst
+            if not src or not dst or not hasattr(st, "add_character_relation"):
+                return {"status": "error", "error": "bad src/dst or no add_character_relation"}
+            st.add_character_relation(
+                src, dst, rel,
+                since_chapter=int(kw.get("since_chapter") or 1),
+                note=kw.get("note"),
+            )
+            return {"status": "written", "src": src, "dst": dst, "relation": rel}
+
         executors = {
             "s3_plant_promise": _plant,
             "s3_patch_character": _patch_char,
@@ -407,6 +520,11 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
             "s3_add_volume": _add_volume,
             "s3_add_chapter": _add_chapter,
             "s3_add_fact": _add_fact,
+            "s3_add_world_rule": _add_world_rule,
+            "s3_add_faction": _add_faction,
+            "s3_add_item": _add_item,
+            "s3_add_term": _add_term,
+            "s3_add_character_relation": _add_char_rel,
         }
 
     if req.decision != "approve":

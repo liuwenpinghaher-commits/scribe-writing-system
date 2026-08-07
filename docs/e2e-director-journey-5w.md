@@ -1,235 +1,349 @@
-# Director 五站全链路 · 约 5 万字真实连载验收方案
+# Director 五站 · 约 5 万字 · 优化方案 v6.1
 
 | 项 | 值 |
 |----|-----|
-| **版本** | **5.0（真正完善版）** |
+| **版本** | **6.1（优化：遇障最优同路 · 聊天/正文强制正典闭环）** |
 | **日期** | 2026-08-07 |
-| **状态** | **已定稿 · 待按本版从零执行** |
+| **状态** | **产品目标路径 · 已定稿** |
 | **产品** | scribe3 |
 | **环境** | **仅 demo 已部署栈**（`www.qing.blue` / `ubuntu@82.157.130.140`） |
 | **进度** | [`设计文档/2026-08-06-旅程5万字-进度.md`](../设计文档/2026-08-06-旅程5万字-进度.md) |
-| **融合规程** | [`docs/融合执行规程-真人验收×对话驱动改造.md`](./融合执行规程-真人验收×对话驱动改造.md)（强制） |
+| **融合** | [`docs/融合执行规程-真人验收×对话驱动改造.md`](./融合执行规程-真人验收×对话驱动改造.md) |
+| **正典闭环** | [`设计文档/2026-08-07-正典变更闭环.md`](../设计文档/2026-08-07-正典变更闭环.md) · `scribe3/canon_loop.py` |
+| **全类型回写** | [`设计文档/2026-08-07-正文全类型设定回写-完善方案.md`](../设计文档/2026-08-07-正文全类型设定回写-完善方案.md) **（正文补全所有设定类型 · 完善补齐）** |
 
 ---
 
-## 0. 一句话
+## 0. 北极星（两句）
 
-**先把设定做满并 Web 可见，再结构对齐，再按 pilot 状态机一章一章：大纲→节拍→演绎→草稿→体检→交付→定稿；任何一步假路径/脚手架/假证据都不算 PASS。**
-
----
-
-## 1. 历史作废（不可再引用为 PASS）
-
-| 轮次 | 书 | 致命捷径 |
-|------|-----|----------|
-| v1 | `book_d3052625` 等 | EMERGENCY 灌设定；模板扩写；skip 门 |
-| v2 | `book_2524fd8a` | 离线 `prose_pure`→save-chapter；伪 07-trace；合成截图 |
-| v3 | `book_887bb8e8` | **设定未齐就开写**；接地失败 **safe_beats/假演绎**；orch API 代替 Playwright；API 证明代替 SPA；full_check AI 味 soft-pass 当质量绿；scorer 曾硬编码 |
-
-标题处置：
-
-- v2 → `…离线灌稿·不作PASS`
-- v3 → `…设定未齐即开写·不作PASS`
-
----
-
-## 2. 完成定义（八线全绿）
+1. **体验**：作者 **只开旅程 + 只和主编聊天**（加「批准 / 放行 / 接受稿」），就能写完一本约 **5 万字**、可读的好书。  
+2. **纪律**：**遇障 → 用真路径上的最优修法解决 → 同一旅程/主编路径继续**；禁止捷径过关。聊天改设定与正文定稿 **必须跑通正典闭环**（变更包 → 人批 → 落库），且验收要 **测到这条链**，不能只测内核单测。
 
 ```text
-总 PASS ⇔ 设定 ∧ Web ∧ 导演 ∧ 真路径 ∧ 工艺 ∧ 质量 ∧ 规模 ∧ 缺陷
+成功 ≠ 库里有 5 万字
+成功 ＝ 作者可复述路径「我只聊了天、点了批，旅程带着我走完」
+       ＋ 设定先齐 ＋ 章链完整 ＋ 正典无静默写 ＋ 好书标准
+```
+
+---
+
+## 1. 总原则：遇障怎么走
+
+### 1.1 强制循环（每一步都适用）
+
+```text
+推进（旅程站 / 主编话轮 / pilot 步）
+   │
+   ├─ 绿 → 进入下一站
+   │
+   └─ 红 / 停靠 / 异常
+         │
+         ▼
+      【STOP】记录：症状 · 证据 · 是否触铁律
+         │
+         ▼
+      【最优解】只允许在真路径上修：
+         · 修产品 bug（接地/LLM/UI 批准/变更包…）
+         · 或修设定/大纲（经主编提案+批准）
+         · 禁止：EMERGENCY、safe_beats、离线灌库、表单静默、脚本冒充作者
+         │
+         ▼
+      【同路径回归】同一句意图 / 同一站 / 同一步再走
+         │
+         ▼
+      绿 → 继续；仍红 → 再 STOP，升级缺陷账本，不换旁路
+```
+
+| 规则 | 说明 |
+|------|------|
+| **最优 ≠ 最快** | 优先修「旅程+主编+批准」能走通的解，不优先找旁路 |
+| **同路径** | 修完必须用 **原来卡住的那条作者路径** 再验，禁止「脚本绿了就算过」 |
+| **一次一事** | 一次 STOP 只收敛一个主因，避免堆脚手架 |
+
+### 1.2 禁止的「假继续」
+
+- 接地失败 → 灌 safe_beats / 假演绎  
+- LLM 失败 → 磁盘 prose 灌章  
+- 批准 UI 不通 → 永久 orch API 当作者路径（工程可暂用，**体验 PASS 不算**）  
+- 设定未齐 → 先写后补且无 WCG  
+- 改设定 → 聊天说完不弹变更包、静默写 L1  
+
+---
+
+## 2. 作者唯一合法路径
+
+### 2.1 允许
+
+| 动作 | 说明 |
+|------|------|
+| **旅程看板** | 看站位、下一动作、WCG、设定债、字数、停靠人话 |
+| **主编聊天** | 意图 / 设定 / 结构 / 章推进 / 改稿 / 质量反馈 |
+| **点批** | 提案、大纲放行、接受 advisory、终选、**ChangePack 批准** |
+| **只读检视** | Codex、目录、正文；不靠表单失焦改正典 |
+
+### 2.2 禁止当主路径
+
+| 动作 | 原因 |
+|------|------|
+| 大批量表单改正典 | 正典 = 主编工具 + 批准 |
+| 日常 `v2_serial_pilot` / curl 写书 | 工程工具，非作者体验 |
+| EMERGENCY / prose_pure | 假路径 |
+
+### 2.3 与工程脚本的边界
+
+| 用途 | 是否算 v6.1 PASS |
+|------|------------------|
+| 作者：旅程 + 主编 + 点批 | **唯一**体验 PASS |
+| CI / 单测 / WCG 审计脚本 | 允许，须在证据注明 |
+| 串行脚本代写 10 章 | **仅工程证明**；`00-author-path.md` 必须诚实，**不得**宣称 v6.1 体验 PASS |
+
+---
+
+## 3. 完成定义（九线 · 好书）
+
+```text
+总 PASS ⇔ 旅程 ∧ 主编 ∧ 设定 ∧ 正典闭环 ∧ 真路径 ∧ 工艺 ∧ 质量 ∧ 规模 ∧ 缺陷
 ```
 
 | 线 | PASS |
 |----|------|
-| **设定** | WCG 全绿（§4）；且 **先于** 任何验收正文 |
-| **Web** | SPA：书库主书正确章数字数；设定 Codex 可见；目录 10 章；ch1/5/10 正文可见；**真截图或等价录像** |
-| **导演** | `07-director-trace.jsonl` append-only；≥5 种 live `pilot_state`；时间跨度 >10s；**无**同微秒批造 |
-| **真路径** | `EMERGENCY=0`；设定经 **对话意图→提案→批准**（融合：优先 Playwright 点批准；API apply 仅作工程过渡且须在结案前换成 UI 或书面 P1）；正文 **完整 pilot 链** |
-| **工艺** | 无默认 `skip_craft`/`skip_finalize`；GATE 报告或等价可审计；**无** tape 中 safe_scaffold 相位 |
-| **质量** | 无公式注水；读感过；正文可回指设定；AI 味 heavy 若产品 soft-pass → **不得**自动记质量 PASS，须读感说明或改稿再检 |
-| **规模** | 已接受正文合计 **[45000, 55000]**；Web=API |
-| **缺陷** | 无开放 P0/P1；`06-defect-ledger.md` 齐 |
+| **旅程** | 站序可走通；live tape ≥5 种 pilot_state，跨度 >10s |
+| **主编** | 主输入来自主编对话；世界写入来自待批提案 |
+| **设定** | WCG 绿且 **先于** 验收正文；Codex 可见 |
+| **正典闭环** | **聊天与定稿均触发**；有包/报告；L1 仅批准列表写；见 §5 验收 |
+| **真路径** | EMERGENCY=0；完整 pilot；无 safe_beats / prose_pure |
+| **工艺** | 无默认 skip；接地 STOP |
+| **质量** | 无公式注水；可读；回指设定；heavy → 读感说明 |
+| **规模** | 合计 **[45000, 55000]** |
+| **缺陷** | 无开放 P0/P1；路径诚实 |
+
+**好书底线**：限知不泄、动机不 OOC、非说明书体、章有压力/钩子、弧对齐 intent。
 
 ---
 
-## 3. 铁律（违反即本轮 FAIL）
+## 4. 旅程站 × 主编（全链路）
 
-| # | 铁律 |
-|---|------|
-| T1 | **未过 WCG → 禁止 draft_loop / 定稿作证据** |
-| T2 | **章内必须** `idle→大纲→(approve)→节拍→演绎→草稿→(restore)→体检→交付→(approve)终选`；禁止跳步 |
-| T3 | **禁止** `patch_chapter_meta` 灌 safe_beats / 假 scene_truth / 假 deductions 跳过接地 |
-| T4 | **禁止** 离线长文 / prose_pure → save-chapter 作主证据 |
-| T5 | **禁止** 伪造 multi-state director tape |
-| T6 | **禁止** 默认 skip 门闩；禁止 EMERGENCY 灌正典作主路径 |
-| T7 | **禁止** 用 API 静默代替「作者接受正文」当唯一路径（restore 须对应 advisory 真稿 + 可审计） |
-| T8 | 接地/批准/Web 撞墙 → **STOP → 修产品或设定 → 同路径回归 → 再续**；禁止换捷径过关 |
-| T9 | 结案文档与 SESSION/进度 **不得** 与事实矛盾 |
+| 站 | 作者对主编 | 系统 | 裁决 |
+|----|------------|------|------|
+| 建书 | 「开一本…约 5 万字」 | 建 work，进旅程 | 确认 |
+| 意图 | 「读者感受、红线…」 | intent 提案 | 批准 |
+| 设定 | 「角色/规则/关系…」 | 分条提案 | 批准至 **WCG 绿** |
+| 结构 | 「三卷十章梗概」 | 卷章提案 | 批准 |
+| 章 N 开写 | 「写第 N 章 / 继续」 | pilot 大纲 | **放行大纲** |
+| 节拍·演绎 | 「按大纲推」或默认推进 | beats→deduce | 停靠则按 §1 修 |
+| 草稿 | 「写完整章」 | draft；advisory | **接受/恢复** 或重写 |
+| 体检 | 「过不过」 | full_check | 改稿指令 |
+| 交付终选 | 「定这版」 | deliver→终选 | **终选** |
+| **定稿后（强制）** | 自动或「同步设定」 | **PostFinalize 报告** | **批 L1 变更包** |
+| **讨论中改设定（强制）** | 「把…改成…」 | **ChangePack 告知** | **批准后落库** |
+| 结案 | 「结案」 | 九线+字数 | 确认 |
 
-驱动已落实：`scripts/v2_serial_pilot.py` 遇接地 **`GROUNDING_STOP` 退出**；短稿用尽重试 **`SHORT_DRAFT_STOP`**；serialize 前强制 `v4_world_complete_gate.py`。
+旅程看板必显：**站位 · WCG · pilot 状态/停靠 · 设定债 · 字数进度**。
 
 ---
 
-## 4. 设定完成门闩 WCG
+## 5. 正典闭环（聊天 + 正文 · 强制且须测）
 
-命令：
+> 本节不是「附录理想」，而是 **与章循环同级的必经门闩**。
+
+### 5.1 聊天路径（讨论触发）
+
+```text
+主编对话出现相对 L1/L0 的共识或矛盾
+  → 必须生成 ChangePack（可见，不可静默）
+  → 含：layer/module/target/after/evidence/risk/impact
+  → 作者批准 approved_item_ids
+  → Apply：正典模块（character/world_rule/intent…）无 id 在批准列表 → 拒绝写
+  → 刷新注入；设定债清零或降级
+  → 同路径继续旅程
+```
+
+**验收（必须做，不能只跑 unit）：**
+
+1. 在 **demo 或已部署 API** 上：模拟/真实对话主张 → `POST /canon/change-pack`（或 UI 等价）  
+2. 未批 apply → L1 字段不变  
+3. 批准后 apply → 字段变化（目标：Surreal；过渡：可观测账本 + 诚实残差）  
+4. 证据写入证据包 `11-canon-loop-chat.json`
+
+### 5.2 正文路径（定稿触发）
+
+```text
+BodyConfirmed（终选 / 明确定稿）
+  → 必须 PostFinalize Report
+       · L2 客观（知识等）
+       · L1 待批（Codex/规则…）+ 模块名
+  → L1 未批不得当作「已同步正典」
+  → 作者批 L1 → Apply
+  → 下章 brief/限知可读到更新
+```
+
+**验收（必须做）：**
+
+1. 一章有正文 + 主张（标记或 claims）→ `POST /canon/post-finalize-report`  
+2. 报告分节齐全；`silent_l1_write=false`  
+3. 未批 L1 apply 拒绝；批准后写入可观测  
+4. 证据 `11-canon-loop-body.json`
+
+### 5.3 安全（已内核加固，须保持）
+
+| 攻击 | 要求 |
+|------|------|
+| `approved=true` 无 id 列表 | 拒绝写 L1 |
+| `requires_approval=false` 伪装 | 拒绝写正典模块 |
+| `layer=L2` + `module=character/world_rule` | **仍须批准**（模块硬门） |
+
+单测：`scribe3/tests/test_canon_loop.py`（回归必绿）。  
+**单测绿 ≠ 闭环验收完成**；必须有 §5.1/5.2 的路径证据。
+
+### 5.4 产品落地优先级（闭环嵌进聊天/正文）
+
+| 优先级 | 交付 | 完成定义 |
+|--------|------|----------|
+| P0 | 定稿/终选后 **自动** 出 PostFinalize（API→UI） | 作者能看见分节清单 |
+| P0 | 讨论「改设定」→ **自动** ChangePack 卡 | 不静默写 |
+| P1 | apply → **Surreal** 真写 | 回读 Codex/知识边 |
+| P1 | 旅程显示 **设定债**；高风险债可挡开写 N+1（可配置） | 看板数字准 |
+| P2 | 主编 LLM Diff（非仅标记语法） | 自然语言出包 |
+| P2 | Playwright：聊天改设定 + 定稿报告点批 | 融合 M7 |
+
+---
+
+## 6. 设定门闩 WCG（写前）
 
 ```bash
 python3 scripts/v4_world_complete_gate.py --slug <slug> \
-  --out artifacts/e2e-journey-5w-v5-YYYYMMDD-<slug>/00-world-complete-gate.json
-# 必须 exit 0
+  --out artifacts/e2e-journey-5w-v6-YYYYMMDD-<slug>/00-world-complete-gate.json
+# exit 0
 ```
 
-| 域 | 最低要求 |
-|----|----------|
-| intent | feeling / arc / ≥3 红线 / word_goal∈[4e4,6e4] |
-| 角色 ≥4 | 每角色：appearance, personality_detail, surface_goal, deep_need, fear, **backstory**；含 protagonist |
-| 关系 | ≥3 条角色关系（可回读） |
-| 规则/事实 | ≥3 世界规则 + ≥5 可引用事实（真工具写入，非仅 ingest 噪声） |
-| 势力/物件/术语 | 至少覆盖两类且计数达标（faction≥1 或 item≥2+term≥2 等，以 gate 脚本为准） |
-| 伏笔 | ≥3 条 promise，含 setup/payoff 窗口 |
-| 结构 | 3 卷 + 10 章；synopsis≥40 字；≥8 章 synopsis 点名已建角色；focalizer 指向角色 |
-
-**WCG 未绿 → 不得进入 §6 串行。**
+角色≥4 丰满字段、关系≥3、规则/事实/伏笔/3 卷 10 章等：**以 gate 脚本为准**。  
+**未绿禁止进入连载写正文站。** 理想由主编对话补齐，脚本仅审计。
 
 ---
 
-## 5. 阶段总览（固定顺序）
+## 7. 章循环 SOP（pilot · 旅程驱动）
 
 ```text
-Phase 0  环境与根因锁（EMERGENCY=0, SOFT=0；空壳书归档；Hermes 可用）
-Phase A  建书 + intent（对话/orch 批准 → Web 可见）
-Phase B  世界设定至 WCG 绿（可多日；撞墙修产品）
-Phase C  结构对齐（卷章 synopsis 与设定互证）
-Phase D  串行 10 章完整 pilot 链（仅此时开写）
-Phase E  账本 + 读感 + 八线结案 + env 锁
+S0  结构 synopsis 已在
+S1  大纲提案 → outline_proposed
+S2  放行大纲
+S3  节拍 → beats_ready     【接地失败 → §1 STOP，禁止 safe_beats】
+S4  演绎 → deduced
+S5  草稿 → drafting        【接受/恢复 advisory】
+S6  体检 → checked         【仅 AI 味 heavy → 读感，不自动质量绿】
+S7  交付 → delivered
+S8  终选 → finalized
+S9  【强制】PostFinalize + 可选 ChangePack 批完 → 字数/tape
 ```
+
+短稿：同链【强制重写】；全书超 55k：同链压缩，禁止离线灌删。
 
 ---
 
-## 6. 章循环 SOP（与 `scribe3/pilot.py` 一致）
+## 8. 质量与规模
 
-```text
-S0  章已存在且 synopsis 来自 Phase C（结构站）
-S1  idle → propose_outline → outline_proposed
-S2  /pilot/approve 放行大纲（品味检查点）
-S3  expand_beats → beats_ready   【真 LLM；接地失败 → GROUNDING_STOP】
-S4  deduce → deduced             【真场景真相+限知；接地失败 → STOP】
-S5  draft_loop → drafting        【版本库；advisory → restore 最长合格稿】
-S6  full_check → checked         【blocking 非软过则改稿或 STOP；见 §7.3】
-S7  deliver → delivered
-S8  /pilot/approve 终选 → finalized
-S9  journal + tape + 字数；Web 打开本章抽样
-```
-
-**不允许：** 无大纲直接草稿；无演绎直接正文；restore 磁盘 prose_pure；短稿定稿充数。
+| 项 | 规则 |
+|----|------|
+| 规模 | 合计 **[45000, 55000]** 去空白 |
+| pad 公式尾 | FAIL |
+| 限知 blocking | 改稿，不 soft 过 |
+| AI heavy | 读感说明或改稿后再检 |
+| 好书 | 气味锚、POV、动机、钩子、弧 |
 
 ---
 
-## 7. 真路径细节
-
-### 7.1 设定写入
+## 9. 证据包（v6.1）
 
 ```text
-作者意图（对话或明确提案文案）
-  → orch proposal: s3_set_intent / s3_add_character / s3_patch_character /
-    s3_add_character_relation / s3_add_world_rule / s3_add_fact /
-    s3_add_faction / s3_add_item / s3_add_term / s3_plant_promise / …
-  → 批准：优先 Playwright 点「批准」；过渡期 API apply 须记入 06 并排期 UI 回归
-  → GET 回读 + Web Codex/账本
-```
-
-### 7.2 正文写入
-
-```text
-仅 pilot/step + approve + restore-version
-驱动语每步绑定：POV、设定实体、规则、本章 synopsis、应触伏笔
-```
-
-### 7.3 质量门（诚实）
-
-| 情况 | 正确做法 |
-|------|----------|
-| pad 公式尾 | 禁止；出现即 FAIL |
-| full_check 限知/退化 blocking | STOP 改稿，禁止 soft |
-| full_check **仅** AI 味 heavy | 产品可记 quality_warn；**质量线须人工/代理读感**，不得自动 TOTAL 绿 |
-| 字数不足 | 同链 re-draft（【强制重写】）；禁止磁盘灌入 |
-
-### 7.4 批准 UI（融合 M7）
-
-| 决策 | 设计 | v5 要求 |
-|------|------|---------|
-| Hermes/提案批准 | Playwright 点击 | **目标路径**；demo 装/跑 e2e 点批 |
-| 大纲放行 / 终选 | SPA 或等价 | tape 记录；目标为 UI 点击 |
-| API apply | 工程后门 | 仅过渡；结案须声明是否仍依赖 |
-
----
-
-## 8. 工具与脚本
-
-| 工具 | 用途 |
-|------|------|
-| `scripts/v4_world_complete_gate.py` | WCG 审计；exit≠0 禁写 |
-| `scripts/v2_serial_pilot.py` | serialize **强制 WCG**；**接地 STOP**；短稿 STOP；score 从 tape 推导 |
-| 禁止 | `v2_upload_pure` / `gen_literary_prose` 作证据；`--force-skip-world-gate` 验收禁用 |
-
----
-
-## 9. 证据包
-
-```text
-artifacts/e2e-journey-5w-v5-YYYYMMDD-<slug>/
+artifacts/e2e-journey-5w-v6-YYYYMMDD-<slug>/
   00-runtime-baseline.md
-  00-rootcause-fixes.md
-  00-world-complete-gate.json      # WCG 机器结果
-  00-shortcut-ban.md               # 本版禁止捷径清单勾选
-  01-intent.md
-  02-world.md                      # 丰满设定 live 实读
-  03-structure.md
-  04-serialize/ch01.md … ch10.md   # 每章 S1–S8 路径摘要
+  00-world-complete-gate.json
+  00-author-path.md              # 必须写清：是否纯旅程+主编
+  00-stop-log.md                 # 每次 STOP→最优解→回归 记录
+  01-intent.md … 03-structure.md
+  04-serialize/ch01…ch10.md
   05-ledger.md
   06-defect-ledger.md
-  07-director-trace.jsonl          # live only
+  07-director-trace.jsonl
   08-wordcount-rollup.md
-  09-final-closure.md              # 八线 + true_path/craft 信号
+  09-final-closure.md            # 九线
   10-env-lockdown.md
-  screenshots/                     # SPA 或诚实说明+API heads
+  11-canon-loop-chat.json        # §5.1 路径证据（强制）
+  11-canon-loop-body.json        # §5.2 路径证据（强制）
+  11-canon-loop-unit.log         # 单测日志（必要但不充分）
+  screenshots/                   # 旅程+聊天+变更包+正文
 ```
 
-`09` 中若 tape 含 `grounding_safe_*` / `prose_pure` / `skip_craft` → **真路径/工艺 FAIL**。
+**结案门槛：**
+
+- 无 `11-canon-loop-chat/body` → **正典闭环线 FAIL**  
+- `00-author-path` 写「仅脚本串行」→ **旅程/主编线 PARTIAL**，不得总 PASS  
 
 ---
 
-## 10. 执行检查单（开工顺序）
+## 10. 分阶段执行（优化后）
 
-1. [ ] 读本文件 v5 + 融合规程 M1–M7  
-2. [ ] demo health；`EMERGENCY=0` `SOFT=0`；归档 v2/v3 干扰书  
-3. [ ] **新建** `《旅程五站·v5·YYYYMMDD》`  
-4. [ ] Phase A intent → Web  
-5. [ ] Phase B 设定直到 **WCG exit 0**（证据 `00-world-complete-gate.json`）  
-6. [ ] Phase C 结构对齐  
-7. [ ] Phase D 逐章完整 pilot（无脚手架）  
-8. [ ] Phase E 八线结案；SESSION/进度一致  
+```text
+Phase 0   环境锁 EMERGENCY=0 / SOFT=0
+Phase A   旅程建书 + 主编 intent
+Phase B   主编设定 → WCG 绿（对话补缺；遇障 §1）
+Phase C   结构 3 卷 10 章
+Phase C′  【闭环验收】聊天改一条设定 → 包 → 批 → 回读  （§5.1）
+Phase D   旅程连载 10 章完整 pilot（遇障 §1）
+Phase D′  【闭环验收】每章或抽样定稿报告 → 批 L1     （§5.2）
+Phase E   九线 + 作者路径诚实 + SPA 证据
+```
 
----
-
-## 11. 工期（诚实）
-
-| 段 | 估计 |
-|----|------|
-| WCG 设定（含可能修工具/字段/关系 API） | 1–4 日 |
-| 结构 | 0.5 日 |
-| 10 章真链 | 数小时–数日（接地/LLM 时延） |
-| Playwright 批准链若未通 | 额外 0.5–2 日修 UI/e2e |
-| 结案 | 0.5 日 |
+**C′/D′ 与 D 同级：不可跳过「以后再测闭环」。**
 
 ---
 
-## 12. 修订记录
+## 11. 现状切分（诚实）
+
+| 能力 | 状态 |
+|------|------|
+| WCG / pilot / 接地 STOP | 产品可用 |
+| ChangePack 安全内核 + 单测 | **已交付** |
+| 聊天自动出包 + 定稿自动报告 UI | **未齐** |
+| apply → Surreal | **未齐**（InMemory 演示） |
+| 纯 UI 跑通 5 万字 | **未齐**（v5 书为工程参考） |
+
+v5 `book_052a2adb`（约 53856 字）= 能力证明，**≠** v6.1 体验 PASS。
+
+---
+
+## 12. 工具边界
+
+| 工具 | 角色 |
+|------|------|
+| 旅程 + 主编 + 点批 | **作者主路径** |
+| `v4_world_complete_gate.py` | 审计 |
+| `canon_loop` API | 闭环契约；须挂 UI |
+| `v2_serial_pilot.py` | 工程回归 only |
+| 禁止 | EMERGENCY；prose_pure 证据；验收 force-skip WCG |
+
+---
+
+## 13. 捷径黑名单（勾选）
+
+见 [`docs/e2e-journey-5w-v5-shortcut-ban.md`](./e2e-journey-5w-v5-shortcut-ban.md)（随 v6.1 维护）。
+
+核心再列：
+
+- [ ] 遇障换捷径继续  
+- [ ] 聊天改设定无 ChangePack  
+- [ ] 定稿无 PostFinalize  
+- [ ] L1 静默写 / layer 伪装  
+- [ ] 闭环只跑单测、无 chat/body 路径证据  
+- [ ] 脚本串行冒充作者路径 PASS  
+
+---
+
+## 14. 修订记录
 
 | 版本 | 说明 |
 |------|------|
-| 1–2 | 假路径 / 离线灌稿（作废） |
-| 3 | pilot 产文但设定未齐 + 脚手架（作废） |
-| 4 | 设定门闩优先（骨架） |
-| **5.0** | **完善版：八线 + 全捷径黑名单 + 真状态机 + 接地 STOP + 证据/融合/质量诚实规则** |
+| 1–3 | 假路径 / 脚手架（作废） |
+| 4–5 | 设定门闩 + 工程真 pilot |
+| 6.0 | 旅程+主编唯一路径 |
+| **6.1** | **明确：①遇障最优同路续；②聊天/正文强制正典闭环且须路径级验证；③C′/D′ 门闩；④单测不充分** |

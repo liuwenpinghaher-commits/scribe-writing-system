@@ -92,15 +92,47 @@ function ItemRow({ node, selected, onSelect }) {
 }
 
 function PendingCharacterRefs() {
+  /** 全类型设定收件箱：canon_candidate + 旧人物 unverified 合并展示 */
   const [items, setItems] = useState(null)
   const [acceptingIds, setAcceptingIds] = useState(() => new Set())
   const toast = useToast()
 
+  const reload = () => {
+    Promise.all([
+      api.listCanonCandidates('pending').catch(() => ({ items: [] })),
+      api.listUnverified().catch(() => []),
+    ]).then(([cand, unv]) => {
+      const fromCand = (Array.isArray(cand?.items) ? cand.items : []).map((c) => ({
+        id: c.id,
+        kind: 'canon',
+        module: c.module || 'character',
+        name: (c.target || '').split(':').pop() || c.target,
+        seq: c.seq,
+        role: c.field ? `${c.module}.${c.field}` : (c.module || '设定'),
+        evidence: c.evidence,
+        risk: c.risk,
+      }))
+      const fromUnv = (Array.isArray(unv) ? unv : []).map((u) => ({
+        id: u.id,
+        kind: 'unverified',
+        module: 'character',
+        name: u.name,
+        seq: u.seq,
+        role: u.role || '人物引用',
+      }))
+      // 按 id 去重，canon 优先
+      const seen = new Set(fromCand.map((x) => x.id))
+      const merged = [...fromCand]
+      for (const u of fromUnv) {
+        if (!seen.has(u.id) && !fromCand.some((c) => c.name === u.name)) merged.push(u)
+      }
+      setItems(merged)
+    }).catch(() => setItems([]))
+  }
+
   useEffect(() => {
     let alive = true
-    api.listUnverified()
-      .then((rows) => { if (alive) setItems(Array.isArray(rows) ? rows : []) })
-      .catch(() => { if (alive) setItems([]) })
+    reload()
     return () => { alive = false }
   }, [])
 
@@ -109,11 +141,17 @@ function PendingCharacterRefs() {
     if (acceptingIds.has(item.id)) return
     setAcceptingIds((prev) => new Set(prev).add(item.id))
     try {
-      const result = await api.acceptUnverified(item.id)
-      remove(item.id)
-      toast?.(result?.replay_queued
-        ? `已接受「${item.name}」为角色，正在后台回填第${item.seq ?? '?'}章关联`
-        : `已接受「${item.name}」为角色`)
+      if (item.kind === 'canon') {
+        await api.decideCanonCandidate(item.id, 'approve')
+        remove(item.id)
+        toast?.(`已批准设定「${item.name}」(${item.module})`)
+      } else {
+        const result = await api.acceptUnverified(item.id)
+        remove(item.id)
+        toast?.(result?.replay_queued
+          ? `已接受「${item.name}」为角色，正在后台回填第${item.seq ?? '?'}章关联`
+          : `已接受「${item.name}」为角色`)
+      }
     } catch (e) {
       toast?.(e?.body?.detail || '接受失败', { tone: 'danger' })
     } finally {
@@ -126,7 +164,11 @@ function PendingCharacterRefs() {
   }
   const ignore = async (item) => {
     try {
-      await api.ignoreUnverified(item.id)
+      if (item.kind === 'canon') {
+        await api.decideCanonCandidate(item.id, 'reject')
+      } else {
+        await api.ignoreUnverified(item.id)
+      }
       remove(item.id)
     } catch (e) {
       toast?.(e?.body?.detail || '忽略失败', { tone: 'danger' })
@@ -134,9 +176,15 @@ function PendingCharacterRefs() {
   }
   const ignoreAll = async () => {
     try {
-      const r = await api.ignoreAllUnverified()
+      const list = items || []
+      for (const it of list) {
+        try {
+          if (it.kind === 'canon') await api.decideCanonCandidate(it.id, 'reject')
+          else await api.ignoreUnverified(it.id)
+        } catch { /* continue */ }
+      }
       setItems([])
-      toast?.(`已忽略 ${r?.ignored ?? 0} 条待确认引用`)
+      toast?.(`已处理 ${list.length} 条待确认设定`)
     } catch (e) {
       toast?.(e?.body?.detail || '批量忽略失败', { tone: 'danger' })
     }
@@ -146,7 +194,7 @@ function PendingCharacterRefs() {
   return (
     <section className="mb-3">
       <div className="px-2 pb-1.5 flex items-center gap-2">
-        <div className="text-meta font-semibold uppercase tracking-wide text-faint">待确认人物引用</div>
+        <div className="text-meta font-semibold uppercase tracking-wide text-faint">待确认设定</div>
         <CountBadge>{items.length}</CountBadge>
         {items.length > 3 && (
           <button type="button" onClick={ignoreAll} className="ml-auto h-6 rounded-md px-1.5 text-meta text-faint hover:bg-soft hover:text-ink cursor-pointer">
@@ -156,13 +204,16 @@ function PendingCharacterRefs() {
       </div>
       <div className="space-y-1">
         {items.map((item) => (
-          <div key={item.id} className="rounded-lg bg-warn/[.05] px-2 py-1.5">
+          <div key={`${item.kind}-${item.id}`} className="rounded-lg bg-warn/[.05] px-2 py-1.5">
             <div className="min-w-0 flex items-center gap-2">
-              <RowText title={item.name} sub={`第${item.seq ?? '?'}章 / ${item.role || '待确认'}`} />
+              <RowText
+                title={item.name}
+                sub={`第${item.seq ?? '—'}章 · ${item.module || 'character'} · ${item.role || '待确认'}${item.risk === 'high' ? ' · 高风险' : ''}`}
+              />
               {(() => {
                 const accepting = acceptingIds.has(item.id)
                 return (
-              <button type="button" aria-label={accepting ? '接受中' : '接受为角色'} onClick={() => accept(item)} disabled={accepting}
+              <button type="button" aria-label={accepting ? '处理中' : '批准写入'} onClick={() => accept(item)} disabled={accepting}
                 className="shrink-0 h-7 w-7 grid place-items-center rounded-md text-brand hover:bg-brand/10 disabled:cursor-wait disabled:opacity-60 cursor-pointer">
                 {accepting ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
               </button>

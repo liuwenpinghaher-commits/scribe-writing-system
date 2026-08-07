@@ -84,11 +84,29 @@ def _build_dedicated_event_extract_prompt(prose: str) -> str:
 
 def _resolve_char(store, name: str, seq: int, role: str) -> str | None:
     """解析角色:已存在返回 oid;不存在则登记待确认,返回 None(不建实体、不发边)。
-    替换原 _ensure_char(不验即建,致幻觉角色污染 characters())。"""
+    替换原 _ensure_char(不验即建,致幻觉角色污染 characters())。
+    全类型回写：同时写入 canon_candidate（module=character），与设定收件箱并轨。"""
     oid = f"role:{name}"
     if store.entity(oid) is not None:
         return oid
     store.add_unverified_ref(name, seq, role)
+    if hasattr(store, "add_canon_candidate"):
+        try:
+            store.add_canon_candidate({
+                "seq": seq,
+                "source": "ingest",
+                "extractor": "ingest_resolve_char",
+                "module": "character",
+                "op": "add",
+                "target": oid,
+                "after": {"name": name},
+                "evidence": f"ingest:{role}",
+                "risk": "med",
+                "layer": "L1",
+                "status": "pending",
+            })
+        except Exception:
+            pass
     return None
 
 

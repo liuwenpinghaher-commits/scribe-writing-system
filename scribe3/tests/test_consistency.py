@@ -87,6 +87,12 @@ class TestWriteGate:
         ("POST", "/save-draft"),   # Phase0-BE2 四阶段:写 chapter.draft + 追加 draft 版
         ("POST", "/check"),   # 护栏轻检查:不落库,read-only POST
         ("POST", "/post-check"),   # 生成后全量体检:QC+泄露+纪律LLM,不落库,read-only POST
+        # 正典变更闭环:pack/report 只读提案;apply 才写内存/账本(L1 须批准)
+        ("POST", "/canon/change-pack"),
+        ("POST", "/canon/post-finalize-report"),
+        ("POST", "/canon/change-pack/apply"),
+        ("POST", "/canon/extract"),
+        ("POST", "/canon/candidates/{uid}/decide"),
         # 语义纪律修复：通过既有章节修复锁产出候选稿；质量门失败绝不落正文。
         ("POST", "/semantic-repair"),
         # 作者显式重算派生质量缓存；不改正文、版本或正典数据。

@@ -434,6 +434,9 @@ def _verbatim_deduction_fallback(source: str, character_id: str) -> str:
     留在编辑器里诱导误存。来源不足时明确留白，不能拿全知叙述补齐。
     """
     import re
+    # 与 deduce_helpers / app_impl 同源；本模块被 pilot 直接 import，不可依赖 app_impl 全局
+    from scribe3.deduce_helpers import DEDUCTION_HEADINGS
+    from scribe3.deduce_helpers import _DEDUCTION_BLANK  # noqa: PLC2701
 
     name = (character_id or "").split(":", 1)[-1].strip()
     sentences = [s.strip() for s in re.findall(r"[^。！？]+[。！？]?", source or "") if s.strip()]
@@ -457,5 +460,5 @@ def _verbatim_deduction_fallback(source: str, character_id: str) -> str:
                   and any(k in subject_tail(s) for k in ("知道", "看出", "认得", "明白"))), seen)
     action = next((s for _idx, s in owned if any(k in subject_tail(s) for k in ("用", "拿", "照", "说", "做"))), seen)
     sections = (seen, known, _DEDUCTION_BLANK, action, _DEDUCTION_BLANK)
-    return "\n\n".join(f"### {heading}\n{content}" for heading, content in zip(_DEDUCTION_HEADINGS, sections))
+    return "\n\n".join(f"### {heading}\n{content}" for heading, content in zip(DEDUCTION_HEADINGS, sections))
 
