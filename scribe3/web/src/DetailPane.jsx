@@ -97,6 +97,7 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
           work={work}
           onJumpChapter={onJumpChapter}
           onContinue={onWorkflowContinue}
+          onOpenView={openView}
         />
       )
     }

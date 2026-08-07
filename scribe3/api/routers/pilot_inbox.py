@@ -65,6 +65,34 @@ def pilot_step(req: PilotStepReq, work: str = "main"):
             detail="大纲待作者放行:请点收件箱「放行」或驾驶舱「确认大纲并继续」(/pilot/approve)")
     if _pilot_run_state.get(work, {}).get("running"):
         raise HTTPException(status_code=409, detail="连写进行中(/pilot/pause 先停),防并发双跑")
+    # 可选：高风险设定债挡推进（须先收件箱处理）
+    try:
+        import os
+        from scribe3 import settings as _settings
+        flag = False
+        try:
+            flag = bool(_settings.get_setting("SCRIBE3_CANON_DEBT_BLOCK_HIGH"))
+        except Exception:
+            flag = (os.environ.get("SCRIBE3_CANON_DEBT_BLOCK_HIGH") or "").strip().lower() in (
+                "1", "true", "yes", "on",
+            )
+        if flag:
+            debt = st.count_canon_debt() if hasattr(st, "count_canon_debt") else {}
+            hi = int((debt or {}).get("high") or 0)
+            if hi > 0:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "canon_debt_high",
+                        "message": f"有 {hi} 条高风险设定待确认，请先到设定收件箱处理后再推进。",
+                        "debt": debt,
+                        "open": "view:canon-inbox",
+                    },
+                )
+    except HTTPException:
+        raise
+    except Exception:
+        pass
     _k = (work, req.seq)
     with _pilot_inflight_lock:
         if _k in _pilot_inflight:

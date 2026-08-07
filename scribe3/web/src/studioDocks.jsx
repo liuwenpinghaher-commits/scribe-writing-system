@@ -376,14 +376,43 @@ function PilotDock({ seq }) {
     api.pilotStatus(seq).then(setSt).catch(() => setSt(null))
     api.pilotRunStatus().then(setRun).catch(() => {})
   }
-  const act = (fn, okMsg) => {
+  const act = (fn, okMsg, opts = {}) => {
     setBusy(true)
-    return fn().then(() => {
-      toast(okMsg, { tone: 'ok' })
+    return fn().then((res) => {
+      // 终选后：设定回写摘要 → 引导收件箱
+      const rep = res?.artifact?.post_finalize_report
+        || res?.post_finalize_report
+        || res?.canon_loop?.post_finalize_report
+      const l1 = rep?.sections?.l1_requires_approval?.items
+      const l1n = Array.isArray(l1) ? l1.length : (rep?.change_pack?.l1_count ?? 0)
+      const mods = rep?.sections?.l1_requires_approval?.modules || []
+      if (opts.afterFinalize && (l1n > 0 || (rep && rep.silent_l1_write === false))) {
+        const modHint = mods.length ? `（${mods.slice(0, 4).join('·')}）` : ''
+        toast(
+          l1n > 0
+            ? `已终选 · ${l1n} 条设定待确认${modHint}。点击设定库「设定收件箱」批/拒。`
+            : (okMsg || '已终选定稿'),
+          { tone: 'ok', duration: 9000 },
+        )
+        try {
+          if (seq != null) sessionStorage.setItem('canon-inbox-seq', String(seq))
+          window.dispatchEvent(new CustomEvent('s3-open-canon-inbox', { detail: { seq, l1n, modules: mods } }))
+        } catch { /* */ }
+      } else {
+        toast(okMsg, { tone: 'ok' })
+      }
       refresh()
       try { window.dispatchEvent(new CustomEvent('s3-live', { detail: { table: 'chapter' } })) } catch { /* */ }
+      return res
     })
-      .catch((e) => toast(e?.body?.detail || e?.message || '操作失败', { tone: 'danger' }))
+      .catch((e) => {
+        const d = e?.body?.detail
+        const msg = (d && typeof d === 'object' && d.message) ? d.message : (d || e?.message || '操作失败')
+        toast(msg, { tone: 'danger' })
+        if (d && typeof d === 'object' && d.code === 'canon_debt_high') {
+          try { window.dispatchEvent(new CustomEvent('s3-open-canon-inbox', { detail: {} })) } catch { /* */ }
+        }
+      })
       .finally(() => setBusy(false))
   }
   if (st === undefined) {
@@ -529,7 +558,7 @@ function PilotDock({ seq }) {
         confirmText="终选定稿"
         onConfirm={() => {
           setConfirmFinalize(false)
-          act(() => api.pilotApprove(seq, 'delivered'), '已终选定稿')
+          act(() => api.pilotApprove(seq, 'delivered'), '已终选定稿', { afterFinalize: true })
         }}
         onClose={() => setConfirmFinalize(false)}
       />

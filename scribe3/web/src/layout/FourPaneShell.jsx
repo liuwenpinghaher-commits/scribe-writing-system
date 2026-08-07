@@ -333,6 +333,19 @@ export function FourPaneShell({
     window.addEventListener('s3-open-capability', onOpenCapability)
     return () => window.removeEventListener('s3-open-capability', onOpenCapability)
   }, [])
+  // 定稿 toast / 旅程设定债 → 打开设定收件箱
+  useEffect(() => {
+    const onOpen = (ev) => {
+      try {
+        const s = ev?.detail?.seq
+        if (s != null) sessionStorage.setItem('canon-inbox-seq', String(s))
+      } catch { /* */ }
+      onSelectNode?.({ type: 'view', id: 'view:canon-inbox', label: '设定收件箱' })
+    }
+    window.addEventListener('s3-open-canon-inbox', onOpen)
+    return () => window.removeEventListener('s3-open-canon-inbox', onOpen)
+  }, [onSelectNode])
+
   // 语义动作"选中条目"(栏2目录 / 栏3详情内跳转共用):一个 intent + 既有 sel 链路
   const handleSelectItem = (node) => {
     if (node) navigate(nodePatch(node, projectedEntryKey))

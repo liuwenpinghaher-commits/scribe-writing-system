@@ -293,8 +293,23 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
     picked = _pick_seq(st, seq)
     blockers: list[dict[str, str]] = []
 
+    def _debt_block():
+        d = {"total": 0, "high": 0}
+        try:
+            if hasattr(st, "count_canon_debt"):
+                d = dict(st.count_canon_debt() or {})
+            if hasattr(st, "list_canon_candidates"):
+                from scribe3.canon_inbox import facets
+                fac = facets(st.list_canon_candidates(status="pending"))
+                d["noise_count"] = fac.get("noise_count", 0)
+                d["suggested_priority_count"] = fac.get("suggested_priority_count", 0)
+        except Exception:
+            pass
+        return d
+
     if picked is None:
         journey = _journey(st, has_open_chapter=False)
+        debt0 = _debt_block()
         # 无章：引导建章/立项
         intent = _safe_intent(st)
         if not (intent.get("reader_feeling") or intent.get("red_lines")):
@@ -328,6 +343,7 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
             "blockers": blockers,
             "suggested_prompt": prompt,
             "ui_directive": ui,
+            "canon_debt": debt0,
             "note": "P0 合成；无章时引导立项/建章",
         }
 
@@ -381,6 +397,26 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
         "layout_mode": "collaboration" if phase != "final" else "reading",
     }
 
+    # 设定债（收件箱同源）；失败不拖垮旅程
+    canon_debt = _debt_block()
+    if int(canon_debt.get("high") or 0) > 0:
+        blockers.append({
+            "code": "canon_debt_high",
+            "message": (
+                f"有 {canon_debt['high']} 条高风险设定待确认；"
+                "建议先到「设定收件箱」处理后再开写下一章。"
+            ),
+        })
+    elif int(canon_debt.get("total") or 0) > 0:
+        blockers.append({
+            "code": "canon_debt",
+            "message": (
+                f"设定债 {canon_debt['total']} 条待确认"
+                + (f"（噪声约 {canon_debt.get('noise_count', 0)}）" if canon_debt.get("noise_count") else "")
+                + " · 可在设定收件箱批/拒。"
+            ),
+        })
+
     return {
         "work": work,
         "journey": journey,
@@ -394,5 +430,6 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
         "blockers": blockers,
         "suggested_prompt": _suggested_prompt(picked, pstate, parked),
         "ui_directive": ui_directive,
+        "canon_debt": canon_debt,
         "note": "P0 合成自 pilot+章列表+intent；非文学评分",
     }

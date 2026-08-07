@@ -4,10 +4,10 @@ import { api } from '../api'
 import { Btn } from '../ui.jsx'
 
 /**
- * 写作导演 · 旅程状态页（P0）
+ * 写作导演 · 旅程状态页（P0 + 设定债）
  * 数据源：GET /workflow/snapshot — 与顶栏进度胶囊同源。
  */
-export function JourneyView({ work, onContinue, onJumpChapter }) {
+export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
   const [snap, setSnap] = useState(null)
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(true)
@@ -22,6 +22,16 @@ export function JourneyView({ work, onContinue, onJumpChapter }) {
   }, [])
 
   useEffect(() => { load() }, [load, work])
+
+  const openInbox = (seq) => {
+    try {
+      if (seq != null) sessionStorage.setItem('canon-inbox-seq', String(seq))
+    } catch { /* */ }
+    onOpenView?.('canon-inbox')
+    try {
+      window.dispatchEvent(new CustomEvent('s3-open-canon-inbox', { detail: { seq } }))
+    } catch { /* */ }
+  }
 
   if (loading && !snap) {
     return (
@@ -46,6 +56,7 @@ export function JourneyView({ work, onContinue, onJumpChapter }) {
   const lane = snap?.chapter_lane
   const next = snap?.next_step
   const blockers = snap?.blockers || []
+  const debt = snap?.canon_debt || {}
 
   const handleContinue = () => {
     onContinue?.(snap)
@@ -74,6 +85,38 @@ export function JourneyView({ work, onContinue, onJumpChapter }) {
             <RefreshCw size={15} />
           </button>
         </header>
+
+        {/* 设定债 → 收件箱 */}
+        <section
+          className="rounded-lg border border-line/60 bg-soft/40 p-3 flex flex-wrap items-center gap-3"
+          data-testid="journey-canon-debt"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="text-meta text-faint uppercase tracking-wider">设定债</div>
+            <div className="text-f14 text-ink mt-0.5">
+              待确认 <span className="font-semibold tnum">{debt.total ?? 0}</span>
+              {debt.high != null && debt.high > 0 && (
+                <span className="ml-2 text-danger">高风险 {debt.high}</span>
+              )}
+              {debt.noise_count != null && debt.noise_count > 0 && (
+                <span className="ml-2 text-faint">噪声约 {debt.noise_count}</span>
+              )}
+              {debt.suggested_priority_count != null && (
+                <span className="ml-2 text-faint">建议优先 {debt.suggested_priority_count}</span>
+              )}
+            </div>
+            <p className="text-meta text-faint mt-1">正文/讨论回写的设定须人批后才进 Codex。</p>
+          </div>
+          <Btn
+            size="sm"
+            variant={(debt.total || 0) > 0 ? 'primary' : 'ghost'}
+            onClick={() => openInbox(lane?.seq)}
+            data-testid="journey-open-canon-inbox"
+          >
+            打开设定收件箱
+            <ArrowRight size={14} className="ml-1 inline" />
+          </Btn>
+        </section>
 
         {/* 书级 5 站 */}
         <section aria-labelledby="journey-stations-h">

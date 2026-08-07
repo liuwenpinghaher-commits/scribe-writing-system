@@ -113,6 +113,10 @@ REGISTRY: tuple[Setting, ...] = (
             "紧急 REST 世界写", "默认关；仅自动化测试/紧急运维显式开启", danger=True),
     Setting("SCRIBE3_CRAFT_GATE", "flags", "bool", True, "hot",
             "工艺门闩", "默认开:save_chapter 等写路径需脚手架齐套;测试 conftest 钉 0", danger=True),
+    Setting("SCRIBE3_CANON_DEBT_BLOCK_HIGH", "flags", "bool", False, "hot",
+            "高风险设定债挡 pilot 推进",
+            "开=有 risk=high 的 pending 设定债时禁止 pilot/step（须先收件箱处理）；默认关",
+            danger=True),
     # ── gateway(Hermes 网关;地址类 restart)──
     Setting("HERMES_API", "gateway", "str", "http://127.0.0.1:8642/v1", "restart", "速答网关(default)"),
     Setting("HERMES_RESPONSES_API", "gateway", "str", "http://127.0.0.1:8643/v1", "restart", "agentic 读网关"),

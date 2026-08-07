@@ -43,7 +43,17 @@ export function CanonInboxView({ work, onJumpChapter, initialSeq, initialModule 
   const [module, setModule] = useState(initialModule || '')
   const [status, setStatus] = useState('pending') // pending|approved|rejected
   const [priority, setPriority] = useState('suggested') // suggested|all|noise
-  const [seq, setSeq] = useState(initialSeq != null ? String(initialSeq) : '')
+  const [seq, setSeq] = useState(() => {
+    if (initialSeq != null) return String(initialSeq)
+    try {
+      const s = sessionStorage.getItem('canon-inbox-seq')
+      if (s) {
+        sessionStorage.removeItem('canon-inbox-seq')
+        return s
+      }
+    } catch { /* */ }
+    return ''
+  })
   const [groupMode, setGroupMode] = useState(true)
   const [items, setItems] = useState([])
   const [facets, setFacets] = useState({})
