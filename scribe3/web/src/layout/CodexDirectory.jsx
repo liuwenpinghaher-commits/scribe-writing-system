@@ -91,17 +91,28 @@ function ItemRow({ node, selected, onSelect }) {
   )
 }
 
-function PendingCharacterRefs() {
-  /** 全类型设定收件箱：canon_candidate + 旧人物 unverified 合并展示 */
+const PENDING_SHOW_CAP = 40
+
+function PendingCharacterRefs({ moduleFilter = null }) {
+  /** 全类型设定收件箱：canon_candidate + 旧人物 unverified。
+   *  须在设定库根目录与各分类下都可见（旧实现仅 character 分类内，导致「收件箱空」误判）。 */
   const [items, setItems] = useState(null)
+  const [loadError, setLoadError] = useState(null)
   const [acceptingIds, setAcceptingIds] = useState(() => new Set())
+  const [workSlug, setWorkSlug] = useState(() => (typeof api.getWork === 'function' ? api.getWork() : ''))
   const toast = useToast()
 
   const reload = () => {
+    const w = typeof api.getWork === 'function' ? api.getWork() : ''
+    setWorkSlug(w || '')
     Promise.all([
-      api.listCanonCandidates('pending').catch(() => ({ items: [] })),
+      api.listCanonCandidates('pending').catch((e) => {
+        setLoadError(e?.body?.detail || e?.message || '候选列表加载失败')
+        return { items: [] }
+      }),
       api.listUnverified().catch(() => []),
     ]).then(([cand, unv]) => {
+      if (Array.isArray(cand?.items) && cand.items.length) setLoadError(null)
       const fromCand = (Array.isArray(cand?.items) ? cand.items : []).map((c) => ({
         id: c.id,
         kind: 'canon',
@@ -120,7 +131,6 @@ function PendingCharacterRefs() {
         seq: u.seq,
         role: u.role || '人物引用',
       }))
-      // 按 id 去重，canon 优先
       const seen = new Set(fromCand.map((x) => x.id))
       const merged = [...fromCand]
       for (const u of fromUnv) {
@@ -131,9 +141,21 @@ function PendingCharacterRefs() {
   }
 
   useEffect(() => {
-    let alive = true
     reload()
-    return () => { alive = false }
+    // 切书后 api.setWork 会变；轮询 work slug，变则重载
+    const t = setInterval(() => {
+      const w = typeof api.getWork === 'function' ? api.getWork() : ''
+      setWorkSlug((prev) => {
+        if (w && w !== prev) reload()
+        return w || prev
+      })
+    }, 1500)
+    const onVis = () => { if (document.visibilityState === 'visible') reload() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      clearInterval(t)
+      document.removeEventListener('visibilitychange', onVis)
+    }
   }, [])
 
   const remove = (id) => setItems((prev) => (prev || []).filter((item) => item.id !== id))
@@ -176,34 +198,83 @@ function PendingCharacterRefs() {
   }
   const ignoreAll = async () => {
     try {
-      const list = items || []
+      const list = visible || []
       for (const it of list) {
         try {
           if (it.kind === 'canon') await api.decideCanonCandidate(it.id, 'reject')
           else await api.ignoreUnverified(it.id)
         } catch { /* continue */ }
       }
-      setItems([])
-      toast?.(`已处理 ${list.length} 条待确认设定`)
+      // 全量忽略当前过滤视图对应的全部 pending（含未展示的）
+      const all = (items || []).filter((it) => (
+        !moduleFilter
+        || it.module === moduleFilter
+        || (moduleFilter === 'character' && it.kind === 'unverified')
+      ))
+      for (const it of all) {
+        if (list.some((x) => x.id === it.id)) continue
+        try {
+          if (it.kind === 'canon') await api.decideCanonCandidate(it.id, 'reject')
+          else await api.ignoreUnverified(it.id)
+        } catch { /* continue */ }
+      }
+      setItems((prev) => (prev || []).filter((it) => !all.some((x) => x.id === it.id)))
+      toast?.(`已处理 ${all.length} 条待确认设定`)
     } catch (e) {
       toast?.(e?.body?.detail || '批量忽略失败', { tone: 'danger' })
     }
   }
 
-  if (!items || items.length === 0) return null
+  const visible = (items || []).filter((it) => {
+    if (!moduleFilter) return true
+    if (moduleFilter === 'character' && it.kind === 'unverified') return true
+    return it.module === moduleFilter
+  })
+  const shown = visible.slice(0, PENDING_SHOW_CAP)
+  const rest = Math.max(0, visible.length - shown.length)
+
+  if (items === null) {
+    return (
+      <section className="mb-3 px-2 py-1.5 text-meta text-faint">加载待确认设定…</section>
+    )
+  }
+  if (loadError && visible.length === 0) {
+    return (
+      <section className="mb-3 rounded-lg bg-danger/[.06] px-2 py-2 text-meta text-danger">
+        待确认设定加载失败{workSlug ? `（书 ${workSlug}）` : ''}：{String(loadError)}
+        <button type="button" onClick={reload} className="ml-2 underline cursor-pointer">重试</button>
+      </section>
+    )
+  }
+  if (visible.length === 0) {
+    // 根目录给一句空态，避免「完全没入口」；分类内为空则不占位
+    if (!moduleFilter) {
+      return (
+        <section className="mb-3 px-2 py-1.5 text-meta text-faint">
+          待确认设定：无 pending
+          {workSlug ? ` · ${workSlug}` : ''}
+          <button type="button" onClick={reload} className="ml-2 underline cursor-pointer text-faint hover:text-ink">刷新</button>
+        </section>
+      )
+    }
+    return null
+  }
   return (
-    <section className="mb-3">
-      <div className="px-2 pb-1.5 flex items-center gap-2">
+    <section className="mb-3" data-testid="canon-pending-inbox">
+      <div className="px-2 pb-1.5 flex items-center gap-2 flex-wrap">
         <div className="text-meta font-semibold uppercase tracking-wide text-faint">待确认设定</div>
-        <CountBadge>{items.length}</CountBadge>
-        {items.length > 3 && (
+        <CountBadge>{visible.length}</CountBadge>
+        {workSlug && <span className="text-meta text-faint truncate max-w-[10rem]" title={workSlug}>{workSlug}</span>}
+        {moduleFilter && <span className="text-meta text-faint">· {moduleFilter}</span>}
+        <button type="button" onClick={reload} className="h-6 rounded-md px-1.5 text-meta text-faint hover:bg-soft hover:text-ink cursor-pointer">刷新</button>
+        {visible.length > 3 && (
           <button type="button" onClick={ignoreAll} className="ml-auto h-6 rounded-md px-1.5 text-meta text-faint hover:bg-soft hover:text-ink cursor-pointer">
             全部忽略
           </button>
         )}
       </div>
-      <div className="space-y-1">
-        {items.map((item) => (
+      <div className="space-y-1 max-h-[40vh] overflow-y-auto">
+        {shown.map((item) => (
           <div key={`${item.kind}-${item.id}`} className="rounded-lg bg-warn/[.05] px-2 py-1.5">
             <div className="min-w-0 flex items-center gap-2">
               <RowText
@@ -227,6 +298,11 @@ function PendingCharacterRefs() {
           </div>
         ))}
       </div>
+      {rest > 0 && (
+        <div className="px-2 pt-1 text-meta text-faint">
+          还有 {rest} 条未展开（API 共 {visible.length}；启发式可能偏多，可批量忽略噪声）
+        </div>
+      )}
     </section>
   )
 }
@@ -362,6 +438,8 @@ export function CodexDirectory({ root, selected, onSelectItem }) {
           </>
         ) : isRoot ? (
           <>
+            {/* 根目录也展示全类型待确认，避免只进「角色」才看得见 */}
+            <PendingCharacterRefs />
             <DirectorySectionLabel>分类</DirectorySectionLabel>
             <div className="space-y-1">
               {categories
@@ -381,7 +459,10 @@ export function CodexDirectory({ root, selected, onSelectItem }) {
           </>
         ) : (
           <>
-            {category.ref === 'character' && <PendingCharacterRefs />}
+            {/* 各分类内按 module 过滤展示；character 含旧 unverified */}
+            {CODEX_CATS.has(category.ref) && (
+              <PendingCharacterRefs moduleFilter={category.ref} />
+            )}
             <DirectorySectionLabel>条目</DirectorySectionLabel>
             {items.length === 0 ? (
               <EmptyState category={category} query={query} onNew={createNode} />
