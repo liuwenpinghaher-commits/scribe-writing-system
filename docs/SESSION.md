@@ -19,39 +19,37 @@
 |----|----|
 | **更新于** | 2026-08-07 |
 | **默认分支** | `main` |
-| **进行中目标** | **v6.1 闭环已落地钩子**（讨论 ChangePack + 定稿 PostFinalize）；体验 SPA/Surreal 仍残差 |
-| **方案** | [`docs/e2e-director-journey-5w.md`](./e2e-director-journey-5w.md) **v6.1** |
+| **进行中目标** | **v6.2 新书 `book_7b918ca0` Phase D 连载**（A–C′ 已完成） |
+| **方案** | [`docs/e2e-director-journey-5w.md`](./e2e-director-journey-5w.md) **v6.2** |
 | **进度** | [`设计文档/2026-08-06-旅程5万字-进度.md`](../设计文档/2026-08-06-旅程5万字-进度.md) |
-| **主验收书** | **v6 目标：纯旅程+主编 UI 新书**；工程参考 `book_052a2adb`（v5，不作体验 PASS） |
-| **证据** | 方案 v6 文档；ChangePack 测；v5 工程包 `artifacts/e2e-journey-5w-v5-…` |
+| **主验收书** | **`book_7b918ca0`**（灯债·v6.2）；`book_052a2adb` 仅工程参考 |
+| **证据** | `artifacts/e2e-journey-5w-v6-20260807-book_7b918ca0/`；WCG 绿；C′ 闭环绿 |
 | **活跃分支** | `main` |
-| **未合并 / WIP** | `canon_loop` / `pilot_runtime` / `prompt_blocks` 等待 commit |
 
 ### 旅程 5 万字
 
-- **方案 v6.1**：只开旅程+只和主编聊天；**遇障→最优真路径修→同路回归再继续**；**聊天/定稿强制 ChangePack·PostFinalize，且要路径级证据（非仅单测）**  
-- **v5 工程书** `book_052a2adb`：53856 字参考，**不作 v6.1 体验 PASS**  
-- **铁律**：WCG 先于正文；完整 pilot；L1 禁静默写；禁捷径过关  
+- **方案 v6.2**：继承 6.1 纪律；**全类型** 候选/Surreal apply/「待确认设定」已落地  
+- **v5 工程书** `book_052a2adb`：53856 字参考，**不作体验 PASS**  
+- **铁律**：WCG 先于正文；完整 pilot；L1 禁静默写；禁捷径；**新书验收**  
 
-### 正典变更闭环（ChangePack）· v6.1 已挂产品路径
+### 正典变更闭环 · 已部署
 
-- **纯模块**：`scribe3/canon_loop.py`（L1 仅 `approved_item_ids`；模块硬门防 layer=L2 伪装）  
-- **钩子**：`canon_hooks.discussion_change_pack` ← `POST /orchestration/proposal/from-discussion` 附带 `change_pack`  
-- **钩子**：`body_confirmed_report` ← pilot `finalize` 返回 `post_finalize_report`  
-- **HTTP**：`/canon/change-pack` · `/canon/post-finalize-report` · `/canon/change-pack/apply`  
-- **测**：`test_canon_loop.py` + `test_canon_hooks.py`  
-- **残差（非体验 PASS）**：SPA 变更卡 UI、Surreal 真写 Codex、纯 UI 跑满 5w、LLM 自由文本 Diff  
+- 内核 `canon_loop` · 抽取 `canon_extract` · 写库 `canon_apply_store`  
+- migration **106** · mixin · `/canon/*` · pilot finalize / from-discussion  
+- UI：Codex「待确认设定」  
+- 测：`test_canon_loop` + `test_canon_hooks`  
+- 残差：SPA 变更卡/定稿分节弹层美化；旅程债数字；纯 UI 5w 新书  
 
 ### 下一步
 
-1. 按 [`设计文档/2026-08-07-正文全类型设定回写-完善方案.md`](../设计文档/2026-08-07-正文全类型设定回写-完善方案.md) 做 **全类型** 回写（非最小闭环）  
-2. 统一设定收件箱；apply → Surreal；终选强制 extract  
-3. 纯 UI 重跑 v6 书  
-
+1. **`book_7b918ca0` Phase D**：旅程/主编驱动 10 章完整 pilot（约 5 万字）  
+2. 每章终选 **D′**：PostFinalize + 待确认设定全类型批  
+3. Phase E 九线结案；补 SPA 截图  
+4. 可选：旅程设定债 UI、ChangePack 卡片  
 
 ### 已知坑
 
-- Grok 机禁重活（npm ci / 本机 Surreal / 全量测）；验收打 demo  
-- 融合规程要求 Playwright 点批准；orch API apply 为过渡  
-- full_check 仅 AI 味 soft-pass **不等于**质量线自动免检  
-- `draft_loop` 超长压缩须带 `勿超过N` + `【强制重写】`；restore 用 `stats.words` 选版
+- Grok 机禁重活；验收打 demo  
+- 启发式 extract 可能过召回 → 人批拒  
+- full_check AI 味 soft-pass ≠ 质量线自动绿  
+- `draft_loop` 超长压缩须带 `勿超过N` + `【强制重写】`  

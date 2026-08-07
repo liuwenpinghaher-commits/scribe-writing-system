@@ -1,6 +1,6 @@
-# 旅程 5 万字 · 捷径黑名单（v6.1）
+# 旅程 5 万字 · 捷径黑名单（v6.2）
 
-主方案：[`e2e-director-journey-5w.md`](./e2e-director-journey-5w.md) **v6.1**
+主方案：[`e2e-director-journey-5w.md`](./e2e-director-journey-5w.md) **v6.2**
 
 ## 遇障
 
@@ -19,7 +19,9 @@
 - [ ] 聊天改设定无 ChangePack / 不告知  
 - [ ] 定稿无 PostFinalize  
 - [ ] L1 静默写；`approved` 伪造；`layer=L2` 伪装 character/world_rule  
-- [ ] **闭环只交 unit log、无 chat/body 路径证据**（v6.1 明确 FAIL）  
+- [ ] **闭环只交 unit log、无 chat/body 路径证据**（v6.2 明确 FAIL）  
+- [ ] **仅人物待确认、不覆盖全类型**（v6.2 明确 FAIL）  
+- [ ] **用旧书 book_052a2adb 冒充本版新书体验 PASS**  
 
 ## 质量
 
