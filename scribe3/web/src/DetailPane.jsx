@@ -28,6 +28,7 @@ const InsightView = lazyNamed(() => import('./views/InsightView'), 'InsightView'
 const OverviewView = lazyNamed(() => import('./views/OverviewView'), 'OverviewView')
 const TimelineView = lazyNamed(() => import('./views/TimelineView'), 'TimelineView')
 const JourneyView = lazyNamed(() => import('./views/JourneyView'), 'JourneyView')
+const CanonInboxView = lazyNamed(() => import('./views/CanonInboxView'), 'CanonInboxView')
 
 function DetailLoading() {
   return <div className="h-full grid place-items-center text-f13 text-faint/60">加载视图…</div>
@@ -96,6 +97,15 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
           work={work}
           onJumpChapter={onJumpChapter}
           onContinue={onWorkflowContinue}
+        />
+      )
+    }
+    if (k === 'canon-inbox') {
+      return (
+        <CanonInboxView
+          key={`${work}-canon-inbox`}
+          work={work}
+          onJumpChapter={onJumpChapter}
         />
       )
     }

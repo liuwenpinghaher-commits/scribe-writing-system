@@ -52,6 +52,7 @@ class CanonClaim:
     risk: str = "med"
     field: str | None = None
     requires_approval: bool | None = None  # None → 由 layer 推断
+    confidence: float = 1.0  # 抽取置信度；启发式宜 <0.6
 
     def __post_init__(self) -> None:
         self.layer = (self.layer or "L1").upper()
@@ -91,7 +92,11 @@ class ChangeItem:
     applied: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        conf = getattr(self, "_confidence", None)
+        if conf is not None:
+            d["confidence"] = conf
+        return d
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "ChangeItem":
@@ -279,6 +284,12 @@ def pack_from_claims(
             approved=False,
             applied=False,
         ))
+        # confidence 写入 to_dict 友好：挂在最后一条的并行 dict 由 to_dict 不含；
+        # persist 侧从 pack items dict 读取 —— pack_from_claims 后 to_dict 时补 conf
+        try:
+            items[-1]._confidence = float(getattr(c, "confidence", 1.0) or 1.0)  # type: ignore[attr-defined]
+        except Exception:
+            pass
         if c.target:
             targets.append(c.target)
     pack = ChangePack(

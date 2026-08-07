@@ -470,8 +470,22 @@ export const api = {
   // 全类型设定候选（正文回写 / 讨论 ChangePack）
   listCanonCandidates: (status = 'pending', module) => j(
     `/canon/candidates?status=${enc(status)}` + (module ? `&module=${enc(module)}` : '')),
+  /** @param {object} q status/module/seq/source/extractor/risk/noise/priority/limit/offset */
+  listCanonCandidatesQuery: (q = {}) => {
+    const p = new URLSearchParams()
+    Object.entries(q).forEach(([k, v]) => {
+      if (v != null && v !== '') p.set(k, String(v))
+    })
+    const qs = p.toString()
+    return j('/canon/candidates' + (qs ? `?${qs}` : ''))
+  },
+  getCanonCandidate: (id) => j(`/canon/candidates/${enc(id)}`),
   canonDebt: () => j('/canon/debt'),
-  decideCanonCandidate: (id, decision = 'approve') => post(`/canon/candidates/${enc(id)}/decide`, { decision }),
+  decideCanonCandidate: (id, decision = 'approve', extra = {}) => post(
+    `/canon/candidates/${enc(id)}/decide`,
+    { decision, ...extra },
+  ),
+  batchDecideCanonCandidates: (body) => post('/canon/candidates/batch-decide', body || {}),
   canonExtractChapter: (seq, use_llm = true) => post('/canon/extract', { seq, use_llm }),
   canonPostFinalize: (body) => post('/canon/post-finalize-report', body),
   canonChangePack: (body) => post('/canon/change-pack', body),

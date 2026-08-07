@@ -94,18 +94,28 @@ def extract_claims_from_prose(
             evidence=m.group(0), risk="high", requires_approval=True,
         ))
 
-    # 势力：「…门/帮/会/教/宗」自称或对峙
+    # 势力：专名须 2–6 字并以门/帮/会/教/宗/盟/阁/堂结尾；拒绝语法残片
+    _bad_faction = re.compile(
+        r"^(是|会|的|了|在|有|和|与|把|被|将|从|向|对|给|让|到|又|也|都|还|就|才|却)"
+        r"|替高门|原本是|是会"
+    )
     for m in re.finditer(
-        r"([\u4e00-\u9fff]{1,6}(?:门|帮|会|教|宗|盟|阁|堂))(?:中人|弟子|长老|掌门)?",
+        r"(?<![\u4e00-\u9fff])([\u4e00-\u9fff]{1,5}(?:门|帮|教|宗|盟|阁|堂))(?![\u4e00-\u9fff])",
         text,
     ):
         name = m.group(1)
-        if len(name) < 2:
+        if len(name) < 2 or len(name) > 6:
+            continue
+        if _bad_faction.search(name):
+            continue
+        # 「会」单独后缀易误伤，要求至少 3 字（如 帮会 仍短则跳过纯「X会」口语）
+        if name.endswith("会") and len(name) < 3:
             continue
         _add(CanonClaim(
             layer="L1", op="add", module="faction",
             target=name, after={"name": name},
             evidence=m.group(0)[:80], risk="med", requires_approval=True,
+            confidence=0.45,
         ))
 
     # 物件：「手持/佩戴/取出…」

@@ -323,6 +323,20 @@ function EmptyState({ category, query, onNew }) {
 export function CodexDirectory({ root, selected, onSelectItem }) {
   const [query, setQuery] = useState('')
   const [serverHits, setServerHits] = useState(null) // null=未搜 / []|items=服务端结果
+  const [inboxDebt, setInboxDebt] = useState(null)
+  useEffect(() => {
+    let alive = true
+    const pull = () => {
+      if (typeof api.canonDebt !== 'function') return
+      api.canonDebt().then((d) => { if (alive) setInboxDebt(d) }).catch(() => {})
+    }
+    pull()
+    const t = setInterval(pull, 8000)
+    return () => { alive = false; clearInterval(t) }
+  }, [])
+  const openInbox = () => {
+    onSelectItem?.({ type: 'view', id: 'view:canon-inbox', label: '设定收件箱' })
+  }
   const [health, setHealth] = useState(null)
   const [smartView, setSmartView] = useState('all') // all|secret|sparse
   const category = findCategory(root, selected)
@@ -387,6 +401,19 @@ export function CodexDirectory({ root, selected, onSelectItem }) {
 
   return (
     <div className={DIR_SHELL} data-testid="codex-directory">
+      <div className="px-2 py-1.5 border-b border-line/40 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={openInbox}
+          data-testid="open-canon-inbox"
+          className="flex-1 h-8 rounded-lg px-2 text-left text-f13 font-medium bg-warn/[.08] text-ink hover:bg-warn/[.14] cursor-pointer"
+        >
+          设定收件箱
+          {inboxDebt?.total != null && (
+            <span className="ml-1.5 text-meta text-faint tnum">({inboxDebt.total}{inboxDebt.noise_count ? ` · 噪${inboxDebt.noise_count}` : ''})</span>
+          )}
+        </button>
+      </div>
       <DirectoryHeader
         title={category?.label || root?.label || '设定库'}
         count={isRoot ? categories.length : (category?.children?.length || 0)}

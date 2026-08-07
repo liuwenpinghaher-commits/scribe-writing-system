@@ -151,11 +151,22 @@ def _persist_pack_items(st: Any, pack_dict: dict, *, seq: int | None, source: st
     for it in pack_dict.get("items") or []:
         if not isinstance(it, dict):
             continue
+        conf = it.get("confidence")
+        try:
+            conf_f = float(conf) if conf is not None else 1.0
+        except Exception:
+            conf_f = 1.0
+        ext = it.get("extractor") or "hybrid"
+        # 无字段的裸 add 且未显式高置信 → 当作启发式降权
+        if conf_f >= 0.99 and not it.get("field") and (it.get("op") or "add") in ("add", "plant"):
+            if not (it.get("evidence") or "").startswith("【"):
+                conf_f = 0.5
+                ext = "heuristic"
         row = {
             "id": it.get("id"),
             "seq": seq,
             "source": source,
-            "extractor": "hybrid",
+            "extractor": ext,
             "module": it.get("module"),
             "op": it.get("op"),
             "target": it.get("target"),
@@ -168,7 +179,7 @@ def _persist_pack_items(st: Any, pack_dict: dict, *, seq: int | None, source: st
             "status": "pending",
             "change_pack_id": pack_dict.get("id"),
             "impact": pack_dict.get("impact"),
-            "confidence": 1.0,
+            "confidence": conf_f,
         }
         try:
             cid = st.add_canon_candidate(row)
