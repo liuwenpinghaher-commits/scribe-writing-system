@@ -53,18 +53,37 @@ jobs:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           set -euo pipefail
-          test -n "${DEPLOY_SSH_KEY:-}"
-          test -n "${DEPLOY_HOST:-}"
+          # 秒级失败几乎总是 secrets 未配置；显式报缺项，便于仓库 Settings→Secrets 补齐
+          missing=()
+          [ -n "${DEPLOY_SSH_KEY:-}" ] || missing+=(DEPLOY_SSH_KEY)
+          [ -n "${DEPLOY_HOST:-}" ] || missing+=(DEPLOY_HOST)
+          [ -n "${DEPLOY_USER:-}" ] || missing+=(DEPLOY_USER)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::缺少 GitHub Actions secrets: ${missing[*]}"
+            echo "请在仓库 Settings → Secrets and variables → Actions 配置："
+            echo "  DEPLOY_HOST   例如 82.157.130.140"
+            echo "  DEPLOY_USER   例如 ubuntu"
+            echo "  DEPLOY_PORT   可选，默认 22"
+            echo "  DEPLOY_SSH_KEY  部署私钥全文（含 BEGIN/END 行）"
+            exit 1
+          fi
           mkdir -p ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          # 兼容 secret 里用字面量 \\n 存的多行密钥
+          printf '%s\n' "$DEPLOY_SSH_KEY" | sed 's/\r$//' | sed 's/\\n/\n/g' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+          # 校验私钥可读
+          if ! ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1; then
+            echo "::error::DEPLOY_SSH_KEY 不是合法私钥（ssh-keygen -y 失败）。请粘贴完整 PEM/OpenSSH 私钥。"
+            exit 1
+          fi
           PORT="${DEPLOY_PORT:-22}"
           # 避免交互；失败不阻断（部分机房禁 keyscan）
           ssh-keyscan -p "$PORT" -T 10 "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
           printf 'Host deploy-target\n  HostName %s\n  Port %s\n  User %s\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n  StrictHostKeyChecking accept-new\n  ConnectTimeout 30\n  ServerAliveInterval 15\n  ServerAliveCountMax 8\n' \
-            "$DEPLOY_HOST" "$PORT" "${{ secrets.DEPLOY_USER }}" > ~/.ssh/config
+            "$DEPLOY_HOST" "$PORT" "$DEPLOY_USER" > ~/.ssh/config
           chmod 600 ~/.ssh/config
 
       - name: Upload tarball (rsync)
