@@ -11,7 +11,7 @@ class ConnectionMixin:
 
     """SurrealDB 后端的 World。默认连 NS=scribe3 / DB=main(与 scribe2 的 NS=scribe 隔离)。"""
 
-    # Surreal 2.1: bare ``<string> f`` InternalError when f is NONE.
+    # Surreal 2.1+/3.x: bare ``<string> f`` InternalError when f is NONE.
     @staticmethod
     def _sstr(field: str, alias: str | None = None) -> str:
         a = alias or field
@@ -186,9 +186,9 @@ class ConnectionMixin:
             # API 与 Hermes MCP 是独立进程，首次打开同一 work 时可能同时读到
             # 尚未应用。迁移正文已要求幂等，记录写入也必须幂等，不能由第二个
             # initializer 的唯一键冲突把整个 MCP 读取路径打断。
-            # SurrealDB 2.1.x: two-arg type::record() InternalError; type::thing is reliable.
+            # SurrealDB 2.1.x: two-arg type::record() InternalError; type::record is reliable.
             self._raw_query(
-                "UPSERT type::thing('_migration', $name) SET applied_at = time::now()",
+                "UPSERT type::record('_migration', $name) SET applied_at = time::now()",
                 {"name": f.stem},
             )
         if failures:
@@ -284,10 +284,10 @@ class ConnectionMixin:
         # save_count / chapters_touched:疑似死(P2-15)——写入(下方)但无生产读取方
         #   (progress()/_streak 只读 words_written/words_total),仅 test_store 断言写入。
         #   保留写侧供未来 /progress UI("今日存 N 次/触 M 章");疑似死待确认。
-        # Surreal 2.1: `[] + [$seq]` can InternalError ("Cannot perform addition with
+        # Surreal: `[] + [$seq]` can InternalError ("Cannot perform addition with
         # '[]' and '[1]'"); use array::concat / array::append instead of `+`.
         self._execute_write(
-            "UPSERT type::thing('daily_progress', $d) SET "
+            "UPSERT type::record('daily_progress', $d) SET "
             "date=$d, "
             "words_written = (IF words_written THEN words_written + $delta ELSE $delta END), "
             "words_total=$total, "
@@ -304,7 +304,7 @@ class ConnectionMixin:
     def _upsert_style_profile(self, seq: int, profile: dict) -> None:
         import json
         self._execute_write(
-            "UPSERT type::thing('style_profile',$s) SET seq=$s, profile=$p, "
+            "UPSERT type::record('style_profile',$s) SET seq=$s, profile=$p, "
             "computed_at=time::now()",
             {"s": seq, "p": json.dumps(profile, ensure_ascii=False)})
 
@@ -319,10 +319,10 @@ class ConnectionMixin:
         if bad:
             raise ValueError(f"disallowed fields for {table}: {bad}")
         sets = ", ".join(f"{k}=${k}" for k in fields)
-        self._execute_write(f"UPDATE type::thing('{table}',$_l) SET {sets}", {"_l": local, **fields})
+        self._execute_write(f"UPDATE type::record('{table}',$_l) SET {sets}", {"_l": local, **fields})
 
     def _delete_by(self, table: str, local: str) -> None:
-        self._execute_write(f"DELETE type::thing('{table}',$_l)", {"_l": local})
+        self._execute_write(f"DELETE type::record('{table}',$_l)", {"_l": local})
 
     def _cleanup_record_refs(self, oid: str) -> None:
         table, local = _split(oid)
@@ -398,7 +398,7 @@ class ConnectionMixin:
         # 未登记章保持 not_available 占位。carried 链≥2 → alert(连续未达成告警,蓝图 §3-④)。
         _ful_read_failed = False
         try:
-            rows = self._query("SELECT deltas FROM type::thing('chapter',$s)", {"s": seq})
+            rows = self._query("SELECT deltas FROM type::record('chapter',$s)", {"s": seq})
             from scribe3.purpose import parse_deltas
             ds = parse_deltas(rows[0].get("deltas") if rows else None)
         except Exception:
@@ -425,7 +425,7 @@ class ConnectionMixin:
     def _upsert_scorecard(self, sc: dict) -> None:
         import json
         self._execute_write(
-            "UPSERT type::thing('chapter_scorecard',$seq) SET seq=$seq, constraints=$c, "
+            "UPSERT type::record('chapter_scorecard',$seq) SET seq=$seq, constraints=$c, "
             "advisory=$a, fulfillment=$f, degraded=$d, computed_at=time::now()",
             {"seq": sc["seq"],
              "c": json.dumps(sc["constraints"], ensure_ascii=False),

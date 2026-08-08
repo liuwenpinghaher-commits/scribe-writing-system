@@ -22,7 +22,7 @@ def test_project_tree_includes_proposition(store):
 
 
 def test_get_promise_o1_not_list_scan(store, monkeypatch):
-    """GET /promises/{pid} 与 store.get_promise 走 type::thing,禁止 list 全表扫。"""
+    """GET /promises/{pid} 与 store.get_promise 走 type::record,禁止 list 全表扫。"""
     store.plant_promise("铜炉要回收", setup_chapter=2, kind="promise")
     pid = next(p["id"] for p in store.list_promises() if "铜炉要回收" in p["text"])
 
@@ -44,7 +44,7 @@ def test_get_promise_o1_not_list_scan(store, monkeypatch):
     assert row is not None
     assert row["id"] == pid
     assert "铜炉要回收" in (row.get("text") or "")
-    assert any("type::thing('promise'" in q for q in queries), queries
+    assert any("type::record('promise'" in q for q in queries), queries
     assert store.get_promise("不存在的伏笔") is None
 
     c = _client(store)

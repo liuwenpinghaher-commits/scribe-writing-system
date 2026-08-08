@@ -252,7 +252,7 @@ def test_idea_route_steer_lands_in_pilot_steer(store):
     r = c.post("/ideas", json={"text": "第10章哑姑开口那场,别煽情"}).json()
     assert r["kind"] == "steer" and r["status"] == "done"
     import scribe3.pilot as _PL
-    rows = store._query("SELECT pilot_steer FROM type::thing('chapter',10)")
+    rows = store._query("SELECT pilot_steer FROM type::record('chapter',10)")
     assert "别煽情" in (rows[0].get("pilot_steer") or "")
 
 
@@ -455,7 +455,7 @@ def test_deduce_resave_preserves_stale_on_unstamped_existing(store, monkeypatch)
     })
     # 剥 based_on + 真相 bump → 哑姑应 stale
     store._execute_write(
-        "UPDATE type::thing('chapter', $seq) SET deductions=$d",
+        "UPDATE type::record('chapter', $seq) SET deductions=$d",
         {"seq": 16, "d": json.dumps(
             [{"character_id": "role:哑姑", "prose": "哑姑旧文"}], ensure_ascii=False)},
     )
@@ -714,7 +714,7 @@ def test_inbox_delivered_carries_card_and_expect_state(store):
     store.save_chapter(30, "正文内容一二三四。", title="卅")
     _PL.write_state(store, 30, "delivered")
     card = {"seq": 30, "words": 8, "qc": 2, "promises": ["埋「铜炉」"], "low_confidence": "拿不准结尾的收束"}
-    store._execute_write("UPDATE type::thing('chapter',30) SET pilot_card=$c",
+    store._execute_write("UPDATE type::record('chapter',30) SET pilot_card=$c",
                          {"seq": 30, "c": _json.dumps(card, ensure_ascii=False)})
     d = next(it for it in _client(store).get("/inbox").json()["items"]
              if it["kind"] == "pilot_delivered" and it["seq"] == 30)
@@ -753,7 +753,7 @@ def test_status_no_false_stall_on_waiting_states(store):
     old = int(_t.time()) - _PL.STALL_SECONDS - 100
     for state in ("delivered", "outline_proposed"):
         _PL.write_state(store, 40, state)
-        store._execute_write("UPDATE type::thing('chapter',40) SET pilot_state_at=$t",
+        store._execute_write("UPDATE type::record('chapter',40) SET pilot_state_at=$t",
                              {"seq": 40, "t": old})
         assert _PL.status(store, 40)["stalled"] is False, f"{state} 是等作者停靠态,不该报 stalled"
 
@@ -764,7 +764,7 @@ def test_status_stall_on_stuck_auto_chain_state(store):
     import time as _t
     store.save_chapter(41, "", title="卌一")
     _PL.write_state(store, 41, "drafting")
-    store._execute_write("UPDATE type::thing('chapter',41) SET pilot_state_at=$t",
+    store._execute_write("UPDATE type::record('chapter',41) SET pilot_state_at=$t",
                          {"seq": 41, "t": int(_t.time()) - _PL.STALL_SECONDS - 100})
     assert _PL.status(store, 41)["stalled"] is True, "auto 链中间态卡住仍须报 stalled"
 
@@ -772,10 +772,10 @@ def test_status_stall_on_stuck_auto_chain_state(store):
 def test_dismiss_clears_steer(store):
     """R2-13:dismiss 一并清 pilot_steer——否则陈旧作者意图重启 pilot 时以「最高优先」静默复活。"""
     store.save_chapter(50, "", title="五十")
-    store._execute_write("UPDATE type::thing('chapter',50) SET pilot_steer=$s, pilot_state='drafting'",
+    store._execute_write("UPDATE type::record('chapter',50) SET pilot_steer=$s, pilot_state='drafting'",
                          {"seq": 50, "s": "旧意图:写成悲剧"})
     _client(store).post("/pilot/dismiss", json={"seq": 50})
-    rows = store._query("SELECT pilot_steer FROM type::thing('chapter',50)")
+    rows = store._query("SELECT pilot_steer FROM type::record('chapter',50)")
     assert not (rows[0].get("pilot_steer") if rows else None), "dismiss 须清 steer"
 
 
@@ -834,7 +834,7 @@ def test_run_outer_exception_writes_parked(store, monkeypatch):
     store.save_chapter(55, "", title="五五")
     monkeypatch.setattr(A, "_pilot_executor", lambda work: {})   # step 缺动作→RuntimeError(体外异常路径)
     A._pilot_run_bg("main", 55, 55)
-    rows = store._query("SELECT pilot_parked FROM type::thing('chapter',55)")
+    rows = store._query("SELECT pilot_parked FROM type::record('chapter',55)")
     assert (rows[0].get("pilot_parked") if rows else ""), "体外异常须落 pilot_parked"
 
 

@@ -159,7 +159,7 @@ def test_quality_refresh_replaces_stale_cache_and_marks_fresh(store):
     store.save_chapter(1, "一段正常的志怪内容。", title="一")
     # 模拟事件回写/检测器升级后遗留的旧派生值，正文与正典数据均不应被改动。
     store._execute_write(
-        "UPDATE type::thing('chapter', 1) SET qc_issues=99, qc_causal=88, qc_cache_revision=0", {})
+        "UPDATE type::record('chapter', 1) SET qc_issues=99, qc_causal=88, qc_cache_revision=0", {})
 
     before = c.get("/quality").json()
     assert before["cache_stale_chapters"] == [1]
@@ -4313,7 +4313,7 @@ def test_deduction_block_excludes_stale_projection_body(store):
     })
     # 剥 stamp + bump 真相 → stale
     store._execute_write(
-        "UPDATE type::thing('chapter', $seq) SET deductions=$d",
+        "UPDATE type::record('chapter', $seq) SET deductions=$d",
         {"seq": 31, "d": json.dumps([{
             "character_id": "role:柳", "character_name": "柳怀玉",
             "prose": "SECRET_STALE_BODY_SHOULD_NOT_INJECT",
@@ -4559,7 +4559,7 @@ def test_write_system_brief_failsafe(store, monkeypatch):
 def _set_mode(store, local: str, mode: str) -> None:
     """测试辅助:给某命题显式配 injection_mode(add_fact 不写此字段)。"""
     store._execute_write(
-        "UPDATE type::thing('proposition',$l) SET injection_mode=$m", {"l": local, "m": mode})
+        "UPDATE type::record('proposition',$l) SET injection_mode=$m", {"l": local, "m": mode})
 
 
 def test_chapter_brief_injection_manifest(store):

@@ -42,7 +42,7 @@
     → MCP server "scribe3"（主编工具 s3_*）
 ```
 
-- **存储：SurrealDB**（一书一 `db=<work slug>`）。**不是** GBrain / 外挂第二真相库；过程记忆若开启走仓内 `memory_fabric`（默认关），不得替代正典。  
+- **存储：SurrealDB 3.2.x**（一书一 `db=<work slug>`，demo/prod 钉 `v3.2.4`）。**不是** GBrain / Spectron / 外挂第二真相库；过程记忆走仓内 `memory_fabric`（**产品默认开**，`SCRIBE3_MEMORY_FABRIC_V1`），不得替代正典。运维见 `docs/ops/surrealdb-3.2.4-runbook.md`。  
 - **端口：** 以 `scribe3/README.md` 为准（示例 API `:3321`、前端 `:3311`）。  
 - **DB 凭证：** `SCRIBE3_SURREAL_URL` / `SCRIBE3_SURREAL_USER` / `SCRIBE3_SURREAL_PASS`（store 与 live 同源）。
 

@@ -324,12 +324,12 @@ def archive_work(slug: str, url: str | None = None) -> None:
     _guard_mutable_slug(slug)
     db = _reg_conn(url)
     try:
-        rows = db.query("SELECT * FROM type::thing('work',$s)", {"s": slug})
+        rows = db.query("SELECT * FROM type::record('work',$s)", {"s": slug})
         if not rows:
             raise ValueError(f"作品不存在: {slug}")
         if rows[0].get("archived") is True:
             return  # 幂等
-        db.query("UPDATE type::thing('work',$s) SET archived=true, archived_at=time::now()",
+        db.query("UPDATE type::record('work',$s) SET archived=true, archived_at=time::now()",
                  {"s": slug})
     finally:
         db.close()
@@ -343,7 +343,7 @@ def restore_work(slug: str, url: str | None = None) -> None:
     """
     db = _reg_conn(url)
     try:
-        rows = db.query("SELECT * FROM type::thing('work',$s)", {"s": slug})
+        rows = db.query("SELECT * FROM type::record('work',$s)", {"s": slug})
         if not rows:
             raise ValueError(f"作品不存在: {slug}")
         if rows[0].get("archived") is not True:
@@ -355,7 +355,7 @@ def restore_work(slug: str, url: str | None = None) -> None:
                                {"s": slug})
             if any((r.get("title") or "").strip() == stripped for r in active):
                 raise ValueError(f"已有同名作品「{stripped}」,请先改名")
-        db.query("UPDATE type::thing('work',$s) SET archived=false, archived_at=NONE",
+        db.query("UPDATE type::record('work',$s) SET archived=false, archived_at=NONE",
                  {"s": slug})
     finally:
         db.close()
@@ -367,10 +367,10 @@ def delete_work(slug: str, url: str | None = None) -> None:
     _guard_mutable_slug(slug)
     db = _reg_conn(url)
     try:
-        rows = db.query("SELECT * FROM type::thing('work',$s)", {"s": slug})
+        rows = db.query("SELECT * FROM type::record('work',$s)", {"s": slug})
         if not rows or rows[0].get("archived") is not True:
             raise ValueError("请先移入废弃箱再永久删除")
-        db.query("DELETE type::thing('work',$s)", {"s": slug})
+        db.query("DELETE type::record('work',$s)", {"s": slug})
         db.query(f"REMOVE DATABASE IF EXISTS {slug}")
     finally:
         db.close()
@@ -394,7 +394,7 @@ def rename_work(slug: str, title: str, url: str | None = None) -> None:
                            {"s": slug})
         if any((r.get("title") or "").strip() == stripped for r in active):
             raise ValueError(f"已有同名作品:{title}")
-        db.query("UPDATE type::thing('work',$s) SET title=$t", {"s": slug, "t": title})
+        db.query("UPDATE type::record('work',$s) SET title=$t", {"s": slug, "t": title})
     finally:
         db.close()
 
@@ -408,11 +408,11 @@ def set_work_owner(slug: str, owner_user_id: str, url: str | None = None) -> dic
         raise ValueError("非法 slug")
     db = _reg_conn(url)
     try:
-        rows = db.query("SELECT * FROM type::thing('work',$s)", {"s": slug})
+        rows = db.query("SELECT * FROM type::record('work',$s)", {"s": slug})
         if not rows:
             raise ValueError(f"作品不存在: {slug}")
         db.query(
-            "UPDATE type::thing('work',$s) SET owner_user_id=$o",
+            "UPDATE type::record('work',$s) SET owner_user_id=$o",
             {"s": slug, "o": owner},
         )
         r = rows[0]
@@ -499,13 +499,13 @@ def create_work(title: str, slug: str | None = None, url: str | None = None,
             raise ValueError(f"已有同名作品:{title}")
         if owner:
             db.query(
-                "CREATE type::thing('work',$s) SET slug=$s, title=$t, "
+                "CREATE type::record('work',$s) SET slug=$s, title=$t, "
                 "owner_user_id=$o, created=time::now()",
                 {"s": slug, "t": title, "o": owner},
             )
         else:
             db.query(
-                "CREATE type::thing('work',$s) SET slug=$s, title=$t, created=time::now()",
+                "CREATE type::record('work',$s) SET slug=$s, title=$t, created=time::now()",
                 {"s": slug, "t": title},
             )
     finally:
@@ -755,7 +755,7 @@ def backfill_material_memory(store) -> int:
         try:
             toks, vec = store._material_index_fields(r.get("title"), r.get("body"))
             store._execute_write(
-                "UPDATE type::thing('material',$m) SET tokens=$t, embedding=$v",
+                "UPDATE type::record('material',$m) SET tokens=$t, embedding=$v",
                 {"m": r["id"], "t": toks, "v": vec})
             store.build_material_edges(r["id"])
             n += 1

@@ -88,7 +88,7 @@ class TestGetWorkRowQuery:
         assert row["slug"] == "book_abc123"
         assert row["owner_user_id"] == "alice"
         assert any("slug = $s" in q for q in queries)
-        assert not any("type::thing('work'" in q for q in queries)
+        assert not any("type::record('work'" in q for q in queries)
 
 
 class TestOwnershipPure:

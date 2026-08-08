@@ -48,7 +48,7 @@ def test_find_leaks_for_chapter_skips_stale_deduction(store):
     })
     # 剥 stamp + 改真相 → stale；for_chapter 不得用过期投影
     store._execute_write(
-        "UPDATE type::thing('chapter', $seq) SET deductions=$d",
+        "UPDATE type::record('chapter', $seq) SET deductions=$d",
         {"seq": 1, "d": json.dumps([{
             "character_id": "role:沈砚",
             "prose": _five_layers(unaware="炉心真名写在灰契背面。"),

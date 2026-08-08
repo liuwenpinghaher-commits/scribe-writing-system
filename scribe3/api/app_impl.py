@@ -1487,7 +1487,7 @@ def _grounding_llm(st, work: str, chapter: int, prompt: str) -> str:
 
 
 def _pilot_steer(st, seq: int) -> str:
-    rows = st._query("SELECT pilot_steer FROM type::thing('chapter',$seq)", {"seq": seq})
+    rows = st._query("SELECT pilot_steer FROM type::record('chapter',$seq)", {"seq": seq})
     return ((rows[0] if rows else {}).get("pilot_steer") or "").strip()
 
 

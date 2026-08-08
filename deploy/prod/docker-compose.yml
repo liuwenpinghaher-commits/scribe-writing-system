@@ -7,16 +7,20 @@
 
 services:
   surreal:
-    image: surrealdb/surrealdb:v2.1.4
+    image: surrealdb/surrealdb:v3.2.4
     user: root
     restart: unless-stopped
-    # v2.1.4 无 --slow-log-threshold / --query-timeout / --transaction-timeout
+    # SurrealDB 3.2.4（勿用 2.x 镜像挂本数据目录；勿改 latest）
+    # 3.2 CLI 已支持 query/transaction timeout（2.1.4 无）。
+    # 迁移/多语句脚本可能较长：默认 300s/120s，可用 env 覆盖。
     command: >
       start
       --user ${SURREAL_USER:-root}
       --pass ${SURREAL_PASS:-root}
       --bind 0.0.0.0:8000
       --log info
+      --query-timeout ${SURREAL_QUERY_TIMEOUT:-300s}
+      --transaction-timeout ${SURREAL_TRANSACTION_TIMEOUT:-120s}
       surrealkv:/data/data.db
     volumes:
       - ${SCRIBE3_DATA_DIR:-/opt/scribe3/data}/surreal:/data

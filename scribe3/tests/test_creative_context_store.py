@@ -321,7 +321,7 @@ def test_outcome_status_is_closed_in_pydantic_and_real_surrealdb(store):
     for status in OUTCOME_STATUSES:
         assert _outcome(manifest, status=status).status == status
         store._raw_query(
-            "CREATE type::thing('context_outcome_trace', $outcome_id) SET "
+            "CREATE type::record('context_outcome_trace', $outcome_id) SET "
             "outcome_id=$outcome_id, request_id=$request_id, manifest_id=$manifest_id, "
             "actual_input_hash=$actual_input_hash, status=$status, created_at=time::now()",
             {"outcome_id": f"valid-status-{status}", "request_id": manifest.request_id,
@@ -334,7 +334,7 @@ def test_outcome_status_is_closed_in_pydantic_and_real_surrealdb(store):
 
     with pytest.raises(Exception, match="status"):
         store._raw_query(
-            "CREATE type::thing('context_outcome_trace', $outcome_id) SET "
+            "CREATE type::record('context_outcome_trace', $outcome_id) SET "
             "outcome_id=$outcome_id, request_id=$request_id, manifest_id=$manifest_id, "
             "actual_input_hash=$actual_input_hash, status=$status, created_at=time::now()",
             {"outcome_id": "invalid-status", "request_id": manifest.request_id,
@@ -444,16 +444,16 @@ def test_creative_context_core_rows_are_readonly_after_create(store):
     ]
     for table, record_id, field, replacement in updates:
         before = store._query(
-            f"SELECT {field} FROM type::thing('{table}', $record_id)",
+            f"SELECT {field} FROM type::record('{table}', $record_id)",
             {"record_id": record_id},
         )[0][field]
         with pytest.raises(Exception, match="readonly|read-only|READONLY"):
             store._raw_query(
-                f"UPDATE type::thing('{table}', $record_id) SET {field}=$replacement",
+                f"UPDATE type::record('{table}', $record_id) SET {field}=$replacement",
                 {"record_id": record_id, "replacement": replacement},
             )
         after = store._query(
-            f"SELECT {field} FROM type::thing('{table}', $record_id)",
+            f"SELECT {field} FROM type::record('{table}', $record_id)",
             {"record_id": record_id},
         )[0][field]
         assert after == before
@@ -491,7 +491,7 @@ DEFINE FIELD created_at ON context_outcome_trace TYPE datetime;
     }
     for ordinal, (outcome_id, (old_status, _expected, error)) in enumerate(statuses.items()):
         unmigrated_store._raw_query(
-            "CREATE type::thing('context_outcome_trace', $outcome_id) SET "
+            "CREATE type::record('context_outcome_trace', $outcome_id) SET "
             "outcome_id=$outcome_id, request_id=$request_id, manifest_id=$manifest_id, "
             "actual_input_hash=$actual_input_hash, status=$status, error=$error, "
             "created_at=time::now()",
@@ -510,7 +510,7 @@ DEFINE FIELD created_at ON context_outcome_trace TYPE datetime;
     context_store = ContextStore(unmigrated_store)
     for ordinal, (outcome_id, (_old_status, expected_status, old_error)) in enumerate(statuses.items()):
         row = unmigrated_store._query(
-            "SELECT status, error, created_at FROM type::thing('context_outcome_trace', $outcome_id)",
+            "SELECT status, error, created_at FROM type::record('context_outcome_trace', $outcome_id)",
             {"outcome_id": outcome_id},
         )[0]
         assert row["status"] == expected_status
@@ -522,7 +522,7 @@ DEFINE FIELD created_at ON context_outcome_trace TYPE datetime;
         for field, replacement in (("error", "tampered"), ("created_at", "2026-07-20T00:00:00Z")):
             with pytest.raises(Exception, match="readonly|read-only|READONLY"):
                 unmigrated_store._raw_query(
-                    f"UPDATE type::thing('context_outcome_trace', $outcome_id) "
+                    f"UPDATE type::record('context_outcome_trace', $outcome_id) "
                     f"SET {field}=$replacement",
                     {"outcome_id": outcome_id, "replacement": replacement},
                 )
@@ -543,12 +543,12 @@ def test_093_upgrades_091_092_rows_before_tightening_new_contracts(
     digest = hashlib.sha256(b"legacy-source-without-revision").hexdigest()
     legacy_policy_id = hashlib.sha256(b"generation.v1").hexdigest()
     unmigrated_store._raw_query(
-        "CREATE type::thing('context_policy_snapshot', $policy_id) SET "
+        "CREATE type::record('context_policy_snapshot', $policy_id) SET "
         "policy_snapshot_id=$policy_id, policy_version='generation.v1'",
         {"policy_id": legacy_policy_id},
     )
     unmigrated_store._raw_query(
-        "CREATE type::thing('context_manifest', 'legacy-manifest') SET "
+        "CREATE type::record('context_manifest', 'legacy-manifest') SET "
         "manifest_id='legacy-manifest', manifest_version='creative-context-manifest.v1', "
         "request_id='legacy-request', task_kind='draft', policy_version='generation.v1', "
         "navigation_snapshot_id='legacy-navigation', snapshot_hash=$digest, "
@@ -557,7 +557,7 @@ def test_093_upgrades_091_092_rows_before_tightening_new_contracts(
         {"digest": digest},
     )
     unmigrated_store._raw_query(
-        "CREATE type::thing('context_manifest_source', 'legacy-source') SET "
+        "CREATE type::record('context_manifest_source', 'legacy-source') SET "
         "manifest_id='legacy-manifest', source_ref='legacy-source', block='canonical', "
         "source_id='legacy-source', source_kind='canonical', work='legacy-work', "
         "revision=NONE, masked=false, reason_code='unspecified', content_digest=$digest",
@@ -612,6 +612,6 @@ def test_093_upgrades_091_092_rows_before_tightening_new_contracts(
     ):
         with pytest.raises(Exception, match="readonly|read-only|READONLY"):
             unmigrated_store._raw_query(
-                f"UPDATE type::thing('{table}', $record_id) SET {field}=$replacement",
+                f"UPDATE type::record('{table}', $record_id) SET {field}=$replacement",
                 {"record_id": record_id, "replacement": replacement},
             )

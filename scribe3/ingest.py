@@ -536,7 +536,7 @@ def _store_work_name(store, work: str | None = None) -> str:
 def _chapter_ingest_prose_fp(store, seq: int) -> str | None:
     try:
         rows = store._query(
-            "SELECT ingest_prose_fp, ingest_status FROM type::thing('chapter', $seq)",
+            "SELECT ingest_prose_fp, ingest_status FROM type::record('chapter', $seq)",
             {"seq": int(seq)},
         )
         if not rows:

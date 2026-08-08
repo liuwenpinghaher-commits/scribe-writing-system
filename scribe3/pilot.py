@@ -65,7 +65,7 @@ def authz_for(overrides: dict | None) -> dict:
 def read_state(st, seq: int) -> dict:
     # 直查窄字段(get_chapter 是显式字段列表,不含 pilot_*——勿绕回去)
     rows = st._query(
-        "SELECT pilot_state, pilot_state_at, pilot_parked FROM type::thing('chapter',$seq)",
+        "SELECT pilot_state, pilot_state_at, pilot_parked FROM type::record('chapter',$seq)",
         {"seq": seq})
     ch = rows[0] if rows else {}
     return {"state": ch.get("pilot_state") or "idle",
@@ -75,7 +75,7 @@ def read_state(st, seq: int) -> dict:
 
 def write_state(st, seq: int, state: str, parked: str = "") -> None:
     st._execute_write(
-        "UPDATE type::thing('chapter',$seq) SET pilot_state=$s, pilot_state_at=$t, pilot_parked=$p",
+        "UPDATE type::record('chapter',$seq) SET pilot_state=$s, pilot_state_at=$t, pilot_parked=$p",
         {"seq": seq, "s": state, "t": int(time.time()), "p": parked})
 
 

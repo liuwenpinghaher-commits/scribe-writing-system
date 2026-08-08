@@ -46,7 +46,7 @@ def health_report(store, up_to: int) -> HealthReport:
     for ch in chapters:
         try:
             rows = store._query(
-                "SELECT ingest_status, ingest_error FROM type::thing('chapter',$seq)",
+                "SELECT ingest_status, ingest_error FROM type::record('chapter',$seq)",
                 {"seq": ch}) if hasattr(store, "_query") else []
             row = rows[0] if rows else {}
             stt = row.get("ingest_status")

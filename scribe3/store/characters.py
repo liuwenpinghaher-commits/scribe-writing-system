@@ -9,7 +9,7 @@ class CharactersMixin:
         _, local = _split(e.id)
         if e.kind == "character":
             self._execute_write(
-                "CREATE type::thing('character', $local) SET name=$name, aliases=$al, "
+                "CREATE type::record('character', $local) SET name=$name, aliases=$al, "
                 "backstory=$bs, backstory_secret=$bss, personality_tags=$pt, "
                 "importance=$importance, appearance=$appearance, "
                 "personality_detail=$personality_detail, abilities=$abilities, "
@@ -31,7 +31,7 @@ class CharactersMixin:
                  "internal_conflict": e.traits.get("internal_conflict"),
                  "fear": e.traits.get("fear")})
         elif e.kind == "place":
-            self._execute_write("CREATE type::thing('place', $local) SET name=$name",
+            self._execute_write("CREATE type::record('place', $local) SET name=$name",
                                 {"local": local, "name": e.name})
         return e
 
@@ -40,7 +40,7 @@ class CharactersMixin:
             table, local = _split(oid)        # 迁移数据的 entity 串可能无标准前缀→容忍
         except (KeyError, ValueError):
             return None
-        rows = self._query("SELECT name FROM type::thing($tbl,$local)",
+        rows = self._query("SELECT name FROM type::record($tbl,$local)",
                            {"tbl": table, "local": local})
         if not rows:
             return None
@@ -259,12 +259,12 @@ class CharactersMixin:
         _, local = _split(character_id)
         vars_["_l"] = local
         self._execute_write(
-            f"UPDATE type::thing('character',$_l) SET {', '.join(sets)}", vars_)
+            f"UPDATE type::record('character',$_l) SET {', '.join(sets)}", vars_)
 
     def char_anchors(self, character_id: str) -> dict:
         """读单角色的弧光锚(七键)。角色不存在返回 {}。"""
         _, local = _split(character_id)
         rows = self._query(
             "SELECT ghost, lie, truth, want, need, arc_type, private_agenda "
-            "FROM type::thing('character',$_l)", {"_l": local})
+            "FROM type::record('character',$_l)", {"_l": local})
         return rows[0] if rows else {}

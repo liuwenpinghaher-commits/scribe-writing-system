@@ -254,7 +254,7 @@ class CodexExtMixin:
         sel = ("SELECT meta::id(id) AS id, name, theme, echoes, unfolding, "
                "echo_terms, phase, tier, scope FROM ")
         rows = self._query(
-            sel + "type::thing('motif',$m) LIMIT 1", {"m": mid}) or []
+            sel + "type::record('motif',$m) LIMIT 1", {"m": mid}) or []
         if not rows:
             rows = self._query(
                 sel + "motif WHERE name=$n LIMIT 1", {"n": mid}) or []

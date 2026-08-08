@@ -104,7 +104,7 @@ class MotifsMixin:
             old = (existing[0].get("evidence") or "").strip()
             if len(ev) > len(old):
                 self._execute_write(
-                    "UPDATE type::thing('motif_instance',$i) SET evidence=$e",
+                    "UPDATE type::record('motif_instance',$i) SET evidence=$e",
                     {"i": existing[0]["id"], "e": ev})
             return False  # 未新增行
         self._execute_write(

@@ -448,7 +448,7 @@ def _pilot_executor(work: str) -> dict:
             try:
                 # SCHEMAFULL prose 是 string，不可 SET NONE；空串才合法
                 st._execute_write(
-                    "UPDATE type::thing('chapter',$seq) SET prose=$p, draft=$p, qc_word_count=0",
+                    "UPDATE type::record('chapter',$seq) SET prose=$p, draft=$p, qc_word_count=0",
                     {"seq": seq, "p": ""},
                 )
                 prose_now = ""
@@ -530,7 +530,7 @@ def _pilot_executor(work: str) -> dict:
                                    stage="final", stats=_prose_stats(prose))
         except Exception as e:
             logging.getLogger("scribe3").warning("pilot 交付留版失败(忽略): %s", e)
-        _qrows = st._query("SELECT qc_issues FROM type::thing('chapter',$seq)", {"seq": seq})
+        _qrows = st._query("SELECT qc_issues FROM type::record('chapter',$seq)", {"seq": seq})
         _qc = (_qrows[0] if _qrows else {}).get("qc_issues")
         _qn = len(_qc) if isinstance(_qc, list) else (_qc or 0)
         _prom = []
@@ -544,7 +544,7 @@ def _pilot_executor(work: str) -> dict:
             pass
         card = {"seq": seq, "words": len("".join(prose.split())),
                 "qc": _qn, "promises": _prom, "low_confidence": low_conf}
-        st._execute_write("UPDATE type::thing('chapter',$seq) SET pilot_card=$c",
+        st._execute_write("UPDATE type::record('chapter',$seq) SET pilot_card=$c",
                           {"seq": seq, "c": json.dumps(card, ensure_ascii=False)})
         return {"card": card}
 
@@ -654,7 +654,7 @@ def _pilot_run_bg(work: str, start: int, until: int) -> None:
             _cur = state.get("cur_seq")
             if _cur is not None:
                 _store_for(work)._execute_write(
-                    "UPDATE type::thing('chapter',$seq) SET pilot_parked=$p",
+                    "UPDATE type::record('chapter',$seq) SET pilot_parked=$p",
                     {"seq": _cur, "p": f"连写异常停靠:{str(e)[:100]}"})
         except Exception:
             pass

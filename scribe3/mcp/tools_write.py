@@ -1264,10 +1264,10 @@ async def s3_delete_codex(ctx: Context, object_type: str, object_id: str,
             st.delete_world_rule(oid)
             return {"object_type": ot, "object_id": oid, "action": "delete"}
         if ot == "promise":
-            rows = st._query("SELECT id FROM type::thing('promise',$pid) LIMIT 1", {"pid": oid})
+            rows = st._query("SELECT id FROM type::record('promise',$pid) LIMIT 1", {"pid": oid})
             if not rows:
                 return False
-            st._execute_write("DELETE type::thing('promise',$pid)", {"pid": oid})
+            st._execute_write("DELETE type::record('promise',$pid)", {"pid": oid})
             return {"object_type": ot, "object_id": oid, "action": "delete"}
         if ot == "motif":
             row = st.get_motif(oid)

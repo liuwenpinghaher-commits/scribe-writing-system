@@ -71,7 +71,7 @@ def get_work_row(slug: str, url: str | None = None) -> dict[str, Any] | None:
             # Fallback: record id == slug (create_work uses work:<slug>)
             try:
                 rows = db.query(
-                    "SELECT * FROM work WHERE id = type::thing('work', $s)",
+                    "SELECT * FROM work WHERE id = type::record('work', $s)",
                     {"s": slug},
                 )
             except Exception:

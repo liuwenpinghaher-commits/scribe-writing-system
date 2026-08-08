@@ -14,7 +14,7 @@ class VoiceCraftMixin:
         return self._query("SELECT meta::id(id) AS id, kind, pattern, note FROM craft_rule")
 
     def delete_craft_rule(self, rid: str) -> None:
-        self._execute_write("DELETE type::thing('craft_rule',$r)", {"r": rid})
+        self._execute_write("DELETE type::record('craft_rule',$r)", {"r": rid})
 
     def seed_craft_rules(self) -> None:
         """首书(乱世铜炉系)种子:scribe2 实战的升华正则8条 + 法器四件套。幂等(已有则跳过)。"""
@@ -53,11 +53,11 @@ class VoiceCraftMixin:
     def resolve_voice_flag(self, flag_id: str) -> bool:
         """关闭声音演变 flag:将 status 从 'open' 改为 'done'。返回 True 若存在,False 若不存在。"""
         rows = self._query(
-            "SELECT id FROM type::thing('voice_evolution_flag',$fid) LIMIT 1", {"fid": flag_id})
+            "SELECT id FROM type::record('voice_evolution_flag',$fid) LIMIT 1", {"fid": flag_id})
         if not rows:
             return False
         self._execute_write(
-            "UPDATE type::thing('voice_evolution_flag',$fid) SET status='done'",
+            "UPDATE type::record('voice_evolution_flag',$fid) SET status='done'",
             {"fid": flag_id})
         return True
 
@@ -126,7 +126,7 @@ class VoiceCraftMixin:
         reference_lines/version)。"""
         _, local = _split(character_id)
         self._execute_write(
-            "UPSERT type::thing('voice_profile', $local) SET character_id=$cid, "
+            "UPSERT type::record('voice_profile', $local) SET character_id=$cid, "
             "style_summary=$ss, catchphrases=$cp, sentence_patterns=$sp, "
             "vocabulary_profile=$vp, tone_rules=$tr, internal_monologue_style=$im, "
             "ooc_signals=$os, reference_lines=$rl, version=$v",
@@ -149,7 +149,7 @@ class VoiceCraftMixin:
             return None
         _, local = _split(character_id)
         rows = self._query(
-            "SELECT * FROM type::thing('voice_profile', $local)", {"local": local})
+            "SELECT * FROM type::record('voice_profile', $local)", {"local": local})
         return rows[0] if rows else None
 
     def list_voice_profiles(self) -> list[dict]:

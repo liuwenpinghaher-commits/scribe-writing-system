@@ -139,13 +139,13 @@ class MaterialsMixin:
 
     def get_material(self, material_id: str) -> dict | None:
         rows = self._query(
-            f"SELECT {self._MATERIAL_COLS} FROM type::thing('material',$m) LIMIT 1",
+            f"SELECT {self._MATERIAL_COLS} FROM type::record('material',$m) LIMIT 1",
             {"m": material_id})
         return rows[0] if rows else None
 
     def _material_exists(self, material_id: str) -> bool:
         # 不走 exists()(其 _split 只认 ONT2TBL 本体前缀),直接按表查
-        rows = self._query("SELECT id FROM type::thing('material',$m) LIMIT 1",
+        rows = self._query("SELECT id FROM type::record('material',$m) LIMIT 1",
                            {"m": material_id})
         return bool(rows)
 
@@ -209,16 +209,16 @@ class MaterialsMixin:
 
     @staticmethod
     def _material_index_fields(title, body):
-        """jieba 切词 + embedding(add/update/backfill 共用,DRY)。"""
-        import jieba
+        """FTS 分词 + embedding(add/update/backfill 共用,DRY)。"""
         from scribe3.embed import embed
+        from scribe3.text_tokens import tokenize_for_fts
         text = f"{title or ''}\n{body or ''}"
-        toks = " ".join(w for w in jieba.cut(text) if w.strip())
+        toks = tokenize_for_fts(text)
         return toks, embed([text])[0]
 
     def _material_embedding(self, material_id: str):
         rows = self._query(
-            "SELECT embedding FROM type::thing('material',$m) LIMIT 1", {"m": material_id})
+            "SELECT embedding FROM type::record('material',$m) LIMIT 1", {"m": material_id})
         return (rows[0].get("embedding") if rows else None)
 
     def add_material_reference(self, material_id, chapter, dimension=None,
@@ -229,7 +229,7 @@ class MaterialsMixin:
             "dimension=$d, reason=$r, via=$v",
             {"m": material_id, "c": int(chapter), "d": dimension, "r": reason, "v": via})
         self._execute_write(
-            "UPDATE type::thing('material',$m) SET recall_count += 1, "
+            "UPDATE type::record('material',$m) SET recall_count += 1, "
             "last_recalled_at = time::now()", {"m": material_id})
 
     def material_refs_by_material(self, material_id) -> list[dict]:
@@ -305,7 +305,7 @@ class MaterialsMixin:
             if sim < threshold:
                 continue
             self._execute_write(
-                "RELATE (type::thing('material',$a))->relates->(type::thing('material',$b)) "
+                "RELATE (type::record('material',$a))->relates->(type::record('material',$b)) "
                 "SET weight=$w, reason=$reason",
                 {"a": material_id, "b": r["id"], "w": sim, "reason": "语义近邻"})
         try:  # about_entities:素材提及的实体 id(图召回按实体关联),富集失败不阻塞
@@ -316,7 +316,7 @@ class MaterialsMixin:
             row = self.get_material(material_id) or {}
             mentioned = list(detect_mentions(f"{row.get('title', '')} {row.get('body') or ''}", ents))
             if mentioned:
-                self._execute_write("UPDATE type::thing('material',$m) SET about_entities=$e",
+                self._execute_write("UPDATE type::record('material',$m) SET about_entities=$e",
                                     {"m": material_id, "e": mentioned})
         except Exception:
             pass
@@ -326,7 +326,7 @@ class MaterialsMixin:
         try:
             return self._query(
                 "SELECT meta::id(out) AS id, weight, reason FROM relates "
-                "WHERE in = type::thing('material',$m)", {"m": material_id}) or []
+                "WHERE in = type::record('material',$m)", {"m": material_id}) or []
         except Exception:
             return []
 
@@ -334,13 +334,13 @@ class MaterialsMixin:
         """双向邻居:出边 out + 入边 in。"""
         out = []
         try:
-            rid = f"type::thing('material',$m)"
+            rid = f"type::record('material',$m)"
             rows = self._query(
                 "SELECT meta::id(out) AS id, weight, reason, 'out' AS dir FROM relates "
-                "WHERE in = type::thing('material',$m) "
+                "WHERE in = type::record('material',$m) "
                 "UNION "
                 "SELECT meta::id(in) AS id, weight, reason, 'in' AS dir FROM relates "
-                "WHERE out = type::thing('material',$m)",
+                "WHERE out = type::record('material',$m)",
                 {"m": material_id})
             if rows:
                 return rows
@@ -350,11 +350,11 @@ class MaterialsMixin:
         try:
             for r in self._query(
                 "SELECT meta::id(out) AS id, weight, reason FROM relates "
-                "WHERE in = type::thing('material',$m)", {"m": material_id}) or []:
+                "WHERE in = type::record('material',$m)", {"m": material_id}) or []:
                 out.append({**r, "dir": "out"})
             for r in self._query(
                 "SELECT meta::id(in) AS id, weight, reason FROM relates "
-                "WHERE out = type::thing('material',$m)", {"m": material_id}) or []:
+                "WHERE out = type::record('material',$m)", {"m": material_id}) or []:
                 out.append({**r, "dir": "in"})
         except Exception:
             return out
@@ -483,7 +483,7 @@ class MaterialsMixin:
                 {"j": job_id}) or []
             if existing:
                 self._execute_write(
-                    "UPDATE type::thing('material_import_job',$id) SET "
+                    "UPDATE type::record('material_import_job',$id) SET "
                     "stage=$stage, done=$done, total=$total, items=$items, "
                     "error=$error, source=$source, work=$work, updated_at=time::now()",
                     {"id": existing[0]["id"], **{k: fields[k] for k in
@@ -546,7 +546,7 @@ class MaterialsMixin:
                         age = None
                 if age is not None and age > ttl_sec:
                     self._execute_write(
-                        "DELETE type::thing('material_import_job',$id)",
+                        "DELETE type::record('material_import_job',$id)",
                         {"id": r["id"]})
                     n += 1
             return n

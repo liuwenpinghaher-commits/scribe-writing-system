@@ -60,7 +60,7 @@ def test_dimension_failsoft_isolated(store, monkeypatch):
 def test_ingest_failed_surfaces_in_quality(store):
     store.save_chapter(2, "正文。", title="二")
     store._execute_write(
-        "UPDATE type::thing('chapter',2) SET ingest_status='failed', ingest_error='LLM挂了'",
+        "UPDATE type::record('chapter',2) SET ingest_status='failed', ingest_error='LLM挂了'",
         {})
     out = P.chapter_pulse(store, 2)
     q = _dims(out)["quality"]
@@ -170,7 +170,7 @@ def test_quality_qc_cache_surfaces(store):
     """审查 P1-6:qc_issues 缓存命中必须能进 quality 维(此前 get_chapter 不带该字段,分支恒死)。"""
     rep = "他把伞收了又收。" * 6
     store.save_chapter(3, rep + "他把伞收了又收,伞收了又收,收了又收。", title="三")
-    rows = store._query("SELECT qc_issues FROM type::thing('chapter',3)")
+    rows = store._query("SELECT qc_issues FROM type::record('chapter',3)")
     qc = rows[0].get("qc_issues")
     qn = len(qc) if isinstance(qc, list) else (qc or 0)
     if not qn:

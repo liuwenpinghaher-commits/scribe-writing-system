@@ -27,11 +27,11 @@ class ChaptersMixin:
             # 检查 knows 边:除本章外是否还有其它章的边指向该命题
             other_knows = self._query(
                 "SELECT count() AS n FROM knows "
-                "WHERE out = type::thing('proposition', $local) AND ingest_seq != $seq",
+                "WHERE out = type::record('proposition', $local) AND ingest_seq != $seq",
                 {"local": local, "seq": seq})
             other_rk = self._query(
                 "SELECT count() AS n FROM reader_knows "
-                "WHERE proposition = type::thing('proposition', $local) AND ingest_seq != $seq",
+                "WHERE proposition = type::record('proposition', $local) AND ingest_seq != $seq",
                 {"local": local, "seq": seq})
             has_other = (
                 (other_knows and (other_knows[0].get("n") or 0) > 0) or
@@ -40,7 +40,7 @@ class ChaptersMixin:
             if not has_other:
                 # 无他章引用:安全删除
                 self._execute_write(
-                    "DELETE type::thing('proposition', $local)",
+                    "DELETE type::record('proposition', $local)",
                     {"local": local})
             # 有他章引用:保留命题,仅边已在步骤1删除
         # 3. char_state 无跨章复用问题,直接清
@@ -89,7 +89,7 @@ class ChaptersMixin:
         if seq is None:
             return
         self._execute_write(
-            "UPDATE type::thing('chapter',$seq) SET qc_cache_revision=NONE",
+            "UPDATE type::record('chapter',$seq) SET qc_cache_revision=NONE",
             {"seq": int(seq)})
 
     def material_refs_by_chapter(self, chapter) -> list[dict]:
@@ -141,13 +141,13 @@ class ChaptersMixin:
     def refresh_chapter_cache(self, seq: int) -> bool:
         """只刷新一章的派生缓存，不改正文、版本或任何正典/事件数据。"""
         rows = self._query(
-            "SELECT prose FROM type::thing('chapter', $seq)", {"seq": seq})
+            "SELECT prose FROM type::record('chapter', $seq)", {"seq": seq})
         prose = (rows[0].get("prose") if rows else "") or ""
         if not prose.strip():
             return False
         cache = self._compute_chapter_caches(seq, prose)
         self._execute_write(
-            "UPDATE type::thing('chapter', $seq) SET "
+            "UPDATE type::record('chapter', $seq) SET "
             "scene_count=$scn, scene_meta=$scm, qc_issues=$qc, qc_causal=$qcc, "
             "qc_breakdown=$qcb, qc_cache_revision=$qcr RETURN NONE",
             {"seq": seq, "scn": cache["scene_count"], "scm": cache["scene_meta"],
@@ -162,7 +162,7 @@ class ChaptersMixin:
         rows = self._query(
             "SELECT seq, constraints, advisory, fulfillment, degraded, "
             "(IF computed_at IS NONE THEN NONE ELSE <string>computed_at END) AS computed_at "
-            "FROM type::thing('chapter_scorecard',$s)", {"s": seq})
+            "FROM type::record('chapter_scorecard',$s)", {"s": seq})
         if rows:
             r = rows[0]
             return {"seq": seq,
@@ -206,7 +206,7 @@ class ChaptersMixin:
         cache = self._compute_chapter_caches(seq, prose)
         # 正文变更 → 章后统一分析缓存作废（指纹不一致本也会 miss，显式清更干净）
         self._execute_write(
-            "UPSERT type::thing('chapter',$seq) SET seq=$seq, title=$title, "
+            "UPSERT type::record('chapter',$seq) SET seq=$seq, title=$title, "
             "focalizer=$foc, prose=$prose, embedding=$v, qc_word_count=$wc, "
             "scene_count=$scn, scene_meta=$scm, qc_issues=$qc, qc_causal=$qcc, qc_breakdown=$qcb, "
             "qc_cache_revision=$qcr, "
@@ -278,7 +278,7 @@ class ChaptersMixin:
         rows = self._query(
             "SELECT meta::id(id) AS id, seq, prose, label, kind, qc, "
             "stage, summary, stats, created_at "
-            "FROM type::thing('chapter_version', $vid)", {"vid": vid})
+            "FROM type::record('chapter_version', $vid)", {"vid": vid})
         if not rows:
             return None
         r = rows[0]
@@ -291,14 +291,14 @@ class ChaptersMixin:
         """落/覆盖某章草稿(与定稿 prose 分离;UPSERT 不碰 prose/embedding/qc)。
         刷新恢复读 chapter.draft(最新草稿);留版另走 add_chapter_version(stage='draft')。"""
         self._execute_write(
-            "UPSERT type::thing('chapter',$seq) SET seq=$seq, draft=$draft RETURN NONE",
+            "UPSERT type::record('chapter',$seq) SET seq=$seq, draft=$draft RETURN NONE",
             {"seq": seq, "draft": draft})
 
     def get_chapter(self, seq: int) -> dict | None:
         """单章身份 + 四阶段内容(synopsis/beats/draft/prose)。
         beats 存为 JSON 串,读时解析为 list;缺失降级为 []。"""
         # SurrealDB 2.1: bare ``<string> optional_field`` InternalError when field is NONE;
-        # cast only when present. type::thing (not type::record) for two-arg record ids.
+        # cast only when present. type::record (not type::record) for two-arg record ids.
         rows = self._query(
             "SELECT seq,title,label,(IF volume THEN meta::id(volume) ELSE NONE END) AS volume,"
             "focalizer,prose,synopsis,beats,draft,"
@@ -307,7 +307,7 @@ class ChaptersMixin:
             "(IF archived_at IS NONE THEN NONE ELSE <string>archived_at END) AS archived_at,"
             "archive_reason,"
             "ingest_status,ingest_error,ingest_prose_fp "  # P0 指纹 + 审计 P1-6
-            "FROM type::thing('chapter',$seq)", {"seq": seq})
+            "FROM type::record('chapter',$seq)", {"seq": seq})
         if not rows:
             return None
         r = rows[0]
@@ -645,7 +645,7 @@ class ChaptersMixin:
 
     def update_volume(self, vid: str, fields: dict) -> bool:
         """更新卷字段(title/sort_order/intro/color 白名单)。返回 True 若存在,False 若不存在。"""
-        rows = self._query("SELECT id FROM type::thing('volume',$vid) LIMIT 1", {"vid": vid})
+        rows = self._query("SELECT id FROM type::record('volume',$vid) LIMIT 1", {"vid": vid})
         if not rows:
             return False
         allowed = {"title", "sort_order", "intro", "color"}
@@ -655,20 +655,20 @@ class ChaptersMixin:
         sets = ", ".join(f"{k}=$p_{k}" for k in payload)
         params = {f"p_{k}": v for k, v in payload.items()}
         self._execute_write(
-            f"UPDATE type::thing('volume', $vid) SET {sets}",
+            f"UPDATE type::record('volume', $vid) SET {sets}",
             {"vid": vid, **params})
         return True
 
     def delete_volume(self, vid: str) -> bool:
         """删卷:先把该卷下所有章的 volume 置 NONE(不删章),再删卷记录。返回 True 若存在并删除,False 若不存在。"""
-        rows = self._query("SELECT id FROM type::thing('volume',$vid) LIMIT 1", {"vid": vid})
+        rows = self._query("SELECT id FROM type::record('volume',$vid) LIMIT 1", {"vid": vid})
         if not rows:
             return False
         self._execute_write(
-            "UPDATE chapter SET volume = NONE WHERE volume = type::thing('volume', $vid)",
+            "UPDATE chapter SET volume = NONE WHERE volume = type::record('volume', $vid)",
             {"vid": vid})
         self._execute_write(
-            "DELETE type::thing('volume', $vid)",
+            "DELETE type::record('volume', $vid)",
             {"vid": vid})
         return True
 
@@ -679,7 +679,7 @@ class ChaptersMixin:
         """
         if volume_id is not None:
             vcheck = self._query(
-                "SELECT id FROM type::thing('volume',$vid) LIMIT 1",
+                "SELECT id FROM type::record('volume',$vid) LIMIT 1",
                 {"vid": volume_id})
             if not vcheck:
                 raise ValueError(f"create_chapter: volume '{volume_id}' 不存在")
@@ -692,7 +692,7 @@ class ChaptersMixin:
             rows = self._query(
                 "SELECT seq, sort_order FROM chapter:.. "
                 "WHERE (archived = NONE OR archived != true) "
-                "AND volume = type::thing('volume', $vid)",
+                "AND volume = type::record('volume', $vid)",
                 {"vid": volume_id})
             rows.sort(key=lambda r: (r.get("sort_order") if r.get("sort_order") is not None else r["seq"]))
             order = [r["seq"] for r in rows if r["seq"] != seq] + [seq]
@@ -702,26 +702,26 @@ class ChaptersMixin:
     def archive_chapter(self, seq: int, reason: str = "") -> bool:
         """软删除章节:隐藏但保留正文、版本和所有引用。已归档则幂等 True。"""
         rows = self._query(
-            "SELECT seq, archived FROM type::thing('chapter', $seq)", {"seq": seq})
+            "SELECT seq, archived FROM type::record('chapter', $seq)", {"seq": seq})
         if not rows:
             return False
         if rows[0].get("archived") is True:
             return True
         self._execute_write(
-            "UPDATE type::thing('chapter', $seq) SET archived=true, archived_at=time::now(), archive_reason=$reason",
+            "UPDATE type::record('chapter', $seq) SET archived=true, archived_at=time::now(), archive_reason=$reason",
             {"seq": seq, "reason": (reason or "").strip() or None})
         return True
 
     def restore_chapter(self, seq: int) -> bool:
         """恢复已归档章节。未归档则幂等 True。"""
         rows = self._query(
-            "SELECT seq, archived FROM type::thing('chapter', $seq)", {"seq": seq})
+            "SELECT seq, archived FROM type::record('chapter', $seq)", {"seq": seq})
         if not rows:
             return False
         if rows[0].get("archived") is not True:
             return True
         self._execute_write(
-            "UPDATE type::thing('chapter', $seq) SET archived=false, archived_at=NONE, archive_reason=NONE",
+            "UPDATE type::record('chapter', $seq) SET archived=false, archived_at=NONE, archive_reason=NONE",
             {"seq": seq})
         return True
 
@@ -784,7 +784,7 @@ class ChaptersMixin:
 
     def delete_chapter_permanent(self, seq: int) -> bool:
         """永久删除章节和明确以该章为 owner 的派生记录。危险操作,端点层必须 token 门禁。"""
-        rows = self._query("SELECT seq FROM type::thing('chapter', $seq)", {"seq": seq})
+        rows = self._query("SELECT seq FROM type::record('chapter', $seq)", {"seq": seq})
         if not rows:
             return False
         quality_refs = self._safe_count(
@@ -838,7 +838,7 @@ class ChaptersMixin:
                 self._execute_write(query, {"seq": seq})
             except Exception:
                 pass
-        self._execute_write("DELETE type::thing('chapter', $seq)", {"seq": seq})
+        self._execute_write("DELETE type::record('chapter', $seq)", {"seq": seq})
         return True
 
     def reorder_chapters(self, volume_id: str | None, order: list[int]) -> int:
@@ -851,7 +851,7 @@ class ChaptersMixin:
         base = 0
         if volume_id:
             vrows = self._query(
-                "SELECT sort_order FROM type::thing('volume', $vid)",
+                "SELECT sort_order FROM type::record('volume', $vid)",
                 {"vid": volume_id})
             if not vrows:
                 raise ValueError(
@@ -860,14 +860,14 @@ class ChaptersMixin:
             base = vrows[0]["sort_order"] * 100000
         for i, seq in enumerate(order):
             if volume_id:
-                # record<volume> 须用 type::thing() 在 SurrealQL 里构造,不能传字符串
+                # record<volume> 须用 type::record() 在 SurrealQL 里构造,不能传字符串
                 self._execute_write(
-                    "UPDATE type::thing('chapter', $seq) SET sort_order=$o, "
-                    "volume=type::thing('volume', $vid)",
+                    "UPDATE type::record('chapter', $seq) SET sort_order=$o, "
+                    "volume=type::record('volume', $vid)",
                     {"seq": seq, "o": base + i, "vid": volume_id})
             else:
                 self._execute_write(
-                    "UPDATE type::thing('chapter', $seq) SET sort_order=$o, volume=NONE",
+                    "UPDATE type::record('chapter', $seq) SET sort_order=$o, volume=NONE",
                     {"seq": seq, "o": base + i})
         return len(order)
 
@@ -883,7 +883,7 @@ class ChaptersMixin:
         """
         # 先确认章存在
         exists = self._query(
-            "SELECT seq FROM type::thing('chapter', $seq)", {"seq": seq})
+            "SELECT seq FROM type::record('chapter', $seq)", {"seq": seq})
         if not exists:
             return False
         import json
@@ -895,7 +895,7 @@ class ChaptersMixin:
         # 读当前真相/rev/投影，供 bump 与「不洗 stale」对照
         cur_rows = self._query(
             "SELECT scene_truth, scene_truth_revision, deductions "
-            "FROM type::thing('chapter', $seq)",
+            "FROM type::record('chapter', $seq)",
             {"seq": seq})
         cur = cur_rows[0] if cur_rows else {}
         old_truth = (cur.get("scene_truth") or "") if cur else ""
@@ -962,17 +962,17 @@ class ChaptersMixin:
             else:
                 # R2.5: 校验目标卷存在,防幽灵卷
                 vcheck = self._query(
-                    "SELECT id FROM type::thing('volume',$vid) LIMIT 1", {"vid": volume_id})
+                    "SELECT id FROM type::record('volume',$vid) LIMIT 1", {"vid": volume_id})
                 if not vcheck:
                     raise ValueError(
                         f"update_chapter_meta: volume '{volume_id}' 不存在,拒绝写入幽灵卷归属。"
                     )
-                set_parts.append("volume=type::thing('volume', $p_volume)")
+                set_parts.append("volume=type::record('volume', $p_volume)")
                 params["p_volume"] = volume_id
         if not set_parts:
             return True
         self._execute_write(
-            f"UPDATE type::thing('chapter', $seq) SET {', '.join(set_parts)}",
+            f"UPDATE type::record('chapter', $seq) SET {', '.join(set_parts)}",
             params)
         return True
 
@@ -1010,7 +1010,7 @@ class ChaptersMixin:
             raw = json.dumps(body, ensure_ascii=False)
         try:
             self._execute_write(
-                "UPDATE type::thing('chapter', $seq) SET "
+                "UPDATE type::record('chapter', $seq) SET "
                 "post_analysis_cache=$c, post_analysis_fp=$fp, post_analysis_at=time::now() "
                 "RETURN NONE",
                 {"seq": int(seq), "c": raw, "fp": fp},
@@ -1025,7 +1025,7 @@ class ChaptersMixin:
                     "DEFINE FIELD IF NOT EXISTS post_analysis_fp ON chapter TYPE option<string>;"
                 )
                 self._execute_write(
-                    "UPDATE type::thing('chapter', $seq) SET "
+                    "UPDATE type::record('chapter', $seq) SET "
                     "post_analysis_cache=$c, post_analysis_fp=$fp, post_analysis_at=time::now() "
                     "RETURN NONE",
                     {"seq": int(seq), "c": raw, "fp": fp},
@@ -1043,7 +1043,7 @@ class ChaptersMixin:
         try:
             rows = self._query(
                 "SELECT post_analysis_cache, post_analysis_fp "
-                "FROM type::thing('chapter', $seq)",
+                "FROM type::record('chapter', $seq)",
                 {"seq": int(seq)},
             )
         except Exception:
@@ -1071,7 +1071,7 @@ class ChaptersMixin:
         """显式清空章后分析缓存（改稿/强制重抽）。"""
         try:
             self._execute_write(
-                "UPDATE type::thing('chapter', $seq) SET "
+                "UPDATE type::record('chapter', $seq) SET "
                 "post_analysis_cache=NONE, post_analysis_fp=NONE, post_analysis_at=NONE "
                 "RETURN NONE",
                 {"seq": int(seq)},
@@ -1088,7 +1088,7 @@ class ChaptersMixin:
             rows = self._query(
                 "SELECT post_analysis_cache, post_analysis_fp, "
                 "(IF post_analysis_at IS NONE THEN NONE ELSE <string>post_analysis_at END) AS post_analysis_at "
-                "FROM type::thing('chapter', $seq)",
+                "FROM type::record('chapter', $seq)",
                 {"seq": int(seq)},
             )
         except Exception:

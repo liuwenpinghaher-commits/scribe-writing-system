@@ -51,7 +51,7 @@ class UnverifiedIngestMixin:
     def set_unverified_status(self, uid: str, status: str) -> None:
         """裁决待确认条目(pending→ignored/accepted;accept 的建实体流程在 accept_unverified)。"""
         self._execute_write(
-            "UPDATE type::thing('ingest_unverified',$uid) SET status=$st",
+            "UPDATE type::record('ingest_unverified',$uid) SET status=$st",
             {"uid": uid, "st": status})
 
     def list_unverified(self, status: str = "pending") -> list[dict]:
@@ -74,7 +74,7 @@ class UnverifiedIngestMixin:
             replay 失败时 fail-soft:角色建立 + status=accepted 保留,replayed=False。
         """
         rows = self._query(
-            "SELECT name, seq FROM type::thing('ingest_unverified', $u)", {"u": uid})
+            "SELECT name, seq FROM type::record('ingest_unverified', $u)", {"u": uid})
         if not rows:
             return {"created": False, "oid": "", "replayed": False}
         name = rows[0]["name"]
@@ -85,7 +85,7 @@ class UnverifiedIngestMixin:
             from scribe3.ontology import Entity
             self.add_entity(Entity(oid, "character", name))
         self._execute_write(
-            "UPDATE type::thing('ingest_unverified', $u) SET status='accepted'", {"u": uid})
+            "UPDATE type::record('ingest_unverified', $u) SET status='accepted'", {"u": uid})
 
         # 重放该章 ingest:现在角色已存在,_resolve_char 不再跳过,被阻塞的知识边得以回填
         replayed = False
@@ -106,7 +106,7 @@ class UnverifiedIngestMixin:
     def ignore_unverified(self, uid: str) -> None:
         """将待确认行标记为 ignored。"""
         self._execute_write(
-            "UPDATE type::thing('ingest_unverified', $u) SET status='ignored'", {"u": uid})
+            "UPDATE type::record('ingest_unverified', $u) SET status='ignored'", {"u": uid})
 
     def dedupe_unverified_pending(self) -> dict:
         """pending 同名只留一条（先见者保留），其余 ignored。"""

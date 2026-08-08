@@ -24,7 +24,7 @@ from scribe3.verify_craft_compliance import (
 
 def _enrich_char(store, local: str, *, appearance: str, goal: str):
     store._execute_write(
-        "UPDATE type::thing('character', $n) SET appearance=$ap, surface_goal=$sg",
+        "UPDATE type::record('character', $n) SET appearance=$ap, surface_goal=$sg",
         {"n": local, "ap": appearance, "sg": goal},
     )
 
@@ -223,7 +223,7 @@ def test_gate_b_warns_stale_and_weak_layers(store):
     craft_chapter_scaffold(store, seq)
     # 剥 stamp 模拟旧投影 + 改真相
     store._execute_write(
-        "UPDATE type::thing('chapter', $seq) SET deductions=$d",
+        "UPDATE type::record('chapter', $seq) SET deductions=$d",
         {"seq": seq, "d": json.dumps([
             {"character_id": "role:沈砚", "prose": "只有一段散文，没有五层标题。"},
             {"character_id": "role:老道", "prose": "同样缺标题的老道投影。"},

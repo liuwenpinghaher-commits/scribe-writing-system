@@ -25,7 +25,7 @@ class CanonCandidatesMixin:
         after = row.get("after")
         impact = row.get("impact")
         self._execute_write(
-            "CREATE type::thing('canon_candidate', $id) SET "
+            "CREATE type::record('canon_candidate', $id) SET "
             "seq=$seq, source=$source, extractor=$extractor, module=$module, op=$op, "
             "target=$target, field=$field, before_json=$bj, after_json=$aj, "
             "evidence=$evidence, confidence=$conf, risk=$risk, layer=$layer, "
@@ -97,7 +97,7 @@ class CanonCandidatesMixin:
                 "SELECT meta::id(id) AS id, seq, source, extractor, module, op, target, field, "
                 "before_json, after_json, evidence, confidence, risk, layer, status, "
                 "change_pack_id, impact_json, created_at, decided_at "
-                "FROM type::thing('canon_candidate', $u)",
+                "FROM type::record('canon_candidate', $u)",
                 {"u": uid},
             )
             if not rows:
@@ -122,7 +122,7 @@ class CanonCandidatesMixin:
 
     def set_canon_candidate_status(self, uid: str, status: str) -> None:
         self._execute_write(
-            "UPDATE type::thing('canon_candidate', $u) SET status=$st, decided_at=time::now()",
+            "UPDATE type::record('canon_candidate', $u) SET status=$st, decided_at=time::now()",
             {"u": uid, "st": status},
         )
 

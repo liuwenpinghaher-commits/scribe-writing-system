@@ -123,7 +123,7 @@ def test_navigation_ended_session_409(store, context_session):
     """ended 守卫的 API 面:已结束会话 navigate → 409 context_session_ended
     (end 方法由后续任务建,先手工置状态——与 test_context_store 同手法)。"""
     store._raw_query(
-        "UPDATE type::thing('context_session', $sid) SET status='ended'",
+        "UPDATE type::record('context_session', $sid) SET status='ended'",
         {"sid": context_session.id})
     c = _client(store)
     r = c.post(f"/context/sessions/{context_session.id}/navigate?work=main",

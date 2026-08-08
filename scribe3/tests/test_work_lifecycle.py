@@ -215,7 +215,7 @@ def test_api_purge_empty_title_dirty_data_422(store, monkeypatch):
     create_work("将被抹名之书", slug="e3", url=store.url)
     db = _reg_conn(store.url)
     try:   # 直接改注册表造脏数据(绕过 rename_work 的新校验)
-        db.query("UPDATE type::thing('work',$s) SET title=''", {"s": "e3"})
+        db.query("UPDATE type::record('work',$s) SET title=''", {"s": "e3"})
     finally:
         db.close()
     archive_work("e3", url=store.url)

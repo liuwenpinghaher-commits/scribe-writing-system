@@ -40,7 +40,7 @@ def mark_chapter_ingest_status(
         if prose_fp and status == "ok":
             try:
                 st._execute_write(
-                    "UPDATE type::thing('chapter',$seq) SET "
+                    "UPDATE type::record('chapter',$seq) SET "
                     "ingest_status=$st, ingest_error=$er, ingest_prose_fp=$fp",
                     {"seq": int(seq), "st": status, "er": (err or "")[:200], "fp": prose_fp[:32]},
                 )
@@ -52,7 +52,7 @@ def mark_chapter_ingest_status(
                         "DEFINE FIELD IF NOT EXISTS ingest_prose_fp ON chapter TYPE option<string>;"
                     )
                     st._execute_write(
-                        "UPDATE type::thing('chapter',$seq) SET "
+                        "UPDATE type::record('chapter',$seq) SET "
                         "ingest_status=$st, ingest_error=$er, ingest_prose_fp=$fp",
                         {"seq": int(seq), "st": status, "er": (err or "")[:200], "fp": prose_fp[:32]},
                     )
@@ -60,7 +60,7 @@ def mark_chapter_ingest_status(
                 except Exception:
                     pass
         st._execute_write(
-            "UPDATE type::thing('chapter',$seq) SET ingest_status=$st, ingest_error=$er",
+            "UPDATE type::record('chapter',$seq) SET ingest_status=$st, ingest_error=$er",
             {"seq": int(seq), "st": status, "er": (err or "")[:200]})
     except Exception as me:
         logging.getLogger("scribe3").warning(

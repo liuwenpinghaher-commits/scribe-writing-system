@@ -17,7 +17,7 @@ class RecallMixin:
         vector = embed([text])[0]
         for attempt in range(3):
             try:
-                self._execute_write("UPDATE type::thing('proposition',$local) SET embedding=$v",
+                self._execute_write("UPDATE type::record('proposition',$local) SET embedding=$v",
                                     {"local": local, "v": vector})
                 return
             except Exception as e:
@@ -91,7 +91,7 @@ class RecallMixin:
         ch = int(chapter)
         knower_rows = self._query(
             "SELECT in.name AS name, since_chapter, until_chapter FROM knows "
-            "WHERE out = type::thing('proposition', $p)",
+            "WHERE out = type::record('proposition', $p)",
             {"p": prop_local})
         knowers: list[str] = []
         for kr in knower_rows or []:
@@ -179,7 +179,7 @@ class RecallMixin:
             if len(out) >= k:
                 break
         for r in out:
-            self._execute_write("UPDATE type::thing('lesson',$i) SET uses += 1",
+            self._execute_write("UPDATE type::record('lesson',$i) SET uses += 1",
                                 {"i": r["id"]})
         return out
 
@@ -208,8 +208,9 @@ class RecallMixin:
             vec_ids = []
             if degraded_out is not None:
                 degraded_out.append({"source": "semantic", "reason": str(e)[:200]})
-        # 全文路(jieba 切 query → BM25 search::score)
-        q_toks = " ".join(w for w in jieba.cut(query) if w.strip())
+        # 全文路(tokenize_for_fts → BM25 search::score)
+        from scribe3.text_tokens import tokenize_for_fts
+        q_toks = tokenize_for_fts(query)
         fts_ids = []
         if q_toks:
             try:
@@ -357,10 +358,10 @@ class RecallMixin:
                 {"w": work, "st": source_type or "", "sid": source_id})
             if _dup:
                 return _dup[0]["id"]
-        import jieba
         from datetime import datetime as _dt, timezone as _tz
         from scribe3.embed import embed
-        toks = " ".join(w for w in jieba.cut(text or "") if w.strip())
+        from scribe3.text_tokens import tokenize_for_fts
+        toks = tokenize_for_fts(text or "")
         vec = embed([text or ""])[0]
         obs = observed_at
         if obs is None:
@@ -434,10 +435,10 @@ class RecallMixin:
             f"SELECT {self._MEMORY_COLS} FROM memory_item WHERE {' AND '.join(where)}", vars)
 
     def memory_bm25(self, work: str, query: str, k: int = 10, chapter: int | None = None) -> list[str]:
-        """BM25 全文通道:jieba 切 query → tokens @1@ 匹配,按 search::score 降序。返回裸 id。
+        """BM25 全文通道:tokenize_for_fts(query) → tokens @1@ 匹配,按 search::score 降序。返回裸 id。
         限知门在 SQL 侧(bm25 无 KNN,AND known_from/to 组合安全)。"""
-        import jieba
-        q = " ".join(w for w in jieba.cut(query or "") if w.strip())
+        from scribe3.text_tokens import tokenize_for_fts
+        q = tokenize_for_fts(query or "")
         if not q:
             return []
         where = ["work=$w", "status='active'", "tokens @1@ $q"]
@@ -518,7 +519,7 @@ class RecallMixin:
             f"SELECT {self._MEMORY_COLS}, supersedes, "
             "(IF created_at IS NONE THEN NONE ELSE <string>created_at END) AS created_at, (IF updated_at IS NONE THEN NONE ELSE <string>updated_at END) AS updated_at, "
             "(IF invalid_at IS NONE THEN NONE ELSE <string>invalid_at END) AS invalid_at "
-            "FROM type::thing('memory_item', $id)", {"id": memory_id})
+            "FROM type::record('memory_item', $id)", {"id": memory_id})
         if not rows:
             return None
         row = rows[0]
@@ -547,7 +548,7 @@ class RecallMixin:
         # M-3 记账:重复作废会覆写 invalid_at 为最新墙钟(system_time"最后一次失效"语义,可接受)——
         #   作废是幂等终态(status 不变),invalid_at 略微前移无害,不额外加 CAS 守卫。
         self._execute_write(
-            "UPDATE type::thing('memory_item', $id) SET status='invalid', "
+            "UPDATE type::record('memory_item', $id) SET status='invalid', "
             "invalid_at=time::now(), updated_at=time::now() RETURN NONE", {"id": memory_id})
         # M1(Task 16-C):作废发表级失效,与 supersede 对称——否则已作废记忆在 RETRIEVAL_CACHE
         #   最长 30s 仍被命中(检索层 status='active' 门只在 miss 重算时生效,缓存命中会漏 status 变更,

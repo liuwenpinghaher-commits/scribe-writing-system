@@ -259,6 +259,8 @@ export default function App() {
           theme={theme}
           onTheme={setTheme}
           isAdmin={isAdmin}
+          username={me?.username || me?.display_name || ''}
+          onLogout={handleLogout}
           capsule={cur && activeView !== 'admin' ? (
             <WorkflowCapsule
               work={cur.slug}

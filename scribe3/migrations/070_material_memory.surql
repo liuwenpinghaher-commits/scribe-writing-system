@@ -1,5 +1,5 @@
 -- 070_material_memory.surql · 素材=主编的联想记忆:三模态(向量/全文/图)+ 溯源
--- 全文索引: SurrealDB 2.1.x 用 SEARCH ANALYZER(非 3.x FULLTEXT)。
+-- 全文索引: SurrealDB 3.x 用 FULLTEXT ANALYZER。
 -- material 表沿用 055/060;此处 OVERWRITE/IF NOT EXISTS 加记忆化字段与索引,现有数据零丢失。
 DEFINE FIELD IF NOT EXISTS ref_tags         ON material TYPE array<string> DEFAULT [];  -- 参考维度(自由标签)
 DEFINE FIELD IF NOT EXISTS embedding        ON material TYPE option<array<float>>;      -- 512维语义向量
@@ -12,7 +12,7 @@ DEFINE FIELD IF NOT EXISTS last_recalled_at ON material TYPE option<datetime>;  
 
 DEFINE INDEX IF NOT EXISTS material_embedding ON material FIELDS embedding HNSW DIMENSION 512 DIST COSINE;
 DEFINE ANALYZER OVERWRITE material_zh TOKENIZERS blank FILTERS lowercase;
-DEFINE INDEX IF NOT EXISTS material_fts ON material FIELDS tokens SEARCH ANALYZER material_zh BM25;
+DEFINE INDEX IF NOT EXISTS material_fts ON material FIELDS tokens FULLTEXT ANALYZER material_zh BM25;
 
 -- 双向溯源:素材↔章(到章,无段落锚)
 DEFINE TABLE IF NOT EXISTS material_reference SCHEMAFULL;

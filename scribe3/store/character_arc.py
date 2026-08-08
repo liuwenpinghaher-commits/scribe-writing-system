@@ -22,7 +22,7 @@ class CharacterArcMixin:
             "WHERE character_id=$c ORDER BY target_chapter ASC", {"c": character_id})
 
     def delete_arc_beat(self, beat_id: str) -> None:
-        self._execute_write("DELETE type::thing('arc_plan', $b)", {"b": beat_id})
+        self._execute_write("DELETE type::record('arc_plan', $b)", {"b": beat_id})
 
     def latest_lie_belief(self, character_id: str, upto_chapter: int) -> int | None:
         """到某章为止最新的 lie 信奉度(char_state 里 chapter<=upto 且 lie_belief 非空的最新一条)。"""

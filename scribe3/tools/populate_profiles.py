@@ -46,7 +46,7 @@ profiles = {
 }
 
 for name, p in profiles.items():
-    sql = "UPDATE type::thing('character', $n) SET appearance=$ap, personality_detail=$pd, abilities=$ab, weaknesses=$wk, surface_goal=$sg, deep_need=$dn, internal_conflict=$ic, fear=$fr, first_appearance=$fa"
+    sql = "UPDATE type::record('character', $n) SET appearance=$ap, personality_detail=$pd, abilities=$ab, weaknesses=$wk, surface_goal=$sg, deep_need=$dn, internal_conflict=$ic, fear=$fr, first_appearance=$fa"
     st._db.query(sql, {'n': name, 'ap': p['appearance'], 'pd': p['personality_detail'],
                        'ab': p.get('abilities'), 'wk': p.get('weaknesses', []),
                        'sg': p['surface_goal'], 'dn': p['deep_need'],

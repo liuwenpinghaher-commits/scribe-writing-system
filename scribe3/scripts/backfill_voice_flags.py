@@ -58,7 +58,7 @@ def fix_bare_names(st: SurrealStore, bare_rows: list) -> int:
     for r in bare_rows:
         try:
             st._execute_write(
-                "UPDATE type::thing('voice_evolution_flag',$id) SET character=$c",
+                "UPDATE type::record('voice_evolution_flag',$id) SET character=$c",
                 {"id": r["id"], "c": f"role:{r['character']}"})
             n += 1
         except Exception as e:   # noqa: BLE001

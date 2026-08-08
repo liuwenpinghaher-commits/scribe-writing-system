@@ -524,7 +524,7 @@ class TestQualityEvaluationEndpoints:
         )
         quality.start_job(job.job_id)
         store._execute_write(
-            "UPDATE type::thing('quality_job',$job_id) SET execution_started_at=$stale_at",
+            "UPDATE type::record('quality_job',$job_id) SET execution_started_at=$stale_at",
             # 10 轴、2 路并发、每轴最多两次 JSON 修复的受限窗口为 2,775 秒；
             # 3,000 秒明确超过该窗口，才应被判为已失联。
             {"job_id": job.job_id, "stale_at": datetime.now(timezone.utc) - timedelta(seconds=3000)},
@@ -574,7 +574,7 @@ class TestQualityEvaluationEndpoints:
         )
         quality.start_job(job.job_id)
         store._execute_write(
-            "UPDATE type::thing('quality_job',$job_id) SET execution_started_at=$started_at",
+            "UPDATE type::record('quality_job',$job_id) SET execution_started_at=$started_at",
             {"job_id": job.job_id, "started_at": datetime.now(timezone.utc) - timedelta(seconds=200)},
         )
 

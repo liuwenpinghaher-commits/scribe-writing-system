@@ -775,6 +775,10 @@ def checkpoint(req: CheckpointReq, seq: int, background: BackgroundTasks, work: 
 def _bind_and_register() -> None:
     """Rebind handlers onto app_impl globals so monkeypatch keeps working."""
     from scribe3.api import app_impl as core
+    # 重绑后函数 globals=core.__dict__，须把本模块依赖注入 core，否则 NameError
+    # （2026-08-08 产品验收：POST /chat/write → sse_response is not defined）。
+    from scribe3.api.sse import sse_response as _sse_response
+    core.sse_response = _sse_response
     g = globals()
     _fn = g['chat_write']
     _re = types.FunctionType(_fn.__code__, core.__dict__, 'chat_write', _fn.__defaults__, _fn.__closure__)

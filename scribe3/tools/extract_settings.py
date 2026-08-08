@@ -127,7 +127,7 @@ chars = [
 for c in chars:
     oid = f"role:{c['name']}"
     st.add_entity(Entity(oid, 'character', c['name'], traits={'backstory': c.get('backstory',''), 'personality_tags': c.get('personality_tags',[])}))
-    st._db.query("UPDATE type::thing('character', $n) SET importance=$i, appearance=$ap, personality_detail=$pd, abilities=$ab, weaknesses=$wk, surface_goal=$sg, deep_need=$dn, internal_conflict=$ic, fear=$fr, first_appearance=$fa",
+    st._db.query("UPDATE type::record('character', $n) SET importance=$i, appearance=$ap, personality_detail=$pd, abilities=$ab, weaknesses=$wk, surface_goal=$sg, deep_need=$dn, internal_conflict=$ic, fear=$fr, first_appearance=$fa",
                  {'n': c['name'], 'i': c.get('importance'), 'ap': c.get('appearance'), 'pd': c.get('personality_detail'),
                   'ab': c.get('abilities'), 'wk': c.get('weaknesses',[]), 'sg': c.get('surface_goal'),
                   'dn': c.get('deep_need'), 'ic': c.get('internal_conflict'), 'fr': c.get('fear'),
@@ -148,7 +148,7 @@ places = [
     dict(name='墓室', desc='奈何谷腹地,悬壁凿室。方圆一丈有余,一人半高。室壁有斩劈痕迹,朱砂符咒从顶到地。棺椁居中,黑狗血涂染墨黑,柚木制。三百六十枚灵龙镇煞钉围太极阵。十二个镇墓兽俑,四角青铜照妖镜。'),
 ]
 for p in places:
-    st._db.query("CREATE type::thing('place', $n) SET name=$n", {'n': p['name']})
+    st._db.query("CREATE type::record('place', $n) SET name=$n", {'n': p['name']})
 print(f"地点: {len(places)}个", flush=True)
 
 # ═══ 世界规则(8条) ═══
