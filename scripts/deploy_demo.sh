@@ -8,6 +8,7 @@
 # 用法：
 #   ./scripts/deploy_demo.sh              # 默认 MODE=hot（Python 热更，推荐）
 #   ./scripts/deploy_demo.sh hot
+#   ./scripts/deploy_demo.sh frontend     # 构建 web 并热更静态资源（不 wipe 旧 hash）
 #   ./scripts/deploy_demo.sh server-git   # 服务器 git pull origin/main 后热应用
 #   ./scripts/deploy_demo.sh full         # 整树上传 + compose rebuild（重，慎用）
 #
@@ -81,6 +82,54 @@ REMOTE
   echo "==> hot deploy 完成（未走 GitHub Actions）"
 }
 
+mode_frontend() {
+  echo "==> [主路径] frontend: 构建 SPA 并热更静态文件（保留旧 assets，避免缓存断链）"
+  FRONTEND="${FRONTEND_CONTAINER:-prod-frontend-1}"
+  # 先同步 web 源码
+  TMP=$(mktemp -d)
+  trap 'rm -rf "$TMP"' RETURN
+  mkdir -p "$TMP/scribe3/web"
+  rsync -a \
+    --exclude 'node_modules' \
+    --exclude 'dist' \
+    --exclude 'e2e' \
+    "$ROOT/scribe3/web/" "$TMP/scribe3/web/"
+  tar -C "$TMP" -czf "$TMP/web-src.tgz" scribe3/web
+  "${SCP[@]}" "$TMP/web-src.tgz" "$REMOTE:/tmp/web-src.tgz"
+  # nginx 配置一并同步
+  "${SCP[@]}" "$ROOT/deploy/prod/nginx/default.conf" "$REMOTE:/tmp/scribe3-nginx-default.conf"
+  "${SSH[@]}" "$REMOTE" bash -s <<REMOTE
+set -euo pipefail
+APP_DIR='$APP_DIR'
+FRONTEND='$FRONTEND'
+sudo tar -xzf /tmp/web-src.tgz -C "\$APP_DIR"
+# 构建（完整 devDeps，vite 在 devDependencies）
+docker run --rm \
+  -v "\$APP_DIR/scribe3/web:/app" \
+  -w /app \
+  -e NODE_OPTIONS=--max-old-space-size=1536 \
+  node:20-alpine \
+  sh -c "npm ci && npm run build"
+# 叠加拷贝：不删除旧 assets（旧 index 缓存仍能拉到旧 chunk）
+docker cp "\$APP_DIR/scribe3/web/dist/." "\$FRONTEND:/usr/share/nginx/html/"
+# 更新 nginx：assets 404 + index no-cache
+if [ -f /tmp/scribe3-nginx-default.conf ]; then
+  # 若挂载了 conf，写到 host 挂载源；否则 docker cp
+  if docker inspect "\$FRONTEND" --format '{{range .Mounts}}{{.Source}}{{println}}{{end}}' | grep -q nginx; then
+    CONF_SRC=\$(docker inspect "\$FRONTEND" --format '{{range .Mounts}}{{if eq .Destination "/etc/nginx/conf.d/default.conf"}}{{.Source}}{{end}}{{end}}')
+    if [ -n "\$CONF_SRC" ] && [ -f "\$CONF_SRC" ] || [ -n "\$CONF_SRC" ]; then
+      sudo cp /tmp/scribe3-nginx-default.conf "\$CONF_SRC" 2>/dev/null || true
+    fi
+  fi
+  docker cp /tmp/scribe3-nginx-default.conf "\$FRONTEND:/etc/nginx/conf.d/default.conf" || true
+  docker exec "\$FRONTEND" nginx -t
+  docker exec "\$FRONTEND" nginx -s reload || docker restart "\$FRONTEND"
+fi
+echo FRONTEND_DEPLOY_OK
+REMOTE
+  echo "==> frontend deploy 完成。请浏览器强制刷新（Ctrl+Shift+R）"
+}
+
 mode_server_git() {
   echo "==> [主路径] server-git: 服务器 git pull + 热应用（需服务器能访问 origin）"
   "${SSH[@]}" "$REMOTE" bash -s <<REMOTE
@@ -151,14 +200,15 @@ REMOTE
 
 case "$MODE" in
   hot|backend) mode_hot ;;
+  frontend|web) mode_frontend ;;
   server-git|pull) mode_server_git ;;
   full|rebuild) mode_full ;;
   -h|--help|help)
-    sed -n '2,20p' "$0"
+    sed -n '2,22p' "$0"
     exit 0
     ;;
   *)
-    echo "未知 MODE=$MODE（hot | server-git | full）" >&2
+    echo "未知 MODE=$MODE（hot | frontend | server-git | full）" >&2
     exit 1
     ;;
 esac
