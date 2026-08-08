@@ -81,6 +81,9 @@ class MemoryPrefetchReq(BaseModel):
     thread_id: str | None = None
     query: str = ""
     k: int = Field(default=24, ge=1, le=200)
+    # D7：可选章/焦点，用于 usage-preview 与写前「会用到什么记忆」
+    chapter: int | None = None
+    focalizer: str | None = None
 
 
 class MemoryCaptureTurnReq(BaseModel):

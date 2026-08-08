@@ -883,8 +883,10 @@ def envelope_trace_manifest(envelope: ContextEnvelope) -> dict:
     只记:snapshot_revision / snapshot_hash / envelope_hash / 每块 token 与 source id /
     omitted 原因。绝不记正文——尤其 secret fact 的 value 物理不进 trace(与 hash 同因)。
     正文长时只留 source id + digest,靠 source id 回原表复原,不在 trace 重复存整段秘密。
+
+    D7：附 usage_digest（人话「本轮用了哪些记忆」，无秘密 value）。
     """
-    return {
+    base = {
         "snapshot_revision": envelope.snapshot.revision,
         "snapshot_hash": envelope.snapshot.context_hash,
         "envelope_hash": envelope.envelope_hash,
@@ -904,6 +906,12 @@ def envelope_trace_manifest(envelope: ContextEnvelope) -> dict:
             for o in envelope.omitted
         ],
     }
+    try:
+        from scribe3.memory_gain import build_usage_digest_from_manifest
+        base["usage_digest"] = build_usage_digest_from_manifest(base)
+    except Exception:
+        pass
+    return base
 
 
 def render_envelope_text(envelope: ContextEnvelope) -> str:

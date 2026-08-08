@@ -390,6 +390,9 @@ export const api = {
     j('/memory/pending-claims?status=' + enc(status || 'pending')),
   resolvePendingClaim: (claimId, body) =>
     post('/memory/pending-claims/' + enc(claimId) + '/resolve', body || {}),
+  // D7：本轮记忆/正典用来源人话摘要（无秘密 value）
+  memoryUsagePreview: (body) => post('/memory/usage-preview', body || {}),
+  memoryPrefetch: (body) => post('/memory/prefetch', body || {}),
   // Task 6:主编线程(一 work 一连续线程 + 每轮焦点标签)。
   // threads 列本 work 线程;threadMessages 拉某线程全部消息(切焦点不重载,由 ChiefDock 只调一次);
   // forkThread 显式分支(导航路径绝不调此)。

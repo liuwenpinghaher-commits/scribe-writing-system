@@ -64,6 +64,15 @@
 - 单测：`test_epistemic_guard.py`；探针：`scripts/probe_d6_epistemic.py`  
 - **未宣称质量 9.5**：仍需认知问卷 + 诱导「像戏不是词表」人评  
 
+## D7 已落地地基（2026-08-08）
+
+- `scribe3/memory_gain.py`：`usage_digest` 人话摘要 + A/B 对照协议元数据  
+- `envelope_trace_manifest` 附 `usage_digest`（进 chat trace.context）  
+- `POST /memory/prefetch` 返回 `usage_digest`；**新** `POST /memory/usage-preview`  
+- 前端 ContextInspector：**「记忆在扛什么」** 卡片  
+- 单测：`test_memory_gain.py`；探针：`scripts/probe_d7_memory_gain.py`  
+- **未宣称质量 9.5**：须人评 A/B 成稿（`comparison_protocol().pass_rule`）  
+
 ## 否决
 
 把 M0–M6 绿写成质量 9.5；keyword 当 D3/D5 主分；关限知冲分。

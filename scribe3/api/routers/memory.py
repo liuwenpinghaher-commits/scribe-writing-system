@@ -54,9 +54,21 @@ def memory_prefetch(req: MemoryPrefetchReq, work: str = "main"):
     from scribe3.memory_retrieval import MemoryRetriever
     try:
         snap = _write_snapshot(store, chapter=None, focalizer=None, phase=None, work=w)
+        # 可选 chapter/focalizer：写预览用（req 上若有则带上）
+        ch = getattr(req, "chapter", None)
+        foc = getattr(req, "focalizer", None) or ""
+        if ch is not None or foc:
+            try:
+                snap = _write_snapshot(
+                    store, chapter=ch, focalizer=foc or None, phase="draft", work=w)
+            except Exception:
+                pass
         envelope = ContextAssembler(store, MemoryRetriever(store)).assemble(
-            snap, req.query or "", "discussion")
+            snap, req.query or "", "discussion" if not foc else "write")
         context = render_envelope_text(envelope)
+        from scribe3.context_assembler import envelope_trace_manifest
+        manifest = envelope_trace_manifest(envelope)
+        usage = manifest.get("usage_digest") or {}
     except Exception as e:
         logging.getLogger("scribe3").error(
             "/memory/prefetch 组装失败(fail-loud)", exc_info=True)
@@ -64,7 +76,44 @@ def memory_prefetch(req: MemoryPrefetchReq, work: str = "main"):
             status_code=500,
             detail=f"memory prefetch assemble failed: {e}",
         ) from e
-    return {"context": context or "", "work": w, "empty": not bool((context or "").strip())}
+    return {
+        "context": context or "",
+        "work": w,
+        "empty": not bool((context or "").strip()),
+        # D7：作者可见「本轮会用到哪些记忆」摘要（无秘密 value）
+        "usage_digest": usage,
+    }
+
+
+def memory_usage_preview(req: MemoryPrefetchReq, work: str = "main"):
+    """D7：只返回 usage_digest（本轮记忆/正典来源人话摘要），不返回整段 context。
+
+    供前端轻量展示「记忆在扛什么」；组装失败 fail-loud。
+    """
+    _require_memory_fabric()
+    w = _normalize_work(work)
+    _assert_work_binding(_thread_work(req.thread_id), w,
+                         kind="editorial_thread", ident=req.thread_id or "")
+    store = _store_for(w)
+    from scribe3.context_assembler import ContextAssembler, envelope_trace_manifest
+    from scribe3.memory_retrieval import MemoryRetriever
+    try:
+        ch = getattr(req, "chapter", None)
+        foc = getattr(req, "focalizer", None) or None
+        snap = _write_snapshot(
+            store, chapter=ch, focalizer=foc, phase="draft" if ch else None, work=w)
+        mode = "write" if (ch or foc) else "discussion"
+        envelope = ContextAssembler(store, MemoryRetriever(store)).assemble(
+            snap, req.query or "", mode)
+        digest = envelope_trace_manifest(envelope).get("usage_digest") or {}
+    except Exception as e:
+        logging.getLogger("scribe3").error(
+            "/memory/usage-preview 组装失败(fail-loud)", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"memory usage preview failed: {e}",
+        ) from e
+    return {"work": w, "usage_digest": digest}
 
 def memory_capture_turn(req: MemoryCaptureTurnReq, work: str = "main"):
     """幂等捕获一轮对话为经验记忆(同步 drain)。event_id 幂等键:同 event_id 二次→idempotent。
@@ -148,6 +197,14 @@ def _bind_and_register() -> None:
     setattr(core, 'memory_prefetch', _re)
     g['memory_prefetch'] = _re
     router.add_api_route('/memory/prefetch', _re, methods=['POST'], name='memory_prefetch')
+
+    _fn = g['memory_usage_preview']
+    _re = types.FunctionType(_fn.__code__, core.__dict__, 'memory_usage_preview', _fn.__defaults__, _fn.__closure__)
+    if _fn.__annotations__:
+        _re.__annotations__ = dict(_fn.__annotations__)
+    setattr(core, 'memory_usage_preview', _re)
+    g['memory_usage_preview'] = _re
+    router.add_api_route('/memory/usage-preview', _re, methods=['POST'], name='memory_usage_preview')
 
     _fn = g['memory_capture_turn']
     _re = types.FunctionType(_fn.__code__, core.__dict__, 'memory_capture_turn', _fn.__defaults__, _fn.__closure__)

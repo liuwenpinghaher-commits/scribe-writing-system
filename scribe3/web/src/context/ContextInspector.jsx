@@ -122,6 +122,8 @@ export function ContextInspector() {
   const [trace, setTrace] = useState(null)
   const [traceError, setTraceError] = useState(false)
   const [runtime, setRuntime] = useState(null)
+  // D7：记忆获得感——「本轮会用到什么」（usage_digest，无秘密正文）
+  const [usageDigest, setUsageDigest] = useState(null)
 
   // 运行时降级状态(可选;api 无 aiRuntimeStatus / 拉取失败 → 跳过,fail-soft,绝不拖垮主编区)。
   useEffect(() => {
@@ -153,6 +155,26 @@ export function ContextInspector() {
       })
     return () => { alive = false }
   }, [inspectorOn, snapshotConfirmed, sessionId, revision, snapshotWork])
+
+  // D7：展开检查器时拉 usage-preview（fabric 开才有；失败 fail-soft）
+  useEffect(() => {
+    if (!inspectorOn || !open) {
+      setUsageDigest(null)
+      return undefined
+    }
+    if (typeof api?.memoryUsagePreview !== 'function') return undefined
+    let alive = true
+    const ch = focus?.type === 'chapter' ? Number(focus?.id) : undefined
+    const foc = focus?.type === 'character' ? (focus?.id || focus?.label) : undefined
+    api.memoryUsagePreview({
+      query: focus?.label || '本章上下文',
+      chapter: Number.isFinite(ch) ? ch : undefined,
+      focalizer: foc || undefined,
+    }).then((r) => {
+      if (alive) setUsageDigest(r?.usage_digest || null)
+    }).catch(() => { if (alive) setUsageDigest(null) })
+    return () => { alive = false }
+  }, [inspectorOn, open, focus?.type, focus?.id, focus?.label, snapshotWork])
 
   if (!inspectorOn) {
     return null
@@ -199,6 +221,23 @@ export function ContextInspector() {
 
       {open && (
         <div className="px-3 pb-2.5 space-y-2">
+          {/* D7：本轮记忆在扛什么（人话摘要，无秘密 value） */}
+          {usageDigest?.summary ? (
+            <div
+              data-testid="context-inspector-usage-digest"
+              className="rounded-md border border-brand/30 bg-brand/5 px-2 py-1.5 text-meta text-ink leading-snug"
+            >
+              <div className="font-medium text-brand mb-0.5">记忆在扛什么</div>
+              <div className="text-faint whitespace-pre-wrap">{usageDigest.summary}</div>
+              {Array.isArray(usageDigest.lines) && usageDigest.lines.length > 0 ? (
+                <ul className="mt-1 space-y-0.5 text-faint">
+                  {usageDigest.lines.slice(0, 8).map((line, i) => (
+                    <li key={i} className="truncate" title={line}>{line}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
           {/* 第2层:六块 token + 来源数 */}
           <div data-testid="context-inspector-blocks" className="grid grid-cols-2 gap-1">
             {BLOCK_DEFS.map((b) => {
