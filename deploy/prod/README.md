@@ -14,7 +14,8 @@
 
 - 代码与 compose：`/opt/scribe3/app`
 - 数据：`/opt/scribe3/data/{surreal,settings,backups}`
-- 自动更新：GitHub Actions `deploy-lighthouse` 在 `push main` 后 **checkout + scp 代码到服务器**，再 SSH 执行 `deploy.sh`（**不经开发者本机**；也不依赖服务器访问 GitHub）
+- **主部署（默认）**：开发机执行 `./scripts/deploy_demo.sh`（SSH 热更 backend，**不依赖 GitHub Actions**）
+- **支路（可选）**：Actions `deploy-lighthouse` 仅 `workflow_dispatch` 手动触发；挂了不影响日常上线
 
 ## 本机 SSH 注意
 
@@ -95,27 +96,46 @@ curl -fsS http://127.0.0.1/api/gateway/status
 
 当前实例已验证：`default/responses/runs` 三网关 `online:true`；deduce 系列未装可忽略。
 
-### 6. GitHub Actions 自动部署
+### 6. 日常部署（主路径，不经 GitHub Actions）
 
-在 GitHub 仓库 Settings → Secrets and variables → Actions 添加：
+在开发机 / Grok 工作区（能 SSH 到 demo）：
+
+```bash
+# 推荐：Python backend 热更（轻量、不 rebuild 镜像）
+./scripts/deploy_demo.sh
+# 或
+./scripts/deploy_demo.sh hot
+
+# 服务器能 git fetch 时：pull origin/main 后热应用
+./scripts/deploy_demo.sh server-git
+
+# 改了 Dockerfile/compose/前端构建时：整树 + compose rebuild（重）
+./scripts/deploy_demo.sh full
+```
+
+默认：`DEPLOY_HOST=82.157.130.140`，`SSH_KEY=~/.ssh/id_tencent_lh`。
+
+**不依赖** `git push`、**不依赖** Actions 分钟数 / Runner。GitHub 不通时照常上线。
+
+### 7. GitHub Actions 支路（可选，手动）
+
+`deploy-lighthouse` **已取消 push 自动触发**，仅 Actions 页 **Run workflow**。  
+需要 secrets 时再配；缺省可完全不用。
 
 | Secret | 含义 |
 |--------|------|
 | `DEPLOY_HOST` | `82.157.130.140` |
 | `DEPLOY_USER` | `ubuntu` |
-| `DEPLOY_SSH_KEY` | 服务器 `authorized_keys` 对应的**私钥**全文 |
+| `DEPLOY_SSH_KEY` | runner→服务器私钥全文 |
 | `DEPLOY_PORT` | 可选，默认 22 |
-| `DEPLOY_REPO_DIR` | 可选，默认 `/opt/scribe3/app` |
-
-服务器**不必**能访问 GitHub：CD 由 GitHub-hosted runner scp 代码。  
-`DEPLOY_SSH_KEY` 是 runner→服务器登录私钥（已写入仓库 Secrets）。
-
-之后每次 `git push origin main`，Actions 同步代码并重建 compose。可用 Actions 页 `workflow_dispatch` 手动触发。
 
 ## 日常
 
 ```bash
-# 仅更新代码/镜像
+# 主路径：本机热更
+./scripts/deploy_demo.sh
+
+# 服务器上仅重建 compose（已有代码时）
 bash /opt/scribe3/app/deploy/prod/scripts/deploy.sh
 
 # 日志

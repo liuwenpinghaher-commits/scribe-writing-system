@@ -1,11 +1,25 @@
 name: deploy-lighthouse
 
-# push main → 打包精简树 → rsync 上传 → 服务器解压并 rebuild
-# 不用 appleboy/scp-action（曾长时间卡住）；改用 runner 原生 rsync+ssh。
+# =============================================================================
+# 支路 / 可选：GitHub Actions 部署
+#
+# 主部署不依赖本 workflow。日常请用：
+#   ./scripts/deploy_demo.sh          # hot（推荐）
+#   ./scripts/deploy_demo.sh server-git
+#   ./scripts/deploy_demo.sh full
+#
+# 设计：
+# - 不再 push main 自动触发（避免 Actions 分钟耗尽 / Runner 秒挂时误报「部署失败」）
+# - 仅 workflow_dispatch 手动触发；失败不影响主路径与运行中 demo
+# - 若 GitHub Actions 不可用，直接忽略本 workflow 即可
+# =============================================================================
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      reason:
+        description: "可选备注（主路径仍是 scripts/deploy_demo.sh）"
+        required: false
+        default: "manual side-path deploy"
 
 concurrency:
   group: deploy-lighthouse
@@ -18,9 +32,17 @@ permissions:
 
 jobs:
   deploy:
+    name: optional-gha-deploy
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # 支路失败不拖垮其它检查结论（主部署已与 GHA 解耦）
+    continue-on-error: true
     steps:
+
+      - name: Announce side-path
+        run: |
+          echo "::notice::此 job 为可选支路。主部署：./scripts/deploy_demo.sh"
+          echo "reason=${{ github.event.inputs.reason }}"
 
       - uses: actions/checkout@v4
 
@@ -56,31 +78,22 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           set -euo pipefail
-          # 秒级失败几乎总是 secrets 未配置；显式报缺项，便于仓库 Settings→Secrets 补齐
           missing=()
           [ -n "${DEPLOY_SSH_KEY:-}" ] || missing+=(DEPLOY_SSH_KEY)
           [ -n "${DEPLOY_HOST:-}" ] || missing+=(DEPLOY_HOST)
           [ -n "${DEPLOY_USER:-}" ] || missing+=(DEPLOY_USER)
           if [ "${#missing[@]}" -gt 0 ]; then
-            echo "::error::缺少 GitHub Actions secrets: ${missing[*]}"
-            echo "请在仓库 Settings → Secrets and variables → Actions 配置："
-            echo "  DEPLOY_HOST   例如 82.157.130.140"
-            echo "  DEPLOY_USER   例如 ubuntu"
-            echo "  DEPLOY_PORT   可选，默认 22"
-            echo "  DEPLOY_SSH_KEY  部署私钥全文（含 BEGIN/END 行）"
+            echo "::warning::支路缺少 secrets: ${missing[*]}。请改用本机 ./scripts/deploy_demo.sh"
             exit 1
           fi
           mkdir -p ~/.ssh
-          # 兼容 secret 里用字面量 \\n 存的多行密钥
           printf '%s\n' "$DEPLOY_SSH_KEY" | sed 's/\r$//' | sed 's/\\n/\n/g' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          # 校验私钥可读
           if ! ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1; then
-            echo "::error::DEPLOY_SSH_KEY 不是合法私钥（ssh-keygen -y 失败）。请粘贴完整 PEM/OpenSSH 私钥。"
+            echo "::warning::DEPLOY_SSH_KEY 非法私钥。请改用 ./scripts/deploy_demo.sh"
             exit 1
           fi
           PORT="${DEPLOY_PORT:-22}"
-          # 避免交互；失败不阻断（部分机房禁 keyscan）
           ssh-keyscan -p "$PORT" -T 10 "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
           printf 'Host deploy-target\n  HostName %s\n  Port %s\n  User %s\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n  StrictHostKeyChecking accept-new\n  ConnectTimeout 30\n  ServerAliveInterval 15\n  ServerAliveCountMax 8\n' \
             "$DEPLOY_HOST" "$PORT" "$DEPLOY_USER" > ~/.ssh/config
@@ -93,7 +106,6 @@ jobs:
             -e "ssh -F $HOME/.ssh/config" \
             scribe3-deploy.tgz scribe3-deploy.tgz.sha256 \
             deploy-target:/tmp/
-          # sha256 文件内是相对路径 scribe3-deploy.tgz,必须在 /tmp 下校验
           ssh -F "$HOME/.ssh/config" deploy-target \
             'cd /tmp && test -f scribe3-deploy.tgz && sha256sum -c scribe3-deploy.tgz.sha256'
 
@@ -111,7 +123,6 @@ jobs:
           cp -a /tmp/scribe3.prod.env.bak /opt/scribe3/app/deploy/prod/.env
           chmod 600 /opt/scribe3/app/deploy/prod/.env
           chmod +x /opt/scribe3/app/deploy/prod/scripts/*.sh || true
-          # 模型缓存目录（embedding 预拉脚本可写此路径）
           mkdir -p /opt/scribe3/data/models/hf /opt/scribe3/data/models/fastembed
           export SCRIBE3_REPO_DIR=/opt/scribe3/app
           export SKIP_GIT=1
