@@ -388,10 +388,20 @@ function PilotDock({ seq }) {
       const mods = rep?.sections?.l1_requires_approval?.modules || []
       if (opts.afterFinalize && (l1n > 0 || (rep && rep.silent_l1_write === false))) {
         const modHint = mods.length ? `（${mods.slice(0, 4).join('·')}）` : ''
+        const uni = rep?.unified_analysis
+        const ing = rep?.ingest
+        const srcHint = uni
+          ? (ing?.source === 'unified_finalize'
+            ? ' · 一次模型：设定+知识'
+            : ' · 模型设定抽取')
+          : ''
+        const knHint = (ing && typeof ing.applied === 'number' && ing.applied >= 0)
+          ? ` · 知识回写 ${ing.applied} 条`
+          : ''
         toast(
           l1n > 0
-            ? `已终选 · ${l1n} 条设定待确认${modHint}。点击设定库「设定收件箱」批/拒。`
-            : (okMsg || '已终选定稿'),
+            ? `已终选 · ${l1n} 条设定待确认${modHint}${srcHint}${knHint}。点「设定收件箱」批/拒。`
+            : `${okMsg || '已终选定稿'}${srcHint}${knHint}`,
           { tone: 'ok', duration: 9000 },
         )
         try {

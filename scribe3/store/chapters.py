@@ -204,11 +204,13 @@ class ChaptersMixin:
         wc = len("".join(prose.split()))
         # 千万字缓存(Phase0-BE1):落库时算好场景切分 + QC 计数,聚合端点不再全表拉正文/重算。
         cache = self._compute_chapter_caches(seq, prose)
+        # 正文变更 → 章后统一分析缓存作废（指纹不一致本也会 miss，显式清更干净）
         self._execute_write(
             "UPSERT type::thing('chapter',$seq) SET seq=$seq, title=$title, "
             "focalizer=$foc, prose=$prose, embedding=$v, qc_word_count=$wc, "
             "scene_count=$scn, scene_meta=$scm, qc_issues=$qc, qc_causal=$qcc, qc_breakdown=$qcb, "
             "qc_cache_revision=$qcr, "
+            "post_analysis_cache=NONE, post_analysis_fp=NONE, post_analysis_at=NONE, "
             "archived=false, archived_at=NONE, archive_reason=NONE RETURN NONE",
             {"seq": seq, "title": title, "foc": focalizer, "prose": prose, "v": vec, "wc": wc,
              "scn": cache["scene_count"], "scm": cache["scene_meta"], "qc": cache["qc_issues"],
@@ -326,6 +328,11 @@ class ChaptersMixin:
             r["scene_truth_revision"] = 0
         r["archived"] = bool(r.get("archived"))
         r["archive_reason"] = r.get("archive_reason") or ""
+        # 章后统一分析摘要（不回传大 JSON）
+        try:
+            r["post_analysis"] = self.post_analysis_summary(int(seq), r.get("prose") or "")
+        except Exception:
+            r["post_analysis"] = None
         return r
 
     def list_chapters(self) -> list[dict]:
@@ -1058,4 +1065,72 @@ class ChaptersMixin:
         if (body.get("prose_fp") or stored_fp) and (body.get("prose_fp") or stored_fp) != fp:
             return None
         return body
+
+    def clear_post_analysis_cache(self, seq: int) -> None:
+        """显式清空章后分析缓存（改稿/强制重抽）。"""
+        try:
+            self._execute_write(
+                "UPDATE type::thing('chapter', $seq) SET "
+                "post_analysis_cache=NONE, post_analysis_fp=NONE, post_analysis_at=NONE "
+                "RETURN NONE",
+                {"seq": int(seq)},
+            )
+        except Exception as e:
+            logging.getLogger("scribe3.store").warning(
+                "clear_post_analysis_cache seq=%s: %s", seq, e)
+
+    def post_analysis_summary(self, seq: int, prose: str | None = None) -> dict | None:
+        """只读摘要：是否命中、format、知识/设定条数（不返回全文 JSON）。"""
+        import hashlib
+        import json
+        try:
+            rows = self._query(
+                "SELECT post_analysis_cache, post_analysis_fp, "
+                "(IF post_analysis_at IS NONE THEN NONE ELSE <string>post_analysis_at END) AS post_analysis_at "
+                "FROM type::thing('chapter', $seq)",
+                {"seq": int(seq)},
+            )
+        except Exception:
+            return None
+        if not rows or not rows[0].get("post_analysis_cache"):
+            return {"present": False, "seq": int(seq)}
+        raw = rows[0].get("post_analysis_cache")
+        stored_fp = (rows[0].get("post_analysis_fp") or "").strip()
+        try:
+            body = json.loads(raw) if isinstance(raw, str) else raw
+        except Exception:
+            return {"present": False, "seq": int(seq), "corrupt": True}
+        if not isinstance(body, dict):
+            return {"present": False, "seq": int(seq), "corrupt": True}
+        fp_ok = True
+        if prose is not None:
+            cur = hashlib.sha256((prose or "").encode("utf-8")).hexdigest()[:16]
+            body_fp = (body.get("prose_fp") or stored_fp or "").strip()
+            fp_ok = (not body_fp) or body_fp == cur
+        kn = body.get("knowledge") if isinstance(body.get("knowledge"), dict) else {}
+        settings = body.get("settings") if isinstance(body.get("settings"), dict) else {}
+        def _n(key):
+            v = kn.get(key) if kn else None
+            return len(v) if isinstance(v, list) else 0
+        set_n = 0
+        for k in ("entities", "factions", "items", "terms", "world_rules", "promises", "motifs", "relations", "facts"):
+            v = settings.get(k)
+            if isinstance(v, list):
+                set_n += len(v)
+        return {
+            "present": True,
+            "seq": int(seq),
+            "fp_match": fp_ok,
+            "format": body.get("format"),
+            "at": rows[0].get("post_analysis_at"),
+            "truncated": bool(body.get("truncated")),
+            "knowledge": {
+                "learned": _n("learned"),
+                "did": _n("did"),
+                "events": _n("events"),
+                "arc": _n("arc"),
+            },
+            "settings_count": set_n,
+            "events_backfilled": bool((kn or {}).get("_events_backfilled")),
+        }
 

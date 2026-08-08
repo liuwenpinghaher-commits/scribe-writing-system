@@ -402,6 +402,20 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
     next_step = _next_step(picked, pstate, parked)
     phase = PHASE_HINT.get(pstate, "outline")
     nxt_act = pstat.get("next_action")
+    # 章后统一分析摘要（缓存是否可用 / 条数）
+    post_analysis = None
+    try:
+        if hasattr(st, "post_analysis_summary"):
+            prose = ""
+            try:
+                ch0 = st.get_chapter(picked) if hasattr(st, "get_chapter") else None
+                prose = (ch0 or {}).get("prose") or ""
+            except Exception:
+                prose = ""
+            post_analysis = st.post_analysis_summary(picked, prose)
+    except Exception:
+        post_analysis = None
+
     chapter_lane = {
         "seq": picked,
         "title": title,
@@ -413,6 +427,7 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
         "next_action": nxt_act,
         "next_action_label": ACTION_LABELS.get(nxt_act or "", nxt_act),
         "pipeline": _pipeline(pstate),
+        "post_analysis": post_analysis,
     }
 
     # 开放章？

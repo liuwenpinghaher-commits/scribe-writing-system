@@ -216,6 +216,20 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
                 {lane.pilot_state_label || lane.pilot_state}
               </span>
             </div>
+            {lane.post_analysis?.present && lane.post_analysis?.fp_match !== false && (
+              <p className="text-meta text-faint mb-2" data-testid="journey-post-analysis">
+                章后分析缓存
+                {lane.post_analysis.format ? ` · ${lane.post_analysis.format}` : ''}
+                {lane.post_analysis.settings_count != null
+                  ? ` · 设定增量 ${lane.post_analysis.settings_count}`
+                  : ''}
+                {lane.post_analysis.knowledge
+                  ? ` · 知 ${lane.post_analysis.knowledge.learned ?? 0}/事 ${lane.post_analysis.knowledge.events ?? 0}`
+                  : ''}
+                {lane.post_analysis.events_backfilled ? ' · 事件已补枪' : ''}
+                <span className="text-faint/80">（改稿后自动失效，反哺可复用免二调）</span>
+              </p>
+            )}
             {Array.isArray(lane.pipeline) && lane.pipeline.length > 0 && (
               <div className="flex flex-wrap gap-1" data-testid="journey-chapter-pipeline">
                 {lane.pipeline.map((p) => (
