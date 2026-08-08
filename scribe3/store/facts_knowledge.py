@@ -3,10 +3,64 @@ from __future__ import annotations
 
 from scribe3.store.core_preamble import *  # noqa: F403
 
+
+def collapse_facts_single_truth(facts: list) -> list:
+    """D4 质量：同一 (entity_id, attribute) 在当章只保留一条有效真值。
+
+    选取 valid_from 最大者；并列时保留列表中后者（通常为较新写入）。
+    纯函数，便于无 DB 单测；facts_at 读路径安全网。
+    多值同属性的「并存设计」若仍需要，写入时须 supersede_open=False 且
+    读路径调用方自行跳过折叠——产品默认写作正典为单真值。
+    """
+    best: dict[tuple[str, str], object] = {}
+    for f in facts or []:
+        eid = getattr(f, "entity_id", None) or (f.get("entity_id") if isinstance(f, dict) else "") or ""
+        attr = getattr(f, "attribute", None) or (f.get("attribute") if isinstance(f, dict) else "") or ""
+        if not eid or not attr:
+            # 无键的行无法折叠，原样挂到合成键上避免丢失
+            key = (str(id(f)), "")
+        else:
+            key = (str(eid), str(attr))
+        prev = best.get(key)
+        if prev is None:
+            best[key] = f
+            continue
+        prev_vf = getattr(prev, "valid_from", None)
+        if prev_vf is None and isinstance(prev, dict):
+            prev_vf = prev.get("valid_from")
+        cur_vf = getattr(f, "valid_from", None)
+        if cur_vf is None and isinstance(f, dict):
+            cur_vf = f.get("valid_from")
+        if (cur_vf or 0) >= (prev_vf or 0):
+            best[key] = f
+    return list(best.values())
+
+
 class FactsKnowledgeMixin:
 
-    def add_fact(self, f: Fact, ingest_seq: int | None = None) -> Fact:
+    def add_fact(self, f: Fact, ingest_seq: int | None = None, *,
+                 supersede_open: bool = True) -> Fact:
+        """写入命题。默认 supersede_open=True：关闭同 entity+attribute 的其它开区间先驱，
+        保证「改设定后全世界只认新真相」(记忆质量 D4)。
+
+        supersede_open=False：保留多值并存语义（显式需要时才关）。
+        """
         _, local = _split(f.id)
+        vf = int(f.valid_from) if f.valid_from is not None else 0
+        # D4：先关闭同键开区间先驱（不含本 id），再 UPSERT 本行。
+        # valid_to 半开区间 [from,to)：先驱 valid_to=本行 valid_from → 自本章起只认新值。
+        if supersede_open and f.entity_id and f.attribute:
+            # 与 supersede_fact 同口径：关闭同 entity+attribute 的开区间其它行
+            try:
+                self._execute_write(
+                    "UPDATE proposition SET valid_to=$vf "
+                    "WHERE entity_id=$e AND attribute=$a AND valid_to=NONE "
+                    "AND meta::id(id) != $local AND valid_from <= $vf",
+                    {"e": f.entity_id, "a": f.attribute, "vf": vf, "local": local},
+                )
+            except Exception as _e:
+                logging.getLogger("scribe3.store").warning(
+                    "add_fact supersede_open 关闭先驱失败(仍写入新命题): %s", _e)
         self._execute_write(
             "UPSERT type::record('proposition', $local) SET entity_id=$entity, "
             "attribute=$attr, value=$value, valid_from=$vf, valid_to=$vt, secret=$secret, "
@@ -57,19 +111,17 @@ class FactsKnowledgeMixin:
     def supersede_fact(self, entity_id: str, attribute: str, new_value: str,
                        since_chapter: int, secret: bool = False) -> str:
         """显式超越:关闭同一 entity+attribute 的所有开区间先驱,写入新命题。
-        仅关闭 valid_to=NONE(还活着)且 valid_from < since_chapter 的行,
-        不动多值同属性(调用方显式控制,不自动破坏多值)。
-        返回新命题的 oid。"""
+        返回新命题的 oid。写入走 add_fact(supersede_open=True)，双保险。"""
         import uuid
-        # 1. 关闭所有该 entity+attribute 的开区间先驱
+        # 1. 关闭所有该 entity+attribute 的开区间先驱（含 valid_from==since 的并列旧行）
         self._execute_write(
             "UPDATE proposition SET valid_to=$since "
-            "WHERE entity_id=$e AND attribute=$a AND valid_to=NONE AND valid_from<$since",
+            "WHERE entity_id=$e AND attribute=$a AND valid_to=NONE AND valid_from<=$since",
             {"e": entity_id, "a": attribute, "since": since_chapter})
-        # 2. 写入新命题
+        # 2. 写入新命题（add_fact 再扫一遍开区间，幂等）
         new_oid = f"fact:{uuid.uuid4().hex[:8]}"
         new_fact = Fact(new_oid, entity_id, attribute, new_value, valid_from=since_chapter, secret=secret)
-        self.add_fact(new_fact)
+        self.add_fact(new_fact, supersede_open=True)
         return new_oid
 
     def forget_knowledge(self, knower_id: str, proposition_id: str, until_chapter: int) -> None:
@@ -98,7 +150,8 @@ class FactsKnowledgeMixin:
                     r.get("valid_to"), r.get("secret", False), r.get("leak_markers", []))
 
     def list_open_propositions(self, chapter: int = 99999) -> list[dict]:
-        """开区间命题列表(设定树投影用)。返回 [{id, entity_id, attribute, value, valid_from, valid_to, secret}]。"""
+        """开区间命题列表(设定树投影用)。返回 [{id, entity_id, attribute, value, valid_from, valid_to, secret}]。
+        D4：同 entity+attribute 只保留 valid_from 最新一条（与 facts_at 一致）。"""
         ch = int(chapter)
         rows = self._query(
             "SELECT meta::id(id) AS id, entity_id, attribute, value, "
@@ -107,7 +160,7 @@ class FactsKnowledgeMixin:
             "AND (archived = NONE OR archived != true) "
             "ORDER BY valid_from DESC",
             {"ch": ch}) or []
-        return rows
+        return collapse_facts_single_truth(rows)
 
     def facts_at(self, chapter: int) -> list[Fact]:
         rows = self._query(
@@ -115,12 +168,14 @@ class FactsKnowledgeMixin:
             "valid_from, valid_to, secret, leak_markers, injection_mode, priority FROM proposition "
             "WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch) "
             "AND (archived = NONE OR archived != true)", {"ch": chapter})
-        return [Fact(f"fact:{r['local']}", r.get("entity_id") or "",
-                     r["attribute"], r["value"],
-                     r["valid_from"], r.get("valid_to"), r.get("secret", False),
-                     r.get("leak_markers", []),
-                     injection_mode=r.get("injection_mode"), priority=r.get("priority"))
-                for r in rows]
+        facts = [Fact(f"fact:{r['local']}", r.get("entity_id") or "",
+                      r["attribute"], r["value"],
+                      r["valid_from"], r.get("valid_to"), r.get("secret", False),
+                      r.get("leak_markers", []),
+                      injection_mode=r.get("injection_mode"), priority=r.get("priority"))
+                 for r in rows]
+        # D4 读路径安全网：即使历史数据有多条开区间同键，当章只暴露一条真值
+        return collapse_facts_single_truth(facts)
 
     def _secret_proposition_values(self) -> set[str]:
         """本 work 权威 secret 命题的真值集(供 ai_run_trace redactor 抹工具回抛的秘密明文)。

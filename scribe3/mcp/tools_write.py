@@ -171,13 +171,22 @@ async def s3_patch_character(ctx: Context, character_id: str,
 async def s3_add_fact(ctx: Context, oid: str, entity: str, attribute: str, value: str,
                       valid_from: int, secret: bool = False,
                       work: str | None = None) -> dict:
-    """新增事实/状态@章(写,待批)。secret=True 标私密(泄露=穿帮)。"""
+    """新增事实/状态@章(写,待批)。secret=True 标私密(泄露=穿帮)。
+
+    同 entity+attribute 的开区间旧命题会被关闭(valid_to=valid_from)，避免改设定后
+    新旧真值并存污染检索/写作（记忆质量 D4）。若确需多值并存请用底层
+    store.add_fact(..., supersede_open=False)（产品路径默认不开放）。"""
     ok = await _ask(ctx, f"新增事实 {oid}:{entity}·{attribute}={value}")
 
     def _write():
         st = _store_for(work)
-        st.add_fact(Fact(oid, entity, attribute, value, valid_from, secret=secret))
-        st.semantic_index(oid, value)   # 写时建语义索引(设定即写即可召回)
+        st.add_fact(Fact(oid, entity, attribute, value, valid_from, secret=secret),
+                    supersede_open=True)
+        # add_fact 内已 semantic_index；保留二次调用幂等（旧行为兼容）
+        try:
+            st.semantic_index(oid, value)
+        except Exception:
+            pass
     return commit_if_approved("s3_add_fact", ok, _write)
 
 
