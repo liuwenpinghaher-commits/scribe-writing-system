@@ -75,8 +75,10 @@ class UnverifiedIngestMixin:
             import logging
             try:
                 from scribe3.ingest import ingest_chapter
-                r = ingest_chapter(self, seq, complete_fn)
-                replayed = not r.get("parse_failed", False)
+                work = getattr(self, "db_name", None) or "main"
+                # 接受待确认角色后须强制重放（即使同指纹）
+                r = ingest_chapter(self, seq, complete_fn, work=work, force=True)
+                replayed = not r.get("parse_failed", False) and not r.get("skipped")
             except Exception as e:
                 logging.getLogger("scribe3.store").warning(
                     "accept_unverified uid=%s seq=%s replay 失败(soft): %s", uid, seq, e)

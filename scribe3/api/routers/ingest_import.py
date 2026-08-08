@@ -71,13 +71,16 @@ def author_session_clip_ep(m: SessionClipIn, work: str = "main"):
     return {"ok": True, "id": mid, "title": title, "kind": kind, "source": source,
             "origin": "session_clip"}
 
-def ingest(seq: int, work: str = "main"):
+def ingest(seq: int, work: str = "main", force: bool = False):
     """手动反哺设定库(前端"反哺设定库"按钮),同步跑 ingest_chapter。
     P0-1 收尾:纳入 _pending_ingest 去重护栏——与后台 _bg_ingest/_enqueue_ingest
     共用同一 (work,seq) 在途集合。同章已有 ingest 在途(后台自动或另一次手点)时拒 409,
     防手点反哺撞自动 ingest 交错造成 knows/reader_knows/char_state/motif_instance/
     promise_touch 双份或互删。自身执行期间也占位在途,故并发 _enqueue_ingest 同章会被跳过;
     完成/异常均在 finally 清标记(避免该章永久锁死)。
+
+    force=true:忽略同正文指纹跳过,强制 purge+重抽(作者明确要重放时)。
+    同指纹已成功回写时默认 skipped,不结算/不蒸馏/不二次 mark(账本已齐)。
 
     KR3:结果经 mark_chapter_ingest_status 落 chapter.ingest_status/error——与后台
     _bg_ingest 同单源;否则 retry 成功后 GET /ingest/status 仍可能假 failed。"""
@@ -91,7 +94,10 @@ def ingest(seq: int, work: str = "main"):
     st = None
     try:
         st = _store_for(work)
-        r = ingest_chapter(st, seq, hermes_complete, work=work)
+        r = ingest_chapter(st, seq, hermes_complete, work=work, force=bool(force))
+        if r.get("skipped"):
+            # 同正文指纹已 apply:账本与指纹已齐,不做 settle/scorecard/distill 二次开销
+            return r
         if r.get("parse_failed"):
             mark_chapter_ingest_status(
                 st, seq, "parse_failed", "LLM 回复解析失败,知识账本未更新")
@@ -107,7 +113,9 @@ def ingest(seq: int, work: str = "main"):
             except Exception as e:
                 logging.getLogger("scribe3").warning("/ingest 目的合同结算失败(忽略): %s", e)
             _refresh_scorecard_after_ingest(st, seq)   # P2-3:主链路 ingest 后哨兵转真值
-            mark_chapter_ingest_status(st, seq, "ok")
+            # ingest_chapter 成功路径已 mark+prose_fp;此处再 mark 仅兜底无指纹写
+            mark_chapter_ingest_status(
+                st, seq, "ok", prose_fp=r.get("prose_fp") or None)
         # 北极星任务8:章后复盘蒸馏(事件驱动挂 ingest 路径,蓝图定死不走 cron)——
         # 与知识抽取成败无关(对话的方法教训独立于 parse_failed);fail-soft 绝不拖垮 ingest。
         try:
@@ -412,13 +420,14 @@ def ingest_retry(seq: int, background: BackgroundTasks, work: str = "main"):
     """失败/未知 ingest 的显式重试(KR3):复用手动 /ingest 同步路径。
 
     在途 → 409;成功路径与 /ingest 相同(不把失败标成成功)。
+    重试默认 force=true,避免同指纹 skip 导致「重试仍无更新」。
     """
     st = _store_for(work)
     ch = st.get_chapter(seq) or {}
     if not (ch.get("prose") or "").strip():
         raise HTTPException(status_code=404, detail="chapter empty or missing")
     # 同步重试(与手点反哺同路径),保证响应含真实结果
-    return ingest(seq, work=work)
+    return ingest(seq, work=work, force=True)
 
 
 def volume_review(volume_id: str | None = None, seq_from: int | None = None,

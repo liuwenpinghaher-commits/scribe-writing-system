@@ -148,6 +148,11 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
         try:
             from scribe3.llm import hermes_complete
             r = ingest_chapter(st, req.chapter, hermes_complete, work=work)
+            if r.get("skipped"):
+                return {
+                    "ok": True, "skipped": True, "reason": r.get("reason"),
+                    "parse_failed": False, "lesson_error": None,
+                }
             # 北极星任务6 + P1门审查 P0-1:结算必须在 ingest **之后**——promise_touch/
             # relation_touch/获知 fact 正是 ingest 抽取落库的,先结算必然把已兑现的
             # delta 误判 not_achieved 错误滚入下章(错账向后污染,brief 会催 LLM 重做
@@ -195,7 +200,8 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
                     st, req.chapter, "parse_failed",
                     "LLM 回复解析失败,知识账本未更新")
             else:
-                mark_chapter_ingest_status(st, req.chapter, "ok")
+                mark_chapter_ingest_status(
+                    st, req.chapter, "ok", prose_fp=r.get("prose_fp") or None)
             return {"ok": True, "parse_failed": bool(r.get("parse_failed")), "lesson_error": lesson_err}
         except Exception as e:
             logging.getLogger("scribe3").warning("loop ingest 失败(正文已落库,如实上报): %s", e)

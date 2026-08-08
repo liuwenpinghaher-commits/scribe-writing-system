@@ -384,6 +384,16 @@ def body_confirmed_report(
             verify = grep_back_verify(kn, prose or "")
             kn2 = verify.get("delta") or kn
             applied = apply_delta(st, kn2, seq, open_promises=open_p)
+            # 钉指纹：后台/手动 ingest 对同正文跳过二次 purge
+            try:
+                import hashlib
+                from scribe3.api.services.ingest_bg import mark_chapter_ingest_status
+                fp = hashlib.sha256((prose or "").encode("utf-8")).hexdigest()[:16]
+                mark_chapter_ingest_status(
+                    st, seq, "ok", "unified_finalize", prose_fp=fp,
+                )
+            except Exception as me:
+                _log.warning("mark ingest_prose_fp after finalize: %s", me)
             ingest_result = {
                 "applied": applied,
                 "source": "unified_finalize",

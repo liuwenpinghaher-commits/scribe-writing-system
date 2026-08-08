@@ -639,11 +639,12 @@ async def s3_fold_voice_flags(ctx: Context, character_id: str, work: str | None 
         lambda: _store_for(work).fold_voice_flags(character_id, hermes_complete))
 
 
-def s3_ingest_chapter(seq: int, work: str | None = None) -> dict:
+def s3_ingest_chapter(seq: int, work: str | None = None, force: bool = False) -> dict:
     """章节回写(客观回写,不待批):读定稿抽"谁新知道什么/做了什么"→更新知识账本。
     非创作虚构(add_fact/add_event 那些经 elicitation);ingest 反映已定稿正文,
     后端 save-chapter 也会自动后台跑同一逻辑。
 
+    force=true 时忽略同正文指纹跳过,强制 purge+重抽。
     此工具运行在 Hermes MCP 桥内(单 tool call 上限 300 秒)，所以直连补全必须显式
     小于该上限且禁用内部重试；抽取层最多两次尝试，失败会诚实返回 parse_failed。"""
     from scribe3.ingest import ingest_chapter
@@ -657,8 +658,9 @@ def s3_ingest_chapter(seq: int, work: str | None = None) -> dict:
             retries_override=0,
         )
 
+    w = (work or "main").strip() or "main"
     return ingest_chapter(
-        _store_for(work), seq, bounded_complete, max_attempts=2, work=work or "main",
+        _store_for(w), seq, bounded_complete, max_attempts=2, work=w, force=bool(force),
     )
 
 

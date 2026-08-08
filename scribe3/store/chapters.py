@@ -211,6 +211,7 @@ class ChaptersMixin:
             "scene_count=$scn, scene_meta=$scm, qc_issues=$qc, qc_causal=$qcc, qc_breakdown=$qcb, "
             "qc_cache_revision=$qcr, "
             "post_analysis_cache=NONE, post_analysis_fp=NONE, post_analysis_at=NONE, "
+            "ingest_prose_fp=NONE, "
             "archived=false, archived_at=NONE, archive_reason=NONE RETURN NONE",
             {"seq": seq, "title": title, "foc": focalizer, "prose": prose, "v": vec, "wc": wc,
              "scn": cache["scene_count"], "scm": cache["scene_meta"], "qc": cache["qc_issues"],

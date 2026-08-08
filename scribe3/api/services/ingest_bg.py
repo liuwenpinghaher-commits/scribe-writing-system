@@ -27,15 +27,38 @@ from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 
 
 # Note: function bodies resolve free names via rebound globals on app_impl.
-def mark_chapter_ingest_status(st, seq: int, status: str, err: str = "") -> None:
+def mark_chapter_ingest_status(
+    st, seq: int, status: str, err: str = "", *, prose_fp: str | None = None,
+) -> None:
     """单源:落 chapter.ingest_status / ingest_error(KR3 诚实回写)。
 
-    同步 /ingest、后台 _bg_ingest、loop finalize 共用。失败只告警不抛——
-    状态落库不得拖垮已完成的知识抽取/正文落库,但成功路径必须尽量写入,
-    否则 /ingest/status 与 UI 角标会假红。
+    同步 /ingest、后台 _bg_ingest、loop finalize、统一终选 apply 共用。
+    status=ok 且传 prose_fp 时一并写入 ingest_prose_fp，供同正文跳过二次 purge。
     """
     import logging
     try:
+        if prose_fp and status == "ok":
+            try:
+                st._execute_write(
+                    "UPDATE type::thing('chapter',$seq) SET "
+                    "ingest_status=$st, ingest_error=$er, ingest_prose_fp=$fp",
+                    {"seq": int(seq), "st": status, "er": (err or "")[:200], "fp": prose_fp[:32]},
+                )
+                return
+            except Exception:
+                # 老库无字段：先 DEFINE 再写
+                try:
+                    st._raw_query(
+                        "DEFINE FIELD IF NOT EXISTS ingest_prose_fp ON chapter TYPE option<string>;"
+                    )
+                    st._execute_write(
+                        "UPDATE type::thing('chapter',$seq) SET "
+                        "ingest_status=$st, ingest_error=$er, ingest_prose_fp=$fp",
+                        {"seq": int(seq), "st": status, "er": (err or "")[:200], "fp": prose_fp[:32]},
+                    )
+                    return
+                except Exception:
+                    pass
         st._execute_write(
             "UPDATE type::thing('chapter',$seq) SET ingest_status=$st, ingest_error=$er",
             {"seq": int(seq), "st": status, "er": (err or "")[:200]})
@@ -73,20 +96,26 @@ def _bg_ingest(work: str, seq: int) -> None:
     try:
         st = SurrealStore(ns="scribe3", db=work)
         r = ingest_chapter(st, seq, hermes_complete, work=work)
-        if r.get("parse_failed"):
+        if r.get("skipped"):
+            # 终选 unified 已 apply+钉指纹:跳过 scorecard/distill 二次开销
+            logging.getLogger("scribe3").info(
+                "后台 ingest %s 第%s章: skip same_prose_fp", work, seq)
+        elif r.get("parse_failed"):
             logging.getLogger("scribe3").warning(
                 "后台 ingest %s 第%s章: LLM 回复解析失败,既有知识已保留(未 purge)", work, seq)
             mark_chapter_ingest_status(st, seq, "parse_failed",
                                        "LLM 回复解析失败,知识账本未更新")
         else:
             _refresh_scorecard_after_ingest(st, seq)   # P2-3:主链路 ingest 后哨兵转真值
-            mark_chapter_ingest_status(st, seq, "ok")
-        # 北极星任务8:后台 ingest 完成后同样触发复盘蒸馏(fail-soft)。
-        try:
-            from scribe3.lesson import distill_chapter
-            distill_chapter(st, seq, hermes_complete)
-        except Exception as e:
-            logging.getLogger("scribe3").error("后台 ingest 复盘蒸馏失败 %s 第%s章", work, seq, exc_info=True)   # U-011: 教训静默没记,后台无响应面→至少 error 级日志
+            mark_chapter_ingest_status(
+                st, seq, "ok", prose_fp=r.get("prose_fp") or None)
+            # 北极星任务8:仅真实 apply 后蒸馏(skip 已由终选/前次路径覆盖)
+            try:
+                from scribe3.lesson import distill_chapter
+                distill_chapter(st, seq, hermes_complete)
+            except Exception as e:
+                logging.getLogger("scribe3").error(
+                    "后台 ingest 复盘蒸馏失败 %s 第%s章", work, seq, exc_info=True)   # U-011
     except Exception as e:
         logging.getLogger("scribe3").error("后台 ingest %s 第%s章失败", work, seq, exc_info=True)   # U-011
         if st is not None:

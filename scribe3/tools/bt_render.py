@@ -150,7 +150,8 @@ def main():
         # 落库 + 真 ingest 反哺(下一章帧据此更新)
         st.save_chapter(seq, prose, title=title, focalizer=foc)
         try:
-            ing = ingest_chapter(st, seq, hermes_complete)
+            work = getattr(st, "db_name", None) or "main"
+            ing = ingest_chapter(st, seq, hermes_complete, work=work)
         except Exception as e:
             ing = {"err": str(e)[:80]}
         dt = round(time.time() - ts)

@@ -82,15 +82,42 @@ def _build_dedicated_event_extract_prompt(prose: str) -> str:
     )
 
 
+# 路人/称谓：只记 unverified，不进设定收件箱 L1 债
+_WEAK_CHAR_NAMES = frozenset({
+    "老者", "老人", "女人", "男人", "少年", "少女", "师父", "师傅", "婆婆", "婆子",
+    "小子", "姑娘", "掌柜", "管事", "汉子", "妇人", "孩童", "路人", "众人", "旁人",
+})
+_WEAK_CHAR_SUFFIX = ("婆子", "老汉", "掌柜", "管事", "师父", "师傅", "大娘", "大爷")
+
+
+def _should_queue_character_candidate(name: str) -> bool:
+    """是否把未立角色推入设定收件箱（宁缺毋滥，挡路人噪声）。"""
+    import re
+    n = (name or "").strip()
+    if len(n) < 2 or len(n) > 6:
+        return False
+    if "的" in n:  # 卖灯草的婆子
+        return False
+    if n in _WEAK_CHAR_NAMES:
+        return False
+    if any(n.endswith(s) for s in _WEAK_CHAR_SUFFIX):
+        return False
+    if n[0] in "这那一二三四五六七八九十某":
+        return False
+    if not re.fullmatch(r"[\u4e00-\u9fff]{2,6}", n):
+        return False
+    return True
+
+
 def _resolve_char(store, name: str, seq: int, role: str) -> str | None:
     """解析角色:已存在返回 oid;不存在则登记待确认,返回 None(不建实体、不发边)。
     替换原 _ensure_char(不验即建,致幻觉角色污染 characters())。
-    全类型回写：同时写入 canon_candidate（module=character），与设定收件箱并轨。"""
+    全类型回写：仅「像立传名」时写入 canon_candidate，路人只进 unverified。"""
     oid = f"role:{name}"
     if store.entity(oid) is not None:
         return oid
     store.add_unverified_ref(name, seq, role)
-    if hasattr(store, "add_canon_candidate"):
+    if hasattr(store, "add_canon_candidate") and _should_queue_character_candidate(name):
         try:
             store.add_canon_candidate({
                 "seq": seq,
@@ -513,18 +540,59 @@ def apply_delta(store, delta: dict, seq: int,
     return n
 
 
+def _prose_fingerprint(prose: str) -> str:
+    import hashlib
+    return hashlib.sha256((prose or "").encode("utf-8")).hexdigest()[:16]
+
+
+def _store_work_name(store, work: str | None = None) -> str:
+    if (work or "").strip():
+        return work.strip()
+    return getattr(store, "db_name", None) or "main"
+
+
+def _chapter_ingest_prose_fp(store, seq: int) -> str | None:
+    try:
+        rows = store._query(
+            "SELECT ingest_prose_fp, ingest_status FROM type::thing('chapter', $seq)",
+            {"seq": int(seq)},
+        )
+        if not rows:
+            return None
+        return (rows[0].get("ingest_prose_fp") or "").strip() or None
+    except Exception:
+        return None
+
+
 def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3,
-                   work: str | None = None) -> dict:
+                   work: str | None = None, *, force: bool = False) -> dict:
     """读某章正文 → Hermes 抽知识 delta → 应用到 store。
 
     默认优先「章后统一分析」(与设定收件箱同源一次 LLM)；缓存命中(定稿刚跑过)则零调用。
-    抽取是非确定的:长 JSON 偶发截断/坏格式 → parse 返回 None。单次尝试会零星 parse_failed,
-    故重试至多 max_attempts 次(每次重新抽取);全失败才返回 parse_failed=True(不 purge,保留既有知识)。
+    若本章已对**同一正文指纹**成功 apply（终选 unified 或上次 ingest），默认 **跳过 purge+重写**
+    （force=True 强制重放）。
     """
     ch = store.get_chapter(seq)
     if not ch or not ch.get("prose"):
         return {"applied": 0, "delta": {"learned": [], "did": [], "voice_shift": []}, "annotated": []}
     prose = ch["prose"]
+    work = _store_work_name(store, work)
+    fp = _prose_fingerprint(prose)
+
+    # —— P0：同正文已回写则跳过二次 purge（终选 apply 后后台 ingest 不再覆盖）——
+    if not force:
+        prev_fp = _chapter_ingest_prose_fp(store, seq)
+        if prev_fp and prev_fp == fp:
+            return {
+                "applied": 0,
+                "skipped": True,
+                "reason": "same_prose_fp",
+                "prose_fp": fp,
+                "delta": None,
+                "annotated": [],
+                "extract_source": "skip_same_fp",
+            }
+
     motif_names = [m.get("name") for m in store.list_motifs() if m.get("name")]
     promise_items = [{"id": p["id"], "text": p["text"]} for p in store.open_promises()]
     # Task5: 收集有 lie 锚的角色 → prompt belief 段(只评这些角色的信念信奉度)
@@ -542,7 +610,7 @@ def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3,
         if unified_analysis_enabled() and complete_fn:
             u = extract_for_ingest(
                 store, seq, complete_fn,
-                work=work or "main",
+                work=work,
                 max_attempts=max(1, max_attempts),
                 prose=prose,
             )
@@ -597,11 +665,24 @@ def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3,
         logging.getLogger("scribe3.ingest").warning(
             "grep_back_verify 章 %s 有 %d 处断言原文未明确核实到: %s",
             seq, len(verify["annotated"]), verify["annotated"])
+    applied = apply_delta(store, delta, seq, open_promises=promise_items)
+    # 成功落库后钉正文指纹，终选后再 ingest 同稿可跳过
+    try:
+        from scribe3.api.services.ingest_bg import mark_chapter_ingest_status
+        mark_chapter_ingest_status(
+            store, seq, "ok",
+            f"ingest:{unified_source or 'legacy'}",
+            prose_fp=fp,
+        )
+    except Exception:
+        pass
     return {
-        "applied": apply_delta(store, delta, seq, open_promises=promise_items),
+        "applied": applied,
         "delta": delta,
         "annotated": verify["annotated"],
         "extract_source": unified_source or "legacy_knowledge",
+        "prose_fp": fp,
+        "skipped": False,
     }
 
 

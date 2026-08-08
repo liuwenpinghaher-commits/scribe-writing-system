@@ -75,6 +75,8 @@ class FakeStore:
             ch = self.chapters.setdefault(int(params["seq"]), {"seq": int(params["seq"])})
             ch["ingest_status"] = params.get("st")
             ch["ingest_error"] = params.get("er", "")
+            if "fp" in params and params.get("fp") is not None:
+                ch["ingest_prose_fp"] = params.get("fp")
 
 
 # ===== 纯策略 =====
