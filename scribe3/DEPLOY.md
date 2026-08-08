@@ -65,7 +65,10 @@ docker compose up
 | `SCRIBE3_AUTH_ENABLED` | (不设=关) | `1` = L1 会话门禁 + 作品归属隔离（公网必开） |
 | `SCRIBE3_SESSION_SECRET` | (空) | Cookie 签名密钥；开 AUTH 时必填 |
 | `SCRIBE3_BOOTSTRAP_USERS` | (空) | 首次灌库 `user:pass,user2:pass2`（仅用户表空时） |
+| `SCRIBE3_ADMIN_USERS` | `admin` | 管理员用户名列表（逗号分隔）；启动提升为 role=admin |
 | `SCRIBE3_LEGACY_OWNER` | `admin` | 无 `owner_user_id` 的历史书归属用户 |
+
+管理台（`role=admin`）：顶栏盾牌 → 账号 CRUD / 跨账号书籍 / 审计。API：`/admin/*`。
 | `SCRIBE3_AUTH_DB` | 与 settings 同目录 | 用户表 SQLite 路径 |
 | `SCRIBE3_SESSION_SECURE` | (HTTPS 建议 1) | Cookie `Secure` 标志 |
 
