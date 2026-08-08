@@ -95,6 +95,15 @@ class PostFinalizeReq(BaseModel):
     canon_snapshot: Optional[dict[str, Any]] = None
 
 
+class AnalyzeChapterReq(BaseModel):
+    """强制/手动章后统一分析：设定收件箱 + 知识回写。"""
+    seq: int = Field(ge=1)
+    work: str = "main"
+    force: bool = True  # 清缓存后重抽
+    use_llm: bool = True
+    persist: bool = True
+
+
 class ApplyPackReq(BaseModel):
     pack: dict[str, Any]
     approved_item_ids: list[str] = Field(default_factory=list)
@@ -196,6 +205,69 @@ def canon_extract_ep(req: ExtractReq, work: str | None = None):
     return run_chapter_extract(
         st, work=w, seq=req.seq, complete_fn=_complete(req.use_llm),
     )
+
+
+@router.post("/canon/analyze-chapter")
+def analyze_chapter_ep(req: AnalyzeChapterReq, work: str | None = None):
+    """章后统一分析（模型优先）：可选 force 清缓存后重跑。
+
+    返回 post_finalize 同构报告 + analysis 摘要，便于作者手动「再抽一次」。
+    """
+    w = _work_from(req.work, work)
+    st = _store(w)
+    if isinstance(st, InMemoryCanonStore):
+        raise HTTPException(503, "需要 Surreal work store")
+    ch = st.get_chapter(req.seq) if hasattr(st, "get_chapter") else None
+    prose = (ch or {}).get("prose") or ""
+    if not prose.strip():
+        raise HTTPException(422, "本章无正文，无法分析")
+    if req.force:
+        try:
+            from scribe3.chapter_analysis import clear_cached_analysis
+            clear_cached_analysis(w, req.seq, prose=prose, st=st)
+        except Exception:
+            if hasattr(st, "clear_post_analysis_cache"):
+                st.clear_post_analysis_cache(req.seq)
+    rep = body_confirmed_report(
+        work=w,
+        seq=req.seq,
+        prose=prose,
+        st=st,
+        complete_fn=_complete(req.use_llm),
+        persist=req.persist and hasattr(st, "add_canon_candidate"),
+    )
+    summary = None
+    if hasattr(st, "post_analysis_summary"):
+        try:
+            summary = st.post_analysis_summary(req.seq, prose)
+        except Exception:
+            summary = None
+    return {
+        "ok": True,
+        "work": w,
+        "seq": req.seq,
+        "force": req.force,
+        "report": rep,
+        "analysis": summary,
+        "debt": rep.get("debt"),
+        "unified_analysis": rep.get("unified_analysis"),
+        "ingest": rep.get("ingest"),
+    }
+
+
+@router.get("/canon/analysis")
+def chapter_analysis_summary_ep(seq: int, work: str = "main"):
+    """只读：本章章后分析缓存摘要。"""
+    st = _store(work)
+    if not hasattr(st, "post_analysis_summary"):
+        return {"present": False, "seq": seq}
+    prose = ""
+    try:
+        ch = st.get_chapter(seq) if hasattr(st, "get_chapter") else None
+        prose = (ch or {}).get("prose") or ""
+    except Exception:
+        prose = ""
+    return st.post_analysis_summary(seq, prose) or {"present": False, "seq": seq}
 
 
 @router.get("/canon/candidates")

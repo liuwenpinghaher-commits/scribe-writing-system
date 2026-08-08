@@ -91,7 +91,7 @@ def ingest(seq: int, work: str = "main"):
     st = None
     try:
         st = _store_for(work)
-        r = ingest_chapter(st, seq, hermes_complete)
+        r = ingest_chapter(st, seq, hermes_complete, work=work)
         if r.get("parse_failed"):
             mark_chapter_ingest_status(
                 st, seq, "parse_failed", "LLM 回复解析失败,知识账本未更新")
@@ -183,7 +183,7 @@ def story_import(req: ImportReq, work: str = "main"):
         journal.start_stage(stage)
         st.save_chapter(item.seq, item.prose)
         try:
-            result = ingest_chapter(st, item.seq, complete_fn)
+            result = ingest_chapter(st, item.seq, complete_fn, work=work)
         except Exception as e:
             # 中途崩溃:journal 保持 in_progress=stage,不 complete——下次重跑本端点会
             # 从这一章重新整章跑(should_skip 对未 complete 的 stage 恒返回 False)。

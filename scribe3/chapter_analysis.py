@@ -90,6 +90,28 @@ def get_cached_analysis(
     return None
 
 
+def clear_cached_analysis(
+    work: str,
+    seq: int,
+    *,
+    prose: str | None = None,
+    st: Any = None,
+) -> None:
+    """强制重分析前清进程缓存 + 库缓存。"""
+    if prose is not None:
+        _CACHE.pop(_cache_key(work, seq, prose), None)
+    else:
+        prefix = f"{work}|{int(seq)}|"
+        for k in list(_CACHE.keys()):
+            if k.startswith(prefix):
+                _CACHE.pop(k, None)
+    if st is not None and hasattr(st, "clear_post_analysis_cache"):
+        try:
+            st.clear_post_analysis_cache(int(seq))
+        except Exception as e:
+            _log.warning("clear_post_analysis_cache: %s", e)
+
+
 def put_cached_analysis(
     work: str,
     seq: int,

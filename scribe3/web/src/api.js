@@ -487,6 +487,14 @@ export const api = {
   ),
   batchDecideCanonCandidates: (body) => post('/canon/candidates/batch-decide', body || {}),
   canonExtractChapter: (seq, use_llm = true) => post('/canon/extract', { seq, use_llm }),
+  /** 章后统一分析（force 清缓存重抽） */
+  canonAnalyzeChapter: (seq, opts = {}) => post('/canon/analyze-chapter', {
+    seq,
+    force: opts.force !== false,
+    use_llm: opts.use_llm !== false,
+    persist: opts.persist !== false,
+  }),
+  canonAnalysisSummary: (seq) => j(`/canon/analysis?seq=${enc(seq)}`),
   canonPostFinalize: (body) => post('/canon/post-finalize-report', body),
   canonChangePack: (body) => post('/canon/change-pack', body),
   canonApplyPack: (body) => post('/canon/change-pack/apply', body),

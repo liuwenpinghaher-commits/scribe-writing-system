@@ -657,7 +657,9 @@ def s3_ingest_chapter(seq: int, work: str | None = None) -> dict:
             retries_override=0,
         )
 
-    return ingest_chapter(_store_for(work), seq, bounded_complete, max_attempts=2)
+    return ingest_chapter(
+        _store_for(work), seq, bounded_complete, max_attempts=2, work=work or "main",
+    )
 
 
 async def s3_record_knowledge(ctx: Context, knower: str, proposition: str,

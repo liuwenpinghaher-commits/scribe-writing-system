@@ -311,6 +311,7 @@ export function CanonInboxView({ work, onJumpChapter, initialSeq, initialModule 
         <div className="text-meta text-faint mt-0.5 truncate">
           第{it.seq ?? '—'}章
           {it.labels?.source ? ` · ${it.labels.source}` : it.source ? ` · ${it.source}` : ''}
+          {it.labels?.extractor ? ` · ${it.labels.extractor}` : it.extractor ? ` · ${it.extractor}` : ''}
           {it.is_noise ? ' · 噪声' : ''}
           {it.risk === 'high' ? ' · 高风险' : ''}
           {it.status && it.status !== 'pending' ? ` · ${it.status}` : ''}

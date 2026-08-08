@@ -13,6 +13,8 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
   const [loading, setLoading] = useState(true)
   const [motifBusy, setMotifBusy] = useState(false)
   const [motifMsg, setMotifMsg] = useState('')
+  const [analyzeBusy, setAnalyzeBusy] = useState(false)
+  const [analyzeMsg, setAnalyzeMsg] = useState('')
 
   const load = useCallback(() => {
     setLoading(true)
@@ -53,6 +55,30 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
       setMotifMsg(e?.message || '批准失败')
     } finally {
       setMotifBusy(false)
+    }
+  }
+
+  const reanalyzeChapter = async () => {
+    const seq = lane?.seq ?? snap?.chapter_lane?.seq
+    if (seq == null || typeof api.canonAnalyzeChapter !== 'function') return
+    setAnalyzeBusy(true)
+    setAnalyzeMsg('')
+    try {
+      const res = await api.canonAnalyzeChapter(seq, { force: true })
+      const l1 = res?.report?.sections?.l1_requires_approval?.items
+      const l1n = Array.isArray(l1) ? l1.length : 0
+      const applied = res?.ingest?.applied
+      setAnalyzeMsg(
+        `已重分析` +
+        (res?.unified_analysis ? '（统一模型）' : '') +
+        (l1n ? ` · 设定候选 ${l1n}` : '') +
+        (typeof applied === 'number' && applied >= 0 ? ` · 知识 ${applied}` : ''),
+      )
+      load()
+    } catch (e) {
+      setAnalyzeMsg(e?.message || '重分析失败')
+    } finally {
+      setAnalyzeBusy(false)
     }
   }
 
@@ -216,20 +242,34 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
                 {lane.pilot_state_label || lane.pilot_state}
               </span>
             </div>
-            {lane.post_analysis?.present && lane.post_analysis?.fp_match !== false && (
-              <p className="text-meta text-faint mb-2" data-testid="journey-post-analysis">
-                章后分析缓存
-                {lane.post_analysis.format ? ` · ${lane.post_analysis.format}` : ''}
-                {lane.post_analysis.settings_count != null
-                  ? ` · 设定增量 ${lane.post_analysis.settings_count}`
-                  : ''}
-                {lane.post_analysis.knowledge
-                  ? ` · 知 ${lane.post_analysis.knowledge.learned ?? 0}/事 ${lane.post_analysis.knowledge.events ?? 0}`
-                  : ''}
-                {lane.post_analysis.events_backfilled ? ' · 事件已补枪' : ''}
-                <span className="text-faint/80">（改稿后自动失效，反哺可复用免二调）</span>
-              </p>
-            )}
+            <div className="mb-2 flex flex-wrap items-center gap-2" data-testid="journey-post-analysis-row">
+              {lane.post_analysis?.present && lane.post_analysis?.fp_match !== false ? (
+                <p className="text-meta text-faint min-w-0 flex-1" data-testid="journey-post-analysis">
+                  章后分析缓存
+                  {lane.post_analysis.format ? ` · ${lane.post_analysis.format}` : ''}
+                  {lane.post_analysis.settings_count != null
+                    ? ` · 设定增量 ${lane.post_analysis.settings_count}`
+                    : ''}
+                  {lane.post_analysis.knowledge
+                    ? ` · 知 ${lane.post_analysis.knowledge.learned ?? 0}/事 ${lane.post_analysis.knowledge.events ?? 0}`
+                    : ''}
+                  {lane.post_analysis.events_backfilled ? ' · 事件已补枪' : ''}
+                  <span className="text-faint/80"> · 改稿失效</span>
+                </p>
+              ) : (
+                <p className="text-meta text-faint min-w-0 flex-1">尚无章后分析缓存（终选或点右侧重抽）</p>
+              )}
+              <Btn
+                size="sm"
+                variant="ghost"
+                disabled={analyzeBusy}
+                onClick={reanalyzeChapter}
+                data-testid="journey-reanalyze-chapter"
+              >
+                {analyzeBusy ? '分析中…' : '重新分析本章'}
+              </Btn>
+            </div>
+            {analyzeMsg && <p className="text-meta text-ink mb-2">{analyzeMsg}</p>}
             {Array.isArray(lane.pipeline) && lane.pipeline.length > 0 && (
               <div className="flex flex-wrap gap-1" data-testid="journey-chapter-pipeline">
                 {lane.pipeline.map((p) => (

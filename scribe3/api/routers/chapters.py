@@ -147,7 +147,7 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
             _pending_ingest.add(ikey)
         try:
             from scribe3.llm import hermes_complete
-            r = ingest_chapter(st, req.chapter, hermes_complete)
+            r = ingest_chapter(st, req.chapter, hermes_complete, work=work)
             # 北极星任务6 + P1门审查 P0-1:结算必须在 ingest **之后**——promise_touch/
             # relation_touch/获知 fact 正是 ingest 抽取落库的,先结算必然把已兑现的
             # delta 误判 not_achieved 错误滚入下章(错账向后污染,brief 会催 LLM 重做
