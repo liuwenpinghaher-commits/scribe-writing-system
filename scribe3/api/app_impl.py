@@ -1488,7 +1488,20 @@ def _grounding_llm(st, work: str, chapter: int, prompt: str) -> str:
 
 def _pilot_steer(st, seq: int) -> str:
     rows = st._query("SELECT pilot_steer FROM type::record('chapter',$seq)", {"seq": seq})
-    return ((rows[0] if rows else {}).get("pilot_steer") or "").strip()
+    raw = ((rows[0] if rows else {}).get("pilot_steer") or "").strip()
+    # D5 质量验收：SCRIBE3_MEMORY_STEER_MODE=minimal 时不把库内长 steer 当设定灌输，
+    # 只保留极简冲突句，迫使模型依赖记忆/正典注入（见 memory_must_link）。
+    try:
+        from scribe3.memory_must_link import is_minimal_steer, minimal_chapter_steer
+        if is_minimal_steer():
+            ch = st.get_chapter(seq) or {}
+            title = (ch.get("title") or f"第{seq}章").strip()
+            foc = (ch.get("focalizer") or "").replace("role:", "") or "主角"
+            syn = (ch.get("synopsis") or raw or "")[:80]
+            return minimal_chapter_steer(seq, title, foc, syn)
+    except Exception:
+        pass
+    return raw
 
 
 

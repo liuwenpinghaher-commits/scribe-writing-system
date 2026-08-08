@@ -563,10 +563,55 @@ class ContextAssembler:
 
     def _canonical_items(self, snapshot: ContextSnapshot, cands) -> list[_Item]:
         """canonical:权威表。有 retriever 候选走候选(带限知屏蔽);否则降级直查 store。
-        无论哪条路径,focalizer 非空时 secret value 都物理屏蔽 + 留痕 masked=True。"""
+        无论哪条路径,focalizer 非空时 secret value 都物理屏蔽 + 留痕 masked=True。
+
+        D3/D5：章级 must-link（大纲/伏笔/当章事实重叠）**置顶**，优先占预算。"""
         if cands:
-            return self._canonical_from_candidates(snapshot, cands)
-        return self._canonical_from_store(snapshot)
+            base = self._canonical_from_candidates(snapshot, cands)
+        else:
+            base = self._canonical_from_store(snapshot)
+        return self._pin_must_link(snapshot, base)
+
+    def _pin_must_link(self, snapshot: ContextSnapshot, base: list[_Item]) -> list[_Item]:
+        """把戏剧必需锚钉在 canonical 头部，避免预算裁掉关键物件/伏笔。"""
+        try:
+            from scribe3.memory_must_link import (
+                collect_must_anchors, format_must_link_items,
+            )
+            anchors = collect_must_anchors(self.store, snapshot.chapter, limit=10)
+            if not anchors:
+                return base
+            must_pairs = format_must_link_items(anchors, work=snapshot.work or "")
+            must_items: list[_Item] = []
+            for text, meta in must_pairs:
+                must_items.append(_Item(
+                    text,
+                    ContextSource(
+                        source_id=str(meta.get("source_id") or "must_link"),
+                        source_kind="canonical",
+                        work=snapshot.work,
+                        reason="must_link_priority",
+                    ),
+                ))
+            # 去重：base 中与 must 高度重叠的行后置丢弃
+            must_cores = []
+            for it in must_items:
+                t = (it.text or "").replace("〔必需〕", "").strip()
+                if len(t) >= 8:
+                    must_cores.append(t[4:44] if t.startswith("- ") else t[:40])
+            rest: list[_Item] = []
+            for it in base:
+                skip = False
+                for core in must_cores:
+                    if core and core in (it.text or ""):
+                        skip = True
+                        break
+                if not skip:
+                    rest.append(it)
+            return must_items + rest
+        except Exception as e:
+            _log.warning("must_link pin failed (fail-soft keep base): %s", e)
+            return base
 
     def _canonical_from_candidates(self, snapshot: ContextSnapshot,
                                    cands) -> list[_Item]:

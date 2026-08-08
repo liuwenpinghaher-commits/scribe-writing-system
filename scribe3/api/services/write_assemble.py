@@ -719,7 +719,22 @@ def _brief_must_sections_write_block(st, chapter: int, focalizer: str = "") -> s
 
     单源 assemble_chapter_brief;刻意剔除 purpose/lessons(已由
     _purpose_and_lessons_write_block 内联)与 injection 回显(codex 块另注),
-    避免双份圣经/双份目的合同。空操作段 → 空串。fail-soft:组装故障不阻断写作。"""
+    避免双份圣经/双份目的合同。空操作段 → 空串。fail-soft:组装故障不阻断写作。
+
+    D3：前置「戏剧必需锚」短块，与 context_assembler must_link 同源。"""
+    must_prefix = ""
+    try:
+        from scribe3.memory_must_link import collect_must_anchors
+        anchors = collect_must_anchors(st, int(chapter), limit=8)
+        if anchors:
+            lines = "\n".join(f"- {a.get('text')}" for a in anchors)
+            must_prefix = (
+                "\n\n【本章戏剧必需·来自记忆/正典｜推动情节或感官，禁止设定清单腔】\n"
+                + lines + "\n"
+            )
+    except Exception as e:
+        logging.getLogger("scribe3").warning(
+            "写路径 must_link 注入失败(fail-soft): %s", e)
     try:
         from scribe3.brief import assemble_chapter_brief, render_brief
         brief = assemble_chapter_brief(st, int(chapter), focalizer=focalizer or "")
@@ -738,15 +753,15 @@ def _brief_must_sections_write_block(st, chapter: int, focalizer: str = "") -> s
             or (sec.get("emotion_module") or {}).get("text")
         )
         if not has_ops:
-            return ""
+            return must_prefix
         text = (render_brief(sec) or "").strip()
         if not text or text == "## 本章创作简报(章前组装,遵守但不复述)":
-            return ""
-        return "\n\n" + text
+            return must_prefix
+        return must_prefix + "\n\n" + text
     except Exception as e:
         logging.getLogger("scribe3").warning(
             "写路径 brief 必达段注入失败(fail-soft): %s", e)
-        return ""
+        return must_prefix
 
 
 def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", llm=None,

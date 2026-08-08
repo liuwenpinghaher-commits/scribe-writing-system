@@ -46,6 +46,16 @@
 - `_editor_system`：铁律块置于设定前，要求落实为可观察结果  
 - 仍欠：冷启动人评、延迟写作遵守、干扰鲁棒（质量 9.5 未宣称）  
 
+## D3/D5 已落地地基（2026-08-08）
+
+- `scribe3/memory_must_link.py`：`collect_must_anchors` / 复述检测 / `minimal_chapter_steer`  
+- assembler canonical：**must-link 置顶**（大纲重叠事实 + 开放伏笔 + 出场角色）  
+- 写路径 brief 前：**戏剧必需**短块  
+- pilot：`SCRIBE3_MEMORY_STEER_MODE=minimal` 时用极简 steer（不灌圣经）  
+- 单测：`test_memory_must_link.py`  
+- 探针：`scripts/probe_d5_minimal_memory.py`  
+- **未宣称质量 9.5**：仍需消融人评（极简组 vs 全量喂设定）  
+
 ## 否决
 
 把 M0–M6 绿写成质量 9.5；keyword 当 D3/D5 主分；关限知冲分。
