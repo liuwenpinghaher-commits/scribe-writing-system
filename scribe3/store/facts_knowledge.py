@@ -50,13 +50,14 @@ class FactsKnowledgeMixin:
         # D4：先关闭同键开区间先驱（不含本 id），再 UPSERT 本行。
         # valid_to 半开区间 [from,to)：先驱 valid_to=本行 valid_from → 自本章起只认新值。
         if supersede_open and f.entity_id and f.attribute:
-            # 与 supersede_fact 同口径：关闭同 entity+attribute 的开区间其它行
+            # 与 supersede_fact 同口径：关闭同 entity+attribute 的开区间行。
+            # 先关全部开区间，再 UPSERT 本行（本行会以新 valid_from / 开区间写回）。
             try:
                 self._execute_write(
                     "UPDATE proposition SET valid_to=$vf "
                     "WHERE entity_id=$e AND attribute=$a AND valid_to=NONE "
-                    "AND meta::id(id) != $local AND valid_from <= $vf",
-                    {"e": f.entity_id, "a": f.attribute, "vf": vf, "local": local},
+                    "AND valid_from <= $vf",
+                    {"e": f.entity_id, "a": f.attribute, "vf": vf},
                 )
             except Exception as _e:
                 logging.getLogger("scribe3.store").warning(

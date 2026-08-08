@@ -344,16 +344,25 @@ def _editor_system(st, focalizer: str = "", chapter: int = None,
                         "并向作者说明为什么参考。")
     except Exception:
         raise   # U-011 fail-loud: _editor_system 素材提示块
+    red = (intent.get("red_lines") or "").strip()
+    # D2：铁律单独成块、置于设定之前，写/讨论时必须当约束而非背景
+    constraint = ""
+    if red:
+        constraint = (
+            "\n【作者铁律·写作宪法｜必须遵守，禁止违反、禁止装忘、禁止用系统流/面板腔稀释】\n"
+            f"{red}\n"
+            "落实要求:正文中须可观察到上述约束的结果(如触感/禁忌/禁写法),勿仅口头复述原句。\n"
+        )
     return (
         "你是这部长篇小说的资深主编(责编),与作者面对面讨论创作。\n"
         f"【北极星·作品意图】读者感受:{intent['reader_feeling'] or '—'};"
         f"情感弧:{intent['emotional_arc'] or '—'};绝不背叛的红线:{intent['red_lines'] or '—'}\n"
+        f"{constraint}"
         f"【主要角色】{ctx_chars}\n{set_label}\n{ctx_set}\n\n"
         f"【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n{_codex_block(st, reveal=not focalizer, focalizer=focalizer, chapter=chapter, for_generation=for_generation) or '(尚无设定)'}\n\n"
         "要求:用简体中文,像真正的资深文学编辑那样具体、犀利、可操作;紧扣上面的世界观与北极星,"
         "不空泛、不正确的废话;给剧情/人物建议时给出 2-3 个选项与各自代价;护住限知叙事(别让角色知道其知识帧外的私密)。"
     ) + rem + mat_hint + _author_prefs_block_safe()
-
 
 def _editor_identity_block() -> str:
     """主编身份 + 硬协议(纯身份,零数据注入)。I1:v1 上下文段由 envelope 独占,故 v1

@@ -35,7 +35,16 @@
 - `add_fact(..., supersede_open=True)`：同 entity+attribute 关开区间先驱  
 - `facts_at` / `list_open_propositions`：`collapse_facts_single_truth` 读路径安全网  
 - `s3_add_fact` 文档与默认 supersede  
+- orch：`s3_add_fact` 认 `oid`；**注册 `s3_supersede_fact` executor**  
 - 单测：`scribe3/tests/test_fact_single_truth.py`  
+- demo 地板探针：`scripts/probe_d4_single_truth.py`（book_6340c01f **PASS**）  
+- 历史脏数据：`world:三棱铜匙` artifact 已 supersede，prefetch **无「完整无缺」**  
+
+## D2 进行中（2026-08-08）
+
+- assembler global：**作者铁律·写作宪法** 独立段（from red_lines）  
+- `_editor_system`：铁律块置于设定前，要求落实为可观察结果  
+- 仍欠：冷启动人评、延迟写作遵守、干扰鲁棒（质量 9.5 未宣称）  
 
 ## 否决
 

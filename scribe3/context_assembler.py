@@ -534,6 +534,19 @@ class ContextAssembler:
                 f"红线={intent.get('red_lines') or '—'}")
         out.append(_Item("- " + star, ContextSource(
             source_id="intent:main", source_kind="global", work=snapshot.work)))
+        # D2 质量：红线升格为「必须遵守」段，避免淹没在一长串北极星里
+        red = (intent.get("red_lines") or "").strip()
+        if red:
+            out.append(_Item(
+                "- 【作者铁律·写作宪法｜本次输出必须遵守，禁止违反或装忘】\n"
+                f"  {red.replace(chr(10), '；')}",
+                ContextSource(
+                    source_id="intent:author_constraints",
+                    source_kind="global",
+                    work=snapshot.work,
+                    reason="author_constraint_must_follow",
+                ),
+            ))
         promises = self.store.open_promises() or []
         if promises:
             txt = ";".join(

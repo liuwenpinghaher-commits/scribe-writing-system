@@ -416,7 +416,13 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
             if hasattr(st, "add_fact"):
                 from scribe3.ontology import Fact
                 import uuid as _uuid
-                fid = kw.get("id") or f"prop:{_uuid.uuid4().hex[:12]}"
+                # 兼容 s3_add_fact(oid=...) 与旧 id= / prop:
+                fid = (
+                    kw.get("oid") or kw.get("id")
+                    or f"fact:{_uuid.uuid4().hex[:12]}"
+                )
+                if not str(fid).startswith("fact:") and ":" not in str(fid):
+                    fid = f"fact:{fid}"
                 entity = kw.get("entity_id") or kw.get("entity") or "world:rule"
                 attr = kw.get("attribute") or kw.get("kind") or "world_rule"
                 f = Fact(
@@ -427,9 +433,25 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
                     valid_from=int(kw.get("valid_from") or 1),
                     secret=bool(kw.get("secret") or False),
                 )
-                row = st.add_fact(f)
+                # D4：默认 supersede 同键开区间，避免新旧真值并存
+                row = st.add_fact(f, supersede_open=True)
                 return {"status": "written", "fact_id": fid, "value": text}
             return {"status": "error", "error": "no add_fact"}
+
+        def _supersede_fact(**kw):
+            if not hasattr(st, "supersede_fact"):
+                return {"status": "error", "error": "no supersede_fact"}
+            entity = (kw.get("entity_id") or kw.get("entity") or "").strip()
+            attr = (kw.get("attribute") or "").strip()
+            value = kw.get("value") or kw.get("text") or ""
+            since = int(kw.get("since_chapter") or kw.get("valid_from") or 1)
+            if not entity or not attr or not value:
+                return {"status": "error", "error": "need entity_id, attribute, value"}
+            oid = st.supersede_fact(
+                entity, attr, str(value), since,
+                secret=bool(kw.get("secret") or False),
+            )
+            return {"status": "written", "fact_id": oid, "value": value, "since_chapter": since}
 
         def _add_world_rule(**kw):
             name = (kw.get("name") or "").strip()
@@ -543,6 +565,7 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
             "s3_add_volume": _add_volume,
             "s3_add_chapter": _add_chapter,
             "s3_add_fact": _add_fact,
+            "s3_supersede_fact": _supersede_fact,
             "s3_add_world_rule": _add_world_rule,
             "s3_add_faction": _add_faction,
             "s3_add_item": _add_item,
