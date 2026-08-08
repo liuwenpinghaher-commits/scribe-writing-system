@@ -7,6 +7,7 @@ import { api } from '../api'
 import {
   Users, BookOpen, ScrollText, LayoutDashboard, RefreshCw,
   Plus, Shield, UserX, KeyRound, LogOut, Archive, RotateCcw, Trash2,
+  ArrowLeft, PenLine,
 } from 'lucide-react'
 
 const TABS = [
@@ -46,7 +47,7 @@ const inputCls = 'w-full px-2.5 py-1.5 rounded-md border border-line bg-surface 
 const btnCls = 'px-2.5 py-1.5 rounded-md text-f12 border border-line hover:bg-soft cursor-pointer'
 const btnPrimary = 'px-2.5 py-1.5 rounded-md text-f12 bg-brand text-white hover:opacity-90 cursor-pointer'
 
-export function AdminConsole() {
+export function AdminConsole({ onExit, hasWork = false }) {
   const [tab, setTab] = useState('overview')
   const [summary, setSummary] = useState(null)
   const [error, setError] = useState(null)
@@ -264,15 +265,34 @@ export function AdminConsole() {
 
   return (
     <div className="h-full flex flex-col bg-canvas" data-testid="admin-console">
-      <div className="shrink-0 border-b border-line px-4 py-3 flex items-center gap-3">
-        <Shield size={18} className="text-brand" />
-        <div>
+      <div className="shrink-0 border-b border-line px-4 py-3 flex items-center gap-3 flex-wrap">
+        {typeof onExit === 'function' && (
+          <button
+            type="button"
+            data-testid="admin-exit"
+            onClick={onExit}
+            className={`${btnPrimary} inline-flex items-center gap-1.5 shrink-0`}
+            title={hasWork ? '返回当前作品写作区' : '返回作品库'}
+          >
+            <ArrowLeft size={15} />
+            {hasWork ? '返回写作' : '返回作品库'}
+          </button>
+        )}
+        <Shield size={18} className="text-brand shrink-0" />
+        <div className="min-w-0">
           <div className="text-f14 font-semibold">管理台</div>
           <div className="text-f12 text-faint">账号 · 书籍归属 · 操作审计（仅管理员）</div>
         </div>
-        <button type="button" className={`${btnCls} ml-auto inline-flex items-center gap-1`} onClick={refreshAll} disabled={busy}>
-          <RefreshCw size={14} className={busy ? 'animate-spin' : ''} /> 刷新
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          {typeof onExit === 'function' && hasWork && (
+            <button type="button" className={`${btnCls} inline-flex items-center gap-1`} onClick={onExit}>
+              <PenLine size={14} /> 写作区
+            </button>
+          )}
+          <button type="button" className={`${btnCls} inline-flex items-center gap-1`} onClick={refreshAll} disabled={busy}>
+            <RefreshCw size={14} className={busy ? 'animate-spin' : ''} /> 刷新
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-1 min-h-0">

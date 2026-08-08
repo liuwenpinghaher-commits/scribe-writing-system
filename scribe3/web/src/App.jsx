@@ -185,14 +185,38 @@ export default function App() {
     return <Login onSuccess={onLoginSuccess} />
   }
 
-  const open = (w) => { api.setWork(w.slug); writeActiveWorkSlug(w.slug); setCur(w); setSel({ mode: 'node', node: null }) }
-  const openLibrary = () => { writeActiveWorkSlug(''); setCur(null) }
+  const exitAdmin = useCallback(() => {
+    // 清掉 view=admin，回到作品库或当前书写作区
+    setSel({ mode: 'node', node: null })
+  }, [])
+
+  const open = (w) => {
+    api.setWork(w.slug)
+    writeActiveWorkSlug(w.slug)
+    setCur(w)
+    setSel({ mode: 'node', node: null })
+  }
+  const openLibrary = () => {
+    writeActiveWorkSlug('')
+    setCur(null)
+    // 从管理台点「作品」必须退出 admin，否则仍被 activeView===admin 占住整页
+    setSel({ mode: 'node', node: null })
+  }
   const activeView = sel.mode === 'view' ? sel.viewKey : null
 
   const isAdmin = !!(me?.is_admin)
+  const handleView = useCallback((viewKey) => {
+    // 盾牌：已在管理台再点一次 = 退出
+    if (viewKey === 'admin' && sel.mode === 'view' && sel.viewKey === 'admin') {
+      exitAdmin()
+      return
+    }
+    onView(viewKey)
+  }, [sel, onView, exitAdmin])
+
   let body
   if (activeView === 'admin' && isAdmin) {
-    body = <AdminConsole />
+    body = <AdminConsole onExit={exitAdmin} hasWork={!!cur} />
   } else if (!cur) {
     body = <Library works={works} reload={reload} onSelect={open} />
   } else {
@@ -214,7 +238,7 @@ export default function App() {
         <AppRail
           current={cur}
           view={activeView}
-          onView={onView}
+          onView={handleView}
           onOpenLibrary={openLibrary}
           theme={theme}
           onTheme={setTheme}

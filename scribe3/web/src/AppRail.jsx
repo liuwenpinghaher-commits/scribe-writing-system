@@ -70,7 +70,9 @@ export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, 
       <div className="ml-auto flex items-center gap-1" data-testid="topbar-theme">
         {isAdmin && (
           <button onClick={() => onView('admin')} aria-current={view === 'admin' ? 'page' : undefined}
-            title="管理台" aria-label="管理台" data-testid="topbar-admin"
+            title={view === 'admin' ? '退出管理台' : '管理台'}
+            aria-label={view === 'admin' ? '退出管理台' : '管理台'}
+            data-testid="topbar-admin"
             className={`h-7 w-7 rounded-md inline-flex items-center justify-center cursor-pointer ${
               view === 'admin' ? 'bg-soft text-brand' : 'text-faint hover:text-ink hover:bg-soft'}`}>
             <Shield size={15} />
