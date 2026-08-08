@@ -11,6 +11,7 @@
 #   ./scripts/deploy_demo.sh frontend     # 构建 web 并热更静态资源（不 wipe 旧 hash）
 #   ./scripts/deploy_demo.sh server-git   # 服务器 git pull origin/main 后热应用
 #   ./scripts/deploy_demo.sh full         # 整树上传 + compose rebuild（重，慎用）
+#   ./scripts/deploy_demo.sh prune        # 仅磁盘卫生：悬空镜像 + build cache + 部署残留
 #
 # 环境变量（均可选）：
 #   DEPLOY_HOST  默认 82.157.130.140
@@ -51,6 +52,42 @@ wait_health() {
   return 1
 }
 
+# 部署后磁盘卫生：清本轮 /tmp 包 + 可选悬空镜像/build cache（不删在用镜像）
+# 根因：compose --build / 多次 rebuild 留下 <none> 层；frontend npm ci 留 node_modules；scp 包不删。
+remote_disk_hygiene() {
+  local also_docker_prune="${1:-0}"
+  local also_node_modules="${2:-0}"
+  "${SSH[@]}" "$REMOTE" bash -s <<REMOTE
+set -euo pipefail
+APP_DIR='$APP_DIR'
+ALSO_DOCKER='$also_docker_prune'
+ALSO_NM='$also_node_modules'
+
+# 1) 本仓库部署/验证常用残留（白名单，不动 tat_agent 等）
+rm -f /tmp/web-src.tgz /tmp/scribe3-hot.tgz /tmp/scribe3-deploy.tgz \
+  /tmp/scribe3-nginx-default.conf /tmp/scribe3.prod.env.bak 2>/dev/null || true
+rm -rf /tmp/scribe3-web-verify /tmp/scribe3-session-vitest /tmp/scribe3-type-fix \
+  /tmp/scribe3-sync-parts /tmp/scribe3-import.* /tmp/scribe3-frontend-build.* 2>/dev/null || true
+
+# 2) frontend 构建残留：node_modules 仅构建需要，产物已在 dist / 容器内
+if [ "\$ALSO_NM" = "1" ] && [ -d "\$APP_DIR/scribe3/web/node_modules" ]; then
+  rm -rf "\$APP_DIR/scribe3/web/node_modules"
+  echo "removed \$APP_DIR/scribe3/web/node_modules"
+fi
+
+# 3) Docker 悬空镜像 + buildkit 缓存（不 prune -a，保留 tag 过的在用镜像）
+if [ "\$ALSO_DOCKER" = "1" ]; then
+  if docker info >/dev/null 2>&1; then
+    docker image prune -f || true
+    docker builder prune -f || true
+    echo "docker image/builder prune done"
+  fi
+fi
+
+df -h / | tail -1 || true
+REMOTE
+}
+
 mode_hot() {
   echo "==> [主路径] hot: 热更 scribe3 Python 包 → $REMOTE:$CONTAINER"
   TMP=$(mktemp -d)
@@ -76,6 +113,7 @@ sudo mkdir -p "\$APP_DIR"
 sudo tar -xzf /tmp/scribe3-hot.tgz -C "\$APP_DIR"
 docker cp "\$APP_DIR/scribe3" "\$CONTAINER:/app/"
 docker restart "\$CONTAINER"
+rm -f /tmp/scribe3-hot.tgz
 echo restarted
 REMOTE
   wait_health "$CONTAINER"
@@ -104,12 +142,13 @@ APP_DIR='$APP_DIR'
 FRONTEND='$FRONTEND'
 sudo tar -xzf /tmp/web-src.tgz -C "\$APP_DIR"
 # 构建（完整 devDeps，vite 在 devDependencies）
+# 构建后立刻删 node_modules，避免宿主机常驻 ~400MB+
 docker run --rm \
   -v "\$APP_DIR/scribe3/web:/app" \
   -w /app \
   -e NODE_OPTIONS=--max-old-space-size=1536 \
   node:20-alpine \
-  sh -c "npm ci && npm run build"
+  sh -c "npm ci && npm run build && rm -rf node_modules"
 # 叠加拷贝：不删除旧 assets（旧 index 缓存仍能拉到旧 chunk）
 docker cp "\$APP_DIR/scribe3/web/dist/." "\$FRONTEND:/usr/share/nginx/html/"
 # 更新 nginx：assets 404 + index no-cache
@@ -125,6 +164,10 @@ if [ -f /tmp/scribe3-nginx-default.conf ]; then
   docker exec "\$FRONTEND" nginx -t
   docker exec "\$FRONTEND" nginx -s reload || docker restart "\$FRONTEND"
 fi
+rm -f /tmp/web-src.tgz /tmp/scribe3-nginx-default.conf
+# frontend 路径用 docker run --rm，一般不堆镜像；仍清一次悬空 + builder 防 buildkit 涨
+docker image prune -f >/dev/null 2>&1 || true
+docker builder prune -f >/dev/null 2>&1 || true
 echo FRONTEND_DEPLOY_OK
 REMOTE
   echo "==> frontend deploy 完成。请浏览器强制刷新（Ctrl+Shift+R）"
@@ -194,8 +237,16 @@ chmod +x /opt/scribe3/app/deploy/prod/scripts/*.sh || true
 export SCRIBE3_REPO_DIR=/opt/scribe3/app
 export SKIP_GIT=1
 bash /opt/scribe3/app/deploy/prod/scripts/deploy.sh
+# deploy.sh 成功后会自行 image/builder prune；这里再清 tarball
+rm -f /tmp/scribe3-deploy.tgz /tmp/scribe3.prod.env.bak
 REMOTE
   echo "==> full deploy 完成"
+}
+
+mode_prune() {
+  echo "==> [卫生] demo 磁盘：悬空镜像 + build cache + 部署残留 + web/node_modules"
+  remote_disk_hygiene 1 1
+  echo "==> prune 完成"
 }
 
 case "$MODE" in
@@ -203,12 +254,13 @@ case "$MODE" in
   frontend|web) mode_frontend ;;
   server-git|pull) mode_server_git ;;
   full|rebuild) mode_full ;;
+  prune|disk|hygiene) mode_prune ;;
   -h|--help|help)
     sed -n '2,22p' "$0"
     exit 0
     ;;
   *)
-    echo "未知 MODE=$MODE（hot | frontend | server-git | full）" >&2
+    echo "未知 MODE=$MODE（hot | frontend | server-git | full | prune）" >&2
     exit 1
     ;;
 esac

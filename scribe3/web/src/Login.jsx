@@ -52,17 +52,15 @@ export function Login({ onSuccess }) {
     <div className="h-full grid place-items-center bg-canvas p-6">
       <form
         onSubmit={submit}
-        className="w-full max-w-sm rounded-[var(--radius-pane)] bg-surface [box-shadow:var(--shadow-panel)] p-6 space-y-4"
+        className="w-full max-w-sm rounded-[var(--radius-pane)] bg-surface [box-shadow:var(--shadow-panel)] px-8 py-9 space-y-5"
       >
-        <div>
-          <div className="flex items-center gap-2.5">
-            <BrandMark size={36} />
-            <div>
-              <h1 className="type-page text-ink leading-none">{PRODUCT_NAME_ZH}</h1>
-              <p className="type-meta text-faint mt-1">{PRODUCT_TAGLINE}</p>
-            </div>
+        <div className="flex flex-col items-center text-center gap-3">
+          <BrandMark size={120} glow />
+          <div>
+            <h1 className="type-page text-ink leading-none tracking-[0.12em]">{PRODUCT_NAME_ZH}</h1>
+            <p className="type-meta text-faint mt-1.5 tracking-wide">{PRODUCT_TAGLINE}</p>
           </div>
-          <p className="type-helper text-faint mt-3 leading-relaxed">
+          <p className="type-helper text-faint leading-relaxed max-w-[18rem]">
             登录 {PRODUCT_TITLE}。会话由服务器 Cookie 维护，不会在浏览器保存共享 API 密钥。
           </p>
         </div>
@@ -89,7 +87,7 @@ export function Login({ onSuccess }) {
           onChange={(e) => setPassword(e.target.value)}
           disabled={busy}
         />
-        {err ? <div className="type-helper text-danger" role="alert">{err}</div> : null}
+        {err ? <div className="type-helper text-danger text-center" role="alert">{err}</div> : null}
         <Btn type="submit" variant="primary" size="md" className="w-full" disabled={busy || !username.trim() || !password}>
           {busy ? '登录中…' : '登录'}
         </Btn>

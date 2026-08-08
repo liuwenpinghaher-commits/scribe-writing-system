@@ -17,7 +17,7 @@
 
 | 项 | 值 |
 |----|----|
-| **更新于** | 2026-08-08 |
+| **更新于** | 2026-08-08（磁盘卫生） |
 | **产品名（UI）** | 铜炉 / tonglu（仅品牌文案+logo，色板未改） |
 | **默认分支** | `main` |
 | **进行中目标** | **v6.3** 约 2 万字新书 · chat 驱动 · **记忆可用性主轴**（见 docs/e2e-director-journey-2w-memory.md） |
@@ -64,3 +64,10 @@
 - 启发式 extract 可能过召回 → 人批拒  
 - full_check AI 味 soft-pass ≠ 质量线自动绿  
 - `draft_loop` 超长压缩须带 `勿超过N` + `【强制重写】`  
+- **Demo 40G 盘**：`compose --build` 会堆悬空镜像；见 [`docs/ops/demo-disk-hygiene.md`](./ops/demo-disk-hygiene.md)。部署脚本已内置 prune / 清 `/tmp` / 构建后删 `node_modules`。应急：`./scripts/deploy_demo.sh prune`  
+
+### 运维（2026-08-08）
+
+- 已对 demo 做一轮安全清理（dangling image + builder + 已知 `/tmp` + web `node_modules`）  
+- 根因修复：`scripts/deploy_demo.sh`、`deploy/prod/scripts/deploy.sh`  
+ 

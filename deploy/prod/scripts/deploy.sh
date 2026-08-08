@@ -42,6 +42,15 @@ echo "==> $DOCKER compose up --build"
 $DOCKER compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull || true
 $DOCKER compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build --remove-orphans
 
+# compose --build 会把旧层变成 <none> 悬空镜像 + 堆 buildkit 缓存。
+# 不 prune -a（保留带 tag 的在用镜像）；只清悬空与 builder。
+prune_build_residue() {
+  echo "==> docker image/builder prune（防 demo 40G 盘被悬空层填满）"
+  $DOCKER image prune -f || true
+  $DOCKER builder prune -f || true
+  df -h / | tail -1 || true
+}
+
 echo "==> 等待健康"
 for i in $(seq 1 40); do
   if curl -fsS "http://127.0.0.1:${SCRIBE3_HTTP_PORT:-80}/healthz" >/dev/null 2>&1 \
@@ -50,6 +59,9 @@ for i in $(seq 1 40); do
     curl -fsS "http://127.0.0.1:${SCRIBE3_HTTP_PORT:-80}/api/health" || true
     echo
     $DOCKER compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
+    prune_build_residue
+    # 全量部署残留包
+    rm -f /tmp/scribe3-deploy.tgz /tmp/scribe3.prod.env.bak 2>/dev/null || true
     exit 0
   fi
   sleep 3
@@ -57,5 +69,7 @@ done
 
 echo "健康检查超时，最近日志:" >&2
 $DOCKER compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs --tail=80 backend surreal frontend >&2 || true
+# 失败也尽量回收本轮构建垃圾，避免半失败后盘被占死
+prune_build_residue
 exit 1
 

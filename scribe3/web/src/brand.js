@@ -15,5 +15,7 @@ export const PRODUCT_TITLE = `${PRODUCT_NAME_ZH} · ${PRODUCT_TAGLINE}`
 
 /** 公开静态资源路径（Vite public/） */
 export const BRAND_MARK_SVG = '/brand/tonglu-mark.svg'
+/** 浅色圆角底版（apple-touch 等需不透明场景） */
+export const BRAND_MARK_APP_SVG = '/brand/tonglu-mark-app.svg'
 export const BRAND_MARK_IMG = '/brand/tonglu-mark.jpg'
 export const BRAND_LOCKUP_IMG = '/brand/tonglu-lockup.jpg'
