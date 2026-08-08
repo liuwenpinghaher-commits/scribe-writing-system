@@ -156,10 +156,18 @@ def _persist_pack_items(st: Any, pack_dict: dict, *, seq: int | None, source: st
             conf_f = float(conf) if conf is not None else 1.0
         except Exception:
             conf_f = 1.0
-        ext = it.get("extractor") or "hybrid"
-        # 无字段的裸 add 且非【标记】→ 强制启发式降权（禁止 conf=1.0 灌满收件箱）
+        ev = (it.get("evidence") or "")
+        ext = (it.get("extractor") or "").strip().lower()
+        if not ext:
+            if ev.startswith("【"):
+                ext = "marker"
+            elif conf is not None and 0.5 <= conf_f < 0.99:
+                ext = "llm"  # 模型抽取常见置信带
+            else:
+                ext = "hybrid"
+        # 无字段的裸 add 且非标记/非 LLM → 启发式降权（禁 conf=1 灌满收件箱）
         bare_add = (not it.get("field")) and (it.get("op") or "add") in ("add", "plant")
-        if bare_add and not (it.get("evidence") or "").startswith("【"):
+        if bare_add and not ev.startswith("【") and ext not in ("llm", "llm_v1", "marker"):
             if conf_f >= 0.99 or ext in ("hybrid", ""):
                 conf_f = min(conf_f, 0.45)
                 ext = "heuristic"
@@ -225,6 +233,7 @@ def discussion_change_pack(
 ) -> dict[str, Any]:
     snap = canon_snapshot if canon_snapshot is not None else build_canon_snapshot_from_store(st)
     cidx = chapter_index if chapter_index is not None else chapter_index_from_store(st)
+    from scribe3.canon_extract import resolve_extract_mode
     if claims is not None:
         use_claims = list(claims)
     else:
@@ -232,6 +241,8 @@ def discussion_change_pack(
             text or "",
             known_character_names=_known_names(st),
             complete_fn=complete_fn,
+            mode=resolve_extract_mode(),
+            canon_snapshot=snap if isinstance(snap, dict) else None,
         )
     pack = pack_from_discussion_text(
         text or "",
@@ -265,6 +276,8 @@ def body_confirmed_report(
         prose = ch.get("prose") or ""
     snap = canon_snapshot if canon_snapshot is not None else build_canon_snapshot_from_store(st)
     cidx = chapter_index if chapter_index is not None else chapter_index_from_store(st)
+    from scribe3.canon_extract import resolve_extract_mode
+    extract_mode = resolve_extract_mode()
     if claims is not None:
         use_claims = list(claims)
     else:
@@ -272,6 +285,8 @@ def body_confirmed_report(
             prose or "",
             known_character_names=_known_names(st),
             complete_fn=complete_fn,
+            mode=extract_mode,
+            canon_snapshot=snap if isinstance(snap, dict) else None,
         )
     rep = build_post_finalize_report(
         seq=seq,
@@ -281,6 +296,20 @@ def body_confirmed_report(
         canon_snapshot=snap,
         chapter_index=cidx,
     )
+    # 标注抽取器，便于收件箱区分模型 vs 规则
+    pack = rep.get("change_pack")
+    if isinstance(pack, dict):
+        for it in pack.get("items") or []:
+            if not isinstance(it, dict):
+                continue
+            if (it.get("evidence") or "").startswith("【"):
+                it.setdefault("extractor", "marker")
+            elif extract_mode == "llm" and complete_fn:
+                it.setdefault("extractor", "llm")
+            elif extract_mode == "heuristic":
+                it.setdefault("extractor", "heuristic")
+            else:
+                it.setdefault("extractor", "hybrid")
     if persist and rep.get("change_pack"):
         _persist_pack_items(st, rep["change_pack"], seq=seq, source="prose_finalize")
     rep["debt"] = st.count_canon_debt() if st is not None and hasattr(st, "count_canon_debt") else {}
@@ -288,6 +317,8 @@ def body_confirmed_report(
         *(rep["sections"]["l1_requires_approval"].get("modules") or []),
         *(rep["sections"]["l2_objective"].get("modules") or []),
     })
+    rep["extract_mode"] = extract_mode
+    rep["extract_used_llm"] = bool(complete_fn) and extract_mode in ("llm", "hybrid")
     return rep
 
 

@@ -117,6 +117,10 @@ REGISTRY: tuple[Setting, ...] = (
             "高风险设定债挡 pilot 推进",
             "开=有 risk=high 的 pending 设定债时禁止 pilot/step（须先收件箱处理）；默认关",
             danger=True),
+    Setting("SCRIBE3_CANON_EXTRACT_MODE", "flags", "str", "llm", "hot",
+            "正文设定抽取模式",
+            "llm=标记+模型(默认,禁启发式); hybrid=标记+模型+规则; heuristic=标记+规则; marker=仅标记",
+            danger=False),
     # ── gateway(Hermes 网关;地址类 restart)──
     Setting("HERMES_API", "gateway", "str", "http://127.0.0.1:8642/v1", "restart", "速答网关(default)"),
     Setting("HERMES_RESPONSES_API", "gateway", "str", "http://127.0.0.1:8643/v1", "restart", "agentic 读网关"),

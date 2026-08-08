@@ -1,8 +1,16 @@
-"""全类型设定抽取：标记 + 启发式 + 可选 LLM，输出 CanonClaim 列表。"""
+"""全类型设定抽取：默认「标记 + 模型」；启发式仅 hybrid/heuristic 模式。
+
+模式（SCRIBE3_CANON_EXTRACT_MODE / mode 参数）:
+  llm        — 标记 + LLM（默认；无 complete_fn 时仅标记，不跑启发式）
+  hybrid     — 标记 + LLM + 启发式（旧行为，噪声多）
+  heuristic  — 标记 + 启发式（离线/无模型）
+  marker     — 仅【设定】标记
+"""
 from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from typing import Any, Callable
 
@@ -16,9 +24,19 @@ from scribe3.canon_loop import (
 _log = logging.getLogger("scribe3.canon_extract")
 
 # 扩展标记：【规则 L1|world_rule|债契三夜|cost|折声或折命|高】...
-# 复用 parse_marker_claims；补充启发式
-
 _NAME_RE = re.compile(r"[\u4e00-\u9fff]{2,4}")
+
+_VALID_MODES = frozenset({"llm", "hybrid", "heuristic", "marker"})
+
+
+def resolve_extract_mode(mode: str | None = None) -> str:
+    raw = (mode or os.environ.get("SCRIBE3_CANON_EXTRACT_MODE") or "llm").strip().lower()
+    if raw in ("model", "ai"):
+        raw = "llm"
+    if raw not in _VALID_MODES:
+        _log.warning("unknown extract mode %r, fallback llm", raw)
+        return "llm"
+    return raw
 
 
 def extract_claims_from_prose(
@@ -26,16 +44,18 @@ def extract_claims_from_prose(
     *,
     known_character_names: list[str] | None = None,
     complete_fn: Callable[[str], str] | None = None,
+    mode: str | None = None,
+    canon_snapshot: dict[str, Any] | None = None,
 ) -> list[CanonClaim]:
     """从正文抽全类型主张。
 
-    1) 确定性标记（权威）
-    2) 可选 LLM JSON（complete_fn）
-    3) 启发式：库外中文人名 → character/add
+    默认 mode=llm：1) 标记 2) LLM（有 complete_fn）。**不跑**规则启发式。
+    hybrid 才叠加启发式（兼容旧测与回滚）。
     """
     text = prose or ""
     claims: list[CanonClaim] = []
     seen: set[tuple] = set()
+    m = resolve_extract_mode(mode)
 
     def _add(c: CanonClaim) -> None:
         key = (c.module, c.target, c.field, str(c.after)[:40])
@@ -47,9 +67,19 @@ def extract_claims_from_prose(
     for c in parse_marker_claims(text):
         _add(c)
 
-    if complete_fn:
-        for c in _llm_extract(text, complete_fn):
+    if m in ("llm", "hybrid") and complete_fn:
+        for c in _llm_extract(
+            text, complete_fn,
+            known_character_names=known_character_names,
+            canon_snapshot=canon_snapshot,
+        ):
             _add(c)
+    elif m in ("llm", "hybrid") and not complete_fn:
+        _log.info("canon extract mode=%s but no complete_fn; markers only (+heur if hybrid)", m)
+
+    # 启发式：仅 hybrid / heuristic；默认 llm 关闭（根治推门/一会噪声）
+    if m not in ("hybrid", "heuristic"):
+        return claims
 
     known = set(known_character_names or [])
     # 启发式人名：仅「叫作/名为/名叫」，禁止裸「叫…」(「叫我来看」≠人名)
@@ -212,19 +242,41 @@ def _looks_like_faction_name(name: str, full: str, start: int) -> bool:
 
 
 
-def _llm_extract(prose: str, complete_fn: Callable[[str], str]) -> list[CanonClaim]:
+def _llm_extract(
+    prose: str,
+    complete_fn: Callable[[str], str],
+    *,
+    known_character_names: list[str] | None = None,
+    canon_snapshot: dict[str, Any] | None = None,
+) -> list[CanonClaim]:
+    known = list(known_character_names or [])
+    snap = canon_snapshot or {}
+    wr = list((snap.get("world_rules") or {}).keys())[:20]
+    bible = ""
+    if known:
+        bible += "已立角色（勿重复新建，可 patch 字段）: " + "、".join(known[:40]) + "\n"
+    if wr:
+        bible += "已立世界规则: " + "、".join(str(x) for x in wr) + "\n"
     prompt = (
-        "你是小说设定抽取器。只根据正文抽取相对「设定库」的增量，不要编造正文没有的内容。\n"
+        "你是长篇写作系统的设定增量抽取器。只根据【正文】相对【已有设定】抽「需要作者确认」的增量。\n"
+        "铁律:\n"
+        "1) 禁止编造正文没有的专名/规则；每条必须有 evidence 原文短引。\n"
+        "2) 已立角色/规则不要重复 add；仅当正文明确新信息时用 op=patch + fields。\n"
+        "3) 不要把门/推门/一会/口语残片当成势力；组织须像专名（如「高门代还」「灯火门」）。\n"
+        "4) 人名须是人物称呼，禁止「叫我来看」类动词短语。\n"
+        "5) 宁缺毋滥：不确定就省略。\n"
         "输出一行 JSON，键可含 entities/relations/world_rules/factions/items/terms/"
-        "promises/facts/knowledge（缺省用空数组）。\n"
-        "entities 元素: {module,op,name,fields,evidence,confidence} module 仅 "
-        "character|faction|item|term。\n"
-        "world_rules: {op,name,fields,evidence}\n"
+        "promises/facts/knowledge/motifs（缺省用空数组）。\n"
+        "entities: {module,op,name,fields,evidence,confidence} module 仅 character|faction|item|term；"
+        "confidence 0~1。\n"
+        "world_rules: {op,name,fields,evidence,confidence}\n"
         "relations: {a,b,relation,evidence}\n"
         "facts: {entity,attribute,value,evidence}\n"
         "knowledge: {knower,proposition,via,evidence}\n"
         "promises: {op,text,evidence}\n"
-        f"【正文】\n{prose[:6000]}\n"
+        "motifs: {op,name,theme,echoes,evidence} 仅当正文强烈呈现可复用意象且书中尚无时。\n"
+        f"【已有设定】\n{bible or '(空库)'}\n"
+        f"【正文】\n{prose[:8000]}\n"
     )
     try:
         reply = complete_fn(prompt) or ""
@@ -260,6 +312,7 @@ def _llm_extract(prose: str, complete_fn: Callable[[str], str]) -> list[CanonCla
                     evidence=str(it.get("evidence") or "")[:200],
                     risk="med",
                     requires_approval=item_requires_human_approval("L1", mod),
+                    confidence=float(it.get("confidence") or 0.75),
                 ))
         else:
             out.append(CanonClaim(
@@ -268,6 +321,7 @@ def _llm_extract(prose: str, complete_fn: Callable[[str], str]) -> list[CanonCla
                 after={"name": name} if mod == "character" else name,
                 evidence=str(it.get("evidence") or "")[:200],
                 risk="med",
+                confidence=float(it.get("confidence") or 0.75),
             ))
     for it in data.get("world_rules") or []:
         if not isinstance(it, dict) or not it.get("name"):
@@ -352,4 +406,20 @@ def _llm_extract(prose: str, complete_fn: Callable[[str], str]) -> list[CanonCla
                 after=it.get("text") or it.get("name"),
                 evidence=str(it.get("evidence") or "")[:200], risk="med",
             ))
+    for it in data.get("motifs") or []:
+        if not isinstance(it, dict) or not it.get("name"):
+            continue
+        name = str(it["name"]).strip()
+        out.append(CanonClaim(
+            layer="L1", op=it.get("op") or "add", module="motif",
+            target=name,
+            after={
+                "name": name,
+                "theme": it.get("theme") or "",
+                "echoes": it.get("echoes") or "",
+            },
+            evidence=str(it.get("evidence") or "")[:200],
+            risk="med",
+            confidence=float(it.get("confidence") or 0.7),
+        ))
     return out
