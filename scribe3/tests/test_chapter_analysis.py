@@ -115,6 +115,34 @@ def test_store_cache_and_events_backfill():
     assert kn and kn["events"] and kn.get("_events_backfilled")
 
 
+def test_discipline_cache_roundtrip():
+    from scribe3.chapter_analysis import (
+        clear_cached_analysis,
+        get_cached_analysis,
+        run_discipline_with_cache,
+    )
+
+    calls = {"n": 0}
+
+    def fake(prompt: str, system=None):
+        calls["n"] += 1
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    clear_cached_analysis("dw", 2, prose="纪律测正文")
+    r1 = run_discipline_with_cache(
+        work="dw", seq=2, prose="纪律测正文", complete_fn=fake, force=False,
+    )
+    assert r1.get("cache_hit") is False
+    assert calls["n"] == 1
+    r2 = run_discipline_with_cache(
+        work="dw", seq=2, prose="纪律测正文", complete_fn=fake, force=False,
+    )
+    assert r2.get("cache_hit") is True
+    assert calls["n"] == 1  # 未再调模型
+    c = get_cached_analysis("dw", 2, "纪律测正文")
+    assert c and c.get("discipline") is not None
+
+
 def test_prompt_contains_bible_and_wrapper():
     pr = build_unified_chapter_prompt(
         "雨中推门。",

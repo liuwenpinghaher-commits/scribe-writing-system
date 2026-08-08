@@ -67,17 +67,18 @@ def _cache_key(work: str, seq: int, prose: str) -> str:
 
 
 def _normalize_cache_payload(payload: dict[str, Any] | None) -> dict[str, Any] | None:
-    """统一缓存形态：knowledge + settings(+ 可选已物化 claims)。"""
+    """统一缓存形态：knowledge + settings + discipline(+ 可选 claims)。"""
     if not isinstance(payload, dict):
         return None
     settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
     claims = payload.get("claims")
-    # 若只有 claims 对象列表，尝试不强制；调用方应用 claims_from_settings_json
+    disc = payload.get("discipline") if isinstance(payload.get("discipline"), dict) else None
     out = {
         "knowledge": payload.get("knowledge"),
         "settings": settings,
         "format": payload.get("format"),
         "claims": claims if isinstance(claims, list) else [],
+        "discipline": disc,
     }
     return out
 
@@ -89,7 +90,7 @@ def get_cached_analysis(
     *,
     st: Any = None,
 ) -> dict[str, Any] | None:
-    """进程内 → 库内。返回含 knowledge/settings/claims(可能需从 settings 重建)。"""
+    """进程内 → 库内。返回含 knowledge/settings/discipline/claims。"""
     mem = _CACHE.get(_cache_key(work, seq, prose))
     if mem:
         return _normalize_cache_payload(mem)
@@ -100,10 +101,8 @@ def get_cached_analysis(
             _log.warning("get_post_analysis_cache: %s", e)
             body = None
         if body:
-            # 物化 claims
             settings = body.get("settings") if isinstance(body.get("settings"), dict) else {}
             claims = claims_from_settings_json(settings) if settings else []
-            # knowledge_edges 兼容
             if settings and "knowledge_edges" in settings and "knowledge" not in settings:
                 settings = dict(settings)
                 settings["knowledge"] = settings.get("knowledge_edges") or []
@@ -113,8 +112,8 @@ def get_cached_analysis(
                 "settings": settings,
                 "claims": claims,
                 "format": body.get("format") or "store",
+                "discipline": body.get("discipline") if isinstance(body.get("discipline"), dict) else None,
             }
-            # 回填进程缓存
             put_cached_analysis(work, seq, prose, payload, st=None)
             return payload
     return None
@@ -151,17 +150,21 @@ def put_cached_analysis(
     st: Any = None,
 ) -> None:
     """双写：进程内 + 可选 Surreal chapter 字段。"""
-    # 规范化：CanonClaim → 只靠 settings；knowledge 原样
+    # 合并已有缓存字段（避免只写 knowledge 时冲掉 discipline）
+    prev = _CACHE.get(_cache_key(work, seq, prose)) or {}
     settings = payload.get("settings")
     if not isinstance(settings, dict):
-        settings = {}
-    claims = payload.get("claims") or []
-    # 若 claims 是 CanonClaim 且 settings 空，不强行反序列化（调用方应传 settings）
+        settings = prev.get("settings") if isinstance(prev.get("settings"), dict) else {}
+    claims = payload.get("claims") if payload.get("claims") is not None else prev.get("claims") or []
+    disc = payload.get("discipline") if "discipline" in payload else prev.get("discipline")
+    kn = payload.get("knowledge") if "knowledge" in payload else prev.get("knowledge")
+    fmt = payload.get("format") or prev.get("format")
     norm = {
-        "knowledge": payload.get("knowledge"),
+        "knowledge": kn,
         "settings": settings,
-        "claims": claims,
-        "format": payload.get("format"),
+        "claims": claims if isinstance(claims, list) else [],
+        "format": fmt,
+        "discipline": disc if isinstance(disc, dict) else None,
     }
     if len(_CACHE) >= _CACHE_MAX:
         try:
@@ -175,9 +178,81 @@ def put_cached_analysis(
                 "knowledge": norm.get("knowledge"),
                 "settings": settings,
                 "format": norm.get("format"),
+                "discipline": norm.get("discipline"),
             })
         except Exception as e:
             _log.warning("set_post_analysis_cache: %s", e)
+
+
+def discipline_cache_enabled() -> bool:
+    raw = (os.environ.get("SCRIBE3_DISCIPLINE_CACHE") or "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def run_discipline_with_cache(
+    *,
+    work: str,
+    seq: int,
+    prose: str,
+    complete_fn: Callable[..., str],
+    brief: str = "",
+    known: dict | None = None,
+    st: Any = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """纪律判：优先章后缓存，未命中再调模型并写回缓存。
+
+    返回与 discipline_truncate 同构：text/violations/extra/changed/(cut_after)/(parse_failed)/cache_hit
+    """
+    from scribe3.critique import discipline_truncate
+
+    prose = prose or ""
+    if not force and discipline_cache_enabled():
+        cached = get_cached_analysis(work, seq, prose, st=st)
+        disc = (cached or {}).get("discipline") if cached else None
+        if isinstance(disc, dict) and ("violations" in disc or "ok" in disc or "changed" in disc):
+            # 还原 truncate 结果
+            out = {
+                "text": disc.get("text") if disc.get("changed") and disc.get("text") else prose,
+                "violations": list(disc.get("violations") or []),
+                "extra": list(disc.get("extra") or []),
+                "changed": bool(disc.get("changed")),
+                "cache_hit": True,
+                "source": "cache",
+            }
+            if disc.get("cut_after"):
+                out["cut_after"] = disc["cut_after"]
+            if disc.get("parse_failed"):
+                out["parse_failed"] = True
+            return out
+
+    # complete_fn 可能是 (prompt) 或 (prompt, system)
+    def _fn(prompt: str, system: str | None = None) -> str:
+        try:
+            return complete_fn(prompt, system)  # type: ignore[misc]
+        except TypeError:
+            return complete_fn(prompt)  # type: ignore[call-arg]
+
+    result = discipline_truncate(prose, brief or "", _fn, known=known)
+    # 写入缓存（不存过长 text，除非截断后）
+    disc_store: dict[str, Any] = {
+        "ok": not bool(result.get("violations")) and not result.get("changed"),
+        "violations": list(result.get("violations") or []),
+        "extra": list(result.get("extra") or []),
+        "changed": bool(result.get("changed")),
+        "cut_after": result.get("cut_after") or "",
+    }
+    if result.get("parse_failed"):
+        disc_store["parse_failed"] = True
+    if result.get("changed") and result.get("text") and result["text"] != prose:
+        # 仅存截断稿（通常更短）
+        disc_store["text"] = result["text"]
+    if discipline_cache_enabled():
+        put_cached_analysis(work, seq, prose, {"discipline": disc_store}, st=st)
+    result = dict(result)
+    result["cache_hit"] = False
+    result["source"] = "llm"
+    return result
 
 
 def build_unified_chapter_prompt(

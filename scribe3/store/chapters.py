@@ -1117,6 +1117,7 @@ class ChaptersMixin:
             v = settings.get(k)
             if isinstance(v, list):
                 set_n += len(v)
+        disc = body.get("discipline") if isinstance(body.get("discipline"), dict) else None
         return {
             "present": True,
             "seq": int(seq),
@@ -1132,5 +1133,7 @@ class ChaptersMixin:
             },
             "settings_count": set_n,
             "events_backfilled": bool((kn or {}).get("_events_backfilled")),
+            "has_discipline": bool(disc),
+            "discipline_violations": list((disc or {}).get("violations") or [])[:8],
         }
 

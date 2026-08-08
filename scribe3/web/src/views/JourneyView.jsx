@@ -254,6 +254,11 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
                     ? ` · 知 ${lane.post_analysis.knowledge.learned ?? 0}/事 ${lane.post_analysis.knowledge.events ?? 0}`
                     : ''}
                   {lane.post_analysis.events_backfilled ? ' · 事件已补枪' : ''}
+                  {lane.post_analysis.has_discipline
+                    ? (lane.post_analysis.discipline_violations?.length
+                      ? ` · 纪律违规 ${lane.post_analysis.discipline_violations.length}`
+                      : ' · 纪律已缓存')
+                    : ''}
                   <span className="text-faint/80"> · 改稿失效</span>
                 </p>
               ) : (

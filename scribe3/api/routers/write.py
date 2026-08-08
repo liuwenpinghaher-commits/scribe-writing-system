@@ -378,7 +378,20 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
             from scribe3.critique import DEFAULT_DISCIPLINE_BRIEF
             base_brief = req.brief or DEFAULT_DISCIPLINE_BRIEF
             brief_for_discipline = base_brief + "\n\n" + inherited_text
-        discipline = discipline_truncate(req.prose, brief_for_discipline, complete_fn)
+        # 章后缓存互通：同正文指纹可复用纪律结果（终选/重分析/上次体检）
+        try:
+            from scribe3.chapter_analysis import run_discipline_with_cache
+            discipline = run_discipline_with_cache(
+                work=work,
+                seq=seq,
+                prose=req.prose,
+                complete_fn=complete_fn,
+                brief=brief_for_discipline or "",
+                st=st,
+                force=False,
+            )
+        except Exception:
+            discipline = discipline_truncate(req.prose, brief_for_discipline, complete_fn)
         # 审计 E-2/#58:LLM 回复解析失败 → fail-open 放行但计 degraded(没查≠没病;
         # 不入 _PASS_CRITICAL_STAGES——纪律判是 S1 来源,不是 pass 门关键检测)。
         if discipline.get("parse_failed"):

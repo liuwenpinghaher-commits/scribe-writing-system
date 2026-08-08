@@ -411,6 +411,28 @@ def body_confirmed_report(
     except Exception as e:
         _log.warning("qc_quick: %s", e)
         rep["qc_quick"] = None
+    # 可选：终选时一并跑纪律并写入章后缓存，供 /post-check 复用（默认关，免拖慢终选）
+    import os
+    if (
+        persist
+        and complete_fn
+        and (os.environ.get("SCRIBE3_FINALIZE_RUN_DISCIPLINE") or "").strip().lower()
+        in ("1", "true", "yes", "on")
+    ):
+        try:
+            from scribe3.chapter_analysis import run_discipline_with_cache
+            disc = run_discipline_with_cache(
+                work=work, seq=seq, prose=prose or "",
+                complete_fn=complete_fn, st=st, force=False,
+            )
+            rep["discipline"] = {
+                "violations": disc.get("violations") or [],
+                "changed": disc.get("changed"),
+                "cache_hit": disc.get("cache_hit"),
+                "source": disc.get("source"),
+            }
+        except Exception as e:
+            _log.warning("finalize discipline cache: %s", e)
     return rep
 
 
