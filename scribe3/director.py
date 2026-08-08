@@ -147,6 +147,18 @@ def _char_count(st) -> int:
     return 0
 
 
+def _motif_gap(st) -> dict:
+    """圣经母题缺口（开书强制）。失败时视为未满足，避免静默跳过。"""
+    try:
+        from scribe3.bible_motifs import evaluate_motif_gap
+        return evaluate_motif_gap(st)
+    except Exception:
+        return {
+            "ok": False, "count": 0, "min_required": 3, "deficit": 3,
+            "craft_ok": False, "names": [],
+        }
+
+
 def _pick_seq(st, preferred: int | None) -> int | None:
     """优先 preferred；否则首个非 finalized；否则 max seq。"""
     chs = _chapters(st)
@@ -228,7 +240,9 @@ def _journey(st, has_open_chapter: bool) -> dict[str, Any]:
         (intent.get("reader_feeling") or intent.get("emotional_arc") or intent.get("red_lines") or "")
         and str(intent.get("reader_feeling") or intent.get("emotional_arc") or intent.get("red_lines") or "").strip()
     )
-    world_ok = _char_count(st) >= 1
+    # 世界底座：至少 1 角色 + 圣经级母题（先立档再写，禁止零母题开写）
+    motif_ok = bool(_motif_gap(st).get("ok"))
+    world_ok = _char_count(st) >= 1 and motif_ok
     struct_ok = len(_chapters(st)) >= 1
 
     # 线性启发式：第一个未完成站为 current
@@ -310,7 +324,9 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
     if picked is None:
         journey = _journey(st, has_open_chapter=False)
         debt0 = _debt_block()
-        # 无章：引导建章/立项
+        motif_gap = _motif_gap(st)
+        motif_proposal = None
+        # 无章：引导建章/立项/母题
         intent = _safe_intent(st)
         if not (intent.get("reader_feeling") or intent.get("red_lines")):
             next_step = {
@@ -323,6 +339,26 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
             prompt = "帮我确立本书北极星：读者感、情绪弧、红线。先给 3 个选项我选。"
             ui = {"entry": "manuscript", "phase": None, "node": None, "right_tab": "chief",
                   "layout_mode": "collaboration"}
+        elif not motif_gap.get("ok"):
+            from scribe3.bible_motifs import (
+                build_motif_seed_proposal,
+                next_step_for_motif_gap,
+            )
+            next_step = next_step_for_motif_gap(motif_gap)
+            prompt = next_step["how_chat"]
+            ui = {
+                "entry": "codex", "phase": None,
+                "node": {"type": "motif", "ref": "motif", "label": "母题"},
+                "right_tab": "chief", "layout_mode": "collaboration", "panel": "motif",
+            }
+            motif_proposal = build_motif_seed_proposal(st, work=work)
+            blockers.append({
+                "code": "bible_motifs",
+                "message": (
+                    f"母题不足：已有 {motif_gap.get('count', 0)} 条，"
+                    f"目标 ≥{motif_gap.get('min_required', 3)}。开书须先立母题。"
+                ),
+            })
         else:
             next_step = {
                 "id": "add_chapter",
@@ -344,7 +380,9 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
             "suggested_prompt": prompt,
             "ui_directive": ui,
             "canon_debt": debt0,
-            "note": "P0 合成；无章时引导立项/建章",
+            "bible_motif_gap": motif_gap,
+            "motif_seed_proposal": motif_proposal,
+            "note": "P0 合成；无章时引导立项/母题/建章",
         }
 
     pstat = pilot_status(st, picked)
@@ -417,6 +455,44 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
             ),
         })
 
+    # 开书/圣经母题强制：缺口时阻断「世界底座完成」并给出可批提案
+    motif_gap = _motif_gap(st)
+    motif_proposal = None
+    if not motif_gap.get("ok"):
+        blockers.append({
+            "code": "bible_motifs",
+            "message": (
+                f"母题不足：已有 {motif_gap.get('count', 0)} 条，"
+                f"圣经阶段目标 ≥{motif_gap.get('min_required', 3)}。"
+                "母题须开书先立档，不会从正文自动新建；请批准母题草案或让主编 s3_add_motif。"
+            ),
+        })
+        try:
+            from scribe3.bible_motifs import (
+                build_motif_seed_proposal,
+                next_step_for_motif_gap,
+            )
+            motif_proposal = build_motif_seed_proposal(st, work=work)
+            # 零母题或仍停在世界底座时，优先引导立母题
+            if int(motif_gap.get("count") or 0) == 0 or journey.get("current_station") == "world":
+                next_step = next_step_for_motif_gap(motif_gap)
+                ui_directive = {
+                    "entry": "codex",
+                    "phase": None,
+                    "node": {"type": "motif", "ref": "motif", "label": "母题"},
+                    "right_tab": "chief",
+                    "layout_mode": "collaboration",
+                    "panel": "motif",
+                }
+        except Exception:
+            motif_proposal = None
+
+    suggested = (
+        next_step.get("how_chat")
+        if next_step.get("id") == "seed_motifs"
+        else _suggested_prompt(picked, pstate, parked)
+    )
+
     return {
         "work": work,
         "journey": journey,
@@ -428,8 +504,10 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
         },
         "next_step": next_step,
         "blockers": blockers,
-        "suggested_prompt": _suggested_prompt(picked, pstate, parked),
+        "suggested_prompt": suggested,
         "ui_directive": ui_directive,
         "canon_debt": canon_debt,
+        "bible_motif_gap": motif_gap,
+        "motif_seed_proposal": motif_proposal,
         "note": "P0 合成自 pilot+章列表+intent；非文学评分",
     }

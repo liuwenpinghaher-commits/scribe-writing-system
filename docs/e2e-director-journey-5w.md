@@ -307,7 +307,8 @@ python3 scripts/v4_world_complete_gate.py --slug <slug> \
 # exit 0
 ```
 
-角色≥4 丰满字段、关系≥3、规则/事实/伏笔/3 卷 10 章等：**以 gate 脚本为准**。  
+角色≥4 丰满字段、关系≥3、规则/事实/伏笔/**母题≥3**、3 卷 10 章等：**以 gate 脚本为准**。  
+开书强制：`v5_bible_build` 须 `s3_add_motif`；`v4_world_complete_gate` 检查 `motifs.ge3`；旅程 `bible_motifs` 缺口可一键批母题草案。  
 **未绿禁止进入连载写正文站。** 理想由主编对话 + 待确认设定补齐，脚本仅审计。
 
 ---

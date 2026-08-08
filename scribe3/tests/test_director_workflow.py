@@ -16,6 +16,12 @@ class MiniStore:
         ]
         self._pilot = {}
         self.chars = [{"id": "role:沈砚", "name": "沈砚"}]
+        # 圣经母题门槛默认已满足，避免所有 pilot 测被 seed_motifs 劫持
+        self.motifs = [
+            {"id": "m1", "name": "灯与债"},
+            {"id": "m2", "name": "替与真名"},
+            {"id": "m3", "name": "应到之声"},
+        ]
 
     def get_intent(self):
         return dict(self.intent)
@@ -34,6 +40,9 @@ class MiniStore:
 
     def list_characters(self):
         return list(self.chars)
+
+    def list_motifs(self):
+        return list(self.motifs)
 
     def max_chapter(self):
         return max(int(c["seq"]) for c in self.chapters)
@@ -155,3 +164,20 @@ def test_snapshot_next_step_for_five_pilot_states():
         write_state(st, 1, s)
         snap = build_workflow_snapshot(st, work="demo", seq=1)
         assert snap["next_step"].get("title") or snap["next_step"].get("how_chat")
+
+
+def test_snapshot_zero_motifs_forces_seed_and_proposal():
+    """零母题：旅程卡在世界底座，给出可批母题草案。"""
+    st = MiniStore()
+    st.motifs = []
+    write_state(st, 1, "idle")
+    snap = build_workflow_snapshot(st, work="demo", seq=1)
+    assert snap["bible_motif_gap"]["ok"] is False
+    assert snap["bible_motif_gap"]["count"] == 0
+    assert any(b.get("code") == "bible_motifs" for b in snap["blockers"])
+    assert snap["next_step"]["id"] == "seed_motifs"
+    prop = snap.get("motif_seed_proposal")
+    assert prop and prop.get("ops")
+    assert all(op.get("tool") == "s3_add_motif" for op in prop["ops"])
+    assert len(prop["ops"]) >= 3
+    assert snap["journey"]["current_station"] == "world"

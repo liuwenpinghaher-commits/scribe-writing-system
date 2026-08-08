@@ -493,6 +493,29 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
             )
             return {"status": "written", "name": name}
 
+        def _add_motif(**kw):
+            name = (kw.get("name") or "").strip()
+            if not name or not hasattr(st, "add_motif"):
+                return {"status": "error", "error": "no name or add_motif"}
+            # 同名幂等：已存在则跳过新建，避免重复批准草案叠行
+            try:
+                for m in (st.list_motifs() or []):
+                    if (m.get("name") or "").strip() == name:
+                        return {"status": "noop", "name": name, "module": "motif", "reason": "exists"}
+            except Exception:
+                pass
+            st.add_motif(
+                name,
+                theme=kw.get("theme") or "",
+                echoes=kw.get("echoes") or "",
+                unfolding=kw.get("unfolding") or "",
+                echo_terms=kw.get("echo_terms"),
+                phase=kw.get("phase") or "seed",
+                tier=kw.get("tier") or "book",
+                scope=kw.get("scope"),
+            )
+            return {"status": "written", "name": name, "module": "motif"}
+
         def _add_char_rel(**kw):
             src = (kw.get("src_oid") or kw.get("src") or "").strip()
             dst = (kw.get("dst_oid") or kw.get("dst") or "").strip()
@@ -524,6 +547,7 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
             "s3_add_faction": _add_faction,
             "s3_add_item": _add_item,
             "s3_add_term": _add_term,
+            "s3_add_motif": _add_motif,
             "s3_add_character_relation": _add_char_rel,
         }
 

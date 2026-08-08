@@ -113,6 +113,13 @@ class CharacterArcMixin:
             if issues:
                 char_issues.append({"name": c.name, "issues": issues})
 
+        motifs = []
+        try:
+            if hasattr(self, "list_motifs"):
+                motifs = [m for m in (self.list_motifs() or []) if (m.get("name") or "").strip()]
+        except Exception:
+            motifs = []
+
         missing = []
         if not rules:
             missing.append("世界规则(魔法体系/物理法则/社会制度)")
@@ -122,6 +129,10 @@ class CharacterArcMixin:
             missing.append("地点/场景")
         if not any(f.secret for f in facts):
             missing.append("私密设定/伏线(角色隐藏底细)")
+        # 开书强制：母题先立档（与 bible_motifs / GATE-A 同源）
+        from scribe3.bible_motifs import MIN_BIBLE_MOTIFS
+        if len(motifs) < MIN_BIBLE_MOTIFS:
+            missing.append(f"母题(已有{len(motifs)}，目标≥{MIN_BIBLE_MOTIFS})")
 
         return {
             "total_chars": len(chars),
@@ -129,6 +140,7 @@ class CharacterArcMixin:
             "total_factions": len(factions),
             "total_places": len(places),
             "total_facts": len(facts),
+            "total_motifs": len(motifs),
             "char_issues": char_issues,
             "missing_dimensions": missing,
             "completeness_score": max(0, 100 - len(missing) * 20 - len(char_issues) * 5),

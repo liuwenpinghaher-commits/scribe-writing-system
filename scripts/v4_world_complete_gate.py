@@ -186,6 +186,18 @@ def run_gate(slug: str) -> dict:
     proms = proms if isinstance(proms, list) else []
     check("promises.ge3", len(proms) >= 3, f"n={len(proms)}", fails, passes)
 
+    # 开书强制母题：与 bible_motifs.MIN_BIBLE_MOTIFS / craft GATE-A 对齐
+    code, motifs = curl("GET", "/api/motifs", work=slug)
+    motifs = motifs if isinstance(motifs, list) else []
+    named_motifs = [m for m in motifs if isinstance(m, dict) and (m.get("name") or "").strip()]
+    check(
+        "motifs.ge3",
+        len(named_motifs) >= 3,
+        f"n={len(named_motifs)} names={[m.get('name') for m in named_motifs[:8]]}",
+        fails,
+        passes,
+    )
+
     code, vols = curl("GET", "/api/volumes", work=slug)
     vols = vols if isinstance(vols, list) else []
     check("volumes.ge3", len(vols) >= 3, f"n={len(vols)}", fails, passes)

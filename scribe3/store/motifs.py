@@ -5,6 +5,7 @@ from scribe3.store.core_preamble import *  # noqa: F403
 
 
 class MotifsMixin:
+    @staticmethod
     def _norm_motif_id(motif_id) -> str:
         """母题 id 归一:去空白、剥 motif: 前缀、字符串化(兼容 RecordID/混存形态)。"""
         s = str(motif_id or "").strip()

@@ -272,6 +272,24 @@ def main():
             "args": {"text": text, "setup_chapter": setup, "tier": tier, "kind": "promise"},
         }], f"promise {text[:12]}")
 
+    # 开书强制母题（≥3）：写作注入 / ingest 触及 / GATE-A 均依赖已立 motif
+    for name, theme, echoes, unfolding in (
+        ("灯与债", "点灯即记账，照亮也是索取", "暖黄灯/冷白灯/灯芯写名/合灯", "全书核心意象"),
+        ("替与真名", "顶死、转债、名被改写", "替字/纸钱/伪契/真名", "身份与债务被纸笔偷换"),
+        ("应到之声", "一声「到」即入债链", "应到/折声/夜审点名", "声响作为契约触发器"),
+        ("不渡与守暖", "师训不渡夜魂，人命前违训护暖", "不渡夜魂/暖黄灯/削替字", "规矩与良心摩擦"),
+        ("雨巷纸味", "湿冷青石与纸钱墨迹", "雨巷/湿纸钱/河灯市/旧渡口", "每章感官锚"),
+    ):
+        approve(w, [{
+            "tool": "s3_add_motif",
+            "args": {
+                "name": name,
+                "theme": theme,
+                "echoes": echoes,
+                "unfolding": unfolding,
+            },
+        }], f"motif {name}")
+
     for i, (title, intro) in enumerate([
         ("卷一·纸灯初燃", "立世界与问不得"),
         ("卷二·债与影", "规则落地与双影"),

@@ -61,7 +61,7 @@ export function DirectoryPane({ entry, onSelectItem, sel, seq, onJumpChapter, on
     return <MaterialList key={entry.id} node={entry.source || entry} onSelect={onSelectItem} />
   }
   if (capability === 'codex') {
-    return <CodexDirectory root={entry.source || entry} selected={sel?.node} onSelectItem={onSelectItem} />
+    return <CodexDirectory root={entry.source || entry} selected={sel?.node} sel={sel} onSelectItem={onSelectItem} />
   }
   if (capability === 'search') {
     return <SearchDirectory onSelectItem={onSelectItem} />

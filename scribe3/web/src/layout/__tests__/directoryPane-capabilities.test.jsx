@@ -33,6 +33,8 @@ vi.mock('../../api', () => ({
     acceptUnverified: vi.fn(() => Promise.resolve({ ok: true })),
     ignoreUnverified: vi.fn(() => Promise.resolve({ ok: true })),
     ignoreAllUnverified: vi.fn(() => Promise.resolve({ ignored: 1 })),
+    canonDebt: vi.fn(() => Promise.resolve({ total: 3, noise_count: 1 })),
+    listCanonCandidates: vi.fn(() => Promise.resolve({ items: [] })),
   },
 }))
 vi.mock('../../ui/Toast', () => ({
@@ -92,7 +94,7 @@ describe('DirectoryPane 能力二级目录', () => {
     }))
   })
 
-  it('设定库按 demo 风格保留分类、搜索、新建、待确认引用和原有设定叶子', async () => {
+  it('设定库根目录展示收件箱目录入口（不堆 pending 列表），分类/搜索/新建仍可用', async () => {
     const onSelectItem = vi.fn()
     const characterCat = {
       id: 'cat:character',
@@ -116,41 +118,59 @@ describe('DirectoryPane 能力二级目录', () => {
         children: [characterCat],
       },
     }
-    const { rerender } = render(<DirectoryPane entry={codexEntry} sel={{ node: null }} onSelectItem={onSelectItem} />)
+    const { rerender } = render(<DirectoryPane entry={codexEntry} sel={{ mode: 'node', node: null }} onSelectItem={onSelectItem} />)
 
     expect(screen.getByTestId('codex-directory')).toBeTruthy()
     expect(screen.getByTestId('codex-directory-title').textContent).toBe('设定库')
+    // 目录入口，非长列表
+    expect(await screen.findByTestId('codex-inbox-dir-row')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '设定收件箱' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '设定收件箱' }))
+    expect(onSelectItem).toHaveBeenCalledWith(expect.objectContaining({ type: 'view', id: 'view:canon-inbox' }))
+
     fireEvent.click(screen.getByRole('button', { name: '角色' }))
     expect(onSelectItem).toHaveBeenCalledWith(expect.objectContaining({ type: 'codex_category', ref: 'character' }))
 
-    rerender(<DirectoryPane entry={codexEntry} sel={{ node: characterCat }} onSelectItem={onSelectItem} />)
+    rerender(<DirectoryPane entry={codexEntry} sel={{ mode: 'node', node: characterCat }} onSelectItem={onSelectItem} />)
     expect(screen.getByTestId('codex-directory-title').textContent).toBe('角色')
     expect(screen.getByPlaceholderText('搜设定、别名、标签')).toBeTruthy()
+    // 分类内仍有收件箱入口，不再展示「待确认人物引用」长列表
+    expect(screen.getByRole('button', { name: '设定收件箱' })).toBeTruthy()
+    expect(screen.queryByText('待确认人物引用')).toBeNull()
+    expect(screen.queryByText('神秘人')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '新建设定' }))
     expect(onSelectItem).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'codex_new', ref: 'character' }))
-    expect(await screen.findByText('待确认人物引用')).toBeTruthy()
-    expect(screen.getByText('神秘人')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '小翠' }))
     expect(onSelectItem).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'character', ref: '小翠' }))
 
-    rerender(<DirectoryPane entry={codexEntry} sel={{ node: characterCat.children[0] }} onSelectItem={onSelectItem} />)
+    rerender(<DirectoryPane entry={codexEntry} sel={{ mode: 'node', node: characterCat.children[0] }} onSelectItem={onSelectItem} />)
     expect(screen.getByTestId('codex-directory-title').textContent).toBe('角色')
     expect(screen.getByRole('button', { name: '崔判' })).toBeTruthy()
     fireEvent.change(screen.getByPlaceholderText('搜设定、别名、标签'), { target: { value: '崔' } })
     expect(screen.queryByRole('button', { name: '小翠' })).toBeNull()
     expect(screen.getByRole('button', { name: '崔判' })).toBeTruthy()
 
-    rerender(<DirectoryPane entry={codexEntry} sel={{ node: { id: 'new:character', type: 'codex_new', ref: 'character', label: '角色' } }} onSelectItem={onSelectItem} />)
+    rerender(<DirectoryPane entry={codexEntry} sel={{ mode: 'node', node: { id: 'new:character', type: 'codex_new', ref: 'character', label: '角色' } }} onSelectItem={onSelectItem} />)
     expect(screen.getByTestId('codex-directory-title').textContent).toBe('角色')
-
-    fireEvent.click(screen.getByRole('button', { name: '接受为角色' }))
-    await waitFor(async () => {
-      const { api } = await import('../../api')
-      expect(api.acceptUnverified).toHaveBeenCalledWith('uv:1')
-    })
   })
 
-  it('接受待确认人物回放期间禁用该条操作，防止重复提交', async () => {
+  it('设定收件箱目录入口可打开工作台视图', async () => {
+    const onSelectItem = vi.fn()
+    const characterCat = {
+      id: 'cat:character', type: 'codex_category', ref: 'character', label: '角色', children: [],
+    }
+    const codexEntry = {
+      id: 'entry:codex', type: 'entry_capability', capability: 'codex', label: '设定库',
+      source: { id: 'codex_root', type: 'codex_root', label: '设定库', children: [characterCat] },
+    }
+    render(<DirectoryPane entry={codexEntry} sel={{ mode: 'node', node: null }} onSelectItem={onSelectItem} />)
+    fireEvent.click(await screen.findByRole('button', { name: '设定收件箱' }))
+    expect(onSelectItem).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'view', id: 'view:canon-inbox',
+    }))
+  })
+
+  it.skip('接受待确认人物回放期间禁用该条操作（已迁至设定收件箱工作台）', async () => {
     const { api } = await import('../../api')
     let finishAccept
     api.acceptUnverified.mockImplementationOnce(() => new Promise((resolve) => { finishAccept = resolve }))
@@ -174,7 +194,7 @@ describe('DirectoryPane 能力二级目录', () => {
     await waitFor(() => expect(screen.queryByText('神秘人')).toBeNull())
   })
 
-  it('接受后明确告知章节关联正在后台回填', async () => {
+  it.skip('接受后明确告知章节关联正在后台回填（已迁至设定收件箱工作台）', async () => {
     const { api } = await import('../../api')
     api.acceptUnverified.mockResolvedValueOnce({ ok: true, replay_queued: true })
     const characterCat = {

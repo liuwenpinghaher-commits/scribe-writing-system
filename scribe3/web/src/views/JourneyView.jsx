@@ -11,6 +11,8 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
   const [snap, setSnap] = useState(null)
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(true)
+  const [motifBusy, setMotifBusy] = useState(false)
+  const [motifMsg, setMotifMsg] = useState('')
 
   const load = useCallback(() => {
     setLoading(true)
@@ -31,6 +33,27 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
     try {
       window.dispatchEvent(new CustomEvent('s3-open-canon-inbox', { detail: { seq } }))
     } catch { /* */ }
+  }
+
+  const approveMotifSeeds = async () => {
+    const prop = snap?.motif_seed_proposal
+    if (!prop?.ops?.length) return
+    setMotifBusy(true)
+    setMotifMsg('')
+    try {
+      const res = await api.orchApplyProposal({
+        proposal: prop,
+        decision: 'approve',
+        execute: true,
+      })
+      const st = res?.proposal?.status
+      setMotifMsg(st === 'applied' || st === 'partial' ? '母题已写入设定库' : (res?.proposal?.note || '已提交'))
+      load()
+    } catch (e) {
+      setMotifMsg(e?.message || '批准失败')
+    } finally {
+      setMotifBusy(false)
+    }
   }
 
   if (loading && !snap) {
@@ -57,6 +80,8 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
   const next = snap?.next_step
   const blockers = snap?.blockers || []
   const debt = snap?.canon_debt || {}
+  const motifGap = snap?.bible_motif_gap || null
+  const motifProposal = snap?.motif_seed_proposal || null
 
   const handleContinue = () => {
     onContinue?.(snap)
@@ -85,6 +110,37 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
             <RefreshCw size={15} />
           </button>
         </header>
+
+        {/* 开书母题缺口 → 一键批准草案 */}
+        {motifGap && !motifGap.ok && (
+          <section
+            className="rounded-lg border border-warn/40 bg-warn/[.08] p-3 flex flex-wrap items-center gap-3"
+            data-testid="journey-bible-motifs"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="text-meta text-faint uppercase tracking-wider">圣经 · 母题</div>
+              <div className="text-f14 text-ink mt-0.5">
+                已有 <span className="font-semibold tnum">{motifGap.count ?? 0}</span>
+                ，目标 ≥ <span className="tnum">{motifGap.min_required ?? 3}</span>
+              </div>
+              <p className="text-meta text-faint mt-1">
+                母题须开书先立档：写作注入与正文触及只匹配已立母题，不会从正文自动新建。
+              </p>
+              {motifMsg && <p className="text-meta mt-1 text-ink">{motifMsg}</p>}
+            </div>
+            {motifProposal?.ops?.length > 0 && (
+              <Btn
+                size="sm"
+                variant="primary"
+                disabled={motifBusy}
+                onClick={approveMotifSeeds}
+                data-testid="journey-approve-motif-seeds"
+              >
+                {motifBusy ? '写入中…' : `批准 ${motifProposal.ops.length} 条母题草案`}
+              </Btn>
+            )}
+          </section>
+        )}
 
         {/* 设定债 → 收件箱 */}
         <section
