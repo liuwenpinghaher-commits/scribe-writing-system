@@ -445,6 +445,65 @@ def batch_decide(req: BatchDecideReq, work: str | None = None):
     }
 
 
+class PurgeNoiseReq(BaseModel):
+    work: str = "main"
+    """循环清除直到没有可识别噪声或达到 max_rounds。"""
+    max_rounds: int = Field(default=20, ge=1, le=100)
+    batch_size: int = Field(default=2000, ge=50, le=5000)
+
+
+@router.post("/canon/candidates/purge-noise")
+def purge_noise_ep(req: PurgeNoiseReq, work: str | None = None):
+    """全书 pending 噪声一键清除：按最新 is_noise_heuristic 多轮 reject。"""
+    from scribe3.canon_inbox import annotate_flags, is_noise_heuristic
+
+    w = _work_from(req.work, work)
+    st = _store(w)
+    if not hasattr(st, "list_canon_candidates") or not hasattr(st, "set_canon_candidate_status"):
+        raise HTTPException(503, "no candidate store")
+    total_ok = 0
+    rounds = 0
+    for _ in range(int(req.max_rounds)):
+        pending = st.list_canon_candidates(status="pending") or []
+        noise_ids = [
+            i["id"] for i in pending
+            if i.get("id") and is_noise_heuristic(annotate_flags(i))
+        ]
+        if not noise_ids:
+            break
+        rounds += 1
+        chunk = noise_ids[: int(req.batch_size)]
+        for uid in chunk:
+            try:
+                st.set_canon_candidate_status(uid, "rejected")
+                total_ok += 1
+            except Exception:
+                pass
+        if len(noise_ids) <= len(chunk):
+            # 本轮扫完
+            if len(noise_ids) < int(req.batch_size):
+                break
+    debt = {}
+    try:
+        if hasattr(st, "count_canon_debt"):
+            debt = st.count_canon_debt() or {}
+        pending2 = st.list_canon_candidates(status="pending") or []
+        from scribe3.canon_inbox import facets
+        fac = facets(pending2)
+        debt = {**debt, **{k: fac.get(k) for k in ("noise_count", "suggested_priority_count", "by_module")}}
+        debt["total"] = fac.get("total", debt.get("total"))
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "work": w,
+        "rejected": total_ok,
+        "rounds": rounds,
+        "debt": debt,
+        "remaining_noise": debt.get("noise_count"),
+    }
+
+
 @router.get("/canon/candidates/{uid}")
 def get_candidate_detail(uid: str, work: str = "main"):
     from scribe3.canon_inbox import enrich_candidate

@@ -222,11 +222,23 @@ export function CanonInboxView({ work, onJumpChapter, initialSeq, initialModule 
   }
 
   const ignoreNoise = async () => {
-    if (!window.confirm(`忽略全部疑似噪声（约 ${debt.noise_count ?? facets.noise_count ?? '?'} 条）？`)) return
+    const nHint = debt.noise_count ?? facets.noise_count ?? '?'
+    if (!window.confirm(`清除全书待确认中的疑似噪声（约 ${nHint} 条，可多轮）？`)) return
     setBatchBusy(true)
     try {
-      const res = await api.batchDecideCanonCandidates({ decision: 'reject', noise_only: true, reason: 'noise_heuristic' })
-      toast?.(`已忽略噪声 ${res?.ok_count ?? 0} 条`)
+      // 优先多轮 purge；旧后端回退单批 noise_only
+      let res
+      if (typeof api.purgeCanonNoise === 'function') {
+        res = await api.purgeCanonNoise({})
+        toast?.(`已清除噪声 ${res?.rejected ?? 0} 条` +
+          (res?.remaining_noise != null ? ` · 剩余噪 ${res.remaining_noise}` : '') +
+          (res?.debt?.total != null ? ` · 待批 ${res.debt.total}` : ''))
+      } else {
+        res = await api.batchDecideCanonCandidates({
+          decision: 'reject', noise_only: true, reason: 'noise_heuristic',
+        })
+        toast?.(`已忽略噪声 ${res?.ok_count ?? 0} 条`)
+      }
       reload()
     } catch (e) {
       toast?.(e?.body?.detail || '批量忽略失败', { tone: 'danger' })
@@ -342,8 +354,9 @@ export function CanonInboxView({ work, onJumpChapter, initialSeq, initialModule 
           {!isAudit && (
             <>
               <button type="button" disabled={batchBusy || !(debt.noise_count || facets.noise_count)} onClick={ignoreNoise}
-                className="h-7 px-2 rounded-md text-meta bg-soft hover:bg-line/40 disabled:opacity-40 cursor-pointer">
-                忽略噪声 ({debt.noise_count ?? facets.noise_count ?? 0})
+                className="h-7 px-2 rounded-md text-meta bg-soft hover:bg-line/40 disabled:opacity-40 cursor-pointer"
+                data-testid="canon-purge-noise">
+                清除全书噪声 ({debt.noise_count ?? facets.noise_count ?? 0})
               </button>
               <button type="button" disabled={batchBusy || !items.length} onClick={rejectVisible}
                 className="h-7 px-2 rounded-md text-meta text-faint hover:bg-soft disabled:opacity-40 cursor-pointer">

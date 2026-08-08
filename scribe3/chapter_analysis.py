@@ -28,6 +28,36 @@ def unified_analysis_enabled() -> bool:
     return raw not in ("0", "false", "no", "off")
 
 
+def quick_qc_summary(prose: str) -> dict[str, Any]:
+    """确定性 QC 摘要（无额外模型调用），挂在终选/重分析报告上。"""
+    text = prose or ""
+    if not text.strip():
+        return {"source": "deterministic", "empty": True, "grade": "light", "gates_hit": [], "counts": {}}
+    try:
+        from scribe3.critique import aggregate_ai_grade, quality_flags
+        flags = quality_flags(text)
+        grade = aggregate_ai_grade(flags, text)
+        counts: dict[str, int] = {}
+        for k, v in (flags or {}).items():
+            if k in ("rhythm", "adverb"):
+                if isinstance(v, dict) and v:
+                    counts[k] = 1
+                continue
+            if isinstance(v, list):
+                counts[k] = len(v)
+        return {
+            "source": "deterministic",
+            "empty": False,
+            "grade": grade.get("grade") or "light",
+            "gates_hit": list(grade.get("gates_hit") or []),
+            "counts": {k: n for k, n in counts.items() if n},
+            "word_count": len("".join(text.split())),
+        }
+    except Exception as e:
+        _log.warning("quick_qc_summary: %s", e)
+        return {"source": "deterministic", "error": str(e)[:120]}
+
+
 def _prose_fp(prose: str) -> str:
     return hashlib.sha256((prose or "").encode("utf-8")).hexdigest()[:16]
 

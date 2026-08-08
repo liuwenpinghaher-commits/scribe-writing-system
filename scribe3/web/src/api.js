@@ -486,6 +486,8 @@ export const api = {
     { decision, ...extra },
   ),
   batchDecideCanonCandidates: (body) => post('/canon/candidates/batch-decide', body || {}),
+  /** 全书 pending 噪声多轮清除 */
+  purgeCanonNoise: (body) => post('/canon/candidates/purge-noise', body || {}),
   canonExtractChapter: (seq, use_llm = true) => post('/canon/extract', { seq, use_llm }),
   /** 章后统一分析（force 清缓存重抽） */
   canonAnalyzeChapter: (seq, opts = {}) => post('/canon/analyze-chapter', {

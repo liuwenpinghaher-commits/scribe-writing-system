@@ -382,6 +382,13 @@ def body_confirmed_report(
     rep["unified_analysis"] = bool(analysis_meta.get("unified"))
     rep["unified_format"] = analysis_meta.get("format")
     rep["ingest"] = ingest_result
+    # 确定性 QC（与模型分析共享同一份 prose，零额外 LLM）
+    try:
+        from scribe3.chapter_analysis import quick_qc_summary
+        rep["qc_quick"] = quick_qc_summary(prose or "")
+    except Exception as e:
+        _log.warning("qc_quick: %s", e)
+        rep["qc_quick"] = None
     return rep
 
 

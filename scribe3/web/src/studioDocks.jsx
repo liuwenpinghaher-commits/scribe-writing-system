@@ -390,6 +390,7 @@ function PilotDock({ seq }) {
         const modHint = mods.length ? `（${mods.slice(0, 4).join('·')}）` : ''
         const uni = rep?.unified_analysis
         const ing = rep?.ingest
+        const qc = rep?.qc_quick
         const srcHint = uni
           ? (ing?.source === 'unified_finalize'
             ? ' · 一次模型：设定+知识'
@@ -398,10 +399,13 @@ function PilotDock({ seq }) {
         const knHint = (ing && typeof ing.applied === 'number' && ing.applied >= 0)
           ? ` · 知识回写 ${ing.applied} 条`
           : ''
+        const qcHint = (qc && qc.grade && !qc.empty)
+          ? ` · QC ${qc.grade}${(qc.gates_hit || []).length ? `(${qc.gates_hit.slice(0, 3).join('/')})` : ''}`
+          : ''
         toast(
           l1n > 0
-            ? `已终选 · ${l1n} 条设定待确认${modHint}${srcHint}${knHint}。点「设定收件箱」批/拒。`
-            : `${okMsg || '已终选定稿'}${srcHint}${knHint}`,
+            ? `已终选 · ${l1n} 条设定待确认${modHint}${srcHint}${knHint}${qcHint}。点「设定收件箱」批/拒。`
+            : `${okMsg || '已终选定稿'}${srcHint}${knHint}${qcHint}`,
           { tone: 'ok', duration: 9000 },
         )
         try {
