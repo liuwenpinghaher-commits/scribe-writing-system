@@ -18,7 +18,7 @@
 | 项 | 值 |
 |----|----|
 | **更新于** | 2026-08-08 |
-| **产品名** | **铜炉** / tonglu（见 docs/brand/README.md） |
+| **产品名（UI）** | 铜炉 / tonglu（仅品牌文案+logo，色板未改） |
 | **默认分支** | `main` |
 | **进行中目标** | **v6.2 书 `book_7b918ca0` 已 10 章定稿**；Phase E 结案（规模超限保留） |
 | **方案** | [`docs/e2e-director-journey-5w.md`](./e2e-director-journey-5w.md) **v6.2** |

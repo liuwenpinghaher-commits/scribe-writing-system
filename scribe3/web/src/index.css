@@ -47,16 +47,16 @@
   --shadow-card: 0 1px 2px rgba(28, 32, 36, 0.04), 0 4px 12px rgba(28, 32, 36, 0.04), 0 12px 28px rgba(28, 32, 36, 0.03);
   --shadow-pop: 0 4px 12px rgba(28, 32, 36, 0.08), 0 16px 40px rgba(28, 32, 36, 0.08);
   --shadow-panel: 0 0 0 1px rgba(28, 32, 36, 0.04), 0 1px 2px rgba(28, 32, 36, 0.03), 0 8px 24px rgba(28, 32, 36, 0.04);
-  /* 画布浅灰 · 面板纯白 · 铜炉品牌色（铜褐主色） */
-  --color-canvas: #f3efe9;
-  --color-surface: #fffcf8;
+  /* 画布浅灰 · 面板纯白(SaaS Upstream) · 保留黛绿品牌 */
+  --color-canvas: #eef0f2;
+  --color-surface: #ffffff;
   --color-raised: #ffffff;
-  --color-soft: #f4efe8;
-  --color-ink: #1a1614;
-  --color-muted: #5c534c;
-  --color-faint: #6a6159;
-  --color-line: #e6dfd6;
-  --color-brand: #b45c2e;
+  --color-soft: #f3f4f6;
+  --color-ink: #1a1f24;
+  --color-muted: #545d68;
+  --color-faint: #5a636e;
+  --color-line: #e2e5e9;
+  --color-brand: #2f6b5d;
   --color-brandfg: #ffffff;
   --color-ok: #2f6b4f;
   --color-warn: #825615;
@@ -71,15 +71,15 @@
 }
 
 :root {
-  --color-canvas: #f3efe9;
-  --color-surface: #fffcf8;
+  --color-canvas: #eef0f2;
+  --color-surface: #ffffff;
   --color-raised: #ffffff;
-  --color-soft: #f4efe8;
-  --color-ink: #1a1614;
-  --color-muted: #5c534c;
-  --color-faint: #6a6159;
-  --color-line: #e6dfd6;
-  --color-brand: #b45c2e;
+  --color-soft: #f3f4f6;
+  --color-ink: #1a1f24;
+  --color-muted: #545d68;
+  --color-faint: #5a636e;
+  --color-line: #e2e5e9;
+  --color-brand: #2f6b5d;
   --color-brandfg: #ffffff;
   --color-ok: #2f6b4f;
   --color-warn: #825615;
@@ -102,16 +102,16 @@
 }
 
 .dark {
-  --color-canvas: #12100e;
-  --color-surface: #1a1614;
-  --color-raised: #221c19;
-  --color-soft: #2a2320;
-  --color-ink: #f3ebe4;
-  --color-muted: #b0a59b;
-  --color-faint: #95897e;
-  --color-line: #3a322c;
-  --color-brand: #e0a06a;
-  --color-brandfg: #1a1614;
+  --color-canvas: #0f1214;
+  --color-surface: #171b1e;
+  --color-raised: #1e2428;
+  --color-soft: #22282d;
+  --color-ink: #eef1f3;
+  --color-muted: #a8b0b8;
+  --color-faint: #8a939c;
+  --color-line: #2c343a;
+  --color-brand: #74b29e;
+  --color-brandfg: #102019;
   --color-ok: #78c49b;
   --color-warn: #e8b768;
   --color-danger: #f08b8b;
@@ -227,7 +227,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--c
   line-height: var(--leading-prose);
   color: var(--color-ink);
   outline: none;
-  caret-color: var(--color-brand);  /* 光标铜炉品牌色 */
+  caret-color: var(--color-brand);  /* 光标黛绿 */
   max-width: 42rem;                 /* ~舒适 measure(约 38 个中文字/行)*/
   margin: 0 auto;
   width: 100%;
