@@ -118,6 +118,41 @@ def test_noise_door_and_while_and_fake_names():
     })
 
 
+def test_noise_weak_character_names_and_item_phrases():
+    """路人称谓 / ingest 弱名 / 指示代词物件 → 噪声（与入箱门槛对齐）。"""
+    from scribe3.canon_inbox import should_queue_character_name
+
+    assert should_queue_character_name("沈砚之")
+    assert should_queue_character_name("刘时喜")
+    assert not should_queue_character_name("老者")
+    assert not should_queue_character_name("卖灯草的婆子")
+    assert not should_queue_character_name("刘掌柜")
+    assert not should_queue_character_name("驼背老汉")
+
+    for name in ("老者", "师父", "女人", "老婆子", "刘掌柜", "韩管事",
+                 "卖灯草的婆子", "驼背老汉"):
+        assert is_noise_heuristic({
+            "module": "character", "target": f"role:{name}", "after": {"name": name},
+            "extractor": "ingest_resolve_char", "source": "ingest",
+            "confidence": 1.0, "op": "add",
+        }), name
+    # 真名放行
+    assert not is_noise_heuristic({
+        "module": "character", "target": "role:刘时喜", "after": {"name": "刘时喜"},
+        "extractor": "ingest_resolve_char", "confidence": 0.8, "op": "add",
+    })
+    # 指示/叙述物件
+    for name in ("那半张油膜债契", "最后一张纸"):
+        assert is_noise_heuristic({
+            "module": "item", "target": name, "after": {"name": name},
+            "extractor": "hybrid", "confidence": 1.0, "op": "add",
+        }), name
+    assert not is_noise_heuristic({
+        "module": "item", "target": "火镰", "after": {"name": "火镰"},
+        "extractor": "hybrid", "confidence": 0.8, "op": "add",
+    })
+
+
 def test_dedupe_key_and_codex_has():
     from scribe3.canon_inbox import codex_already_has, dedupe_key
 

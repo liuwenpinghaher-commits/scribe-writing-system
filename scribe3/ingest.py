@@ -82,31 +82,13 @@ def _build_dedicated_event_extract_prompt(prose: str) -> str:
     )
 
 
-# 路人/称谓：只记 unverified，不进设定收件箱 L1 债
-_WEAK_CHAR_NAMES = frozenset({
-    "老者", "老人", "女人", "男人", "少年", "少女", "师父", "师傅", "婆婆", "婆子",
-    "小子", "姑娘", "掌柜", "管事", "汉子", "妇人", "孩童", "路人", "众人", "旁人",
-})
-_WEAK_CHAR_SUFFIX = ("婆子", "老汉", "掌柜", "管事", "师父", "师傅", "大娘", "大爷")
-
-
 def _should_queue_character_candidate(name: str) -> bool:
-    """是否把未立角色推入设定收件箱（宁缺毋滥，挡路人噪声）。"""
-    import re
-    n = (name or "").strip()
-    if len(n) < 2 or len(n) > 6:
-        return False
-    if "的" in n:  # 卖灯草的婆子
-        return False
-    if n in _WEAK_CHAR_NAMES:
-        return False
-    if any(n.endswith(s) for s in _WEAK_CHAR_SUFFIX):
-        return False
-    if n[0] in "这那一二三四五六七八九十某":
-        return False
-    if not re.fullmatch(r"[\u4e00-\u9fff]{2,6}", n):
-        return False
-    return True
+    """是否把未立角色推入设定收件箱（宁缺毋滥，挡路人噪声）。
+
+    与 canon_inbox.should_queue_character_name / is_noise_heuristic 同源。
+    """
+    from scribe3.canon_inbox import should_queue_character_name
+    return should_queue_character_name(name)
 
 
 def _resolve_char(store, name: str, seq: int, role: str) -> str | None:

@@ -71,6 +71,37 @@ _DOORISH = re.compile(
 )
 _ORG_OK_SUFFIX = ("门", "帮", "教", "宗", "盟", "阁", "堂", "派", "府", "司", "卫", "营")
 
+# 路人/称谓：与 ingest._should_queue_character_candidate 同源（宁缺毋滥）
+_WEAK_CHAR_NAMES = frozenset({
+    "老者", "老人", "女人", "男人", "少年", "少女", "师父", "师傅", "婆婆", "婆子",
+    "小子", "姑娘", "掌柜", "管事", "汉子", "妇人", "孩童", "路人", "众人", "旁人",
+    "老婆子", "老头", "老汉", "大娘", "大爷",
+})
+_WEAK_CHAR_SUFFIX = (
+    "婆子", "老汉", "掌柜", "管事", "师父", "师傅", "大娘", "大爷", "老头",
+)
+
+
+def should_queue_character_name(name: str) -> bool:
+    """是否像可立传角色名（真名倾向）。路人/称谓返回 False。"""
+    n = (name or "").strip()
+    # 剥 role: 前缀
+    if n.startswith("role:"):
+        n = n[5:]
+    if len(n) < 2 or len(n) > 6:
+        return False
+    if "的" in n:  # 卖灯草的婆子
+        return False
+    if n in _WEAK_CHAR_NAMES:
+        return False
+    if any(n.endswith(s) for s in _WEAK_CHAR_SUFFIX):
+        return False
+    if n[0] in "这那一二三四五六七八九十某":
+        return False
+    if not re.fullmatch(r"[\u4e00-\u9fff]{2,6}", n):
+        return False
+    return True
+
 
 def display_name(item: dict) -> str:
     t = (item.get("target") or "").strip()
@@ -201,8 +232,10 @@ def is_noise_heuristic(item: dict) -> bool:
             return True
         return False
 
-    # —— 假人名（叫我来看这 / 叫写上灯芯）——
+    # —— 假人名 / 路人称谓（与 ingest 入箱门槛对齐）——
     if mod == "character" and bare_add:
+        if not should_queue_character_name(name):
+            return True
         if _NOISE_PERSON_RE.search(name):
             return True
         if name in ("什么", "怎么", "哪里", "谁人", "几个"):
@@ -215,21 +248,27 @@ def is_noise_heuristic(item: dict) -> bool:
             return True
         if name[0] in "了的在把被将从向":
             return True
-        if conf < 0.45 and ext in ("heuristic", "hybrid", ""):
+        if conf < 0.45 and ext in ("heuristic", "hybrid", "ingest_resolve_char", ""):
             return True
         # conf=1 的 hybrid 裸 add 人名：无字段则倾向噪声（真角色多有 patch 或 marker）
         if conf >= 0.99 and ext in ("hybrid", "heuristic", "") and not has_field:
             # 已知像真名的短 2–3 字放行（沈砚之），其余口语残片拒
             if len(name) >= 4 or name[0] in "我你他她这那人了":
                 return True
-
-    # —— 假物件：动词碎片 ——
-    if mod == "item" and bare_add:
-        if len(name) < 2 or name[0] in "去来到把被将在":
+        # ingest 路人若漏网：ingest_resolve_char 一律再过 should_queue
+        if ext == "ingest_resolve_char" and not should_queue_character_name(name):
             return True
-        if name in ("去道", "来道", "说道", "问道"):
+
+    # —— 假物件：动词碎片 / 指示代词描述 ——
+    if mod == "item" and bare_add:
+        if len(name) < 2 or name[0] in "去来到把被将在这那":
+            return True
+        if name in ("去道", "来道", "说道", "问道", "最后一张纸", "一张纸", "那张纸"):
             return True
         if name.endswith(("了", "着", "的", "过")) and len(name) <= 3:
+            return True
+        # 纯叙述碎片（半张…/最后…）
+        if re.match(r"^(最后|半张|那半|这一|那一)", name) and len(name) >= 4:
             return True
 
     # —— 通用：低置信启发式 ——
