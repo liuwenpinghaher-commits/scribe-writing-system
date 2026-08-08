@@ -20,15 +20,33 @@ class UnverifiedIngestMixin:
 
     def add_unverified_ref(self, name: str, seq: int, role: str) -> None:
         """登记 ingest 抽到的库外角色名→待确认(不建实体、不发边)。
-        审计 C-3:同名已被人裁决(ignored/accepted)则不再登记——决策跨 re-ingest 存活。"""
+
+        - 解析残片(is_garbage_character_name)直接丢弃，不灌 pending
+        - 同名已有 pending → 不重复建行（防 re-ingest 炸出 8 条沈砚之）
+        - 同名已被人裁决(ignored/accepted) → 决策跨 re-ingest 存活(C-3)
+        """
+        n = (name or "").strip()
+        if not n:
+            return
+        try:
+            from scribe3.canon_inbox import is_garbage_character_name
+            if is_garbage_character_name(n):
+                return
+        except Exception:
+            pass
         decided = self._query(
             "SELECT id FROM ingest_unverified WHERE name=$n AND status != 'pending' LIMIT 1",
-            {"n": name})
+            {"n": n})
         if decided:
+            return
+        pending = self._query(
+            "SELECT id FROM ingest_unverified WHERE name=$n AND status='pending' LIMIT 1",
+            {"n": n})
+        if pending:
             return
         self._execute_write(
             "CREATE ingest_unverified SET name=$n, seq=$s, role=$r, status='pending'",
-            {"n": name, "s": seq, "r": role})
+            {"n": n, "s": seq, "r": role})
 
     def set_unverified_status(self, uid: str, status: str) -> None:
         """裁决待确认条目(pending→ignored/accepted;accept 的建实体流程在 accept_unverified)。"""

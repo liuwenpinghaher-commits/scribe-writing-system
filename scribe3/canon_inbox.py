@@ -82,12 +82,16 @@ _WEAK_CHAR_SUFFIX = (
 )
 
 
-def should_queue_character_name(name: str) -> bool:
-    """是否像可立传角色名（真名倾向）。路人/称谓返回 False。"""
+def _bare_char_name(name: str) -> str:
     n = (name or "").strip()
-    # 剥 role: 前缀
     if n.startswith("role:"):
         n = n[5:]
+    return n.strip()
+
+
+def should_queue_character_name(name: str) -> bool:
+    """是否像可立传角色名（真名倾向）。路人/称谓返回 False。"""
+    n = _bare_char_name(name)
     if len(n) < 2 or len(n) > 6:
         return False
     if "的" in n:  # 卖灯草的婆子
@@ -101,6 +105,37 @@ def should_queue_character_name(name: str) -> bool:
     if not re.fullmatch(r"[\u4e00-\u9fff]{2,6}", n):
         return False
     return True
+
+
+def is_garbage_character_name(name: str) -> bool:
+    """解析残片/口语碎片：连 unverified 也不该进（与路人弱名不同）。
+
+    弱名（老者/掌柜）仍可进 unverified 供作者点一次忽略；
+    「沈砚之来」「人替了命」「我来看这」等属抽取噪声，直接丢弃。
+    """
+    n = _bare_char_name(name)
+    if len(n) < 2:
+        return True
+    if not re.fullmatch(r"[\u4e00-\u9fff]{2,12}", n):
+        return True
+    if _NOISE_PERSON_RE.search(n):
+        return True
+    if n in ("什么", "怎么", "哪里", "谁人", "几个", "了头遍", "到一半又"):
+        return True
+    # 动词/助词尾巴：沈砚之来 / 人写上灯
+    if n[-1] in "来去上下过了着的地得句么":
+        return True
+    if any(x in n for x in ("来看", "写上", "替了", "灯芯", "莫应", "几句", "一半")):
+        return True
+    if n[0] in "了的在把被将从向人你我他她":
+        # 「人替了命」「你莫应那」——真名极少以人称/虚词起头
+        # 例外：二字「女人」等弱称谓不算 garbage（归 weak）
+        if n not in _WEAK_CHAR_NAMES and not any(n.endswith(s) for s in _WEAK_CHAR_SUFFIX):
+            return True
+    # 中间带「的」的定语结构多半不是立传名
+    if "的" in n:
+        return True
+    return False
 
 
 def display_name(item: dict) -> str:

@@ -306,7 +306,7 @@ class ChaptersMixin:
             "archived,"
             "(IF archived_at IS NONE THEN NONE ELSE <string>archived_at END) AS archived_at,"
             "archive_reason,"
-            "ingest_status,ingest_error "   # 审计 P1-6:反哺结果对前端可见
+            "ingest_status,ingest_error,ingest_prose_fp "  # P0 指纹 + 审计 P1-6
             "FROM type::thing('chapter',$seq)", {"seq": seq})
         if not rows:
             return None

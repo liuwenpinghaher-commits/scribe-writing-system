@@ -120,7 +120,9 @@ def test_noise_door_and_while_and_fake_names():
 
 def test_noise_weak_character_names_and_item_phrases():
     """路人称谓 / ingest 弱名 / 指示代词物件 → 噪声（与入箱门槛对齐）。"""
-    from scribe3.canon_inbox import should_queue_character_name
+    from scribe3.canon_inbox import (
+        is_garbage_character_name, should_queue_character_name,
+    )
 
     assert should_queue_character_name("沈砚之")
     assert should_queue_character_name("刘时喜")
@@ -151,6 +153,14 @@ def test_noise_weak_character_names_and_item_phrases():
         "module": "item", "target": "火镰", "after": {"name": "火镰"},
         "extractor": "hybrid", "confidence": 0.8, "op": "add",
     })
+
+    # 解析残片：不进 unverified
+    for name in ("沈砚之来", "人替了命", "你莫应那", "我来看这", "写上灯芯",
+                 "人写上灯", "我莫应", "了头遍", "王阿禾的"):
+        assert is_garbage_character_name(name), name
+    # 弱名/真名不是 garbage
+    for name in ("老者", "师父", "老婆子", "刘掌柜", "沈砚之", "刘时喜", "张阿德"):
+        assert not is_garbage_character_name(name), name
 
 
 def test_dedupe_key_and_codex_has():

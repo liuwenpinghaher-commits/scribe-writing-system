@@ -232,18 +232,36 @@ def ignore_unverified_ep(uid: str, work: str = "main"):
     _store_for(work).ignore_unverified(uid)
     return {"ok": True}
 
-def ignore_all_unverified_ep(status: str = "pending", work: str = "main"):
+def ignore_all_unverified_ep(
+    status: str = "pending", work: str = "main", noise_only: bool = False,
+):
     """R2-12:批量忽略——unverified 死水(产生速率≫消化)一键清账,防账本失信号价值。
-    只清指定 status(默认 pending);accepted/ignored 的决策存活是设计。"""
+    只清指定 status(默认 pending);accepted/ignored 的决策存活是设计。
+    noise_only=true：只忽略解析残片/弱称谓（is_garbage + 非 should_queue），保留像真名的 pending。
+    """
     st = _store_for(work)
     n = 0
+    kept = 0
+    try:
+        from scribe3.canon_inbox import (
+            is_garbage_character_name, should_queue_character_name,
+        )
+    except Exception:
+        is_garbage_character_name = None  # type: ignore
+        should_queue_character_name = None  # type: ignore
     for r in st.list_unverified(status):
+        name = (r.get("name") or "").strip()
+        if noise_only and is_garbage_character_name and should_queue_character_name:
+            # 真名倾向保留；残片与路人弱名清掉
+            if should_queue_character_name(name) and not is_garbage_character_name(name):
+                kept += 1
+                continue
         try:
             st.ignore_unverified(r.get("id"))
             n += 1
         except Exception:
             pass
-    return {"ignored": n}
+    return {"ignored": n, "kept": kept, "noise_only": bool(noise_only)}
 
 def audit_blind_pack(work: str = "main", sample_n: int = 2, seed: int = 0,
                      per_volume: int | None = None):
