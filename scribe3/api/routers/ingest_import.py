@@ -263,6 +263,15 @@ def ignore_all_unverified_ep(
             pass
     return {"ignored": n, "kept": kept, "noise_only": bool(noise_only)}
 
+
+def dedupe_unverified_ep(work: str = "main"):
+    """pending 同名合并：只留一条，其余 ignored。"""
+    st = _store_for(work)
+    if not hasattr(st, "dedupe_unverified_pending"):
+        raise HTTPException(503, "no unverified store")
+    out = st.dedupe_unverified_pending()
+    return {**out, "work": work}
+
 def audit_blind_pack(work: str = "main", sample_n: int = 2, seed: int = 0,
                      per_volume: int | None = None):
     """盲评包导出(北极星任务13,秘密审计制度——防 Goodhart 的流程性防护):
@@ -515,6 +524,14 @@ def _bind_and_register() -> None:
     setattr(core, 'ignore_all_unverified_ep', _re)
     g['ignore_all_unverified_ep'] = _re
     router.add_api_route('/ingest-unverified/ignore-all', _re, methods=['POST'], name='ignore_all_unverified_ep')
+
+    _fn = g['dedupe_unverified_ep']
+    _re = types.FunctionType(_fn.__code__, core.__dict__, 'dedupe_unverified_ep', _fn.__defaults__, _fn.__closure__)
+    if _fn.__annotations__:
+        _re.__annotations__ = dict(_fn.__annotations__)
+    setattr(core, 'dedupe_unverified_ep', _re)
+    g['dedupe_unverified_ep'] = _re
+    router.add_api_route('/ingest-unverified/dedupe', _re, methods=['POST'], name='dedupe_unverified_ep')
 
     _fn = g['audit_blind_pack']
     _re = types.FunctionType(_fn.__code__, core.__dict__, 'audit_blind_pack', _fn.__defaults__, _fn.__closure__)

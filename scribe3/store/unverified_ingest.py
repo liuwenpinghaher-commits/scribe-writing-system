@@ -108,3 +108,32 @@ class UnverifiedIngestMixin:
         self._execute_write(
             "UPDATE type::thing('ingest_unverified', $u) SET status='ignored'", {"u": uid})
 
+    def dedupe_unverified_pending(self) -> dict:
+        """pending 同名只留一条（先见者保留），其余 ignored。"""
+        rows = self.list_unverified("pending") or []
+        seen: set[str] = set()
+        kept = 0
+        removed = 0
+        for r in rows:
+            name = (r.get("name") or "").strip()
+            uid = r.get("id")
+            if not uid:
+                continue
+            if not name:
+                try:
+                    self.ignore_unverified(uid)
+                    removed += 1
+                except Exception:
+                    pass
+                continue
+            if name in seen:
+                try:
+                    self.ignore_unverified(uid)
+                    removed += 1
+                except Exception:
+                    pass
+            else:
+                seen.add(name)
+                kept += 1
+        return {"ok": True, "kept": kept, "removed": removed}
+
