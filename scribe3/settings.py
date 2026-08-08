@@ -121,6 +121,10 @@ REGISTRY: tuple[Setting, ...] = (
             "正文设定抽取模式",
             "llm=标记+模型(默认,禁启发式); hybrid=标记+模型+规则; heuristic=标记+规则; marker=仅标记",
             danger=False),
+    Setting("SCRIBE3_UNIFIED_CHAPTER_ANALYSIS", "flags", "bool", True, "hot",
+            "章后统一模型分析",
+            "开=定稿/ingest 一次 LLM 同时出设定增量+知识账本(缓存复用); 关=分路旧逻辑",
+            danger=False),
     # ── gateway(Hermes 网关;地址类 restart)──
     Setting("HERMES_API", "gateway", "str", "http://127.0.0.1:8642/v1", "restart", "速答网关(default)"),
     Setting("HERMES_RESPONSES_API", "gateway", "str", "http://127.0.0.1:8643/v1", "restart", "agentic 读网关"),

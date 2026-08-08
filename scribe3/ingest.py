@@ -513,13 +513,18 @@ def apply_delta(store, delta: dict, seq: int,
     return n
 
 
-def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3) -> dict:
+def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3,
+                   work: str | None = None) -> dict:
     """读某章正文 → Hermes 抽知识 delta → 应用到 store。
+
+    默认优先「章后统一分析」(与设定收件箱同源一次 LLM)；缓存命中(定稿刚跑过)则零调用。
     抽取是非确定的:长 JSON 偶发截断/坏格式 → parse 返回 None。单次尝试会零星 parse_failed,
-    故重试至多 max_attempts 次(每次重新抽取);全失败才返回 parse_failed=True(不 purge,保留既有知识)。"""
+    故重试至多 max_attempts 次(每次重新抽取);全失败才返回 parse_failed=True(不 purge,保留既有知识)。
+    """
     ch = store.get_chapter(seq)
     if not ch or not ch.get("prose"):
         return {"applied": 0, "delta": {"learned": [], "did": [], "voice_shift": []}, "annotated": []}
+    prose = ch["prose"]
     motif_names = [m.get("name") for m in store.list_motifs() if m.get("name")]
     promise_items = [{"id": p["id"], "text": p["text"]} for p in store.open_promises()]
     # Task5: 收集有 lie 锚的角色 → prompt belief 段(只评这些角色的信念信奉度)
@@ -528,45 +533,76 @@ def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3) -> dict:
         a = store.char_anchors(c.id)
         if a.get("lie"):
             belief_chars.append({"name": c.name, "lie": a["lie"]})
-    prompt = build_knowledge_extract_prompt(ch["prose"], motif_names=motif_names,
-                                            promise_items=promise_items,
-                                            belief_chars=belief_chars)
-    # 方案B任务12:关系触碰段拼在基础 prompt 之后(不改 critique.py 的
-    # build_knowledge_extract_prompt——该文件有并行任务在改,禁碰)。
-    prompt = prompt + "\n\n" + _relation_touch_prompt_addendum()
+
     delta = None
-    for _ in range(max(1, max_attempts)):
-        reply = complete_fn(prompt)
-        delta = parse_knowledge_delta(reply)
-        if delta is not None:
-            # relation_touches 独立解析(parse_knowledge_delta 不认得这个新键,
-            # 同一份原始回复上并行取键,不改 critique.py)。
-            delta["relation_touches"] = parse_relation_touches(reply)
-            break
+    unified_source = None
+    # —— P1：统一章后分析（设定+知识一次调用 / 缓存）——
+    try:
+        from scribe3.chapter_analysis import extract_for_ingest, unified_analysis_enabled
+        if unified_analysis_enabled() and complete_fn:
+            u = extract_for_ingest(
+                store, seq, complete_fn,
+                work=work or "main",
+                max_attempts=max(1, max_attempts),
+                prose=prose,
+            )
+            if u.get("delta") is not None:
+                delta = u["delta"]
+                unified_source = u.get("source")
+                # 统一包里的 relation_touches 已在 knowledge 内
+                if "relation_touches" not in delta:
+                    delta["relation_touches"] = []
+    except Exception as e:
+        import logging
+        logging.getLogger("scribe3.ingest").warning(
+            "unified extract_for_ingest 失败,回退旧知识抽: %s", e)
+        delta = None
+
     if delta is None:
-        return {"applied": -1, "parse_failed": True, "delta": None, "annotated": []}
+        prompt = build_knowledge_extract_prompt(prose, motif_names=motif_names,
+                                                promise_items=promise_items,
+                                                belief_chars=belief_chars)
+        # 方案B任务12:关系触碰段拼在基础 prompt 之后(不改 critique.py 的
+        # build_knowledge_extract_prompt——该文件有并行任务在改,禁碰)。
+        prompt = prompt + "\n\n" + _relation_touch_prompt_addendum()
+        for _ in range(max(1, max_attempts)):
+            reply = complete_fn(prompt)
+            delta = parse_knowledge_delta(reply)
+            if delta is not None:
+                # relation_touches 独立解析(parse_knowledge_delta 不认得这个新键,
+                # 同一份原始回复上并行取键,不改 critique.py)。
+                delta["relation_touches"] = parse_relation_touches(reply)
+                unified_source = "legacy_knowledge"
+                break
+    if delta is None:
+        return {"applied": -1, "parse_failed": True, "delta": None, "annotated": [],
+                "extract_source": unified_source}
     # 混合抽取需同时承担知识、关系、弧光、伏笔等多种输出，真实模型会偶发给出
     # 合法 JSON 但漏掉 events。事件图不能因此空白：再走一次只读正文的专用抽取；
     # 仍为空则如实保留空图，由 C2 报 skip，绝不自行编造事件。
     if not _has_persistable_event(delta):
         for _ in range(max(1, max_attempts)):
             event_delta = parse_knowledge_delta(
-                complete_fn(_build_dedicated_event_extract_prompt(ch["prose"]))
+                complete_fn(_build_dedicated_event_extract_prompt(prose))
             )
             if event_delta is not None and _has_persistable_event(event_delta):
                 delta["events"] = event_delta["events"]
                 break
     # B22: apply_delta 前 grep 回原文核对实体事实(learned.fact/did.action),
     # 核不到就标注"原文未明确"——防 LLM 编造原文没有的实体值悄悄坐实进知识账本。
-    verify = grep_back_verify(delta, ch["prose"])
+    verify = grep_back_verify(delta, prose)
     delta = verify["delta"]
     if verify["annotated"]:
         import logging
         logging.getLogger("scribe3.ingest").warning(
             "grep_back_verify 章 %s 有 %d 处断言原文未明确核实到: %s",
             seq, len(verify["annotated"]), verify["annotated"])
-    return {"applied": apply_delta(store, delta, seq, open_promises=promise_items),
-            "delta": delta, "annotated": verify["annotated"]}
+    return {
+        "applied": apply_delta(store, delta, seq, open_promises=promise_items),
+        "delta": delta,
+        "annotated": verify["annotated"],
+        "extract_source": unified_source or "legacy_knowledge",
+    }
 
 
 # ===== 方案B任务24:story-import 逆向导入——弧光五锚逆向 prompt + 解析 =====

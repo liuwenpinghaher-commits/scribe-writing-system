@@ -242,54 +242,10 @@ def _looks_like_faction_name(name: str, full: str, start: int) -> bool:
 
 
 
-def _llm_extract(
-    prose: str,
-    complete_fn: Callable[[str], str],
-    *,
-    known_character_names: list[str] | None = None,
-    canon_snapshot: dict[str, Any] | None = None,
-) -> list[CanonClaim]:
-    known = list(known_character_names or [])
-    snap = canon_snapshot or {}
-    wr = list((snap.get("world_rules") or {}).keys())[:20]
-    bible = ""
-    if known:
-        bible += "已立角色（勿重复新建，可 patch 字段）: " + "、".join(known[:40]) + "\n"
-    if wr:
-        bible += "已立世界规则: " + "、".join(str(x) for x in wr) + "\n"
-    prompt = (
-        "你是长篇写作系统的设定增量抽取器。只根据【正文】相对【已有设定】抽「需要作者确认」的增量。\n"
-        "铁律:\n"
-        "1) 禁止编造正文没有的专名/规则；每条必须有 evidence 原文短引。\n"
-        "2) 已立角色/规则不要重复 add；仅当正文明确新信息时用 op=patch + fields。\n"
-        "3) 不要把门/推门/一会/口语残片当成势力；组织须像专名（如「高门代还」「灯火门」）。\n"
-        "4) 人名须是人物称呼，禁止「叫我来看」类动词短语。\n"
-        "5) 宁缺毋滥：不确定就省略。\n"
-        "输出一行 JSON，键可含 entities/relations/world_rules/factions/items/terms/"
-        "promises/facts/knowledge/motifs（缺省用空数组）。\n"
-        "entities: {module,op,name,fields,evidence,confidence} module 仅 character|faction|item|term；"
-        "confidence 0~1。\n"
-        "world_rules: {op,name,fields,evidence,confidence}\n"
-        "relations: {a,b,relation,evidence}\n"
-        "facts: {entity,attribute,value,evidence}\n"
-        "knowledge: {knower,proposition,via,evidence}\n"
-        "promises: {op,text,evidence}\n"
-        "motifs: {op,name,theme,echoes,evidence} 仅当正文强烈呈现可复用意象且书中尚无时。\n"
-        f"【已有设定】\n{bible or '(空库)'}\n"
-        f"【正文】\n{prose[:8000]}\n"
-    )
-    try:
-        reply = complete_fn(prompt) or ""
-    except Exception as e:
-        _log.warning("llm extract fail: %s", e)
-        return []
-    try:
-        m = re.search(r"\{.*\}", reply, re.S)
-        if not m:
-            return []
-        data = json.loads(m.group(0))
-    except Exception as e:
-        _log.warning("llm extract parse: %s", e)
+
+def claims_from_settings_json(data: dict[str, Any] | None) -> list[CanonClaim]:
+    """把模型 settings 块（或旧扁平设定 JSON）转为 CanonClaim 列表。"""
+    if not isinstance(data, dict):
         return []
     out: list[CanonClaim] = []
     for it in data.get("entities") or []:
@@ -423,3 +379,57 @@ def _llm_extract(
             confidence=float(it.get("confidence") or 0.7),
         ))
     return out
+
+def _llm_extract(
+    prose: str,
+    complete_fn: Callable[[str], str],
+    *,
+    known_character_names: list[str] | None = None,
+    canon_snapshot: dict[str, Any] | None = None,
+) -> list[CanonClaim]:
+    known = list(known_character_names or [])
+    snap = canon_snapshot or {}
+    wr = list((snap.get("world_rules") or {}).keys())[:20]
+    bible = ""
+    if known:
+        bible += "已立角色（勿重复新建，可 patch 字段）: " + "、".join(known[:40]) + "\n"
+    if wr:
+        bible += "已立世界规则: " + "、".join(str(x) for x in wr) + "\n"
+    prompt = (
+        "你是长篇写作系统的设定增量抽取器。只根据【正文】相对【已有设定】抽「需要作者确认」的增量。\n"
+        "铁律:\n"
+        "1) 禁止编造正文没有的专名/规则；每条必须有 evidence 原文短引。\n"
+        "2) 已立角色/规则不要重复 add；仅当正文明确新信息时用 op=patch + fields。\n"
+        "3) 不要把门/推门/一会/口语残片当成势力；组织须像专名（如「高门代还」「灯火门」）。\n"
+        "4) 人名须是人物称呼，禁止「叫我来看」类动词短语。\n"
+        "5) 宁缺毋滥：不确定就省略。\n"
+        "输出一行 JSON，键可含 entities/relations/world_rules/factions/items/terms/"
+        "promises/facts/knowledge/motifs（缺省用空数组）。\n"
+        "entities: {module,op,name,fields,evidence,confidence} module 仅 character|faction|item|term；"
+        "confidence 0~1。\n"
+        "world_rules: {op,name,fields,evidence,confidence}\n"
+        "relations: {a,b,relation,evidence}\n"
+        "facts: {entity,attribute,value,evidence}\n"
+        "knowledge: {knower,proposition,via,evidence}\n"
+        "promises: {op,text,evidence}\n"
+        "motifs: {op,name,theme,echoes,evidence} 仅当正文强烈呈现可复用意象且书中尚无时。\n"
+        f"【已有设定】\n{bible or '(空库)'}\n"
+        f"【正文】\n{prose[:8000]}\n"
+    )
+    try:
+        reply = complete_fn(prompt) or ""
+    except Exception as e:
+        _log.warning("llm extract fail: %s", e)
+        return []
+    try:
+        m = re.search(r"\{.*\}", reply, re.S)
+        if not m:
+            return []
+        data = json.loads(m.group(0))
+    except Exception as e:
+        _log.warning("llm extract parse: %s", e)
+        return []
+    # 兼容统一章后包 {settings:{...}} 与旧扁平设定 JSON
+    if isinstance(data.get("settings"), dict):
+        data = data["settings"]
+    return claims_from_settings_json(data)

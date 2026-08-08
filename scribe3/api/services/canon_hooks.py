@@ -277,9 +277,35 @@ def body_confirmed_report(
     snap = canon_snapshot if canon_snapshot is not None else build_canon_snapshot_from_store(st)
     cidx = chapter_index if chapter_index is not None else chapter_index_from_store(st)
     from scribe3.canon_extract import resolve_extract_mode
+    from scribe3.chapter_analysis import claims_for_prose_unified, unified_analysis_enabled
     extract_mode = resolve_extract_mode()
+    analysis_meta: dict[str, Any] = {}
     if claims is not None:
         use_claims = list(claims)
+    elif complete_fn and extract_mode in ("llm", "hybrid") and unified_analysis_enabled():
+        use_claims, analysis_meta = claims_for_prose_unified(
+            prose or "",
+            complete_fn,
+            st=st,
+            work=work,
+            seq=seq,
+            mode=extract_mode,
+        )
+        # hybrid：再叠启发式
+        if extract_mode == "hybrid":
+            extra = extract_claims_from_prose(
+                prose or "",
+                known_character_names=_known_names(st),
+                complete_fn=None,
+                mode="heuristic",
+                canon_snapshot=snap if isinstance(snap, dict) else None,
+            )
+            seen = {(c.module, c.target, c.field, str(c.after)[:40]) for c in use_claims}
+            for c in extra:
+                key = (c.module, c.target, c.field, str(c.after)[:40])
+                if key not in seen:
+                    use_claims.append(c)
+                    seen.add(key)
     else:
         use_claims = extract_claims_from_prose(
             prose or "",
@@ -304,6 +330,8 @@ def body_confirmed_report(
                 continue
             if (it.get("evidence") or "").startswith("【"):
                 it.setdefault("extractor", "marker")
+            elif analysis_meta.get("unified") and complete_fn:
+                it.setdefault("extractor", "llm")
             elif extract_mode == "llm" and complete_fn:
                 it.setdefault("extractor", "llm")
             elif extract_mode == "heuristic":
@@ -312,6 +340,38 @@ def body_confirmed_report(
                 it.setdefault("extractor", "hybrid")
     if persist and rep.get("change_pack"):
         _persist_pack_items(st, rep["change_pack"], seq=seq, source="prose_finalize")
+
+    # 同一模型结果驱动 L2 知识回写（与 ingest 同源；幂等 purge）
+    ingest_result = None
+    kn = analysis_meta.get("knowledge")
+    if (
+        persist
+        and st is not None
+        and kn is not None
+        and complete_fn
+        and extract_mode in ("llm", "hybrid")
+    ):
+        try:
+            from scribe3.ingest import apply_delta, grep_back_verify
+            open_p = None
+            try:
+                if hasattr(st, "open_promises"):
+                    open_p = st.open_promises()
+            except Exception:
+                open_p = None
+            verify = grep_back_verify(kn, prose or "")
+            kn2 = verify.get("delta") or kn
+            applied = apply_delta(st, kn2, seq, open_promises=open_p)
+            ingest_result = {
+                "applied": applied,
+                "source": "unified_finalize",
+                "format": analysis_meta.get("format"),
+                "annotated": verify.get("annotated") or [],
+            }
+        except Exception as e:
+            _log.warning("unified finalize apply_delta seq=%s: %s", seq, e)
+            ingest_result = {"applied": -1, "error": str(e)[:200], "source": "unified_finalize"}
+
     rep["debt"] = st.count_canon_debt() if st is not None and hasattr(st, "count_canon_debt") else {}
     rep["modules_all"] = sorted({
         *(rep["sections"]["l1_requires_approval"].get("modules") or []),
@@ -319,6 +379,9 @@ def body_confirmed_report(
     })
     rep["extract_mode"] = extract_mode
     rep["extract_used_llm"] = bool(complete_fn) and extract_mode in ("llm", "hybrid")
+    rep["unified_analysis"] = bool(analysis_meta.get("unified"))
+    rep["unified_format"] = analysis_meta.get("format")
+    rep["ingest"] = ingest_result
     return rep
 
 
