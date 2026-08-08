@@ -22,6 +22,13 @@ def effective_owner(work_row: dict[str, Any] | None) -> str | None:
 def user_owns_work(username: str | None, work_row: dict[str, Any] | None) -> bool:
     if not username or not work_row:
         return False
+    # 管理员可访问任意作品（管理台 + 业务路径）
+    try:
+        from scribe3.auth.users import is_admin
+        if is_admin(username):
+            return True
+    except Exception:
+        pass
     owner = effective_owner(work_row)
     return owner == str(username).strip()
 
@@ -32,6 +39,12 @@ def filter_works_for_user(
     if username is None:
         return list(rows)
     uid = str(username).strip()
+    try:
+        from scribe3.auth.users import is_admin
+        if is_admin(uid):
+            return list(rows)
+    except Exception:
+        pass
     out = []
     for r in rows:
         if effective_owner(r) == uid:

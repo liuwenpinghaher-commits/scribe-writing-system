@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from scribe3.auth.middleware import auth_enabled, resolve_username
 from scribe3.auth.session import COOKIE_NAME, issue_session_token
-from scribe3.auth.users import authenticate, ensure_bootstrap_users
+from scribe3.auth.users import authenticate, ensure_bootstrap_users, get_user, is_admin
 
 router = APIRouter(tags=["auth"])
 
@@ -60,9 +60,17 @@ def login(body: LoginIn, response: Response):
                 status_code=503,
                 content={"detail": "SCRIBE3_SESSION_SECRET not configured"},
             )
-    token = issue_session_token(body.username.strip())
+    uname = body.username.strip()
+    token = issue_session_token(uname)
     _set_session_cookie(response, token)
-    return {"ok": True, "username": body.username.strip()}
+    u = get_user(uname) or {}
+    return {
+        "ok": True,
+        "username": uname,
+        "role": u.get("role") or "author",
+        "is_admin": is_admin(uname),
+        "display_name": u.get("display_name") or "",
+    }
 
 
 @router.post("/auth/logout")
@@ -84,4 +92,11 @@ def me(request: Request):
             status_code=401,
             content={"detail": "authentication required"},
         )
-    return {"username": username}
+    u = get_user(username) or {}
+    return {
+        "username": username,
+        "role": u.get("role") or "author",
+        "is_admin": is_admin(username),
+        "display_name": u.get("display_name") or "",
+        "status": u.get("status") or "active",
+    }

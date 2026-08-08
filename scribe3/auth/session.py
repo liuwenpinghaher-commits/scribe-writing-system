@@ -18,6 +18,7 @@ DEFAULT_TTL_HOURS = 168  # 7 days
 class SessionData:
     username: str
     exp: int
+    session_version: int = 0
 
 
 def _secret() -> bytes:
@@ -35,12 +36,25 @@ def _ttl_seconds() -> int:
     return max(300, int(hours * 3600))
 
 
-def issue_session_token(username: str, *, now: float | None = None, secret: bytes | None = None) -> str:
+def issue_session_token(
+    username: str,
+    *,
+    now: float | None = None,
+    secret: bytes | None = None,
+    session_version: int | None = None,
+) -> str:
     if not username or not str(username).strip():
         raise ValueError("username required")
     ts = int(now if now is not None else time.time())
     exp = ts + _ttl_seconds()
-    payload = {"u": str(username).strip(), "exp": exp}
+    sv = session_version
+    if sv is None:
+        try:
+            from scribe3.auth.users import get_session_version
+            sv = get_session_version(str(username).strip())
+        except Exception:
+            sv = 0
+    payload = {"u": str(username).strip(), "exp": exp, "sv": int(sv or 0)}
     body = base64.urlsafe_b64encode(
         json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     ).decode("ascii").rstrip("=")
@@ -54,6 +68,7 @@ def parse_session_token(
     *,
     now: float | None = None,
     secret: bytes | None = None,
+    check_session_version: bool = True,
 ) -> SessionData | None:
     if not token or "." not in token:
         return None
@@ -80,4 +95,18 @@ def parse_session_token(
     ts = int(now if now is not None else time.time())
     if exp < ts:
         return None
-    return SessionData(username=username, exp=exp)
+    try:
+        sv = int(payload.get("sv") or 0)
+    except (TypeError, ValueError):
+        sv = 0
+    if check_session_version:
+        try:
+            from scribe3.auth.users import get_session_version, get_user
+            u = get_user(username)
+            if not u or u.get("status") == "disabled":
+                return None
+            if int(u.get("session_version") or 0) != sv:
+                return None
+        except Exception:
+            pass
+    return SessionData(username=username, exp=exp, session_version=sv)

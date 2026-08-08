@@ -1,4 +1,4 @@
-import { Sun, Moon, BookOpen, ChevronDown, Network, Activity, Clock, Search, Settings, Compass } from 'lucide-react'
+import { Sun, Moon, BookOpen, ChevronDown, Network, Activity, Clock, Search, Settings, Compass, Shield } from 'lucide-react'
 import { PC_LAYOUT } from './layout/tokens'
 
 // F-06:write/codex 不再是顶栏 tab(已变成左侧项目树两支)。
@@ -25,7 +25,7 @@ function triggerSearch(onSearch) {
 // 高度取自布局 token(单一真源),不硬编码,与四栏 rail/directory 等尺寸同源。
 // view:当前选中的横切 viewKey(null/无 = 在项目树/写作态,不高亮任何 tab)。
 // status:系统状态区可注入的实时指示(连接/后台任务…),缺省中性,不谎报「在线」。
-export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, showViews = true, onSearch, status = null, capsule = null }) {
+export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, showViews = true, onSearch, status = null, capsule = null, isAdmin = false }) {
   return (
     <header data-testid="app-rail" style={{ height: PC_LAYOUT.topbar }}
       className="shrink-0 flex items-center border-b border-line/70 bg-surface px-4 gap-3">
@@ -68,6 +68,14 @@ export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, 
 
       {/* 主题:保留为右簇锚点(ml-auto)。设置中心入口(Task 12)紧贴主题按钮前,同属右簇。 */}
       <div className="ml-auto flex items-center gap-1" data-testid="topbar-theme">
+        {isAdmin && (
+          <button onClick={() => onView('admin')} aria-current={view === 'admin' ? 'page' : undefined}
+            title="管理台" aria-label="管理台" data-testid="topbar-admin"
+            className={`h-7 w-7 rounded-md inline-flex items-center justify-center cursor-pointer ${
+              view === 'admin' ? 'bg-soft text-brand' : 'text-faint hover:text-ink hover:bg-soft'}`}>
+            <Shield size={15} />
+          </button>
+        )}
         <button onClick={() => onView('settings')} aria-current={view === 'settings' ? 'page' : undefined}
           title="设置" aria-label="设置"
           className={`h-7 w-7 rounded-md inline-flex items-center justify-center cursor-pointer ${

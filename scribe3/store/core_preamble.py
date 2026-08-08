@@ -399,6 +399,82 @@ def rename_work(slug: str, title: str, url: str | None = None) -> None:
         db.close()
 
 
+def set_work_owner(slug: str, owner_user_id: str, url: str | None = None) -> dict:
+    """管理台：转让作品归属。"""
+    owner = (owner_user_id or "").strip()
+    if not owner:
+        raise ValueError("owner_user_id required")
+    if not all(c.isalnum() or c == "_" for c in slug):
+        raise ValueError("非法 slug")
+    db = _reg_conn(url)
+    try:
+        rows = db.query("SELECT * FROM type::thing('work',$s)", {"s": slug})
+        if not rows:
+            raise ValueError(f"作品不存在: {slug}")
+        db.query(
+            "UPDATE type::thing('work',$s) SET owner_user_id=$o",
+            {"s": slug, "o": owner},
+        )
+        r = rows[0]
+        return {
+            "slug": r.get("slug") or slug,
+            "title": r.get("title"),
+            "owner_user_id": owner,
+            "archived": bool(r.get("archived")),
+        }
+    finally:
+        db.close()
+
+
+def list_works_admin(
+    *,
+    owner: str | None = None,
+    archived: str | None = None,  # active|archived|all
+    q: str | None = None,
+    url: str | None = None,
+) -> list[dict]:
+    """管理台：不按当前用户过滤，可看全库 works。"""
+    db = _reg_conn(url)
+    try:
+        rows = db.query("SELECT * FROM work") or []
+        out = []
+        for r in rows:
+            is_arch = r.get("archived") is True
+            mode = (archived or "all").strip().lower()
+            if mode == "active" and is_arch:
+                continue
+            if mode == "archived" and not is_arch:
+                continue
+            owner_id = r.get("owner_user_id")
+            from scribe3.auth.ownership import effective_owner
+            eff = effective_owner({
+                "owner_user_id": owner_id,
+                "slug": r.get("slug"),
+            })
+            if owner and owner.strip() and eff != owner.strip():
+                continue
+            title = (r.get("title") or "")
+            slug = (r.get("slug") or "")
+            if q and q.strip():
+                qq = q.strip().lower()
+                if qq not in title.lower() and qq not in slug.lower() and qq not in (eff or "").lower():
+                    continue
+            at = r.get("archived_at")
+            out.append({
+                "slug": slug,
+                "title": title,
+                "owner_user_id": owner_id,
+                "effective_owner": eff,
+                "archived": is_arch,
+                "archived_at": at,
+                "ord": r.get("ord"),
+            })
+        out.sort(key=lambda x: (x.get("archived") or False, x.get("ord") or 0, x.get("slug") or ""))
+        return out
+    finally:
+        db.close()
+
+
 def create_work(title: str, slug: str | None = None, url: str | None = None,
                 owner_user_id: str | None = None) -> dict:
     """建一本书:注册表登记 + 给它的独立 DB 建 schema。slug=该书 DB 名(ascii)。

@@ -41,6 +41,7 @@ _GLOBAL_EXACT = frozenset({
 # and /ai/usage take ?work= and call _store_for(work); they must hit ownership.
 _GLOBAL_PREFIXES = (
     "/auth/",
+    "/admin/",
     "/settings",
     "/gateway",
     "/health",

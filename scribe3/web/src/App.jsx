@@ -10,6 +10,7 @@ import { WorkflowCapsule, applyWorkflowContinue } from './WorkflowCapsule'
 const ACTIVE_WORK_STORAGE_KEY = 's3-active-work'
 const Library = lazy(() => import('./Library').then((mod) => ({ default: mod.Library })))
 const BinderLayout = lazy(() => import('./BinderLayout').then((mod) => ({ default: mod.BinderLayout })))
+const AdminConsole = lazy(() => import('./admin/AdminConsole').then((mod) => ({ default: mod.AdminConsole })))
 
 function readActiveWorkSlug() {
   try { return localStorage.getItem(ACTIVE_WORK_STORAGE_KEY) || '' } catch { return '' }
@@ -25,6 +26,7 @@ function writeActiveWorkSlug(slug) {
 // L1 鉴权门: Cookie 会话（/auth/me）；401 → 登录页（用户名密码，非 API token 粘贴）。
 export default function App() {
   const [auth, setAuth] = useState('checking') // checking | ok | need_login
+  const [me, setMe] = useState(null) // { username, role, is_admin }
   const [works, setWorks] = useState([])
   const [cur, setCur] = useState(null)
   const [theme, setTheme] = useState(() => localStorage.getItem('s3-theme') || 'light')
@@ -34,6 +36,7 @@ export default function App() {
   const forceLogin = useCallback(() => {
     clearApiToken()
     setAuth('need_login')
+    setMe(null)
     setWorks([])
     setCur(null)
   }, [])
@@ -60,6 +63,10 @@ export default function App() {
     ;(async () => {
       try {
         // L1: credentials via authFetch; 401 → username/password login page
+        try {
+          const profile = await api.authMe()
+          if (!cancelled) setMe(profile)
+        } catch { /* me optional if auth off */ }
         const nextWorks = await api.works()
         if (cancelled) return
         setWorks(nextWorks)
@@ -137,9 +144,19 @@ export default function App() {
     return nextWorks
   }
 
-  const onLoginSuccess = async () => {
+  const onLoginSuccess = async (loginBody) => {
     setAuth('checking')
     try {
+      if (loginBody?.is_admin != null) {
+        setMe({
+          username: loginBody.username,
+          role: loginBody.role,
+          is_admin: loginBody.is_admin,
+          display_name: loginBody.display_name,
+        })
+      } else {
+        try { setMe(await api.authMe()) } catch { /* */ }
+      }
       const nextWorks = await api.works()
       setWorks(nextWorks)
       setCur((current) => {
@@ -172,8 +189,11 @@ export default function App() {
   const openLibrary = () => { writeActiveWorkSlug(''); setCur(null) }
   const activeView = sel.mode === 'view' ? sel.viewKey : null
 
+  const isAdmin = !!(me?.is_admin)
   let body
-  if (!cur) {
+  if (activeView === 'admin' && isAdmin) {
+    body = <AdminConsole />
+  } else if (!cur) {
     body = <Library works={works} reload={reload} onSelect={open} />
   } else {
     body = (
@@ -198,7 +218,8 @@ export default function App() {
           onOpenLibrary={openLibrary}
           theme={theme}
           onTheme={setTheme}
-          capsule={cur ? (
+          isAdmin={isAdmin}
+          capsule={cur && activeView !== 'admin' ? (
             <WorkflowCapsule
               work={cur.slug}
               onOpenJourney={() => onView('journey')}

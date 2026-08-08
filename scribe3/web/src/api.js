@@ -678,4 +678,59 @@ export const api = {
   dashboardStatus: () => jraw('/gateway/dashboard/status'),
   dashboardStart: () => postRaw('/gateway/dashboard/start', {}),
   gatewayModelSummary: () => jraw('/gateway/model-summary'),
+  // ── 管理台（全局，需 admin 角色）──
+  authMe: () => jraw('/auth/me'),
+  adminSummary: () => jraw('/admin/summary'),
+  adminUsers: (params = {}) => {
+    const q = new URLSearchParams()
+    if (params.q) q.set('q', params.q)
+    if (params.role) q.set('role', params.role)
+    if (params.status) q.set('status', params.status)
+    if (params.offset != null) q.set('offset', String(params.offset))
+    if (params.limit != null) q.set('limit', String(params.limit))
+    const s = q.toString()
+    return jraw('/admin/users' + (s ? '?' + s : ''))
+  },
+  adminUser: (username) => jraw('/admin/users/' + enc(username)),
+  adminCreateUser: (body) => postRaw('/admin/users', body),
+  adminPatchUser: (username, body) => fetch(BASE + '/admin/users/' + enc(username), {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }).then(handle),
+  adminSetPassword: (username, password) => postRaw('/admin/users/' + enc(username) + '/password', { password }),
+  adminForceLogout: (username) => postRaw('/admin/users/' + enc(username) + '/force-logout', {}),
+  adminDeleteUser: (username) => fetch(
+    BASE + '/admin/users/' + enc(username) + '?confirm_username=' + enc(username),
+    { method: 'DELETE' },
+  ).then(handle),
+  adminWorks: (params = {}) => {
+    const q = new URLSearchParams()
+    if (params.owner) q.set('owner', params.owner)
+    if (params.archived) q.set('archived', params.archived)
+    if (params.q) q.set('q', params.q)
+    if (params.offset != null) q.set('offset', String(params.offset))
+    if (params.limit != null) q.set('limit', String(params.limit))
+    const s = q.toString()
+    return jraw('/admin/works' + (s ? '?' + s : ''))
+  },
+  adminCreateWork: (body) => postRaw('/admin/works', body),
+  adminPatchWork: (slug, body) => fetch(BASE + '/admin/works/' + enc(slug), {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }).then(handle),
+  adminTransferWork: (slug, new_owner) => postRaw('/admin/works/' + enc(slug) + '/transfer', { new_owner }),
+  adminArchiveWork: (slug) => postRaw('/admin/works/' + enc(slug) + '/archive', {}),
+  adminRestoreWork: (slug) => postRaw('/admin/works/' + enc(slug) + '/restore', {}),
+  adminPurgeWork: (slug, confirm_title) => fetch(BASE + '/admin/works/' + enc(slug) + '/purge', {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirm_title }),
+  }).then(handle),
+  adminAudit: (params = {}) => {
+    const q = new URLSearchParams()
+    if (params.actor) q.set('actor', params.actor)
+    if (params.action) q.set('action', params.action)
+    if (params.target_type) q.set('target_type', params.target_type)
+    if (params.offset != null) q.set('offset', String(params.offset))
+    if (params.limit != null) q.set('limit', String(params.limit))
+    const s = q.toString()
+    return jraw('/admin/audit' + (s ? '?' + s : ''))
+  },
 }

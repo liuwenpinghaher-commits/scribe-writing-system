@@ -36,7 +36,9 @@ export function Login({ onSuccess }) {
         setErr(detail)
         return
       }
-      onSuccess?.()
+      let body = null
+      try { body = await res.json() } catch { /* */ }
+      onSuccess?.(body)
     } catch (ex) {
       setErr(ex?.message || '网络错误，请检查后端是否可达')
     } finally {

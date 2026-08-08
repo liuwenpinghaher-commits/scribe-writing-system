@@ -42,6 +42,7 @@ from scribe3.api.routers.canon_loop import router as canon_loop_router
 from scribe3.api.token_bridge import install_token_query_bridge
 from scribe3.auth.middleware import install_l1_auth
 from scribe3.auth.routes import router as auth_router
+from scribe3.auth.admin_routes import router as admin_router
 from scribe3.auth.users import ensure_bootstrap_users
 
 # Exact paths still defined inline in app_impl that we peel to avoid double registration
@@ -79,6 +80,7 @@ _DOMAIN_ROUTERS = (
     misc_routes_router,
     canon_loop_router,
     auth_router,
+    admin_router,
 )
 
 
