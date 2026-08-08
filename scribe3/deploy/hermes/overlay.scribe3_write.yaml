@@ -17,10 +17,19 @@ agent:
   # Hermes 官方 auto 只覆盖 gpt/codex/gemini/grok；Qwen 会只描述将调用工具。
   # 写入入口必须实际发起 s3_* MCP 调用，才能产生作者审批，故在此 profile 强制开启。
   tool_use_enforcement: true
+  # H1 分档:动稿/Runs——长超时、略保守压缩(保文笔上下文)。
+  gateway_timeout: 1800
+  gateway_timeout_warning: 900
+  clarify_timeout: 900
+compression:
+  enabled: true
+  threshold: 0.55
+  protect_last_n: 24
 platforms:
   api_server:
     port: 8644
     host: 127.0.0.1
+
 
 # P4(hermes 能力审查 2026-07-17):模型兜底链——主模型(阿里云 TokenPlan /
 # qwen3.8-max-preview)故障时

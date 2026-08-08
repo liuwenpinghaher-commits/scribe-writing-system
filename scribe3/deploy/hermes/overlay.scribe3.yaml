@@ -8,10 +8,19 @@ platform_toolsets:
 agent:
   # Qwen 不在 Hermes auto 的工具执行引导名单内；检索型主编不能只口述“我会核实”。
   tool_use_enforcement: true
+  # H1 分档:只读 agentic——中等超时、标准压缩。
+  gateway_timeout: 900
+  gateway_timeout_warning: 600
+  clarify_timeout: 600
+compression:
+  enabled: true
+  threshold: 0.50
+  protect_last_n: 20
 platforms:
   api_server:
     port: 8643
     host: 127.0.0.1
+
 
 # P4(hermes 能力审查 2026-07-17):模型兜底链——主模型(阿里云 TokenPlan /
 # qwen3.8-max-preview)故障时
