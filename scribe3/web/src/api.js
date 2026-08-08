@@ -498,7 +498,8 @@ export const api = {
     use_llm: opts.use_llm !== false,
     persist: opts.persist !== false,
   }),
-  canonAnalysisSummary: (seq) => j(`/canon/analysis?seq=${enc(seq)}`),
+  canonAnalysisSummary: (seq, full = false) =>
+    j(`/canon/analysis?seq=${enc(seq)}${full ? '&full=1' : ''}`),
   canonPostFinalize: (body) => post('/canon/post-finalize-report', body),
   canonChangePack: (body) => post('/canon/change-pack', body),
   canonApplyPack: (body) => post('/canon/change-pack/apply', body),

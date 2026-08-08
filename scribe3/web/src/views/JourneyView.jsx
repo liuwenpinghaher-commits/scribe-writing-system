@@ -15,6 +15,9 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
   const [motifMsg, setMotifMsg] = useState('')
   const [analyzeBusy, setAnalyzeBusy] = useState(false)
   const [analyzeMsg, setAnalyzeMsg] = useState('')
+  const [dash, setDash] = useState(null)
+  const [dashOpen, setDashOpen] = useState(false)
+  const [dashBusy, setDashBusy] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -59,7 +62,7 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
   }
 
   const reanalyzeChapter = async () => {
-    const seq = lane?.seq ?? snap?.chapter_lane?.seq
+    const seq = snap?.chapter_lane?.seq
     if (seq == null || typeof api.canonAnalyzeChapter !== 'function') return
     setAnalyzeBusy(true)
     setAnalyzeMsg('')
@@ -75,10 +78,26 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
         (typeof applied === 'number' && applied >= 0 ? ` · 知识 ${applied}` : ''),
       )
       load()
+      setDash(null)
     } catch (e) {
       setAnalyzeMsg(e?.message || '重分析失败')
     } finally {
       setAnalyzeBusy(false)
+    }
+  }
+
+  const loadAnalysisDash = async () => {
+    const seq = snap?.chapter_lane?.seq
+    if (seq == null || typeof api.canonAnalysisSummary !== 'function') return
+    setDashBusy(true)
+    try {
+      const d = await api.canonAnalysisSummary(seq, true)
+      setDash(d)
+      setDashOpen(true)
+    } catch (e) {
+      setAnalyzeMsg(e?.message || '加载分析摘要失败')
+    } finally {
+      setDashBusy(false)
     }
   }
 
@@ -259,11 +278,21 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
                       ? ` · 纪律违规 ${lane.post_analysis.discipline_violations.length}`
                       : ' · 纪律已缓存')
                     : ''}
+                  {lane.post_analysis.has_tension ? ' · 张力已缓存' : ''}
                   <span className="text-faint/80"> · 改稿失效</span>
                 </p>
               ) : (
                 <p className="text-meta text-faint min-w-0 flex-1">尚无章后分析缓存（终选或点右侧重抽）</p>
               )}
+              <Btn
+                size="sm"
+                variant="ghost"
+                disabled={dashBusy}
+                onClick={loadAnalysisDash}
+                data-testid="journey-analysis-dash"
+              >
+                {dashBusy ? '加载…' : '分析摘要'}
+              </Btn>
               <Btn
                 size="sm"
                 variant="ghost"
@@ -275,6 +304,47 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
               </Btn>
             </div>
             {analyzeMsg && <p className="text-meta text-ink mb-2">{analyzeMsg}</p>}
+            {dashOpen && dash && (
+              <div
+                className="mb-3 rounded-md border border-line/50 bg-canvas px-3 py-2 text-meta text-ink space-y-1"
+                data-testid="journey-analysis-dashboard"
+              >
+                <div className="flex justify-between gap-2">
+                  <span className="font-medium">章后分析面板</span>
+                  <button type="button" className="text-faint hover:text-ink cursor-pointer" onClick={() => setDashOpen(false)}>收起</button>
+                </div>
+                <div>
+                  QC：{dash.qc_quick?.grade || '—'}
+                  {(dash.qc_quick?.gates_hit || []).length
+                    ? ` · gates ${dash.qc_quick.gates_hit.slice(0, 4).join('/')}`
+                    : ''}
+                  {dash.qc_quick?.word_count != null ? ` · ${dash.qc_quick.word_count} 字` : ''}
+                </div>
+                <div>
+                  设定/知识缓存：
+                  {dash.has_settings ? '设定✓' : '设定—'}
+                  {' · '}
+                  {dash.has_knowledge ? '知识✓' : '知识—'}
+                  {dash.summary?.settings_count != null ? ` · 设定增量 ${dash.summary.settings_count}` : ''}
+                </div>
+                <div>
+                  纪律：
+                  {dash.has_discipline
+                    ? (dash.discipline?.violations?.length
+                      ? `违规 ${dash.discipline.violations.join('、')}`
+                      : '已缓存·守纪')
+                    : '未跑（可先体检）'}
+                </div>
+                <div>
+                  张力：
+                  {dash.has_tension
+                    ? (dash.tension?.rubric_failed
+                      ? 'rubric 失败'
+                      : `已缓存${dash.tension?.hook?.present != null ? (dash.tension.hook.present ? '·有钩' : '·弱钩') : ''}`)
+                    : '未跑（可跑张力检查）'}
+                </div>
+              </div>
+            )}
             {Array.isArray(lane.pipeline) && lane.pipeline.length > 0 && (
               <div className="flex flex-wrap gap-1" data-testid="journey-chapter-pipeline">
                 {lane.pipeline.map((p) => (

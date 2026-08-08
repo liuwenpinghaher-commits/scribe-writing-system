@@ -288,23 +288,33 @@ def tension_check(seq: int, work: str = "main"):
     """M2a 叙事张力检查:确定性3项(伏笔进展/开环账本/信息差盘点)+ LLM rubric 5项
     (戏剧问题/结局语法/价值反转/微张力荒漠/续读钩子,单次合并盲评)。读已存正文,不落库,
     登记为 read-only POST(见 KNOWN_REST_WRITE_ROUTES)。no_prose 早退;rubric 失败(坏 JSON /
-    LLM 异常)→ rubric_failed=True,确定性项照常返回,不崩。"""
+    LLM 异常)→ rubric_failed=True,确定性项照常返回,不崩。
+
+    rubric 经章后缓存复用（同正文指纹免二调）。"""
     from scribe3.brief import tension_deterministic
-    from scribe3.critique import build_tension_rubric_prompt, parse_tension_report
     st = _store_for(work)
     ch = st.get_chapter(seq)
     if not ch or not ch.get("prose"):
         return {"items": [], "error": "no_prose"}
     items = tension_deterministic(st, seq)
-    raw = None
+    rep = None
+    rubric_failed = False
+    cache_hit = False
     try:
+        from scribe3.chapter_analysis import run_tension_rubric_with_cache
         from scribe3.llm import hermes_complete
-        raw = hermes_complete(build_tension_rubric_prompt(ch["prose"]))
+        tr = run_tension_rubric_with_cache(
+            work=work, seq=seq, prose=ch["prose"],
+            complete_fn=hermes_complete, st=st, force=False,
+        )
+        rep = tr.get("rubric")
+        rubric_failed = bool(tr.get("rubric_failed"))
+        cache_hit = bool(tr.get("cache_hit"))
     except Exception as e:
         logging.getLogger("scribe3").warning("tension_check rubric LLM 失败 work=%s seq=%s: %s", work, seq, e)
-    rep = parse_tension_report(raw)
+        rubric_failed = True
     if rep is None:
-        return {"items": items, "rubric": None, "rubric_failed": True}
+        return {"items": items, "rubric": None, "rubric_failed": True, "cache_hit": cache_hit}
     # Minor1(T9):rep 是合法 JSON 但值型可能错(如 outcomes 是字符串列表而非 dict 列表)。
     # o.get()/"、".join() 会抛 AttributeError/TypeError——整段组装纳入 try,失败降级
     # rubric_failed=True(与坏 JSON 同口径),确定性项照常返回,端点不 500。
@@ -334,8 +344,8 @@ def tension_check(seq: int, work: str = "main"):
     except (AttributeError, TypeError) as e:
         logging.getLogger("scribe3").warning(
             "tension_check rubric 值型错(合法 JSON 但结构不符)work=%s seq=%s: %s", work, seq, e)
-        return {"items": items, "rubric": None, "rubric_failed": True}
-    return {"items": items, "rubric": rep}
+        return {"items": items, "rubric": None, "rubric_failed": True, "cache_hit": cache_hit}
+    return {"items": items, "rubric": rep, "cache_hit": cache_hit}
 
 def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "main"):
     # 遗留处置 1-B:同章生成在途(loop/选择环)时拒绝手动存稿——数分钟长请求期间

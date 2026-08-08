@@ -256,17 +256,23 @@ def analyze_chapter_ep(req: AnalyzeChapterReq, work: str | None = None):
 
 
 @router.get("/canon/analysis")
-def chapter_analysis_summary_ep(seq: int, work: str = "main"):
-    """只读：本章章后分析缓存摘要。"""
+def chapter_analysis_summary_ep(seq: int, work: str = "main", full: int = 0):
+    """只读：本章章后分析缓存摘要。
+
+    full=1 时返回仪表盘：qc_quick + discipline/tension/knowledge 是否就绪。
+    """
     st = _store(work)
-    if not hasattr(st, "post_analysis_summary"):
-        return {"present": False, "seq": seq}
     prose = ""
     try:
         ch = st.get_chapter(seq) if hasattr(st, "get_chapter") else None
         prose = (ch or {}).get("prose") or ""
     except Exception:
         prose = ""
+    if int(full or 0):
+        from scribe3.chapter_analysis import build_analysis_dashboard
+        return build_analysis_dashboard(work=work, seq=seq, prose=prose, st=st)
+    if not hasattr(st, "post_analysis_summary"):
+        return {"present": False, "seq": seq}
     return st.post_analysis_summary(seq, prose) or {"present": False, "seq": seq}
 
 

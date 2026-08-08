@@ -133,6 +133,10 @@ REGISTRY: tuple[Setting, ...] = (
             "终选时顺带跑纪律判",
             "开=finalize 多一次 LLM 但 post-check 可命中缓存；默认关以免拖慢终选",
             danger=False),
+    Setting("SCRIBE3_TENSION_CACHE", "flags", "bool", True, "hot",
+            "张力盲评结果写章后缓存",
+            "开=/tension-check 同正文指纹可复用 rubric，免重复调模型",
+            danger=False),
     # ── gateway(Hermes 网关;地址类 restart)──
     Setting("HERMES_API", "gateway", "str", "http://127.0.0.1:8642/v1", "restart", "速答网关(default)"),
     Setting("HERMES_RESPONSES_API", "gateway", "str", "http://127.0.0.1:8643/v1", "restart", "agentic 读网关"),

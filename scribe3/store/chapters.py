@@ -1135,5 +1135,12 @@ class ChaptersMixin:
             "events_backfilled": bool((kn or {}).get("_events_backfilled")),
             "has_discipline": bool(disc),
             "discipline_violations": list((disc or {}).get("violations") or [])[:8],
+            "has_tension": bool(
+                isinstance(body.get("tension"), dict)
+                and (
+                    body["tension"].get("rubric") is not None
+                    or body["tension"].get("rubric_failed")
+                )
+            ),
         }
 

@@ -73,12 +73,14 @@ def _normalize_cache_payload(payload: dict[str, Any] | None) -> dict[str, Any] |
     settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
     claims = payload.get("claims")
     disc = payload.get("discipline") if isinstance(payload.get("discipline"), dict) else None
+    tension = payload.get("tension") if isinstance(payload.get("tension"), dict) else None
     out = {
         "knowledge": payload.get("knowledge"),
         "settings": settings,
         "format": payload.get("format"),
         "claims": claims if isinstance(claims, list) else [],
         "discipline": disc,
+        "tension": tension,
     }
     return out
 
@@ -113,6 +115,7 @@ def get_cached_analysis(
                 "claims": claims,
                 "format": body.get("format") or "store",
                 "discipline": body.get("discipline") if isinstance(body.get("discipline"), dict) else None,
+                "tension": body.get("tension") if isinstance(body.get("tension"), dict) else None,
             }
             put_cached_analysis(work, seq, prose, payload, st=None)
             return payload
@@ -157,6 +160,7 @@ def put_cached_analysis(
         settings = prev.get("settings") if isinstance(prev.get("settings"), dict) else {}
     claims = payload.get("claims") if payload.get("claims") is not None else prev.get("claims") or []
     disc = payload.get("discipline") if "discipline" in payload else prev.get("discipline")
+    tension = payload.get("tension") if "tension" in payload else prev.get("tension")
     kn = payload.get("knowledge") if "knowledge" in payload else prev.get("knowledge")
     fmt = payload.get("format") or prev.get("format")
     norm = {
@@ -165,6 +169,7 @@ def put_cached_analysis(
         "claims": claims if isinstance(claims, list) else [],
         "format": fmt,
         "discipline": disc if isinstance(disc, dict) else None,
+        "tension": tension if isinstance(tension, dict) else None,
     }
     if len(_CACHE) >= _CACHE_MAX:
         try:
@@ -179,9 +184,122 @@ def put_cached_analysis(
                 "settings": settings,
                 "format": norm.get("format"),
                 "discipline": norm.get("discipline"),
+                "tension": norm.get("tension"),
             })
         except Exception as e:
             _log.warning("set_post_analysis_cache: %s", e)
+
+
+def tension_cache_enabled() -> bool:
+    raw = (os.environ.get("SCRIBE3_TENSION_CACHE") or "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def run_tension_rubric_with_cache(
+    *,
+    work: str,
+    seq: int,
+    prose: str,
+    complete_fn: Callable[..., str] | None,
+    st: Any = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """张力 LLM rubric：优先缓存；返回 {rubric, rubric_failed, cache_hit, source}。"""
+    from scribe3.critique import build_tension_rubric_prompt, parse_tension_report
+
+    prose = prose or ""
+    if not force and tension_cache_enabled():
+        cached = get_cached_analysis(work, seq, prose, st=st)
+        ten = (cached or {}).get("tension") if cached else None
+        if isinstance(ten, dict) and ten.get("rubric") is not None:
+            return {
+                "rubric": ten.get("rubric"),
+                "rubric_failed": bool(ten.get("rubric_failed")),
+                "cache_hit": True,
+                "source": "cache",
+            }
+        if isinstance(ten, dict) and ten.get("rubric_failed") and "rubric" in ten:
+            return {
+                "rubric": None,
+                "rubric_failed": True,
+                "cache_hit": True,
+                "source": "cache",
+            }
+
+    if not complete_fn:
+        return {"rubric": None, "rubric_failed": True, "cache_hit": False, "source": "no_llm"}
+
+    def _fn(prompt: str, system: str | None = None) -> str:
+        try:
+            return complete_fn(prompt, system)  # type: ignore[misc]
+        except TypeError:
+            return complete_fn(prompt)  # type: ignore[call-arg]
+
+    raw = None
+    try:
+        raw = _fn(build_tension_rubric_prompt(prose))
+    except Exception as e:
+        _log.warning("tension rubric llm fail: %s", e)
+        store = {"rubric": None, "rubric_failed": True}
+        if tension_cache_enabled():
+            put_cached_analysis(work, seq, prose, {"tension": store}, st=st)
+        return {"rubric": None, "rubric_failed": True, "cache_hit": False, "source": "llm_error"}
+
+    rep = parse_tension_report(raw)
+    if rep is None:
+        store = {"rubric": None, "rubric_failed": True}
+        if tension_cache_enabled():
+            put_cached_analysis(work, seq, prose, {"tension": store}, st=st)
+        return {"rubric": None, "rubric_failed": True, "cache_hit": False, "source": "parse_failed"}
+
+    store = {"rubric": rep, "rubric_failed": False}
+    if tension_cache_enabled():
+        put_cached_analysis(work, seq, prose, {"tension": store}, st=st)
+    return {"rubric": rep, "rubric_failed": False, "cache_hit": False, "source": "llm"}
+
+
+def build_analysis_dashboard(
+    *,
+    work: str,
+    seq: int,
+    prose: str,
+    st: Any = None,
+) -> dict[str, Any]:
+    """聚合章后分析可读面板（不调模型）。"""
+    prose = prose or ""
+    summary = None
+    if st is not None and hasattr(st, "post_analysis_summary"):
+        try:
+            summary = st.post_analysis_summary(int(seq), prose)
+        except Exception:
+            summary = None
+    cached = get_cached_analysis(work, seq, prose, st=st) or {}
+    disc = cached.get("discipline") if isinstance(cached.get("discipline"), dict) else None
+    ten = cached.get("tension") if isinstance(cached.get("tension"), dict) else None
+    kn = cached.get("knowledge") if isinstance(cached.get("knowledge"), dict) else None
+    qc = quick_qc_summary(prose) if prose.strip() else {"empty": True}
+    return {
+        "work": work,
+        "seq": int(seq),
+        "summary": summary,
+        "qc_quick": qc,
+        "has_knowledge": kn is not None,
+        "has_settings": bool(cached.get("settings")),
+        "has_discipline": bool(disc),
+        "discipline": {
+            "violations": list((disc or {}).get("violations") or []),
+            "changed": (disc or {}).get("changed"),
+            "parse_failed": (disc or {}).get("parse_failed"),
+        } if disc else None,
+        "has_tension": bool(ten and (ten.get("rubric") is not None or ten.get("rubric_failed"))),
+        "tension": {
+            "rubric_failed": bool((ten or {}).get("rubric_failed")),
+            "dramatic_question": ((ten or {}).get("rubric") or {}).get("dramatic_question"),
+            "value_shift": ((ten or {}).get("rubric") or {}).get("value_shift"),
+            "hook": ((ten or {}).get("rubric") or {}).get("hook"),
+        } if ten else None,
+        "format": cached.get("format"),
+    }
 
 
 def discipline_cache_enabled() -> bool:

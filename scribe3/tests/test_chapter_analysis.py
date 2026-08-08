@@ -115,6 +115,40 @@ def test_store_cache_and_events_backfill():
     assert kn and kn["events"] and kn.get("_events_backfilled")
 
 
+def test_tension_cache_and_dashboard():
+    from scribe3.chapter_analysis import (
+        build_analysis_dashboard,
+        clear_cached_analysis,
+        run_tension_rubric_with_cache,
+    )
+
+    prose = "张力测正文。章末危险临近。"
+    clear_cached_analysis("tw", 4, prose=prose)
+    n = {"c": 0}
+
+    def fake(prompt: str, system=None):
+        n["c"] += 1
+        return (
+            '{"dramatic_question":{"present":true,"answered_escalated":false,"note":"谁动了灯"},'
+            '"outcomes":[{"scene":"对峙","type":"yes_but"}],'
+            '"value_shift":{"present":true,"note":"暖→冷"},'
+            '"micro_tension":{"deserts":[]},'
+            '"hook":{"present":true,"type":"danger","strength":"med"}}'
+        )
+
+    r1 = run_tension_rubric_with_cache(
+        work="tw", seq=4, prose=prose, complete_fn=fake, force=False,
+    )
+    assert r1.get("cache_hit") is False and r1.get("rubric")
+    r2 = run_tension_rubric_with_cache(
+        work="tw", seq=4, prose=prose, complete_fn=fake, force=False,
+    )
+    assert r2.get("cache_hit") is True and n["c"] == 1
+    dash = build_analysis_dashboard(work="tw", seq=4, prose=prose)
+    assert dash.get("has_tension")
+    assert dash.get("qc_quick", {}).get("source") == "deterministic"
+
+
 def test_discipline_cache_roundtrip():
     from scribe3.chapter_analysis import (
         clear_cached_analysis,
