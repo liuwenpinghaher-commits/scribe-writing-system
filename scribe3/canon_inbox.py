@@ -58,7 +58,18 @@ EXTRACTOR_LABELS = {
 _NOISE_FACTION_RE = re.compile(
     r"^(是|会|的|了|在|有|和|与|把|被|将|从|向|对|给|让|到|又|也|都|还|就|才|却|已|未|不|没)"
     r"|替高门|原本是|是会|中人$|^其|^此|^该"
+    r"|推门|开门|关门|掩门|闩门|从门|到门|在门|的门|角门|客店门"
+    r"|一会$|好一会|了一会|看一会|躺了一会|沉默了一会"
+    r"|鞋帮|船帮"
 )
+_NOISE_PERSON_RE = re.compile(
+    r"^(我|你|他|她|它|这|那|人|谁)"
+    r"|来看|写上|替了|莫应|看这|看那|灯芯$|之来$"
+)
+_DOORISH = re.compile(
+    r"(推|开|关|掩|闩|站|走|到|从|朝).{0,4}门$|门$|的门$|半掩|角门|客店"
+)
+_ORG_OK_SUFFIX = ("门", "帮", "教", "宗", "盟", "阁", "堂", "派", "府", "司", "卫", "营")
 
 
 def display_name(item: dict) -> str:
@@ -82,31 +93,103 @@ def human_title(item: dict) -> str:
 
 
 def is_noise_heuristic(item: dict) -> bool:
-    """服务端权威噪声：启发式/残片势力等。标记与 LLM 默认不标噪声。"""
+    """服务端权威噪声：启发式/残片势力/假人名。
+
+    marker 仍豁免。hybrid/heuristic 的裸 add 默认从严：像口语/门板/一会 一律噪声，
+    避免 conf 被误写成 1.0 时仍灌满收件箱。
+    """
     ext = (item.get("extractor") or "").lower()
     mod = (item.get("module") or "").lower()
     conf = float(item.get("confidence") or 1.0)
     name = display_name(item)
-    # 明确 marker 不进噪声
-    if ext in ("marker", "llm", "llm_v1"):
+    op = (item.get("op") or "add").lower()
+    has_field = bool(item.get("field"))
+    # 明确 marker / 结构化字段 patch 不进噪声
+    if ext in ("marker",):
         return False
-    if conf < 0.45 and ext in ("heuristic", "hybrid", ""):
-        if mod == "faction" or len(name) < 2:
-            return True
-    if mod == "faction" and ext in ("heuristic", "hybrid", "ingest_resolve_char", ""):
+    if has_field and ext in ("llm", "llm_v1", "marker"):
+        return False
+
+    bare_add = (not has_field) and op in ("add", "plant")
+
+    # —— 势力残片（主噪声源）——
+    if mod == "faction":
         if len(name) < 2:
             return True
         if _NOISE_FACTION_RE.search(name):
             return True
-        # 过长短语不像专名
-        if len(name) > 8 and not name.endswith(("门", "帮", "会", "教", "宗", "盟", "阁", "堂")):
+        if name.endswith("会"):  # 一会/看一会 历史脏数据
             return True
-        # 「…替高门」类
-        if "替" in name and "门" in name and len(name) > 4:
+        if _DOORISH.search(name):
             return True
-        # 泛称单名（无「代还/一脉」等组织后缀）且极短
-        if name in ("高门", "低门", "正门", "侧门", "山门", "家门", "师门") and conf < 0.85:
+        if "替" in name and "门" in name:
             return True
+        if name in ("高门", "低门", "正门", "侧门", "山门", "家门", "师门", "正教", "旁门"):
+            return True
+        # 无组织后缀 / 过长叙事句
+        if not name.endswith(_ORG_OK_SUFFIX):
+            return True
+        if len(name) > 6:
+            return True
+        # 代词/动词起头
+        if name[0] in "是会的了在有和与把被将从向对给让到又也都还就才却他她我你这那其此该小等看躺走推开朝":
+            return True
+        if bare_add and ext in ("heuristic", "hybrid", "ingest_resolve_char", "") and conf < 0.85:
+            # 低置信裸势力默认噪声；真组织应靠 marker/LLM 高置信或人标
+            if len(name) <= 3 and not name.endswith(("宗", "盟", "派", "府", "阁", "教")):
+                return True
+        if bare_add and conf >= 0.99 and ext in ("hybrid", "heuristic", ""):
+            # 落库时未降权的 conf=1 裸 add：仍按噪声处理（历史数据）
+            if not name.endswith(("宗", "盟", "派", "府", "阁")) or len(name) < 3:
+                # 收灯一脉 / 高门代还 等真名通常 ≥4 或带专名感；纯 X门 多为脏
+                if len(name) <= 4 and name.endswith("门") and not any(
+                    k in name for k in ("高门代", "收灯", "代还", "一脉", "债")
+                ):
+                    return True
+        # 建筑「堂」口语（正堂/前堂 ≠ 组织）
+        if name in ("正堂", "前堂", "中堂", "后堂", "大堂", "厅堂"):
+            return True
+        if any(x in name for x in ("正堂", "前堂", "回到", "照得", "听见", "忽然")):
+            return True
+        # 师门教 等残片
+        if name in ("师门教", "旁门左道") or (name.endswith("教") and len(name) <= 3 and name[0] in "他她我你师"):
+            return True
+        return False
+
+    # —— 假人名（叫我来看这 / 叫写上灯芯）——
+    if mod == "character" and bare_add:
+        if _NOISE_PERSON_RE.search(name):
+            return True
+        if name in ("什么", "怎么", "哪里", "谁人", "几个"):
+            return True
+        if name and name[-1] in "来去上下过了着的地得句么":
+            return True
+        if any(x in name for x in ("来看", "写上", "替了", "灯芯", "莫应", "几句")):
+            return True
+        if len(name) < 2:
+            return True
+        if name[0] in "了的在把被将从向":
+            return True
+        if conf < 0.45 and ext in ("heuristic", "hybrid", ""):
+            return True
+        # conf=1 的 hybrid 裸 add 人名：无字段则倾向噪声（真角色多有 patch 或 marker）
+        if conf >= 0.99 and ext in ("hybrid", "heuristic", "") and not has_field:
+            # 已知像真名的短 2–3 字放行（沈砚之），其余口语残片拒
+            if len(name) >= 4 or name[0] in "我你他她这那人了":
+                return True
+
+    # —— 假物件：动词碎片 ——
+    if mod == "item" and bare_add:
+        if len(name) < 2 or name[0] in "去来到把被将在":
+            return True
+        if name in ("去道", "来道", "说道", "问道"):
+            return True
+        if name.endswith(("了", "着", "的", "过")) and len(name) <= 3:
+            return True
+
+    # —— 通用：低置信启发式 ——
+    if conf < 0.45 and ext in ("heuristic", "hybrid", "") and bare_add:
+        return True
     return False
 
 
@@ -155,20 +238,25 @@ def filter_items(
         if noise == "exclude" and is_n:
             continue
         if priority == "suggested":
-            # 建议优先：非噪声且 (置信≥0.8 或 marker/llm 或 high risk 真变更)
+            # 建议优先：非噪声 + (marker/llm / 字段 patch / 高置信且非裸 heuristic)
             ext = (it.get("extractor") or "").lower()
             conf = float(it.get("confidence") or 0)
+            op = (it.get("op") or "add").lower()
+            bare_add = (not it.get("field")) and op in ("add", "plant")
             if is_n:
                 continue
-            if not (
-                conf >= 0.8
-                or ext in ("marker", "llm", "llm_v1")
-                or (it.get("risk") == "high" and ext != "heuristic")
-                or it.get("field")  # 字段 patch 优先于裸 add 噪声
-            ):
-                # 仍允许非 heuristic 的 add
-                if ext in ("heuristic", "") and (it.get("op") or "add") == "add":
+            if it.get("field") or ext in ("marker", "llm", "llm_v1"):
+                out.append(it)
+                continue
+            if bare_add and ext in ("heuristic", "hybrid", "ingest_resolve_char", ""):
+                # 裸启发式进「全部」不进建议；除非置信极高且像专名（≥0.9 且短名）
+                if conf < 0.9:
                     continue
+                nm = display_name(it)
+                if len(nm) > 6 or len(nm) < 2:
+                    continue
+            elif conf < 0.8 and it.get("risk") != "high":
+                continue
         out.append(it)
     return out
 

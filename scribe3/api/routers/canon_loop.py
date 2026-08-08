@@ -342,8 +342,10 @@ def batch_decide(req: BatchDecideReq, work: str | None = None):
             ids = g_ids
     if not ids:
         return {"ok": True, "processed": 0, "results": []}
-    if len(ids) > 300:
-        raise HTTPException(422, "batch too large (max 300)")
+    # 一键清噪声可上千条；普通批处理仍限 300
+    max_n = 2000 if req.noise_only else 300
+    if len(ids) > max_n:
+        raise HTTPException(422, f"batch too large (max {max_n})")
     decision = (req.decision or "reject").strip()
     if decision not in ("approve", "reject"):
         raise HTTPException(422, "decision must be approve|reject")

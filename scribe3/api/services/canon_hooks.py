@@ -157,11 +157,23 @@ def _persist_pack_items(st: Any, pack_dict: dict, *, seq: int | None, source: st
         except Exception:
             conf_f = 1.0
         ext = it.get("extractor") or "hybrid"
-        # 无字段的裸 add 且未显式高置信 → 当作启发式降权
-        if conf_f >= 0.99 and not it.get("field") and (it.get("op") or "add") in ("add", "plant"):
-            if not (it.get("evidence") or "").startswith("【"):
-                conf_f = 0.5
+        # 无字段的裸 add 且非【标记】→ 强制启发式降权（禁止 conf=1.0 灌满收件箱）
+        bare_add = (not it.get("field")) and (it.get("op") or "add") in ("add", "plant")
+        if bare_add and not (it.get("evidence") or "").startswith("【"):
+            if conf_f >= 0.99 or ext in ("hybrid", ""):
+                conf_f = min(conf_f, 0.45)
                 ext = "heuristic"
+            elif conf is None:
+                conf_f = 0.45
+                ext = "heuristic"
+        # 落库前噪声预判：直接标 rejected，不进待批（作者仍可在「已拒绝」审计）
+        from scribe3.canon_inbox import is_noise_heuristic
+        pre = {
+            "module": it.get("module"), "op": it.get("op"), "target": it.get("target"),
+            "field": it.get("field"), "after": it.get("after"), "extractor": ext,
+            "confidence": conf_f, "evidence": it.get("evidence"),
+        }
+        status = "rejected" if is_noise_heuristic(pre) else "pending"
         row = {
             "id": it.get("id"),
             "seq": seq,
@@ -176,7 +188,7 @@ def _persist_pack_items(st: Any, pack_dict: dict, *, seq: int | None, source: st
             "evidence": it.get("evidence"),
             "risk": it.get("risk"),
             "layer": it.get("layer"),
-            "status": "pending",
+            "status": status,
             "change_pack_id": pack_dict.get("id"),
             "impact": pack_dict.get("impact"),
             "confidence": conf_f,

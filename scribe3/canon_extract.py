@@ -52,13 +52,22 @@ def extract_claims_from_prose(
             _add(c)
 
     known = set(known_character_names or [])
-    # 启发式：正文中的「他/她叫X」弱模式 + 已知名以外的专名（谨慎）
+    # 启发式人名：仅「叫作/名为/名叫」，禁止裸「叫…」(「叫我来看」≠人名)
+    _bad_person = re.compile(
+        r"^(我|你|他|她|它|这|那|人|谁|什么|怎|哪)"
+        r"|来看|写上|替了|莫应|看这|看那|起来|过去|过来|下去"
+    )
     for m in re.finditer(
-        r"(?:叫作?|名为|名叫)([\u4e00-\u9fff]{2,4})",
+        r"(?:叫作|名为|名叫)([\u4e00-\u9fff]{2,4})",
         text,
     ):
         name = m.group(1)
-        if name in known:
+        if name in known or _bad_person.search(name):
+            continue
+        if name[-1] in "来去上下过了着的地得":
+            continue
+        # 组织后缀更像势力，不做人名
+        if name.endswith(("门", "帮", "教", "宗", "盟", "阁", "堂", "派", "府")):
             continue
         _add(CanonClaim(
             layer="L1",
@@ -70,6 +79,7 @@ def extract_claims_from_prose(
             evidence=m.group(0),
             risk="med",
             requires_approval=True,
+            confidence=0.4,
         ))
 
     # 世界规则弱模式：「按…规矩/法则/戒律」「…铁律/禁令」
@@ -82,6 +92,7 @@ def extract_claims_from_prose(
             layer="L1", op="add", module="world_rule",
             target=name, after={"name": name, "note": m.group(0)},
             evidence=m.group(0), risk="high", requires_approval=True,
+            confidence=0.55,
         ))
     for m in re.finditer(
         r"([\u4e00-\u9fff]{2,10})(?:是|为)(?:一条|这)?(?:铁律|禁令|戒律)",
@@ -92,47 +103,44 @@ def extract_claims_from_prose(
             layer="L1", op="add", module="world_rule",
             target=name, after={"name": name, "note": m.group(0)},
             evidence=m.group(0), risk="high", requires_approval=True,
+            confidence=0.55,
         ))
 
-    # 势力：专名须 2–6 字并以门/帮/会/教/宗/盟/阁/堂结尾；拒绝语法残片
-    _bad_faction = re.compile(
-        r"^(是|会|的|了|在|有|和|与|把|被|将|从|向|对|给|让|到|又|也|都|还|就|才|却)"
-        r"|替高门|原本是|是会"
-    )
+    # 势力：组织型后缀；排除门/帮日常义。故意不匹配「…会」(一会/看一会)
     for m in re.finditer(
-        r"(?<![\u4e00-\u9fff])([\u4e00-\u9fff]{1,5}(?:门|帮|教|宗|盟|阁|堂))(?![\u4e00-\u9fff])",
+        # 后缀后允许 的/是/在/标点，避免「灯火门在镇口」整段吃掉；仍拒「…门板」连写长词
+        r"(?<![\u4e00-\u9fff])([\u4e00-\u9fff]{2,4}(?:门|帮|教|宗|盟|阁|堂|派|府|司|卫|营))"
+        r"(?=的|是|在|与|和|中|里|外|内|、|，|。|！|？|；|：|\s|$|[^\u4e00-\u9fff])",
         text,
     ):
         name = m.group(1)
-        if len(name) < 2 or len(name) > 6:
-            continue
-        if _bad_faction.search(name):
-            continue
-        # 「会」单独后缀易误伤，要求至少 3 字（如 帮会 仍短则跳过纯「X会」口语）
-        if name.endswith("会") and len(name) < 3:
+        if not _looks_like_faction_name(name, text, m.start()):
             continue
         _add(CanonClaim(
             layer="L1", op="add", module="faction",
             target=name, after={"name": name},
             evidence=m.group(0)[:80], risk="med", requires_approval=True,
-            confidence=0.45,
+            confidence=0.4,
         ))
 
-    # 物件：「手持/佩戴/取出…」
+    # 物件：短专名
     for m in re.finditer(
-        r"(?:手持|佩戴|取出|掏出|亮出|递过)([\u4e00-\u9fff]{2,8})",
+        r"(?:手持|佩戴|取出|掏出|亮出|递过)([\u4e00-\u9fff]{2,6})",
         text,
     ):
         name = m.group(1)
+        if name[-1] in "了着的地得过":
+            continue
         _add(CanonClaim(
             layer="L1", op="add", module="item",
             target=name, after={"name": name, "description": m.group(0)},
             evidence=m.group(0), risk="med", requires_approval=True,
+            confidence=0.4,
         ))
 
-    # 术语：「所谓…」「…一说」
+    # 术语
     for m in re.finditer(
-        r"(?:所谓|名曰)([\u4e00-\u9fff]{2,10})",
+        r"(?:所谓|名曰)([\u4e00-\u9fff]{2,8})",
         text,
     ):
         name = m.group(1)
@@ -140,20 +148,68 @@ def extract_claims_from_prose(
             layer="L1", op="add", module="term",
             target=name, after={"name": name, "definition": m.group(0)},
             evidence=m.group(0), risk="med", requires_approval=True,
+            confidence=0.45,
         ))
 
-    # 伏笔：「他日/日后/总有一天…」
+    # 伏笔：收紧长度
     for m in re.finditer(
-        r"(?:他日|日后|总有一天|终有一日)([^。！？\n]{4,40})",
+        r"(?:他日|日后|总有一天|终有一日)([^。！？\n]{4,24})",
         text,
     ):
+        frag = m.group(0).strip()
+        if len(frag) > 36:
+            continue
         _add(CanonClaim(
             layer="L1", op="plant", module="promise",
-            target=m.group(0)[:40], after=m.group(0)[:80],
-            evidence=m.group(0)[:120], risk="med", requires_approval=True,
+            target=frag[:40], after=frag[:80],
+            evidence=frag[:120], risk="med", requires_approval=True,
+            confidence=0.4,
         ))
 
     return claims
+
+
+_ORG_SUFFIX = ("门", "帮", "教", "宗", "盟", "阁", "堂", "派", "府", "司", "卫", "营")
+_DOOR_VERB_BEFORE = re.compile(
+    r"(推|开|关|掩|闩|出|入|进|到|从|站在|靠在|半掩|角|客店|房|屋|窗|巷|街).{0,2}$"
+)
+_FUNC_START = re.compile(
+    r"^(是|会|的|了|在|有|和|与|把|被|将|从|向|对|给|让|到|又|也|都|还|就|才|却|"
+    r"已|未|不|没|他|她|我|你|这|那|其|此|该|小|大|一|两|几|好|等|看|躺|走|推|开|朝|名|为)"
+)
+
+
+def _looks_like_faction_name(name: str, full: str, start: int) -> bool:
+    """组织名质检：拒门板/鞋帮/代词起头残片。"""
+    n = (name or "").strip()
+    if len(n) < 2 or len(n) > 6:
+        return False
+    if not n.endswith(_ORG_SUFFIX):
+        return False
+    if n.endswith("会"):
+        return False
+    if _FUNC_START.search(n):
+        return False
+    if "替" in n and "门" in n:
+        return False
+    if n in ("高门", "低门", "正门", "侧门", "山门", "家门", "师门", "正教", "旁门"):
+        return False
+    prefix = full[max(0, start - 4):start]
+    if n.endswith("门"):
+        if _DOOR_VERB_BEFORE.search(prefix):
+            return False
+        if any(v in n for v in ("推", "开", "关", "掩", "闩", "站", "走", "到", "从", "的")):
+            return False
+        if len(n) == 2 and n[0] in "推开关出入到从":
+            return False
+    if n.endswith("帮") and ("鞋" in n or n.endswith("船帮")):
+        return False
+    if n.endswith("教") and len(n) <= 2:
+        return False
+    if len(n) == 2 and not n.endswith(("宗", "盟", "派", "府", "阁")):
+        return False
+    return True
+
 
 
 def _llm_extract(prose: str, complete_fn: Callable[[str], str]) -> list[CanonClaim]:

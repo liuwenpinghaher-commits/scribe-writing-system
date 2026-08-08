@@ -98,3 +98,34 @@ def test_generic_faction_noise():
     assert is_noise_heuristic({
         "module": "faction", "target": "高门", "extractor": "heuristic", "confidence": 0.5,
     })
+
+
+def test_noise_door_and_while_and_fake_names():
+    """历史脏数据：推门/一会/叫我来看 — 即使 conf=1 hybrid 也标噪声。"""
+    for target in ("推门", "他看了一会", "拾灯以为他不会", "河水漫过鞋帮", "师父从门"):
+        assert is_noise_heuristic({
+            "module": "faction", "target": target, "extractor": "hybrid",
+            "confidence": 1.0, "op": "add",
+        }), target
+    for target in ("role:我来看这", "role:写上灯芯", "role:叫人替了命"):
+        assert is_noise_heuristic({
+            "module": "character", "target": target, "extractor": "hybrid",
+            "confidence": 1.0, "op": "add",
+        }), target
+    # marker 真组织仍放行
+    assert not is_noise_heuristic({
+        "module": "faction", "target": "高门代还", "extractor": "marker", "confidence": 1.0,
+    })
+
+
+def test_suggested_hides_bare_heuristic():
+    items = [
+        {"id": "n", "module": "faction", "target": "推门", "extractor": "hybrid",
+         "confidence": 1.0, "op": "add", "source": "prose_finalize"},
+        {"id": "g", "module": "character", "target": "role:阿绣", "field": "fear",
+         "extractor": "marker", "confidence": 1.0, "op": "patch", "source": "prose_finalize"},
+    ]
+    sug = filter_items(items, priority="suggested", noise="exclude")
+    assert [i["id"] for i in sug] == ["g"]
+    fac = facets(items)
+    assert fac["noise_count"] >= 1
