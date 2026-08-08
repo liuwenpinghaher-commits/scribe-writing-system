@@ -104,7 +104,7 @@ export default function App() {
 
   useEffect(() => { if (cur) api.setWork(cur.slug) }, [cur])
 
-  // Hooks 必须在所有条件 return 之前（React #310：登录前后 hooks 数量不能变）
+  // Hooks 必须在所有条件 return 之前（React #310：登录前后 hooks 数量/顺序不能变）
   const handleJumpChapter = useCallback((ch) => {
     setSel({ mode: 'node', node: { id: `ch:${ch}`, type: 'chapter', ref: ch, label: `${ch}` } })
   }, [])
@@ -112,6 +112,20 @@ export default function App() {
     applyWorkflowContinue(snap, { onSel: setSel, onJumpChapter: handleJumpChapter })
   }, [handleJumpChapter])
   const onView = useCallback((viewKey) => setSel({ mode: 'view', viewKey }), [])
+
+  const exitAdmin = useCallback(() => {
+    // 清掉 view=admin，回到作品库或当前书写作区
+    setSel({ mode: 'node', node: null })
+  }, [])
+
+  const handleView = useCallback((viewKey) => {
+    // 盾牌：已在管理台再点一次 = 退出
+    if (viewKey === 'admin' && sel.mode === 'view' && sel.viewKey === 'admin') {
+      exitAdmin()
+      return
+    }
+    onView(viewKey)
+  }, [sel, onView, exitAdmin])
 
   // 编排 ui_directive 的 selection：主编/WriteChat 无 setSel 直连时经 s3-selection 落地栏3
   useEffect(() => {
@@ -173,6 +187,7 @@ export default function App() {
     }
   }
 
+  // —— 以下为非 hook 逻辑；条件 return 之后禁止再调用 use* ——
   if (auth === 'checking') {
     return (
       <div className="h-full grid place-items-center bg-canvas text-f13 text-faint/60">
@@ -184,11 +199,6 @@ export default function App() {
   if (auth === 'need_login') {
     return <Login onSuccess={onLoginSuccess} />
   }
-
-  const exitAdmin = useCallback(() => {
-    // 清掉 view=admin，回到作品库或当前书写作区
-    setSel({ mode: 'node', node: null })
-  }, [])
 
   const open = (w) => {
     api.setWork(w.slug)
@@ -203,16 +213,7 @@ export default function App() {
     setSel({ mode: 'node', node: null })
   }
   const activeView = sel.mode === 'view' ? sel.viewKey : null
-
   const isAdmin = !!(me?.is_admin)
-  const handleView = useCallback((viewKey) => {
-    // 盾牌：已在管理台再点一次 = 退出
-    if (viewKey === 'admin' && sel.mode === 'view' && sel.viewKey === 'admin') {
-      exitAdmin()
-      return
-    }
-    onView(viewKey)
-  }, [sel, onView, exitAdmin])
 
   let body
   if (activeView === 'admin' && isAdmin) {
@@ -257,7 +258,7 @@ export default function App() {
           </Suspense>
         </div>
         <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} works={works} cur={cur}
-          onView={onView} onSelectWork={open} onLibrary={() => setCur(null)} />
+          onView={handleView} onSelectWork={open} onLibrary={openLibrary} />
       </div>
       <ToastHost />
     </>
