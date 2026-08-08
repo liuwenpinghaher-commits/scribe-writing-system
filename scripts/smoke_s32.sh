@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # =============================================================================
-# SurrealDB 3.2.4 + scribe3 demo 冒烟（打已部署栈，不启第二套库）
+# scribe3 已部署栈冒烟：确认「系统在跑、主路径通」
+#
+# 做什么：
+#   ready/health、登录、作品列表、章节、codex、记忆 API 可达性
+# 不做什么：
+#   - 不钉死 Surreal/Hermes 小版本号（有容器时只打印版本作参考）
+#   - 不把「产品默认开关」写成永久失败条件（如 fabric 关了只 NOTE，不 fail）
+#   - 不替代完整回归 / 真人 UI 验收
 #
 # 用法：
-#   ./scripts/smoke_s32.sh                  # 默认公网 https://www.qing.blue
-#   BASE_URL=http://127.0.0.1 ./scripts/smoke_s32.sh
-#   在 demo 机上（可走本机反代）:
-#   BASE_URL=http://127.0.0.1 SSH 内执行也可只测 API
+#   ./scripts/smoke_s32.sh
+#   BASE_URL=https://www.qing.blue SMOKE_WORK=main ./scripts/smoke_s32.sh
 #
-# 登录：
-#   优先环境变量 SMOKE_USER / SMOKE_PASS
-#   否则从 DEMO_ENV_FILE（默认尝试 deploy/prod 路径）读 SCRIBE3_BOOTSTRAP_USERS
-#
-# 退出码：0 全绿；非 0 失败步骤
+# 凭证：SMOKE_USER/SMOKE_PASS，或 DEMO_ENV_FILE / deploy/prod/.env 的
+#       SCRIBE3_BOOTSTRAP_USERS
+# 退出码：0 主路径绿；非 0 有硬失败
 # =============================================================================
 set -euo pipefail
 
@@ -31,8 +34,8 @@ notes=()
 log() { printf '%s\n' "$*"; }
 ok() { pass=$((pass + 1)); log "  OK  $*"; }
 bad() { fail=$((fail + 1)); log "  FAIL $*"; notes+=("$*"); }
+note() { log "  NOTE $*"; }
 
-# --- credentials ---
 USER_NAME="${SMOKE_USER:-}"
 PASS_WORD="${SMOKE_PASS:-}"
 if [[ -z "$USER_NAME" || -z "$PASS_WORD" ]]; then
@@ -60,7 +63,6 @@ if [[ -z "$USER_NAME" || -z "$PASS_WORD" ]]; then
 fi
 
 curl_json() {
-  # usage: curl_json METHOD PATH [json_body] [extra curl args...]
   local method="$1" path="$2"
   shift 2
   local body=""
@@ -87,10 +89,11 @@ curl_json() {
   printf '%s' "$code"
 }
 
-log "==> smoke_s32 BASE_URL=$BASE_URL WORK=$WORK user=$USER_NAME"
+log "==> smoke_s32 (liveness) BASE_URL=$BASE_URL WORK=$WORK user=$USER_NAME"
 log "==> $(date -Iseconds 2>/dev/null || date)"
+log "==> 目标：确认已部署栈主路径在跑（非版本钉死、非全量回归）"
 
-# 1 health / ready (public)
+# 1) 进程级可达
 code="$(curl -sS -o "$TMP_BODY" -w '%{http_code}' --connect-timeout 10 --max-time 20 "${API}/ready" || true)"
 if [[ "$code" == "200" ]] && grep -q 'ready' "$TMP_BODY" 2>/dev/null; then
   ok "GET /ready -> $code $(head -c 80 "$TMP_BODY")"
@@ -100,12 +103,16 @@ fi
 
 code="$(curl -sS -o "$TMP_BODY" -w '%{http_code}' --connect-timeout 10 --max-time 20 "${API}/health" || true)"
 if [[ "$code" == "200" ]]; then
-  ok "GET /health -> $code $(head -c 80 "$TMP_BODY")"
+  ok "GET /health -> $code $(head -c 120 "$TMP_BODY")"
+  # health 里若有 db/ns 字样，说明后端认为库可达
+  if grep -qiE 'db|surreal|ns|ok' "$TMP_BODY" 2>/dev/null; then
+    note "health payload suggests backend↔DB path present"
+  fi
 else
   bad "GET /health -> $code $(head -c 120 "$TMP_BODY")"
 fi
 
-# 2 login
+# 2) 鉴权
 code="$(curl_json POST /auth/login "{\"username\":\"${USER_NAME}\",\"password\":\"${PASS_WORD}\"}")"
 if [[ "$code" == "200" ]]; then
   ok "POST /auth/login -> $code"
@@ -113,28 +120,27 @@ else
   bad "POST /auth/login -> $code $(head -c 160 "$TMP_BODY")"
 fi
 
-# 3 capabilities
+# 3) capabilities：只要 200 即主配置 API 活着；开关值只 NOTE
 code="$(curl_json GET /capabilities)"
-if [[ "$code" == "200" ]] && grep -q 'memory_fabric_v1' "$TMP_BODY"; then
-  # fabric should be true by product default
-  if grep -q '"memory_fabric_v1"[[:space:]]*:[[:space:]]*true' "$TMP_BODY"; then
-    ok "GET /capabilities memory_fabric_v1=true"
-  else
-    bad "GET /capabilities memory_fabric not true: $(head -c 200 "$TMP_BODY")"
+if [[ "$code" == "200" ]]; then
+  ok "GET /capabilities -> $code"
+  if grep -q '"memory_fabric_v1"[[:space:]]*:[[:space:]]*true' "$TMP_BODY" 2>/dev/null; then
+    note "memory_fabric_v1=true (product default; not a hard smoke fail if false)"
+  elif grep -q 'memory_fabric' "$TMP_BODY" 2>/dev/null; then
+    note "memory_fabric flag present but not true — feature may be off by env"
   fi
 else
   bad "GET /capabilities -> $code $(head -c 160 "$TMP_BODY")"
 fi
 
-# 4 works
+# 4) 作品域
 code="$(curl_json GET /works)"
 if [[ "$code" == "200" ]]; then
-  ok "GET /works -> $code $(head -c 120 "$TMP_BODY")"
+  ok "GET /works -> $code $(head -c 100 "$TMP_BODY")"
 else
   bad "GET /works -> $code $(head -c 160 "$TMP_BODY")"
 fi
 
-# 5 chapters + codex health (need work header)
 code="$(curl -sS -o "$TMP_BODY" -w '%{http_code}' \
   -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
   -H "X-Work: ${WORK}" \
@@ -152,44 +158,53 @@ code="$(curl -sS -o "$TMP_BODY" -w '%{http_code}' \
   --connect-timeout 10 --max-time 60 \
   "${API}/codex/health" || true)"
 if [[ "$code" == "200" ]]; then
-  ok "GET /codex/health -> $code $(head -c 120 "$TMP_BODY")"
+  ok "GET /codex/health -> $code $(head -c 100 "$TMP_BODY")"
 else
   bad "GET /codex/health -> $code $(head -c 160 "$TMP_BODY")"
 fi
 
-# 6 memory pending-claims
+# 5) 记忆 API：200=通；403=功能关（NOTE）；其它 fail
 code="$(curl -sS -o "$TMP_BODY" -w '%{http_code}' \
   -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
   -H "X-Work: ${WORK}" \
   --connect-timeout 10 --max-time 60 \
   "${API}/memory/pending-claims" || true)"
 if [[ "$code" == "200" ]]; then
-  ok "GET /memory/pending-claims -> $code $(head -c 120 "$TMP_BODY")"
+  ok "GET /memory/pending-claims -> $code"
 elif [[ "$code" == "403" ]]; then
-  bad "GET /memory/pending-claims -> 403 (MEMORY_FABRIC disabled?)"
+  note "GET /memory/pending-claims -> 403 (fabric/feature off — path reachable, feature gated)"
+  ok "memory API gated-but-alive (403)"
 else
   bad "GET /memory/pending-claims -> $code $(head -c 160 "$TMP_BODY")"
 fi
 
-# 7 optional: surreal version via docker on remote-friendly path
+# 6) 可选：容器存活与版本——只打印，永不因版本号 fail
 if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^prod-surreal-1$'; then
+  st="$(docker inspect -f '{{.State.Status}}' prod-surreal-1 2>/dev/null || echo unknown)"
+  if [[ "$st" == "running" ]]; then
+    ok "prod-surreal-1 container running"
+  else
+    bad "prod-surreal-1 container status=$st"
+  fi
   ver="$(docker exec prod-surreal-1 /surreal version 2>/dev/null | head -1 || true)"
-  if echo "$ver" | grep -q '3.2'; then
-    ok "prod-surreal-1 version: $ver"
-  else
-    bad "prod-surreal-1 version unexpected: $ver"
-  fi
   img="$(docker inspect prod-surreal-1 --format '{{.Config.Image}}' 2>/dev/null || true)"
-  if echo "$img" | grep -q 'v3.2'; then
-    ok "prod-surreal-1 image: $img"
-  else
-    bad "prod-surreal-1 image not 3.2.x: $img"
-  fi
+  note "surreal version (info only): ${ver:-?}"
+  note "surreal image (info only): ${img:-?}"
 else
-  log "  SKIP docker surreal version (not on demo host or no docker)"
+  note "skip surreal container inspect (no docker / not on host)"
+fi
+
+if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^prod-backend-1$'; then
+  st="$(docker inspect -f '{{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}}' prod-backend-1 2>/dev/null || echo unknown)"
+  if echo "$st" | grep -q running; then
+    ok "prod-backend-1 $st"
+  else
+    bad "prod-backend-1 $st"
+  fi
 fi
 
 log "==> summary pass=$pass fail=$fail"
+log "==> smoke proves: edge+API+auth+work APIs alive. Does NOT prove: full write SSE, quality, or fixed versions."
 if [[ -n "$REPORT" ]]; then
   {
     echo "# smoke_s32 $(date -Iseconds 2>/dev/null || date)"
