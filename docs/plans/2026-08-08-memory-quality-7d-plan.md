@@ -56,6 +56,14 @@
 - 探针：`scripts/probe_d5_minimal_memory.py`  
 - **未宣称质量 9.5**：仍需消融人评（极简组 vs 全量喂设定）  
 
+## D6 已落地地基（2026-08-08）
+
+- `scribe3/epistemic_guard.py`：讨论全知 / 写作限知 **认知分身横幅**；写路径出口扫描帧外 secret 明文并 **擦除**  
+- `_assemble_write_instructions_v1`：限知章出口 `guard_write_instructions`  
+- `_editor_system`：讨论态挂全知分身说明  
+- 单测：`test_epistemic_guard.py`；探针：`scripts/probe_d6_epistemic.py`  
+- **未宣称质量 9.5**：仍需认知问卷 + 诱导「像戏不是词表」人评  
+
 ## 否决
 
 把 M0–M6 绿写成质量 9.5；keyword 当 D3/D5 主分；关限知冲分。

@@ -353,8 +353,21 @@ def _editor_system(st, focalizer: str = "", chapter: int = None,
             f"{red}\n"
             "落实要求:正文中须可观察到上述约束的结果(如触感/禁忌/禁写法),勿仅口头复述原句。\n"
         )
+    # D6：讨论全知 vs 限知写作分身标注
+    mode_banner = ""
+    try:
+        from scribe3.epistemic_guard import (
+            discussion_omniscient_banner, writing_limited_banner,
+        )
+        if for_generation and focalizer:
+            mode_banner = writing_limited_banner(focalizer)
+        elif not for_generation:
+            mode_banner = discussion_omniscient_banner()
+    except Exception:
+        pass
     return (
         "你是这部长篇小说的资深主编(责编),与作者面对面讨论创作。\n"
+        f"{mode_banner}"
         f"【北极星·作品意图】读者感受:{intent['reader_feeling'] or '—'};"
         f"情感弧:{intent['emotional_arc'] or '—'};绝不背叛的红线:{intent['red_lines'] or '—'}\n"
         f"{constraint}"
@@ -887,10 +900,18 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             skills_index_block(),
         )   # P1 定案B:技法索引(渐进披露)
     if focalizer:
-        focalizer_input = (f"作者指定本章跟随焦点者 {focalizer} 的限知视角:"
-                           "贴该角色所知所感写,别写他不知道的私密。")
+        try:
+            from scribe3.epistemic_guard import writing_limited_banner
+            focalizer_input = writing_limited_banner(focalizer)
+        except Exception:
+            focalizer_input = (f"作者指定本章跟随焦点者 {focalizer} 的限知视角:"
+                               "贴该角色所知所感写,别写他不知道的私密。")
     else:
-        focalizer_input = "本章未指定限知焦点者 → 作者视角(可全知)。"
+        try:
+            from scribe3.epistemic_guard import writing_omniscient_author_banner
+            focalizer_input = writing_omniscient_author_banner()
+        except Exception:
+            focalizer_input = "本章未指定限知焦点者 → 作者视角(可全知)。"
     prefix += _domain_input(
         f"chapter:{chapter}:focalizer", "focalizer",
         focalizer_input,
@@ -1104,7 +1125,18 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             except Exception:
                 logging.getLogger("scribe3").warning(
                     "memory_trace 落库失败(忽略,不阻断写作)", exc_info=True)
-    return compiled.rendered_input
+    # D6：限知写路径出口守卫——帧外 secret 明文不得出站进模型
+    rendered = compiled.rendered_input
+    if focalizer:
+        try:
+            from scribe3.epistemic_guard import guard_write_instructions
+            rendered, _hits = guard_write_instructions(
+                rendered, st, focalizer=focalizer, chapter=chapter, scrub=True,
+            )
+        except Exception:
+            logging.getLogger("scribe3").warning(
+                "epistemic guard failed (fail-soft keep instructions)", exc_info=True)
+    return rendered
 
 
 def check_generate_reread_gate(work: str, chapter: int) -> dict:
