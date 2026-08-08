@@ -1,0 +1,19 @@
+{
+  "capabilities": {
+    "flags": {
+      "snapshot_v1": true,
+      "editorial_thread_v1": false,
+      "memory_fabric_v1": true,
+      "context_inspector_v1": true,
+      "assembler_v1": true,
+      "emergency_rest_write": false
+    },
+    "versions": {
+      "retrieval_policy": "1",
+      "embedding_model": "BAAI/bge-small-zh-v1.5"
+    }
+  },
+  "pending_http": "200",
+  "claims_preview": "{'claims': [], 'work': 'book_6340c01f'}",
+  "result": "PASS"
+}

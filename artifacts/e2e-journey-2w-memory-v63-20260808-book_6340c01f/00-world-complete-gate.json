@@ -1,0 +1,95 @@
+{
+  "slug": "book_6340c01f",
+  "pass": true,
+  "fail_count": 0,
+  "pass_count": 17,
+  "fails": [],
+  "passes": [
+    {
+      "check": "intent.reader_feeling",
+      "ok": true,
+      "detail": "len=19"
+    },
+    {
+      "check": "intent.emotional_arc",
+      "ok": true,
+      "detail": "len=17"
+    },
+    {
+      "check": "intent.red_lines",
+      "ok": true,
+      "detail": "preview='1.铜炉未冷不得念亡者真名\\n2.禁止全知灌设定\\n3.主角不无故背叛\\n4.每章必须出现铜腥味或炉灰的触感；禁止系统流/面板'"
+    },
+    {
+      "check": "intent.total_word_goal",
+      "ok": true,
+      "detail": "goal=45000"
+    },
+    {
+      "check": "characters.count>=4",
+      "ok": true,
+      "detail": "n=4"
+    },
+    {
+      "check": "characters.codex_full(backstory+5fields)",
+      "ok": true,
+      "detail": "full=4/4 names=['冷锅婆', '守炉师父', '灰狸', '覃灰七']"
+    },
+    {
+      "check": "characters.has_protagonist",
+      "ok": true,
+      "detail": "importance values"
+    },
+    {
+      "check": "relations.ge3_or_graph_edges",
+      "ok": true,
+      "detail": "rel_or_edges=5"
+    },
+    {
+      "check": "world_rules_or_propositions.ge3",
+      "ok": true,
+      "detail": "rules=4 fact_nodes=7"
+    },
+    {
+      "check": "facts.ge5_or_graph",
+      "ok": true,
+      "detail": "facts=7 prop_nodes=7"
+    },
+    {
+      "check": "faction_item_term.two_categories",
+      "ok": true,
+      "detail": "kinds={'character': 4, 'faction': 2, 'item': 3, 'term': 3}"
+    },
+    {
+      "check": "promises.ge3",
+      "ok": true,
+      "detail": "n=4"
+    },
+    {
+      "check": "motifs.ge3",
+      "ok": true,
+      "detail": "n=4 names=['炉与名', '印与门', '香债', '铜腥触感']"
+    },
+    {
+      "check": "volumes.ge3",
+      "ok": true,
+      "detail": "n=3"
+    },
+    {
+      "check": "chapters.ge10",
+      "ok": true,
+      "detail": "n=10"
+    },
+    {
+      "check": "synopsis.ge40chars.ge10",
+      "ok": true,
+      "detail": "syn_ok=10"
+    },
+    {
+      "check": "synopsis.mentions_character.ge8",
+      "ok": true,
+      "detail": "align=10"
+    }
+  ],
+  "policy": "WCG must pass before any acceptance draft_loop"
+}
