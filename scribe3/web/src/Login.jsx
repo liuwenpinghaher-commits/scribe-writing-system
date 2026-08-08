@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { Btn, Input } from './ui'
+import { BrandMark } from './BrandMark'
+import { PRODUCT_NAME_ZH, PRODUCT_TAGLINE, PRODUCT_TITLE } from './brand'
 
 const BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
 /**
  * L1 登录页：用户名 + 密码 → POST /auth/login（HttpOnly Cookie 会话）。
- * 不再以粘贴 SCRIBE3_API_TOKEN 为产品主路径（见 docs/L1-AUTH-ISOLATION.md）。
+ * 产品名：铜炉（tonglu）；遗留 SCRIBE3_API_TOKEN 见 docs/L1-AUTH-ISOLATION.md。
  */
 export function Login({ onSuccess }) {
   const [username, setUsername] = useState('')
@@ -53,9 +55,15 @@ export function Login({ onSuccess }) {
         className="w-full max-w-sm rounded-[var(--radius-pane)] bg-surface [box-shadow:var(--shadow-panel)] p-6 space-y-4"
       >
         <div>
-          <h1 className="type-page text-ink">Scribe3</h1>
-          <p className="type-helper text-faint mt-1.5 leading-relaxed">
-            使用账号密码登录写作台。会话由服务器 Cookie 维护，不会在浏览器保存共享 API 密钥。
+          <div className="flex items-center gap-2.5">
+            <BrandMark size={36} />
+            <div>
+              <h1 className="type-page text-ink leading-none">{PRODUCT_NAME_ZH}</h1>
+              <p className="type-meta text-faint mt-1">{PRODUCT_TAGLINE}</p>
+            </div>
+          </div>
+          <p className="type-helper text-faint mt-3 leading-relaxed">
+            登录 {PRODUCT_TITLE}。会话由服务器 Cookie 维护，不会在浏览器保存共享 API 密钥。
           </p>
         </div>
         <Input

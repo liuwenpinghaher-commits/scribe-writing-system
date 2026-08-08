@@ -1,5 +1,6 @@
 import { Sun, Moon, BookOpen, ChevronDown, Network, Activity, Clock, Search, Settings, Compass, Shield, LogOut } from 'lucide-react'
 import { PC_LAYOUT } from './layout/tokens'
+import { BrandMark } from './BrandMark'
 
 // F-06:write/codex 不再是顶栏 tab(已变成左侧项目树两支)。
 // 顶栏横切视图 + 写作旅程(导演状态页)。
@@ -33,7 +34,7 @@ export function AppRail({
   return (
     <header data-testid="app-rail" style={{ height: PC_LAYOUT.topbar }}
       className="shrink-0 flex items-center border-b border-line/70 bg-surface px-4 gap-3">
-      <span className="font-semibold tracking-tight text-brand text-sm select-none">SCRIBE3</span>
+      <BrandMark size={22} showWordmark />
       <button onClick={onOpenLibrary} title="切换 / 选择作品"
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-f13 max-w-[200px] text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-brand">
         <BookOpen size={14} className="shrink-0" />

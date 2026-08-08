@@ -18,7 +18,8 @@
 
 ## 主线
 
-- 产品代码在 **`scribe3/`**（SurrealDB + FastAPI + MCP + React 写作台）。
+- **产品名：铜炉**；技术拼音 **`tonglu`**（UI/包展示用）。品牌说明见 [`docs/brand/README.md`](docs/brand/README.md)。
+- 产品代码目录暂仍为 **`scribe3/`**（SurrealDB + FastAPI + MCP + React；路径迁移见品牌文档，勿贸然改目录）。
 - 先读 [`docs/CURRENT_ARCHITECTURE.md`](docs/CURRENT_ARCHITECTURE.md)。
 - 设计蓝图在 `设计文档/`（可能过期）；冲突时以 CURRENT + 代码为准。
 - 根目录 `交付说明.md` 是早期 SQLite/`scribe/` **归档**，不要当现行手册。
