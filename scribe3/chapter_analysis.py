@@ -36,18 +36,96 @@ def _cache_key(work: str, seq: int, prose: str) -> str:
     return f"{work}|{seq}|{_prose_fp(prose)}"
 
 
-def get_cached_analysis(work: str, seq: int, prose: str) -> dict[str, Any] | None:
-    return _CACHE.get(_cache_key(work, seq, prose))
+def _normalize_cache_payload(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    """统一缓存形态：knowledge + settings(+ 可选已物化 claims)。"""
+    if not isinstance(payload, dict):
+        return None
+    settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
+    claims = payload.get("claims")
+    # 若只有 claims 对象列表，尝试不强制；调用方应用 claims_from_settings_json
+    out = {
+        "knowledge": payload.get("knowledge"),
+        "settings": settings,
+        "format": payload.get("format"),
+        "claims": claims if isinstance(claims, list) else [],
+    }
+    return out
 
 
-def put_cached_analysis(work: str, seq: int, prose: str, payload: dict[str, Any]) -> None:
+def get_cached_analysis(
+    work: str,
+    seq: int,
+    prose: str,
+    *,
+    st: Any = None,
+) -> dict[str, Any] | None:
+    """进程内 → 库内。返回含 knowledge/settings/claims(可能需从 settings 重建)。"""
+    mem = _CACHE.get(_cache_key(work, seq, prose))
+    if mem:
+        return _normalize_cache_payload(mem)
+    if st is not None and hasattr(st, "get_post_analysis_cache"):
+        try:
+            body = st.get_post_analysis_cache(int(seq), prose or "")
+        except Exception as e:
+            _log.warning("get_post_analysis_cache: %s", e)
+            body = None
+        if body:
+            # 物化 claims
+            settings = body.get("settings") if isinstance(body.get("settings"), dict) else {}
+            claims = claims_from_settings_json(settings) if settings else []
+            # knowledge_edges 兼容
+            if settings and "knowledge_edges" in settings and "knowledge" not in settings:
+                settings = dict(settings)
+                settings["knowledge"] = settings.get("knowledge_edges") or []
+                claims = claims_from_settings_json(settings)
+            payload = {
+                "knowledge": body.get("knowledge"),
+                "settings": settings,
+                "claims": claims,
+                "format": body.get("format") or "store",
+            }
+            # 回填进程缓存
+            put_cached_analysis(work, seq, prose, payload, st=None)
+            return payload
+    return None
+
+
+def put_cached_analysis(
+    work: str,
+    seq: int,
+    prose: str,
+    payload: dict[str, Any],
+    *,
+    st: Any = None,
+) -> None:
+    """双写：进程内 + 可选 Surreal chapter 字段。"""
+    # 规范化：CanonClaim → 只靠 settings；knowledge 原样
+    settings = payload.get("settings")
+    if not isinstance(settings, dict):
+        settings = {}
+    claims = payload.get("claims") or []
+    # 若 claims 是 CanonClaim 且 settings 空，不强行反序列化（调用方应传 settings）
+    norm = {
+        "knowledge": payload.get("knowledge"),
+        "settings": settings,
+        "claims": claims,
+        "format": payload.get("format"),
+    }
     if len(_CACHE) >= _CACHE_MAX:
-        # 丢最旧一条
         try:
             _CACHE.pop(next(iter(_CACHE)))
         except Exception:
             _CACHE.clear()
-    _CACHE[_cache_key(work, seq, prose)] = payload
+    _CACHE[_cache_key(work, seq, prose)] = norm
+    if st is not None and hasattr(st, "set_post_analysis_cache"):
+        try:
+            st.set_post_analysis_cache(int(seq), prose or "", {
+                "knowledge": norm.get("knowledge"),
+                "settings": settings,
+                "format": norm.get("format"),
+            })
+        except Exception as e:
+            _log.warning("set_post_analysis_cache: %s", e)
 
 
 def build_unified_chapter_prompt(
@@ -218,11 +296,9 @@ def run_unified_llm_extract(
         has_kn = bool(kn and any(kn.get(k) for k in ("learned", "did", "events", "arc", "motif", "promise_touch")))
         has_set = bool(parsed.get("claims"))
         if parsed.get("format") == "unified" and parsed.get("raw_ok"):
-            # 合法统一包（含空增量）直接接受
             return parsed
         if has_kn or has_set:
             return parsed
-        # 尝试用旧 parse_knowledge_delta 抢救
         kd = parse_knowledge_delta(reply)
         if kd is not None:
             from scribe3.ingest import parse_relation_touches
@@ -230,6 +306,34 @@ def run_unified_llm_extract(
             parsed["format"] = "legacy_knowledge_salvage"
             return parsed
     return last
+
+
+def ensure_events_in_knowledge(
+    knowledge: dict[str, Any] | None,
+    prose: str,
+    complete_fn: Callable[[str], str],
+    *,
+    max_attempts: int = 2,
+) -> dict[str, Any] | None:
+    """统一包若漏 events，专用第二枪补事件（与 ingest 旧逻辑同构）。"""
+    if knowledge is None:
+        return None
+    from scribe3.ingest import _build_dedicated_event_extract_prompt, _has_persistable_event
+    if _has_persistable_event(knowledge):
+        return knowledge
+    for _ in range(max(1, max_attempts)):
+        try:
+            reply = complete_fn(_build_dedicated_event_extract_prompt(prose)) or ""
+        except Exception as e:
+            _log.warning("event backfill fail: %s", e)
+            continue
+        event_delta = parse_knowledge_delta(reply)
+        if event_delta is not None and _has_persistable_event(event_delta):
+            knowledge = dict(knowledge)
+            knowledge["events"] = event_delta["events"]
+            knowledge["_events_backfilled"] = True
+            return knowledge
+    return knowledge
 
 
 def context_from_store(st: Any) -> dict[str, Any]:
@@ -305,12 +409,15 @@ def extract_for_ingest(
     if not prose:
         ch = st.get_chapter(seq) if st and hasattr(st, "get_chapter") else {}
         prose = (ch or {}).get("prose") or ""
-    cached = get_cached_analysis(work, seq, prose)
+    cached = get_cached_analysis(work, seq, prose, st=st)
     if cached and cached.get("knowledge") is not None:
+        kn = cached["knowledge"]
+        # 缓存也可能漏 events：有 complete_fn 时补枪
+        kn = ensure_events_in_knowledge(kn, prose, complete_fn, max_attempts=1)
         return {
-            "delta": cached["knowledge"],
+            "delta": kn,
             "claims": cached.get("claims") or [],
-            "source": "cache",
+            "source": "cache" if not (kn or {}).get("_events_backfilled") else "cache+events",
             "format": cached.get("format"),
         }
     if not unified_analysis_enabled() or not complete_fn:
@@ -319,15 +426,16 @@ def extract_for_ingest(
     parsed = run_unified_llm_extract(
         prose, complete_fn, max_attempts=max_attempts, **ctx,
     )
-    # 合并 relation_touches
     kn = parsed.get("knowledge")
     if kn is not None and "relation_touches" not in kn:
         kn["relation_touches"] = []
+    kn = ensure_events_in_knowledge(kn, prose, complete_fn, max_attempts=max_attempts)
     put_cached_analysis(work, seq, prose, {
         "knowledge": kn,
+        "settings": parsed.get("settings") or {},
         "claims": parsed.get("claims") or [],
         "format": parsed.get("format"),
-    })
+    }, st=st)
     return {
         "delta": kn,
         "claims": parsed.get("claims") or [],
@@ -360,36 +468,49 @@ def claims_for_prose_unified(
 
     if m in ("llm", "hybrid") and unified_analysis_enabled():
         ctx = context_from_store(st)
-        # 缓存
         if seq is not None:
-            cached = get_cached_analysis(work, seq, prose or "")
-            if cached and (cached.get("claims") is not None or cached.get("knowledge") is not None):
+            cached = get_cached_analysis(work, seq, prose or "", st=st)
+            if cached and (
+                cached.get("claims")
+                or cached.get("knowledge") is not None
+                or cached.get("settings")
+            ):
                 for c in cached.get("claims") or []:
                     claims.append(c)
+                kn = cached.get("knowledge")
+                if kn is not None and complete_fn:
+                    kn = ensure_events_in_knowledge(kn, prose or "", complete_fn, max_attempts=1)
                 meta.update({
                     "unified": True,
-                    "knowledge": cached.get("knowledge"),
+                    "knowledge": kn,
                     "format": cached.get("format") or "cache",
                     "from_cache": True,
+                    "settings": cached.get("settings") or {},
                 })
                 return claims, meta
         parsed = run_unified_llm_extract(
             prose or "", complete_fn, max_attempts=max_attempts, **ctx,
         )
+        kn = parsed.get("knowledge")
+        if kn is not None and complete_fn:
+            kn = ensure_events_in_knowledge(kn, prose or "", complete_fn, max_attempts=1)
+            parsed["knowledge"] = kn
         for c in parsed.get("claims") or []:
             claims.append(c)
         meta.update({
             "unified": True,
-            "knowledge": parsed.get("knowledge"),
+            "knowledge": kn,
             "format": parsed.get("format"),
             "from_cache": False,
+            "settings": parsed.get("settings") or {},
         })
         if seq is not None:
             put_cached_analysis(work, seq, prose or "", {
-                "knowledge": parsed.get("knowledge"),
+                "knowledge": kn,
+                "settings": parsed.get("settings") or {},
                 "claims": parsed.get("claims") or [],
                 "format": parsed.get("format"),
-            })
+            }, st=st)
         return claims, meta
 
     # hybrid/llm 但统一关闭：回退旧仅设定 LLM

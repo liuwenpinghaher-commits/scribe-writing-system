@@ -53,10 +53,66 @@ def test_unified_extract_with_fake_fn():
 
 
 def test_cache_roundtrip():
-    put_cached_analysis("w1", 3, "正文甲", {"knowledge": {"learned": []}, "claims": [], "format": "unified"})
+    put_cached_analysis(
+        "w1", 3, "正文甲",
+        {"knowledge": {"learned": []}, "settings": {}, "claims": [], "format": "unified"},
+    )
     c = get_cached_analysis("w1", 3, "正文甲")
     assert c and c["format"] == "unified"
     assert get_cached_analysis("w1", 3, "正文乙") is None
+
+
+def test_store_cache_and_events_backfill():
+    """库缓存 + 事件补枪。"""
+    from scribe3.chapter_analysis import ensure_events_in_knowledge, put_cached_analysis, get_cached_analysis
+
+    class _St:
+        def __init__(self):
+            self.blob = None
+            self.fp = None
+
+        def set_post_analysis_cache(self, seq, prose, payload):
+            import hashlib, json
+            self.fp = hashlib.sha256((prose or "").encode()).hexdigest()[:16]
+            self.blob = json.dumps({**payload, "prose_fp": self.fp}, ensure_ascii=False)
+
+        def get_post_analysis_cache(self, seq, prose):
+            import hashlib, json
+            if not self.blob:
+                return None
+            fp = hashlib.sha256((prose or "").encode()).hexdigest()[:16]
+            body = json.loads(self.blob)
+            if body.get("prose_fp") != fp:
+                return None
+            return body
+
+    st = _St()
+    put_cached_analysis(
+        "w", 1, "取出火镰。",
+        {
+            "knowledge": {"learned": [], "did": [], "events": []},
+            "settings": {"items": [{"name": "火镰", "evidence": "取出火镰"}]},
+            "format": "unified",
+        },
+        st=st,
+    )
+    # 清进程缓存，只靠 store
+    from scribe3 import chapter_analysis as ca
+    ca._CACHE.clear()
+    got = get_cached_analysis("w", 1, "取出火镰。", st=st)
+    assert got and got.get("settings", {}).get("items")
+    assert any(c.target == "火镰" for c in (got.get("claims") or []))
+
+    def fake_ev(prompt: str) -> str:
+        assert "事件" in prompt or "events" in prompt.lower() or "专用" in prompt
+        return '{"events":[{"type":"取物","participants":{"SUBJ":"沈"},"goal":"点火","caused_by":[]}]}'
+
+    kn = ensure_events_in_knowledge(
+        {"learned": [], "did": [], "events": []},
+        "取出火镰。",
+        fake_ev,
+    )
+    assert kn and kn["events"] and kn.get("_events_backfilled")
 
 
 def test_prompt_contains_bible_and_wrapper():

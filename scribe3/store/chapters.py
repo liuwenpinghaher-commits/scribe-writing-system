@@ -967,3 +967,95 @@ class ChaptersMixin:
             f"UPDATE type::thing('chapter', $seq) SET {', '.join(set_parts)}",
             params)
         return True
+
+    # ── 章后统一分析缓存（跨进程；与 chapter_analysis 进程内缓存双写）──
+    def set_post_analysis_cache(self, seq: int, prose: str, payload: dict) -> None:
+        """落库 knowledge+settings 缓存；payload 须 JSON 可序列化。"""
+        import hashlib
+        import json
+        import time
+        prose = prose or ""
+        fp = hashlib.sha256(prose.encode("utf-8")).hexdigest()[:16]
+        # 只存可序列化字段；claims 由 settings 再生成
+        body = {
+            "prose_fp": fp,
+            "knowledge": payload.get("knowledge"),
+            "settings": payload.get("settings") or {},
+            "format": payload.get("format"),
+            "ts": int(time.time()),
+        }
+        try:
+            raw = json.dumps(body, ensure_ascii=False)
+        except Exception as e:
+            logging.getLogger("scribe3.store").warning("post_analysis_cache serialize: %s", e)
+            return
+        # 限体积：过大则只留 knowledge 摘要标志
+        if len(raw) > 400_000:
+            body = {
+                "prose_fp": fp,
+                "knowledge": payload.get("knowledge"),
+                "settings": {},
+                "format": payload.get("format"),
+                "ts": int(time.time()),
+                "truncated": True,
+            }
+            raw = json.dumps(body, ensure_ascii=False)
+        try:
+            self._execute_write(
+                "UPDATE type::thing('chapter', $seq) SET "
+                "post_analysis_cache=$c, post_analysis_fp=$fp, post_analysis_at=time::now() "
+                "RETURN NONE",
+                {"seq": int(seq), "c": raw, "fp": fp},
+            )
+        except Exception as e:
+            # 老库未 migration：best-effort DEFINE 再试一次
+            try:
+                self._raw_query(
+                    "DEFINE FIELD IF NOT EXISTS post_analysis_cache ON chapter TYPE option<string>;"
+                )
+                self._raw_query(
+                    "DEFINE FIELD IF NOT EXISTS post_analysis_fp ON chapter TYPE option<string>;"
+                )
+                self._execute_write(
+                    "UPDATE type::thing('chapter', $seq) SET "
+                    "post_analysis_cache=$c, post_analysis_fp=$fp, post_analysis_at=time::now() "
+                    "RETURN NONE",
+                    {"seq": int(seq), "c": raw, "fp": fp},
+                )
+            except Exception as e2:
+                logging.getLogger("scribe3.store").warning(
+                    "set_post_analysis_cache fail seq=%s: %s / %s", seq, e, e2)
+
+    def get_post_analysis_cache(self, seq: int, prose: str) -> dict | None:
+        """读章后分析缓存；prose 指纹不一致则视为失效。"""
+        import hashlib
+        import json
+        prose = prose or ""
+        fp = hashlib.sha256(prose.encode("utf-8")).hexdigest()[:16]
+        try:
+            rows = self._query(
+                "SELECT post_analysis_cache, post_analysis_fp "
+                "FROM type::thing('chapter', $seq)",
+                {"seq": int(seq)},
+            )
+        except Exception:
+            return None
+        if not rows:
+            return None
+        row = rows[0] or {}
+        stored_fp = (row.get("post_analysis_fp") or "").strip()
+        raw = row.get("post_analysis_cache")
+        if not raw:
+            return None
+        if stored_fp and stored_fp != fp:
+            return None
+        try:
+            body = json.loads(raw) if isinstance(raw, str) else raw
+        except Exception:
+            return None
+        if not isinstance(body, dict):
+            return None
+        if (body.get("prose_fp") or stored_fp) and (body.get("prose_fp") or stored_fp) != fp:
+            return None
+        return body
+
