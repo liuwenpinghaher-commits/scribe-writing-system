@@ -218,9 +218,18 @@ def qc(seq: int, work: str = "main"):
         out["detector_errors"] = det_errs
     return out
 
-def check_prose(req: CheckReq, seq: int, work: str = "main"):
+def check_prose(req: CheckReq, seq: int | None = Query(default=None), work: str = "main"):
     """护栏轻检查:QC + 限知泄露,不落库(改造③ 停笔静默刷新用)。
-    F-05: 新增顶层 issues 列表(带 range),兼容旧 qc/leaks 计数字段。"""
+    F-05: 新增顶层 issues 列表(带 range),兼容旧 qc/leaks 计数字段。
+
+    章号解析：query ?seq= 优先，否则 body.seq / body.chapter（避免只传 body 时 422）。"""
+    resolved = seq if seq is not None else (req.seq if req.seq is not None else req.chapter)
+    if resolved is None:
+        raise HTTPException(
+            status_code=422,
+            detail="需要章号：query ?seq= 或 body.seq / body.chapter",
+        )
+    seq = int(resolved)
     st = _store_for(work)
     from scribe3.critique import quality_flags, quality_issues
     # 方案B任务14:本书 craft 豁免——extra(升华正则加法)+ allow_words/allow_patterns
@@ -284,16 +293,25 @@ def check_prose(req: CheckReq, seq: int, work: str = "main"):
         logging.getLogger("scribe3").warning("check aggregate_ai_grade 失败: %s", e)
     return resp
 
-def post_check(req: PostCheckReq, seq: int, work: str = "main"):
+def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: str = "main"):
     """生成后全量体检:五类确定性 QC + 限知泄露 + LLM 语义纪律判(fail-open)。
     不落库。注册为 read-only POST(见 KNOWN_REST_WRITE_ROUTES)。
     F-05: 新增顶层 issues 列表(带 range),兼容旧 quality/leaks 字段。
-    M2-②: 新增 duplicate_lines/emotion_telling(B/C 检测器)+ cross_consistency(跨章矛盾)。"""
+    M2-②: 新增 duplicate_lines/emotion_telling(B/C 检测器)+ cross_consistency(跨章矛盾)。
+
+    章号：query ?seq= 优先，否则 body.seq / body.chapter。"""
     import logging
     from scribe3.critique import (quality_flags, quality_issues, discipline_truncate,
                                   find_duplicate_lines, find_emotion_telling,
                                   find_parallelism, find_poetic_fragments,
                                   find_unbalanced_quotes, find_watch_regression)
+    resolved = seq if seq is not None else (req.seq if req.seq is not None else req.chapter)
+    if resolved is None:
+        raise HTTPException(
+            status_code=422,
+            detail="需要章号：query ?seq= 或 body.seq / body.chapter",
+        )
+    seq = int(resolved)
     st = _store_for(work)
 
     # 方案B任务14:本书 craft 豁免——extra(升华正则加法)+ allow_words/allow_patterns

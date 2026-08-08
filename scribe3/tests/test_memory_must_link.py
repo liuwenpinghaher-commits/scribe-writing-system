@@ -34,9 +34,12 @@ class _FakeStore:
 
     def characters(self):
         class C:
-            def __init__(self, id, name):
-                self.id, self.name = id, name
-        return [C("role:覃灰七", "覃灰七"), C("role:冷锅婆", "冷锅婆")]
+            def __init__(self, id, name, importance=""):
+                self.id, self.name, self.importance = id, name, importance
+        return [
+            C("role:覃灰七", "覃灰七", "protagonist"),
+            C("role:冷锅婆", "冷锅婆", "major"),
+        ]
 
 
 def test_collect_must_anchors_prefers_synopsis_overlap():
@@ -86,3 +89,11 @@ def test_is_minimal_steer_env(monkeypatch):
     assert is_minimal_steer() is True
     monkeypatch.setenv("SCRIBE3_MEMORY_STEER_MODE", "full")
     assert is_minimal_steer() is False
+
+
+def test_collect_must_anchors_no_chapter_still_has_promises():
+    """讨论态无 chapter：仍应钉住开放伏笔与主角。"""
+    a = collect_must_anchors(_FakeStore(), None, limit=10, query="铜匙 缺口")
+    texts = " ".join(x["text"] for x in a)
+    assert "开放伏笔" in texts or "鉴伪" in texts or "香债" in texts
+    assert "覃灰七" in texts or "主角" in texts or "三棱" in texts

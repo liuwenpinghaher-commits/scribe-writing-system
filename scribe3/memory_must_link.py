@@ -47,12 +47,25 @@ def _chapter_blob(store, chapter: int | None) -> str:
     return "\n".join(parts)
 
 
-def collect_must_anchors(store, chapter: int | None, *, limit: int = 12) -> list[dict[str, Any]]:
+def collect_must_anchors(
+    store,
+    chapter: int | None,
+    *,
+    limit: int = 12,
+    query: str = "",
+) -> list[dict[str, Any]]:
     """从本章大纲 + 开放伏笔 + 当章事实中抽取 must-link 锚点。
+
+    chapter 为空（讨论态）：仍用开放伏笔 + 主角 + query 重叠事实 + 物件 condition 类，
+    避免 must-link 整块空。
 
     返回 [{source_id, text, kind, score}]，score 越高越该优先入预算。
     """
     blob = _chapter_blob(store, chapter)
+    q = (query or "").strip()
+    if q:
+        blob = (blob + "\n" + q).strip()
+    no_chapter = not chapter
     anchors: list[dict[str, Any]] = []
     seen: set[str] = set()
 
@@ -68,7 +81,7 @@ def collect_must_anchors(store, chapter: int | None, *, limit: int = 12) -> list
             "score": score,
         })
 
-    # 1) 开放伏笔（戏剧压力）
+    # 1) 开放伏笔（戏剧压力；无章时仍全收，讨论态也有可钉锚）
     try:
         for p in (store.open_promises() or [])[:8]:
             if not isinstance(p, dict):
@@ -77,14 +90,21 @@ def collect_must_anchors(store, chapter: int | None, *, limit: int = 12) -> list
             txt = (p.get("text") or "").strip()
             if not txt:
                 continue
-            # 本章或更早埋的、尚未回收的伏笔优先
-            score = 3.0 if chapter and setup and setup <= int(chapter) else 1.5
+            if chapter and setup and setup <= int(chapter):
+                score = 3.0
+            elif no_chapter:
+                score = 2.5  # 讨论态：伏笔仍是全书戏剧压力
+            else:
+                score = 1.5
+            # query 命中伏笔文本再抬
+            if q and any(tok in txt for tok in re.findall(r"[\u4e00-\u9fff]{2,8}", q)[:6]):
+                score += 1.0
             pid = str(p.get("id") or f"promise:{setup}")
             _add(pid, f"开放伏笔:第{setup}章埋 {txt[:48]}", "promise", score)
     except Exception:
         pass
 
-    # 2) 当章有效事实：与 synopsis 有字面重叠的优先
+    # 2) 当章有效事实：与 synopsis/query 有字面重叠的优先；无章时保物件 condition/artifact
     try:
         ch_n = int(chapter) if chapter else 99999
         facts = store.facts_at(ch_n) if hasattr(store, "facts_at") else []
@@ -97,26 +117,35 @@ def collect_must_anchors(store, chapter: int | None, *, limit: int = 12) -> list
             if not line:
                 continue
             score = 1.0
-            # 实体名/值出现在大纲里 → 戏剧必需
             name_hint = eid.split(":")[-1] if ":" in eid else eid
             if name_hint and name_hint in blob:
                 score += 2.5
             if val and len(val) >= 2 and val[:8] in blob:
                 score += 1.5
-            if attr in ("condition", "state", "artifact") and name_hint in blob:
-                score += 1.0
-            if score >= 2.0:
+            if attr in ("condition", "state", "artifact"):
+                if name_hint in blob or no_chapter:
+                    score += 1.2 if no_chapter else 1.0
+            # 讨论态：主角相关 / 高分物件多保留几条
+            if score >= 2.0 or (no_chapter and score >= 2.0):
+                _add(str(fid), f"{eid}·{attr}={val[:60]}", "fact", score)
+            elif no_chapter and attr in ("condition", "artifact") and score >= 1.5:
                 _add(str(fid), f"{eid}·{attr}={val[:60]}", "fact", score)
     except Exception:
         pass
 
-    # 3) 角色名出现在大纲
+    # 3) 角色：有章看大纲；无章钉主角
     try:
         for c in (store.characters() or [])[:20]:
             name = getattr(c, "name", None) or (c.get("name") if isinstance(c, dict) else "")
             cid = getattr(c, "id", None) or (c.get("id") if isinstance(c, dict) else name)
+            imp = getattr(c, "importance", None) or (
+                c.get("importance") if isinstance(c, dict) else "")
             if name and name in blob:
                 _add(str(cid), f"出场/相关角色:{name}", "character", 2.0)
+            elif no_chapter and imp == "protagonist" and name:
+                _add(str(cid), f"主角:{name}", "character", 2.2)
+            elif no_chapter and name and q and name in q:
+                _add(str(cid), f"相关角色:{name}", "character", 2.0)
     except Exception:
         pass
 

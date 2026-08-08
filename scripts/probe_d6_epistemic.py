@@ -62,12 +62,19 @@ def main():
     if not prose:
         print("WARN no prose; skip find_leaks API")
     else:
-        # post_check style if available
-        code, res = curl("POST", "/api/check", {
-            "prose": prose[:20000],
-            "focalizer": foc or "role:灰狸",
-            "chapter": seq,
-        }, work=w, timeout=120)
+        # /check 需要章号：query ?seq= 或 body.seq/chapter（边角修复后两者皆可）
+        code, res = curl(
+            "POST",
+            f"/api/check?seq={seq}",
+            {
+                "prose": prose[:20000],
+                "focalizer": foc or "role:灰狸",
+                "chapter": seq,
+                "seq": seq,
+            },
+            work=w,
+            timeout=120,
+        )
         print("check http", code, str(res)[:300] if res else "")
         leaks = []
         if isinstance(res, dict):

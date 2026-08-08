@@ -334,7 +334,8 @@ class ContextAssembler:
         items: dict[str, list[_Item]] = {}
         items["focus"] = self._focus_items(snapshot, user_query, mode)
         items["global"] = self._global_items(snapshot)
-        items["canonical"] = self._canonical_items(snapshot, by_kind.get("canonical"))
+        items["canonical"] = self._canonical_items(
+            snapshot, by_kind.get("canonical"), user_query=user_query or "")
         items["recent"] = self._recent_items(
             snapshot, by_kind.get("working", []) + by_kind.get("episodic", []))
         items["procedural"] = self._procedural_items(snapshot, by_kind.get("procedural"))
@@ -561,7 +562,9 @@ class ContextAssembler:
                 source_id="characters:main", source_kind="global", work=snapshot.work)))
         return out
 
-    def _canonical_items(self, snapshot: ContextSnapshot, cands) -> list[_Item]:
+    def _canonical_items(
+        self, snapshot: ContextSnapshot, cands, *, user_query: str = "",
+    ) -> list[_Item]:
         """canonical:权威表。有 retriever 候选走候选(带限知屏蔽);否则降级直查 store。
         无论哪条路径,focalizer 非空时 secret value 都物理屏蔽 + 留痕 masked=True。
 
@@ -570,15 +573,26 @@ class ContextAssembler:
             base = self._canonical_from_candidates(snapshot, cands)
         else:
             base = self._canonical_from_store(snapshot)
-        return self._pin_must_link(snapshot, base)
+        return self._pin_must_link(snapshot, base, user_query=user_query)
 
-    def _pin_must_link(self, snapshot: ContextSnapshot, base: list[_Item]) -> list[_Item]:
-        """把戏剧必需锚钉在 canonical 头部，避免预算裁掉关键物件/伏笔。"""
+    def _pin_must_link(
+        self,
+        snapshot: ContextSnapshot,
+        base: list[_Item],
+        *,
+        user_query: str = "",
+    ) -> list[_Item]:
+        """把戏剧必需锚钉在 canonical 头部，避免预算裁掉关键物件/伏笔。
+
+        user_query：讨论态无 chapter 时用查询串抬升相关锚。
+        """
         try:
             from scribe3.memory_must_link import (
                 collect_must_anchors, format_must_link_items,
             )
-            anchors = collect_must_anchors(self.store, snapshot.chapter, limit=10)
+            anchors = collect_must_anchors(
+                self.store, snapshot.chapter, limit=10, query=user_query or "",
+            )
             if not anchors:
                 return base
             must_pairs = format_must_link_items(anchors, work=snapshot.work or "")

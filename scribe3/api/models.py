@@ -424,6 +424,9 @@ class CheckReq(BaseModel):
     prose: str
     focalizer: str = ""
     short_mode: bool = False  # 方案B任务16:短篇模式——透传给 aggregate_ai_grade,
+    # 边角：body 也可带章号（query ?seq= 仍优先）；chapter 为别名
+    seq: int | None = None
+    chapter: int | None = None
 
 
 class PostCheckReq(BaseModel):
@@ -431,6 +434,8 @@ class PostCheckReq(BaseModel):
     focalizer: str = ""
     brief: str = ""
     short_mode: bool = False  # 方案B任务16:短篇模式——直写情绪+审判金句合法,
+    seq: int | None = None
+    chapter: int | None = None
 
 
 class DraftCheckReq(BaseModel):
