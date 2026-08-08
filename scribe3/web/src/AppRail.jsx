@@ -1,4 +1,4 @@
-import { Sun, Moon, BookOpen, ChevronDown, Network, Activity, Clock, Search, Settings, Compass, Shield } from 'lucide-react'
+import { Sun, Moon, BookOpen, ChevronDown, Network, Activity, Clock, Search, Settings, Compass, Shield, LogOut } from 'lucide-react'
 import { PC_LAYOUT } from './layout/tokens'
 
 // F-06:write/codex 不再是顶栏 tab(已变成左侧项目树两支)。
@@ -25,7 +25,11 @@ function triggerSearch(onSearch) {
 // 高度取自布局 token(单一真源),不硬编码,与四栏 rail/directory 等尺寸同源。
 // view:当前选中的横切 viewKey(null/无 = 在项目树/写作态,不高亮任何 tab)。
 // status:系统状态区可注入的实时指示(连接/后台任务…),缺省中性,不谎报「在线」。
-export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, showViews = true, onSearch, status = null, capsule = null, isAdmin = false }) {
+export function AppRail({
+  current, view, onView, onOpenLibrary, theme, onTheme,
+  showViews = true, onSearch, status = null, capsule = null,
+  isAdmin = false, username = '', onLogout = null,
+}) {
   return (
     <header data-testid="app-rail" style={{ height: PC_LAYOUT.topbar }}
       className="shrink-0 flex items-center border-b border-line/70 bg-surface px-4 gap-3">
@@ -89,6 +93,28 @@ export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, 
           className="w-8 h-8 rounded-lg text-faint hover:text-ink hover:bg-soft inline-flex items-center justify-center cursor-pointer">
           {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
         </button>
+        {username ? (
+          <span
+            className="hidden sm:inline max-w-[7rem] truncate text-f12 text-faint px-1"
+            title={username}
+            data-testid="topbar-username"
+          >
+            {username}
+          </span>
+        ) : null}
+        {typeof onLogout === 'function' && (
+          <button
+            type="button"
+            onClick={onLogout}
+            title="退出当前账号"
+            aria-label="退出当前账号"
+            data-testid="topbar-logout"
+            className="h-7 px-2 rounded-md text-f12 text-faint hover:text-ink hover:bg-soft inline-flex items-center gap-1 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          >
+            <LogOut size={14} />
+            <span className="hidden sm:inline">退出</span>
+          </button>
+        )}
       </div>
 
       {/* 系统状态区:独立成格,承载注入的实时指示;缺省中性圆点,不谎报状态。 */}

@@ -4,7 +4,7 @@ import { AppRail } from './AppRail'
 import { CommandPalette } from './CommandPalette'
 import { ToastHost } from './ui/Toast'
 import { Login } from './Login'
-import { clearApiToken } from './authFetch'
+import { clearApiToken, logoutSession } from './authFetch'
 import { WorkflowCapsule, applyWorkflowContinue } from './WorkflowCapsule'
 
 const ACTIVE_WORK_STORAGE_KEY = 's3-active-work'
@@ -39,6 +39,21 @@ export default function App() {
     setMe(null)
     setWorks([])
     setCur(null)
+    setSel({ mode: 'node', node: null })
+  }, [])
+
+  /** 主动退出当前账号：清 Cookie 会话 + 回登录页（hook 须在 early return 前） */
+  const handleLogout = useCallback(async () => {
+    try {
+      await logoutSession()
+    } catch { /* Cookie 清失败也回登录 */ }
+    clearApiToken()
+    setAuth('need_login')
+    setMe(null)
+    setWorks([])
+    setCur(null)
+    setSel({ mode: 'node', node: null })
+    writeActiveWorkSlug('')
   }, [])
 
   useEffect(() => {
