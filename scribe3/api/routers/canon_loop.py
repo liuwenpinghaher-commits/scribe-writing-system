@@ -452,6 +452,64 @@ class PurgeNoiseReq(BaseModel):
     batch_size: int = Field(default=2000, ge=50, le=5000)
 
 
+@router.post("/canon/candidates/dedupe")
+def dedupe_candidates_ep(work: str = "main"):
+    """合并 pending 重复项：同 module|name|field|op 只留一条（最新），其余 rejected。"""
+    from scribe3.canon_inbox import codex_already_has, dedupe_key, facets
+
+    st = _store(work)
+    if not hasattr(st, "list_canon_candidates"):
+        raise HTTPException(503, "no candidate store")
+    pending = st.list_canon_candidates(status="pending") or []
+    # ORDER BY created_at DESC → 先遇到的更新
+    kept: dict[str, str] = {}
+    rejected = 0
+    already = 0
+    for row in pending:
+        uid = row.get("id")
+        if not uid:
+            continue
+        # 库中已有 → 直接拒
+        if codex_already_has(st, row):
+            try:
+                st.set_canon_candidate_status(uid, "rejected")
+                already += 1
+            except Exception:
+                pass
+            continue
+        k = dedupe_key(row)
+        if k in kept:
+            try:
+                st.set_canon_candidate_status(uid, "rejected")
+                rejected += 1
+            except Exception:
+                pass
+        else:
+            kept[k] = uid
+    debt = {}
+    try:
+        if hasattr(st, "count_canon_debt"):
+            debt = st.count_canon_debt() or {}
+        fac = facets(st.list_canon_candidates(status="pending") or [])
+        debt = {
+            **debt,
+            "noise_count": fac.get("noise_count"),
+            "suggested_priority_count": fac.get("suggested_priority_count"),
+            "total": fac.get("total", debt.get("total")),
+            "by_module": fac.get("by_module"),
+        }
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "work": work,
+        "kept": len(kept),
+        "rejected_dupes": rejected,
+        "rejected_already_in_codex": already,
+        "debt": debt,
+    }
+
+
 @router.post("/canon/candidates/purge-noise")
 def purge_noise_ep(req: PurgeNoiseReq, work: str | None = None):
     """全书 pending 噪声一键清除：按最新 is_noise_heuristic 多轮 reject。"""

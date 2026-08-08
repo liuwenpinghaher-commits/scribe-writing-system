@@ -144,10 +144,23 @@ def _known_names(st: Any) -> list[str]:
 
 
 def _persist_pack_items(st: Any, pack_dict: dict, *, seq: int | None, source: str) -> list[str]:
-    """把 pack items 写入 canon_candidate，返回 ids。"""
+    """把 pack items 写入 canon_candidate，返回 ids。
+
+    噪声 / 库中已有 / 本批重复 → status=rejected（仍落库可审计，不占待批）。
+    """
     if st is None or not hasattr(st, "add_canon_candidate"):
         return [i.get("id") for i in (pack_dict.get("items") or []) if i.get("id")]
-    ids = []
+    from scribe3.canon_inbox import codex_already_has, dedupe_key, is_noise_heuristic
+
+    ids: list[str] = []
+    seen_keys: set[str] = set()
+    # 已 pending 的键：避免同对象反复入队
+    try:
+        for p in (st.list_canon_candidates(status="pending") or []):
+            seen_keys.add(dedupe_key(p))
+    except Exception:
+        pass
+
     for it in pack_dict.get("items") or []:
         if not isinstance(it, dict):
             continue
@@ -162,10 +175,9 @@ def _persist_pack_items(st: Any, pack_dict: dict, *, seq: int | None, source: st
             if ev.startswith("【"):
                 ext = "marker"
             elif conf is not None and 0.5 <= conf_f < 0.99:
-                ext = "llm"  # 模型抽取常见置信带
+                ext = "llm"
             else:
                 ext = "hybrid"
-        # 无字段的裸 add 且非标记/非 LLM → 启发式降权（禁 conf=1 灌满收件箱）
         bare_add = (not it.get("field")) and (it.get("op") or "add") in ("add", "plant")
         if bare_add and not ev.startswith("【") and ext not in ("llm", "llm_v1", "marker"):
             if conf_f >= 0.99 or ext in ("hybrid", ""):
@@ -174,14 +186,21 @@ def _persist_pack_items(st: Any, pack_dict: dict, *, seq: int | None, source: st
             elif conf is None:
                 conf_f = 0.45
                 ext = "heuristic"
-        # 落库前噪声预判：直接标 rejected，不进待批（作者仍可在「已拒绝」审计）
-        from scribe3.canon_inbox import is_noise_heuristic
         pre = {
             "module": it.get("module"), "op": it.get("op"), "target": it.get("target"),
             "field": it.get("field"), "after": it.get("after"), "extractor": ext,
             "confidence": conf_f, "evidence": it.get("evidence"),
         }
-        status = "rejected" if is_noise_heuristic(pre) else "pending"
+        status = "pending"
+        dkey = dedupe_key(pre)
+        if is_noise_heuristic(pre):
+            status = "rejected"
+        elif codex_already_has(st, pre):
+            status = "rejected"
+        elif dkey in seen_keys and bare_add:
+            status = "rejected"
+        if status == "pending":
+            seen_keys.add(dkey)
         row = {
             "id": it.get("id"),
             "seq": seq,
@@ -204,8 +223,11 @@ def _persist_pack_items(st: Any, pack_dict: dict, *, seq: int | None, source: st
         try:
             cid = st.add_canon_candidate(row)
             ids.append(cid)
-            # 双写旧人物队列兼容
-            if it.get("module") == "character" and (it.get("op") == "add" or not it.get("field")):
+            if (
+                status == "pending"
+                and it.get("module") == "character"
+                and (it.get("op") == "add" or not it.get("field"))
+            ):
                 name = (it.get("target") or "").split(":")[-1]
                 if name and hasattr(st, "add_unverified_ref") and seq is not None:
                     try:

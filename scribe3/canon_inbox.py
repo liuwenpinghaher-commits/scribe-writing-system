@@ -81,6 +81,51 @@ def display_name(item: dict) -> str:
     return bare or t or "（未命名）"
 
 
+def dedupe_key(item: dict) -> str:
+    """pending 合并键：module|bare|field|op。"""
+    mod = (item.get("module") or "").lower().strip()
+    bare = display_name(item).strip()
+    field = (item.get("field") or "").strip()
+    op = (item.get("op") or "add").lower().strip()
+    return f"{mod}|{bare}|{field}|{op}"
+
+
+def codex_already_has(st: Any, item: dict) -> bool:
+    """裸 add 的目标是否已在设定库（避免重复排队）。"""
+    if st is None:
+        return False
+    mod = (item.get("module") or "").lower()
+    op = (item.get("op") or "add").lower()
+    if item.get("field") or op not in ("add", "plant"):
+        return False
+    name = display_name(item)
+    if not name or name == "（未命名）":
+        return False
+    try:
+        if mod == "character":
+            oid = f"role:{name}"
+            if hasattr(st, "entity") and st.entity(oid) is not None:
+                return True
+            # 按名扫
+            for c in (st.characters() if hasattr(st, "characters") else []) or []:
+                if (getattr(c, "name", None) or "").strip() == name:
+                    return True
+            return False
+        if mod == "faction" and hasattr(st, "list_factions"):
+            return any((f.get("name") or "").strip() == name for f in (st.list_factions() or []))
+        if mod == "item" and hasattr(st, "list_items"):
+            return any((f.get("name") or "").strip() == name for f in (st.list_items() or []))
+        if mod == "term" and hasattr(st, "list_terms"):
+            return any((f.get("name") or "").strip() == name for f in (st.list_terms() or []))
+        if mod == "world_rule" and hasattr(st, "list_world_rules"):
+            return any((f.get("name") or "").strip() == name for f in (st.list_world_rules() or []))
+        if mod == "motif" and hasattr(st, "list_motifs"):
+            return any((f.get("name") or "").strip() == name for f in (st.list_motifs() or []))
+    except Exception:
+        return False
+    return False
+
+
 def human_title(item: dict) -> str:
     mod = MODULE_LABELS.get((item.get("module") or "").lower(), item.get("module") or "设定")
     op = OP_LABELS.get((item.get("op") or "patch").lower(), item.get("op") or "变更")

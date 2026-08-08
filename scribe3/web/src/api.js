@@ -488,6 +488,8 @@ export const api = {
   batchDecideCanonCandidates: (body) => post('/canon/candidates/batch-decide', body || {}),
   /** 全书 pending 噪声多轮清除 */
   purgeCanonNoise: (body) => post('/canon/candidates/purge-noise', body || {}),
+  /** 合并重复 pending（同对象只留一条） */
+  dedupeCanonCandidates: () => post('/canon/candidates/dedupe', {}),
   canonExtractChapter: (seq, use_llm = true) => post('/canon/extract', { seq, use_llm }),
   /** 章后统一分析（force 清缓存重抽） */
   canonAnalyzeChapter: (seq, opts = {}) => post('/canon/analyze-chapter', {

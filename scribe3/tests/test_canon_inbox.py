@@ -118,6 +118,30 @@ def test_noise_door_and_while_and_fake_names():
     })
 
 
+def test_dedupe_key_and_codex_has():
+    from scribe3.canon_inbox import codex_already_has, dedupe_key
+
+    a = {"module": "character", "target": "role:沈拾灯", "op": "add"}
+    b = {"module": "character", "target": "role:沈拾灯", "op": "add", "after": {"name": "沈拾灯"}}
+    assert dedupe_key(a) == dedupe_key(b)
+
+    class _St:
+        def characters(self):
+            class C:
+                name = "沈拾灯"
+            return [C()]
+        def entity(self, oid):
+            return object() if oid == "role:沈拾灯" else None
+        def list_items(self):
+            return [{"name": "火镰"}]
+
+    st = _St()
+    assert codex_already_has(st, {"module": "character", "target": "role:沈拾灯", "op": "add"})
+    assert codex_already_has(st, {"module": "item", "target": "火镰", "op": "add"})
+    assert not codex_already_has(st, {"module": "item", "target": "纸钱", "op": "add"})
+    assert not codex_already_has(st, {"module": "character", "target": "role:沈拾灯", "op": "patch", "field": "fear"})
+
+
 def test_suggested_hides_bare_heuristic():
     items = [
         {"id": "n", "module": "faction", "target": "推门", "extractor": "hybrid",

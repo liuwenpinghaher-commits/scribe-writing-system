@@ -247,6 +247,25 @@ export function CanonInboxView({ work, onJumpChapter, initialSeq, initialModule 
     }
   }
 
+  const dedupePending = async () => {
+    if (!window.confirm('合并重复待确认（同对象只留最新一条，已在设定库的一并拒）？')) return
+    setBatchBusy(true)
+    try {
+      const res = await api.dedupeCanonCandidates()
+      toast?.(
+        `去重完成 · 保留 ${res?.kept ?? 0}` +
+        ` · 重复拒 ${res?.rejected_dupes ?? 0}` +
+        ` · 库中已有拒 ${res?.rejected_already_in_codex ?? 0}` +
+        (res?.debt?.total != null ? ` · 待批 ${res.debt.total}` : ''),
+      )
+      reload()
+    } catch (e) {
+      toast?.(e?.body?.detail || '去重失败', { tone: 'danger' })
+    } finally {
+      setBatchBusy(false)
+    }
+  }
+
   const rejectVisible = async () => {
     if (!items.length) return
     if (!window.confirm(`拒绝当前列表 ${items.length} 条？`)) return
@@ -357,6 +376,11 @@ export function CanonInboxView({ work, onJumpChapter, initialSeq, initialModule 
                 className="h-7 px-2 rounded-md text-meta bg-soft hover:bg-line/40 disabled:opacity-40 cursor-pointer"
                 data-testid="canon-purge-noise">
                 清除全书噪声 ({debt.noise_count ?? facets.noise_count ?? 0})
+              </button>
+              <button type="button" disabled={batchBusy || !(debt.total || items.length)} onClick={dedupePending}
+                className="h-7 px-2 rounded-md text-meta bg-soft hover:bg-line/40 disabled:opacity-40 cursor-pointer"
+                data-testid="canon-dedupe-pending">
+                合并重复
               </button>
               <button type="button" disabled={batchBusy || !items.length} onClick={rejectVisible}
                 className="h-7 px-2 rounded-md text-meta text-faint hover:bg-soft disabled:opacity-40 cursor-pointer">
