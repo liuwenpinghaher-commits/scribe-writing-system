@@ -409,7 +409,7 @@ describe('FourPaneShell 四栏钻取', () => {
 
     expect(screen.queryByTestId('col-directory')).toBeNull()
     const restore = screen.getByTestId('directory-restore-button')
-    // 协作 order=directory|right|detail → 目录还原贴主编左缘
+    // 协作 order=right|directory|detail → 目录折叠后还原贴主编左缘
     expect(restore.getAttribute('data-restore-host')).toBe('right')
     expect(restore.getAttribute('data-restore-edge')).toBe('left')
     expect(restore.className).toContain('left-0')
@@ -750,7 +750,7 @@ describe('FourPaneShell 四栏钻取', () => {
       expect(screen.getByTestId('four-col').getAttribute('data-layout-mode')).toBe('reading')
     })
     expect(screen.getByTestId('four-col').getAttribute('data-journey-layout')).toBe('1')
-    expect(screen.getByTestId('four-col').getAttribute('data-panel-order')).toBe('directory|right|detail')
+    expect(screen.getByTestId('four-col').getAttribute('data-panel-order')).toBe('right|directory|detail')
     // view 隐藏目录 → 两栏份额归一；会话:旅程 ≈ 52:34，且详情 min 可拖（非 56）
     const detailW = Number(screen.getByTestId('detail-panel').getAttribute('data-default-size'))
     const rightW = Number(screen.getByTestId('right-panel').getAttribute('data-default-size'))
@@ -760,7 +760,7 @@ describe('FourPaneShell 四栏钻取', () => {
     expect(detailMin).toBe(28)
     expect(detailMin).toBeLessThanOrEqual(detailW)
     expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
-      id: 's3.fourPane.layout.v5:journey-v2:demo',
+      id: 's3.fourPane.layout.v6:journey-v3:demo',
     }))
   })
 })

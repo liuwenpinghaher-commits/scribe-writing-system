@@ -3,8 +3,8 @@
  * 默认按章阶段自动：大纲/节拍/演绎/草稿 → collaboration；正文 final → reading。
  * 非章上下文（设定/素材等）默认 collaboration。全画布 view → reading。
  *
- * 特例：顶栏「旅程」tab —— 会话与写作旅程（详情）换位，且会话默认宽继承
- * 原旅程栏宽（34%），不改其它 view / 写作阶段的全局栏序。
+ * 栏序（用户偏好）：主编会话始终在**最左侧**（入口轨之后），再目录、再详情；
+ * 默认宽度仍为 right=52 / detail=34 / directory=14（聊天:内容 ≈ 6:4）。
  */
 
 export const LAYOUT_MODE = Object.freeze({
@@ -88,26 +88,27 @@ export const LAYOUT_BOUNDS_BY_MODE = Object.freeze({
 })
 
 /**
- * Panel 横向顺序（id）。协作：目录 | 主编 | 详情；阅读：目录 | 详情 | 主编。
+ * Panel 横向顺序（id）。
+ * 全模式统一：主编(right) | 目录 | 详情 —— 会话在最左，避免夹在中间。
  * @param {'collaboration'|'reading'} mode
  * @returns {Array<'directory'|'detail'|'right'>}
  */
 export function panelOrderForMode(mode) {
-  if (mode === LAYOUT_MODE.collaboration) return ['directory', 'right', 'detail']
-  return ['directory', 'detail', 'right']
+  void mode
+  return ['right', 'directory', 'detail']
 }
 
-/** 是否顶栏「旅程」横切视图（仅此 tab 会话↔旅程换位） */
+/** 是否顶栏「旅程」横切视图 */
 export function isJourneyViewSel(sel) {
   return sel?.mode === 'view' && String(sel.viewKey || '') === 'journey'
 }
 
 /**
- * 旅程 tab：目录 | 会话 | 旅程详情 —— 会话占原旅程位。
+ * 旅程 tab：与全局相同 — 会话 | 目录 | 旅程详情。
  * @returns {Array<'directory'|'detail'|'right'>}
  */
 export function panelOrderForJourney() {
-  return ['directory', 'right', 'detail']
+  return ['right', 'directory', 'detail']
 }
 
 /**
@@ -127,7 +128,7 @@ export function resolvePanelLayout(opts = {}) {
       panelOrder: panelOrderForJourney(),
       layoutDefaults: JOURNEY_LAYOUT_SHARES,
       layoutBounds: journeyBounds,
-      storageMode: 'journey-v2',
+      storageMode: 'journey-v3',
       // 旅程详情不要锁 min 56%，否则默认 34% 无效且几乎拖不动
       detailMinPercent: 28,
     }
@@ -142,8 +143,8 @@ export function resolvePanelLayout(opts = {}) {
   }
 }
 
-/** layout persistence 前缀 v5；旅程用 journey-v2 清掉错误的 52/34 反转缓存 */
-export const FOUR_PANE_LAYOUT_ID_V3 = 's3.fourPane.layout.v5'
+/** layout persistence 前缀 v6：会话回最左，清掉 v5 的「目录|会话|详情」顺序缓存 */
+export const FOUR_PANE_LAYOUT_ID_V3 = 's3.fourPane.layout.v6'
 
 export function layoutStorageId(work, mode) {
   return `${FOUR_PANE_LAYOUT_ID_V3}:${mode}:${work || 'main'}`
@@ -176,15 +177,16 @@ export function restoreSlotsForOrder(panelOrder, state = {}) {
 
   if (rightCollapsed) {
     const idx = order.indexOf('right')
-    const prev = idx > 0 ? order[idx - 1] : null
-    const next = idx >= 0 && idx < order.length - 1 ? order[idx + 1] : null
-    const prevGone = prev === 'directory' && (directoryCollapsed || isView)
-    if (prev && !prevGone) {
+    // 目录在 view 或已折叠时不可作还原宿主，跳过
+    const gone = (id) => id === 'directory' && (directoryCollapsed || isView)
+    let prev = idx > 0 ? order[idx - 1] : null
+    let next = idx >= 0 && idx < order.length - 1 ? order[idx + 1] : null
+    if (gone(prev)) prev = idx > 1 ? order[idx - 2] : null
+    if (gone(next)) next = idx >= 0 && idx + 2 < order.length ? order[idx + 2] : null
+    if (prev) {
       right = { hostId: prev, edge: 'right' }
     } else if (next) {
       right = { hostId: next, edge: 'left' }
-    } else if (prev) {
-      right = { hostId: prev, edge: 'right' }
     }
   }
 
