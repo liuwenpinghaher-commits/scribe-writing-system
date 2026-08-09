@@ -4,13 +4,19 @@
 // 且 right-0 在窄栏向左溢出盖住中区)——锚定按钮正下方,右缘 clamp 进视口,永不被裁。
 // 零降级:列表加载失败显式红字「不代表没有会话」;所有操作失败 danger toast,绝不装没事。
 // 新建会话:单飞守卫 + 创建后绑定失败可对同一 thread_id 重试(不二次 create/fork)。
+// 新建后:① 绑定新 thread → 主聊区按 threadKey 清空；② 自动归档离开的旧会话(列表折叠干净)；
+// ③「其它活跃 / 已归档」默认折叠，避免会话框堆满。
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown, History, Plus, Pencil, Archive, Sparkles, Download, Loader2, RefreshCw } from 'lucide-react'
+import { ChevronDown, ChevronRight, History, Plus, Pencil, Archive, Sparkles, Download, Loader2, RefreshCw } from 'lucide-react'
 import { api } from './api'
 import { useContextSnapshot } from './context/ContextSnapshotContext'
 import { showToast } from './ui/Toast.jsx'
-import { pickLatestActiveThread } from './lib/sessionThreadOps.js'
+import {
+  pickLatestActiveThread,
+  partitionThreadList,
+  shouldArchivePreviousOnNew,
+} from './lib/sessionThreadOps.js'
 
 const MENU_W = 272
 
@@ -22,8 +28,11 @@ export function ThreadSwitcher({ busy = false }) {
   const [error, setError] = useState(false)
   const [creating, setCreating] = useState(false)
   // 创建成功但 switchThread 失败：保留 thread_id 供重试绑定，绝不静默停在旧会话
-  const [pendingBind, setPendingBind] = useState(null) // { threadId, kind: 'fork'|'create' }
+  const [pendingBind, setPendingBind] = useState(null) // { threadId, kind: 'fork'|'create', previousId }
   const [binding, setBinding] = useState(false)
+  // 列表折叠：其它活跃 / 已归档 默认收起 → 新建后会话框干净
+  const [showOtherActive, setShowOtherActive] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
   const createInFlightRef = useRef(false)
   const btnRef = useRef(null)
   const menuRef = useRef(null)
@@ -52,6 +61,9 @@ export function ThreadSwitcher({ busy = false }) {
       top: (r?.bottom ?? 0) + 4,
       left: Math.max(8, Math.min(r?.left ?? 8, vw - MENU_W - 8)),   // clamp 进视口,不盖中区也不出右缘
     })
+    // 每次打开默认折叠历史区，避免「一打开又满屏旧线」
+    setShowOtherActive(false)
+    setShowArchived(false)
     setOpen(true)
   }
 
@@ -64,16 +76,37 @@ export function ThreadSwitcher({ busy = false }) {
     Promise.resolve(switchThread(tid)).catch(() => { /* toast 已由 switchThread 发出 */ })
   }
 
-  const bindCreatedThread = async (threadId, kind) => {
+  /** 新建成功后归档离开的会话（fail-soft：归档失败不挡新会话）。 */
+  const archivePreviousAfterNew = async (previousId, newId) => {
+    if (!shouldArchivePreviousOnNew(previousId, newId)) return
+    try {
+      await api.patchThread(previousId, { status: 'archived' })
+      await pull()
+    } catch (e) {
+      showToast(
+        `新会话已就绪，但旧会话归档失败:${e?.body?.detail || e?.message || '请稍后手动归档'}`,
+        { tone: 'info' },
+      )
+    }
+  }
+
+  const bindCreatedThread = async (threadId, kind, previousId) => {
     setBinding(true)
     try {
       await switchThread(threadId)
       setPendingBind(null)
+      // 主聊区随 threadKey 换绑已干净；再归档旧线 → 列表干净
+      await archivePreviousAfterNew(previousId, threadId)
       setOpen(false)
-      showToast(kind === 'create' ? '已进入全新会话' : '已进入新会话', { tone: 'ok' })
+      showToast(
+        kind === 'create'
+          ? '已进入全新会话（旧会话已归档到历史）'
+          : '已进入新会话（继承记忆；旧会话已归档到历史）',
+        { tone: 'ok' },
+      )
       return true
     } catch {
-      setPendingBind({ threadId, kind })
+      setPendingBind({ threadId, kind, previousId })
       showToast('会话已创建，但绑定到界面失败。请点「重试绑定」，勿再新建。', { tone: 'danger' })
       return false
     } finally {
@@ -81,22 +114,21 @@ export function ThreadSwitcher({ busy = false }) {
     }
   }
 
-  // 新建会话(默认=延续):作者语义纠正——新建是为界面清洁/分类,不是失忆。
-  // 走 fork(带 parent):后端拷父 summary + 近窗回溯父会话原文,主编无缝记得之前聊的;
+  // 新建会话(默认=延续):界面干净新时间线；注入层仍可带父摘要/近窗(fork parent)。
   // title 传"新会话"(autotitle 默认集)→ 首条消息自动命名,不与父同名。
   const doNewContinue = async () => {
     if (!guardBusy() || createInFlightRef.current || binding) return
     createInFlightRef.current = true
     setCreating(true)
     setPendingBind(null)
+    const previousId = current
     let createdId = null
     try {
       const t = await api.forkThread(current, { title: '新会话' })
       createdId = t?.thread_id || null
       if (!createdId) throw new Error('服务器未返回 thread_id')
-      await bindCreatedThread(createdId, 'fork')
+      await bindCreatedThread(createdId, 'fork', previousId)
     } catch (e) {
-      // bind 失败已在 bindCreatedThread 设 pendingBind + toast；此处仅处理 fork 本身失败
       if (!createdId) {
         showToast(`新建会话失败:${e?.body?.detail || e?.message || ''}`, { tone: 'danger' })
       }
@@ -105,18 +137,19 @@ export function ThreadSwitcher({ busy = false }) {
       setCreating(false)
     }
   }
-  // 全新会话(手动通道):不带任何对话历史(无 parent,注入层不回溯)。
+  // 全新会话:不带对话历史；界面同样干净，并归档离开的旧会话。
   const doNewFresh = async () => {
     if (!guardBusy() || createInFlightRef.current || binding) return
     createInFlightRef.current = true
     setCreating(true)
     setPendingBind(null)
+    const previousId = current
     let createdId = null
     try {
       const t = await api.createThread()
       createdId = t?.thread_id || null
       if (!createdId) throw new Error('服务器未返回 thread_id')
-      await bindCreatedThread(createdId, 'create')
+      await bindCreatedThread(createdId, 'create', previousId)
     } catch (e) {
       if (!createdId) {
         showToast(`全新会话失败:${e?.body?.detail || e?.message || ''}`, { tone: 'danger' })
@@ -128,7 +161,11 @@ export function ThreadSwitcher({ busy = false }) {
   }
   const doRetryBind = async () => {
     if (!pendingBind?.threadId || binding || createInFlightRef.current) return
-    await bindCreatedThread(pendingBind.threadId, pendingBind.kind)
+    await bindCreatedThread(
+      pendingBind.threadId,
+      pendingBind.kind,
+      pendingBind.previousId,
+    )
   }
   const doRename = async (t) => {
     const name = window.prompt('会话改名', t.title || '')
@@ -165,9 +202,29 @@ export function ThreadSwitcher({ busy = false }) {
     catch (e) { showToast(`恢复失败:${e?.body?.detail || e?.message || ''}`, { tone: 'danger' }) }
   }
 
-  const active = (threads || []).filter((t) => t.status === 'active')
-  const archived = (threads || []).filter((t) => t.status === 'archived')
-  const curTitle = (threads || []).find((t) => t.thread_id === current)?.title || '主编讨论'
+  const { current: currentRow, otherActive, archived } = partitionThreadList(
+    threads || [],
+    current,
+  )
+  const curTitle = currentRow?.title
+    || (threads || []).find((t) => t.thread_id === current)?.title
+    || '主编讨论'
+
+  const renderActiveRow = (t, { isCurrent = false } = {}) => (
+    <div key={t.thread_id}
+      className={`group flex items-center gap-1 px-2 py-1.5 rounded hover:bg-soft ${isCurrent ? 'text-brand' : 'text-ink'}`}>
+      <button type="button" onClick={() => !isCurrent && doSwitch(t.thread_id)}
+        className="flex-1 text-left text-f12 truncate cursor-pointer"
+        disabled={isCurrent}>
+        {isCurrent ? '✓ ' : ''}{t.title || '未命名'}
+      </button>
+      <button type="button" title="改名" onClick={() => doRename(t)}
+        className="opacity-0 group-hover:opacity-100 text-faint hover:text-ink cursor-pointer"><Pencil size={11} /></button>
+      <button type="button" title="归档" onClick={() => doArchive(t)}
+        className="opacity-0 group-hover:opacity-100 text-faint hover:text-ink cursor-pointer"><Archive size={11} /></button>
+    </div>
+  )
+
   // 惰性构造:只在 open 时求值(否则 href 等表达式在每次 render 都执行——
   // 旧测试的精简 api mock 没有 exportThreadUrl,渲染即崩,连坐整棵 ChiefDock)
   const renderMenu = () => (
@@ -197,53 +254,71 @@ export function ThreadSwitcher({ busy = false }) {
           </button>
         </div>
       )}
-      {active.map((t) => (
-        <div key={t.thread_id}
-          className={`group flex items-center gap-1 px-2 py-1.5 rounded hover:bg-soft ${t.thread_id === current ? 'text-brand' : 'text-ink'}`}>
-          <button onClick={() => doSwitch(t.thread_id)}
-            className="flex-1 text-left text-f12 truncate cursor-pointer">
-            {t.thread_id === current ? '✓ ' : ''}{t.title || '未命名'}
+
+      {/* 当前会话：始终可见 */}
+      {currentRow && renderActiveRow(currentRow, { isCurrent: true })}
+
+      {/* 其它活跃：默认折叠 */}
+      {otherActive.length > 0 && (
+        <div className="mt-0.5" data-testid="thread-other-active">
+          <button
+            type="button"
+            data-testid="thread-other-active-toggle"
+            aria-expanded={showOtherActive}
+            onClick={() => setShowOtherActive((v) => !v)}
+            className="w-full flex items-center gap-1 px-2 py-1 text-meta text-faint hover:text-ink cursor-pointer"
+          >
+            {showOtherActive ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+            其它活跃 {otherActive.length}
           </button>
-          <button title="改名" onClick={() => doRename(t)}
-            className="opacity-0 group-hover:opacity-100 text-faint hover:text-ink cursor-pointer"><Pencil size={11} /></button>
-          <button title="归档" onClick={() => doArchive(t)}
-            className="opacity-0 group-hover:opacity-100 text-faint hover:text-ink cursor-pointer"><Archive size={11} /></button>
+          {showOtherActive && otherActive.map((t) => renderActiveRow(t))}
         </div>
-      ))}
+      )}
+
       <div className="border-t border-line/60 mt-1 pt-1 space-y-0.5">
         <button
           type="button"
           onClick={doNewContinue}
           disabled={creating || binding}
           data-testid="thread-new-continue"
-          title="主编无缝记得当前会话聊的(近窗+摘要);新会话只是界面归档分组"
+          title="新开干净讨论区；主编仍可继承当前会话的摘要/近窗。离开的会话自动归档。"
           className="w-full flex items-center gap-1.5 px-2 py-1.5 text-f12 text-brand hover:bg-soft rounded cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {creating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-          {creating ? '创建中…' : '新建会话(延续当前上下文)'}
+          {creating ? '创建中…' : '新建会话(延续记忆·界面干净)'}
         </button>
         <button
           type="button"
           onClick={doNewFresh}
           disabled={creating || binding}
           data-testid="thread-new-fresh"
-          title="不带任何对话历史,从零开始"
+          title="新开干净讨论区，不带对话历史；离开的会话自动归档。"
           className="w-full flex items-center gap-1.5 px-2 py-1.5 text-f12 text-faint hover:bg-soft rounded cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {creating ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-          {creating ? '创建中…' : '全新会话(不带历史)'}
+          {creating ? '创建中…' : '全新会话(不带历史·界面干净)'}
         </button>
-        {/* P0b:导出当前会话(md;只含对话文本与时间,不含工具输出) */}
         <a href={api.exportThreadUrl(current, 'md')} download
           className="w-full flex items-center gap-1.5 px-2 py-1.5 text-f12 text-faint hover:bg-soft rounded cursor-pointer"><Download size={12} />导出会话(.md)</a>
       </div>
+
+      {/* 已归档：默认折叠 */}
       {archived.length > 0 && (
-        <div className="border-t border-line/60 mt-1 pt-1">
-          <div className="px-2 py-0.5 text-meta text-faint">已归档 {archived.length}</div>
-          {archived.map((t) => (
+        <div className="border-t border-line/60 mt-1 pt-1" data-testid="thread-archived-section">
+          <button
+            type="button"
+            data-testid="thread-archived-toggle"
+            aria-expanded={showArchived}
+            onClick={() => setShowArchived((v) => !v)}
+            className="w-full flex items-center gap-1 px-2 py-0.5 text-meta text-faint hover:text-ink cursor-pointer"
+          >
+            {showArchived ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+            已归档 {archived.length}
+          </button>
+          {showArchived && archived.map((t) => (
             <div key={t.thread_id} className="flex items-center gap-1 px-2 py-1 text-f12 text-faint">
               <span className="flex-1 truncate">{t.title || '未命名'}</span>
-              <button className="text-brand cursor-pointer hover:underline" onClick={() => doRestore(t)}>恢复</button>
+              <button type="button" className="text-brand cursor-pointer hover:underline" onClick={() => doRestore(t)}>恢复</button>
             </div>
           ))}
         </div>
@@ -252,7 +327,7 @@ export function ThreadSwitcher({ busy = false }) {
   )
   return (
     <div className="relative shrink-0" data-testid="thread-switcher">
-      <button ref={btnRef} onClick={toggle} title="会话(历史列表/新建/切换/管理都在这)"
+      <button ref={btnRef} type="button" onClick={toggle} title="会话(历史列表/新建/切换/管理都在这)"
         className="flex items-center gap-1 text-f12 text-faint hover:text-brand cursor-pointer max-w-[200px]">
         <History size={12} className="shrink-0" />
         <span className="truncate">{curTitle}</span><ChevronDown size={12} />
