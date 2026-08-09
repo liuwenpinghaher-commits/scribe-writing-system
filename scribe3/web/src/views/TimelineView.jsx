@@ -626,10 +626,45 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
     return () => ro.disconnect()
   }, [])
 
+  // 把视野对准「当前 vis items 的真实章范围」（空白主因常是窗口跳到无数据区）
+  const focusWindowOnItems = useCallback((tl, visItems) => {
+    if (!tl) return
+    let lo = Infinity
+    let hi = -Infinity
+    for (const it of visItems || []) {
+      const raw = it._raw
+      const c = Number(raw?.chapter ?? it._jump) || 0
+      if (c > 0) {
+        if (c < lo) lo = c
+        if (c > hi) hi = c
+      }
+      // range 条目 end 也参与
+      if (it.end instanceof Date) {
+        const ce = dateToCh(it.end)
+        if (Number.isFinite(ce) && ce > hi) hi = ce
+      }
+    }
+    if (!Number.isFinite(lo) || lo === Infinity) {
+      lo = 1
+      hi = Math.max(1, maxCh || 10)
+    }
+    if (hi < lo) hi = lo
+    // 左右留白半章，避免贴边看不见
+    tl.setWindow(
+      chToDate(Math.max(1, lo - 0.5)),
+      chToDate(hi + 1.5),
+      { animation: false },
+    )
+  }, [maxCh])
+
   // ── 初始化 / 更新 vis-timeline ────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current || !hasContent) return
-    const pxH = boxSize.h > 40 ? boxSize.h : Math.max(360, Math.round(window.innerHeight * 0.45))
+    // 优先用测量高度；禁止用会覆盖成 0 的 100% CSS
+    const pxH = Math.max(
+      320,
+      boxSize.h > 40 ? boxSize.h : (containerRef.current.parentElement?.clientHeight || 0) || Math.round(window.innerHeight * 0.5),
+    )
 
     if (!timelineRef.current) {
       itemsDsRef.current = new DataSet(items)
@@ -641,15 +676,16 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
         zoomable: true,
         moveable: true,
         selectable: true,
+        // 竖滚开、横滚关：二者同开时 vis 常整页空白（已知坑）
         verticalScroll: true,
-        horizontalScroll: true,
+        horizontalScroll: false,
         zoomKey: 'ctrlKey',
         margin: { item: { horizontal: 4, vertical: 6 }, axis: 6 },
         groupHeightMode: 'auto',
-        height: pxH,
-        maxHeight: pxH,
-        zoomMin: 1000 * 60 * 60 * 24 * 2,
-        zoomMax: 1000 * 60 * 60 * 24 * 100000,
+        height: `${pxH}px`,
+        maxHeight: `${pxH}px`,
+        zoomMin: DAY * 2,
+        zoomMax: DAY * 2000,
         format: {
           minorLabels: (date) => '第' + dateToCh(new Date(date)) + '章',
           majorLabels: () => '',
@@ -668,7 +704,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
         const it = itemsDsRef.current.get(props.item)
         if (it) jumpKeepFocus(it._jump ?? it._raw?.chapter)
       })
-      // 拖动/缩放窗口 → 动态补载可见章区间（±半窗）
+      // 拖动/缩放窗口 → 动态补载可见章区间
       tl.on('rangechanged', (props) => {
         if (loadingRangeRef.current) return
         try {
@@ -681,30 +717,47 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
           if (isRangeCovered(lo, hi)) return
           loadingRangeRef.current = true
           fetchRange(lo, hi, axisRef.current || 'story')
-            .catch(() => { /* 静默：保留已有画布 */ })
+            .catch(() => { /* 静默 */ })
             .finally(() => { loadingRangeRef.current = false })
         } catch { /* */ }
       })
 
       timelineRef.current = tl
-      // 首窗：对齐「已加载内容」的有效末章，勿跳到污染 max_chapter 空区
-      const d0 = dataRef.current
-      const hi0 = Math.max(1, effectiveMaxChapter(d0) || itemsChapterMax(d0?.items) || 1)
-      const lo0 = Math.max(1, hi0 - CH_WINDOW + 1)
-      tl.setWindow(chToDate(Math.max(1, lo0 - 0.5)), chToDate(hi0 + 2.5), { animation: false })
+      focusWindowOnItems(tl, items)
     } else {
-      // 增量：同步 DataSet，保留窗口（动态加载不 reset 视野）
       try {
         itemsDsRef.current.clear()
         itemsDsRef.current.add(items)
         groupsDsRef.current.clear()
         groupsDsRef.current.add(groups)
-        timelineRef.current.setOptions({ height: pxH, maxHeight: pxH, verticalScroll: true })
+        timelineRef.current.setOptions({
+          height: `${pxH}px`,
+          maxHeight: `${pxH}px`,
+          verticalScroll: true,
+          horizontalScroll: false,
+        })
+        // 仅当当前窗口内几乎看不到条目时再拉回（避免动态加载时抢视野）
+        const w = timelineRef.current.getWindow?.()
+        if (w?.start && w?.end) {
+          const a = dateToCh(w.start)
+          const b = dateToCh(w.end)
+          const inView = items.some((it) => {
+            const c = Number(it._raw?.chapter || it._jump) || 0
+            return c >= Math.min(a, b) - 1 && c <= Math.max(a, b) + 1
+          })
+          if (!inView) focusWindowOnItems(timelineRef.current, items)
+        } else {
+          focusWindowOnItems(timelineRef.current, items)
+        }
       } catch { /* */ }
     }
 
-    requestAnimationFrame(() => timelineRef.current?.redraw())
-  }, [items, groups, hasContent, maxCh, boxSize.h, fetchRange])
+    requestAnimationFrame(() => {
+      try {
+        timelineRef.current?.redraw()
+      } catch { /* */ }
+    })
+  }, [items, groups, hasContent, maxCh, boxSize.h, fetchRange, focusWindowOnItems])
 
   // 卸载销毁
   useEffect(() => () => {
@@ -816,19 +869,19 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
             </ul>
           </div>
         )}
-        <div className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col relative overflow-hidden">
           {error && (
-            <div className="absolute inset-0 flex items-center justify-center p-4">
-              <div className="text-f13 text-red-500 bg-red-50 rounded-lg px-3 py-2 border border-red-200">{error}</div>
+            <div className="absolute inset-0 z-10 flex items-center justify-center p-4 pointer-events-none">
+              <div className="text-f13 text-red-500 bg-red-50 rounded-lg px-3 py-2 border border-red-200 pointer-events-auto">{error}</div>
             </div>
           )}
           {!error && loading && !data && (
-            <div className="absolute inset-0 flex items-center justify-center text-f12 text-faint gap-2">
+            <div className="absolute inset-0 z-10 flex items-center justify-center text-f12 text-faint gap-2">
               <RefreshCw size={14} className="animate-spin" />加载时间线…
             </div>
           )}
           {!error && data && !hasContent && (
-            <div className="absolute inset-0 flex items-center justify-center text-f13 text-faint">
+            <div className="absolute inset-0 z-10 flex items-center justify-center text-f13 text-faint">
               <div className="text-center">
                 <Clock size={32} className="mx-auto mb-2 opacity-30" />
                 <div>暂无时间线数据</div>
@@ -836,15 +889,12 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
               </div>
             </div>
           )}
-          {/* 始终占位可量高度；无内容时用 visibility 隐藏，勿 display:none */}
+          {/* 用 flex-1 真实占高，勿 absolute+height:100%（父高 0 时画布整片空白） */}
           <div
             ref={containerRef}
-            className="tl-vis absolute inset-0 overflow-hidden"
+            className="tl-vis flex-1 min-h-0 w-full"
             data-testid="timeline-canvas"
-            style={{
-              visibility: hasContent ? 'visible' : 'hidden',
-              minHeight: 360,
-            }}
+            style={{ minHeight: 360, height: boxSize.h > 40 ? boxSize.h : undefined }}
           />
         </div>
 
@@ -882,12 +932,13 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
         </div>
       )}
 
-      {/* vis-timeline 主题微调(贴 tailwind/CSS 变量) */}
+      {/* vis-timeline 主题微调 — 禁止 height:100%!important（会盖掉像素高→空白） */}
       <style>{`
-        .tl-vis { touch-action: pan-x pan-y; }
-        .tl-vis .vis-timeline { border: none; font-family: inherit; height: 100% !important; }
-        .tl-vis .vis-panel.vis-center, .tl-vis .vis-panel.vis-left {
-          /* 允许内部竖向滚；避免父层吃掉 wheel */
+        .tl-vis { touch-action: pan-x pan-y; position: relative; }
+        .tl-vis .vis-timeline {
+          border: none;
+          font-family: inherit;
+          /* 高度由 vis options.height 像素控制，勿写 100% !important */
         }
         .tl-vis .vis-panel.vis-left,
         .tl-vis .vis-panel.vis-center,
@@ -898,6 +949,10 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
         .tl-vis .vis-labelset .vis-label { color: var(--color-faint); font-size: 11px; }
         .tl-vis .vis-labelset .vis-label .vis-inner { padding: 4px 8px; font-weight: 500; }
         .tl-vis .vis-time-axis .vis-text { color: var(--color-faint); font-size: 10px; }
+        .tl-vis .vis-item {
+          /* 保证条目对比度，避免 surface 上“有数据看不见” */
+          opacity: 1 !important;
+        }
         .tl-vis .vis-vertical-scroll { overflow-y: auto !important; }
         .tl-vis .vis-time-axis .vis-grid.vis-minor { border-color: color-mix(in srgb, var(--color-line) 60%, transparent); }
         .tl-vis .vis-item {
