@@ -35,6 +35,21 @@ vi.mock('../../api', () => ({
     ignoreAllUnverified: vi.fn(() => Promise.resolve({ ignored: 1 })),
     canonDebt: vi.fn(() => Promise.resolve({ total: 3, noise_count: 1 })),
     listCanonCandidates: vi.fn(() => Promise.resolve({ items: [] })),
+    promisesLedger: vi.fn(() => Promise.resolve({
+      open: [
+        { id: 'p-pay', text: '本章要收的伏笔', setup_chapter: 1, payoff_chapter: 23, overdue: false },
+        { id: 'p-open', text: '仍悬伏笔', setup_chapter: 2, payoff_chapter: 30, overdue: true },
+      ],
+      closed: [],
+      red_herring: [],
+      abandoned: [],
+    })),
+    motifs: vi.fn(() => Promise.resolve([
+      { id: 'm1', name: '铜腥', theme: '味', unfolding: '升' },
+    ])),
+    motifInstances: vi.fn(() => Promise.resolve([{ motif_id: 'm1', evidence: '铜腥起' }])),
+    motifSchedule: vi.fn(() => Promise.resolve({ rows: [] })),
+    getWork: vi.fn(() => 'book_test'),
   },
 }))
 vi.mock('../../ui/Toast', () => ({
@@ -53,8 +68,6 @@ describe('DirectoryPane 能力二级目录', () => {
 
   it.each([
     ['deduce', '演绎', '场景真相', 'deduce_view'],
-    ['promise', '伏笔', '本章要收', 'promise_view'],
-    ['motif', '母题', '本章触及', 'motif_view'],
     ['review', '校验', '本章总览', 'review_issue'],
   ])('%s 渲染二级目录并传出详情节点', (capability, label, rowLabel, type) => {
     const onSelectItem = vi.fn()
@@ -66,6 +79,30 @@ describe('DirectoryPane 能力二级目录', () => {
     expect(onSelectItem).toHaveBeenCalledWith(expect.objectContaining({ type }))
   })
 
+  it('伏笔目录列出真实条目，点击产出 promise 叶节点（详情栏 CodexDetail）', async () => {
+    const onSelectItem = vi.fn()
+    render(<DirectoryPane entry={entry('promise', '伏笔')} seq={23} onSelectItem={onSelectItem} />)
+    expect(screen.getByTestId('directory-sticky-header').textContent).toContain('伏笔')
+    const item = await screen.findByRole('button', { name: /本章要收的伏笔/ })
+    fireEvent.click(item)
+    expect(onSelectItem).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'promise',
+      ref: 'p-pay',
+      capability: 'promise',
+    }))
+  })
+
+  it('母题目录列出本章触及条目，点击产出 motif 叶节点', async () => {
+    const onSelectItem = vi.fn()
+    render(<DirectoryPane entry={entry('motif', '母题')} seq={23} onSelectItem={onSelectItem} />)
+    const item = await screen.findByRole('button', { name: /铜腥/ })
+    fireEvent.click(item)
+    expect(onSelectItem).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'motif',
+      ref: 'm1',
+      capability: 'motif',
+    }))
+  })
   it('搜索目录只提供真实搜索框,不挂无 payload 的语义召回占位', () => {
     render(<DirectoryPane entry={entry('search', '搜索')} seq={23} onSelectItem={vi.fn()} />)
     expect(screen.getByTestId('directory-sticky-header').textContent).toContain('搜索')
@@ -215,14 +252,14 @@ describe('DirectoryPane 能力二级目录', () => {
 // Task 10:工艺目录/分类详情只展示真实状态 —— 配置里的 demo 计数与无 handler 的
 // 动作按钮不得进入 UI;数量与动作一律等 live payload,值不存在就不渲染。
 describe('CapabilityDirectory / CapabilityGroupDetailPane 无假数据', () => {
-  it('不把配置里的 demo 计数当 live 数据渲染', () => {
+  it('不把配置里的 demo 计数当 live 数据渲染', async () => {
     render(<CapabilityDirectory capability="promise" seq={3} onSelectItem={() => {}} />)
+    await screen.findByTestId('capability-dir-promise')
     // 旧配置写死的超期 4 / 仍悬 7 / 已回收 19,一个都不许出现
     expect(screen.queryByText('4')).toBeNull()
     expect(screen.queryByText('7')).toBeNull()
     expect(screen.queryByText('19')).toBeNull()
   })
-
   it('不渲染没有 handler 的动作按钮', () => {
     // 未知 group(落兜底文案)不得长出写死的三颗动作按钮
     const first = render(<CapabilityGroupDetailPane node={{ capability: 'promise', ref: { group: 'open' }, label: '待回收' }} />)

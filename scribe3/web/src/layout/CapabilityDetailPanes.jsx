@@ -4,6 +4,7 @@ import { DeduceStage } from '../DeduceStage'
 import { SearchDetail } from '../capabilities/search/SearchDetail'
 import { IssueDetail } from '../capabilities/issues/IssueDetail'
 import { capabilityConfig, capabilityGroup, formatScope } from './capabilityTree'
+import { filterPromiseRows, filterMotifRows, MOTIF_VIEW_KEYS, normMotifId } from './capabilityItems'
 import { useDeduceSel } from '../deduceContext'
 
 const COPY = {
@@ -150,35 +151,39 @@ export function PromiseDetailPane({ node, work }) {
   }, [singleId, work])
 
   const seq = node?.ref?.seq ?? node?.meta?.seq
+  // 列表已在栏2；栏3 仅在单条 / 无单条时的引导
+  const isBucket = typeof node?.ref === 'string'
+    && ['open', 'done', 'overdue', 'payoff', 'setup', 'abandoned'].includes(node.ref)
   const rows = useMemo(() => {
-    if (!ledger || ledger === null) return []
-    const open = Array.isArray(ledger.open) ? ledger.open : []
-    const closed = Array.isArray(ledger.closed) ? ledger.closed : []
-    const herring = Array.isArray(ledger.red_herring) ? ledger.red_herring : []
-    const abandoned = Array.isArray(ledger.abandoned) ? ledger.abandoned : []
-    const ref = node?.ref
-    if (ref === 'payoff' && seq != null) return [...open, ...closed].filter((p) => p.payoff_chapter === seq)
-    if (ref === 'setup' && seq != null) return [...open, ...closed].filter((p) => p.setup_chapter === seq)
-    if (ref === 'overdue') return open.filter((p) => p.overdue || p.window?.state === 'overdue')
-    if (ref === 'open') return open
-    if (ref === 'done') return closed
-    if (ref === 'abandoned') return abandoned
-    return [...open, ...closed, ...herring, ...abandoned]
-  }, [ledger, node?.ref, seq])
+    if (!ledger || ledger === null || !isBucket) return []
+    return filterPromiseRows(ledger, node?.ref, seq)
+  }, [ledger, node?.ref, seq, isBucket])
 
   const events = Array.isArray(timeline?.events) ? timeline.events : []
+  const single = !!singleId
 
   return (
     <div className="h-full overflow-auto bg-canvas px-6 py-6">
       <div className="mx-auto max-w-[52rem] space-y-4">
         <div>
           <div className="mb-1 text-f12 text-faint">能力工作台</div>
-          <h2 className="type-section text-ink">伏笔详情</h2>
+          <h2 className="type-section text-ink">{single ? (node?.label || '伏笔详情') : '伏笔'}</h2>
         </div>
+        {!single && (
+          <section className="rounded-lg border border-line bg-surface p-4" data-testid="promise-pick-hint">
+            <p className="text-f13 leading-7 text-faint">
+              请在<strong className="text-ink font-medium">左侧目录</strong>点具体伏笔条目查看详情与时间线；
+              分类只用于组织列表，不再在详情栏重复列台账。
+            </p>
+            {isBucket && ledger && rows.length > 0 && (
+              <p className="mt-2 text-meta text-faint">本组共 {rows.length} 条（详见左栏）。</p>
+            )}
+          </section>
+        )}
         {timeline && events.length > 0 && (
           <section className="rounded-lg border border-line bg-surface p-4" data-testid="promise-detail-timeline">
             <div className="mb-3 text-f14 font-semibold text-ink">
-              时间线 · {(timeline.promise?.text || '').slice(0, 40)}
+              时间线 · {(timeline.promise?.text || node?.label || '').slice(0, 40)}
             </div>
             <div className="space-y-1.5">
               {events.map((e, i) => (
@@ -195,27 +200,12 @@ export function PromiseDetailPane({ node, work }) {
             </div>
           </section>
         )}
-        <section className="rounded-lg border border-line bg-surface p-4">
-          <div className="mb-3 text-f14 font-semibold text-ink">{node?.label || '伏笔台账'}</div>
-          {ledger === undefined ? <div className="text-f13 text-faint">加载伏笔台账…</div>
-            : ledger === null ? <div role="alert" className="text-f13 text-danger">伏笔台账加载失败。</div>
-            : rows.length === 0 ? <div className="text-f13 text-faint">当前分组暂无伏笔。</div>
-            : (
-              <div className="space-y-2">
-                {rows.map((p) => (
-                  <div key={p.id || p.text} className="rounded-md border border-line bg-canvas px-3 py-2">
-                    <div className="text-f13 font-medium text-ink">{p.text || p.title || p.id}</div>
-                    <div className="mt-1 flex flex-wrap gap-2 text-meta text-faint">
-                      {p.setup_chapter != null && <span>埋:第 {p.setup_chapter} 章</span>}
-                      {p.payoff_chapter != null && <span>收:第 {p.payoff_chapter} 章</span>}
-                      {p.status && <span>状态:{p.status}</span>}
-                      {(p.overdue || p.window?.state === 'overdue') && <span className="text-danger">超期</span>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-        </section>
+        {single && ledger === undefined && (
+          <div className="text-f13 text-faint">加载伏笔…</div>
+        )}
+        {single && ledger === null && (
+          <div role="alert" className="text-f13 text-danger">伏笔加载失败。</div>
+        )}
       </div>
     </div>
   )
@@ -264,8 +254,6 @@ export function DeduceDetailPane({ node, work }) {
   return <DeduceStage key={node?.id} seq={seq} meta={meta} work={work} />
 }
 
-const MOTIF_VIEW_KEYS = new Set(['chapter', 'thin', 'volume', 'book', 'repeat'])
-const normMotifId = (id) => String(id ?? '').replace(/^motif:/, '')
 const HEAT_LABEL = { hot: '过热', cold: '该回声', neutral: '平稳' }
 
 export function MotifDetailPane({ node, work }) {
@@ -312,66 +300,35 @@ export function MotifDetailPane({ node, work }) {
   }, [singleRef, work])
 
   const rows = useMemo(() => {
-    if (!state || state === null) return []
-    const heatById = new Map()
-    for (const r of (state.schedule?.rows || [])) {
-      heatById.set(normMotifId(r.id), r)
-    }
-    const motifs = state.motifs.map((m) => {
-      const h = heatById.get(normMotifId(m.id))
-      return h ? { ...m, heat: h.heat, streak: h.streak, gap: h.gap, last_touch: h.last_touch } : m
-    })
-    const evById = new Map()
-    for (const i of state.instances) {
-      evById.set(normMotifId(i.motif_id), i.evidence)
-    }
-    const withEv = (list) => list.map((m) => ({
-      ...m,
-      evidence: evById.get(normMotifId(m.id)),
-    }))
+    if (!state || state === null || singleRef) return []
     const ref = typeof node?.ref === 'object' && node?.ref != null
       ? (node.ref.view || node.ref.group)
       : node?.ref
-    if (ref === 'chapter') {
-      return withEv(motifs.filter((m) => evById.has(normMotifId(m.id))))
-    }
-    if (ref === 'thin') {
-      return withEv(motifs.filter((m) => !m.theme && !m.unfolding))
-    }
-    if (ref === 'book') return withEv(motifs)
-    if (ref === 'volume') {
-      const scoped = motifs.filter((m) => (
-        m.tier === 'volume' || (m.scope != null && String(m.scope).trim() !== '')
-        || m.level === 'volume' || m.volume != null
-      ))
-      if (scoped.length) return withEv(scoped)
-      const touched = motifs.filter((m) => Number(m.hit_count || 0) > 0 || evById.has(normMotifId(m.id)))
-      return withEv(touched.length ? touched : motifs)
-    }
-    if (ref === 'repeat') {
-      return withEv(motifs.filter((m) => (
-        m.heat === 'hot' || m.repeat || m.overused || m.risk === 'repeat'
-        || Number(m.hit_count || 0) > 3
-      )))
-    }
-    if (ref != null && ref !== '' && !MOTIF_VIEW_KEYS.has(ref)) {
-      const want = normMotifId(ref)
-      return withEv(motifs.filter((m) => (
-        normMotifId(m.id) === want || m.name === ref || m.name === want
-      )))
-    }
-    return withEv(motifs)
-  }, [node?.ref, state])
+    return filterMotifRows(state, ref, seq)
+  }, [node?.ref, state, singleRef, seq])
 
   const events = Array.isArray(timeline) ? timeline : []
+  const row = singleRef && state && state !== null
+    ? (filterMotifRows(state, singleRef, seq)[0] || null)
+    : null
 
   return (
     <div className="h-full overflow-auto bg-canvas px-6 py-6">
       <div className="mx-auto max-w-[52rem] space-y-4">
         <div>
           <div className="mb-1 text-f12 text-faint">能力工作台</div>
-          <h2 className="type-section text-ink">母题详情</h2>
+          <h2 className="type-section text-ink">{singleRef ? (node?.label || row?.name || '母题详情') : '母题'}</h2>
         </div>
+        {!singleRef && (
+          <section className="rounded-lg border border-line bg-surface p-4" data-testid="motif-pick-hint">
+            <p className="text-f13 leading-7 text-faint">
+              请在<strong className="text-ink font-medium">左侧目录</strong>点具体母题条目查看详情与触及时间线。
+            </p>
+            {rows.length > 0 && (
+              <p className="mt-2 text-meta text-faint">本组共 {rows.length} 条（详见左栏）。</p>
+            )}
+          </section>
+        )}
         {singleRef && events.length > 0 && (
           <section className="rounded-lg border border-line bg-surface p-4" data-testid="motif-timeline">
             <div className="mb-3 text-f14 font-semibold text-ink">触及时间线</div>
@@ -385,44 +342,37 @@ export function MotifDetailPane({ node, work }) {
             </div>
           </section>
         )}
-        <section className="rounded-lg border border-line bg-surface p-4">
-          <div className="mb-3 text-f14 font-semibold text-ink">{node?.label || '母题台账'}</div>
-          {state === undefined ? <div className="text-f13 text-faint">加载母题…</div>
-            : state === null ? <div role="alert" className="text-f13 text-danger">母题加载失败。</div>
-            : rows.length === 0 ? <div className="text-f13 text-faint">当前分组暂无母题。</div>
-            : (
-              <div className="space-y-2">
-                {rows.map((m) => (
-                  <div key={m.id || m.name} className="rounded-md border border-line bg-canvas px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <div className="text-f13 font-medium text-ink">{m.name || m.id}</div>
-                      {m.heat && (
-                        <span className="text-meta text-faint" data-testid="motif-heat">{HEAT_LABEL[m.heat] || m.heat}</span>
-                      )}
-                      {m.phase && m.phase !== 'seed' && (
-                        <span className="text-meta text-faint">phase:{m.phase}</span>
-                      )}
-                    </div>
-                    {m.theme && <div className="mt-1 text-f12 text-fore">{m.theme}</div>}
-                    {(m.echoes || (Array.isArray(m.echo_terms) && m.echo_terms.length > 0)) && (
-                      <div className="mt-1 text-f12 text-faint">
-                        回声:{m.echoes || (m.echo_terms || []).join('/')}
-                      </div>
-                    )}
-                    {m.evidence && <div className="mt-1 text-f12 text-brand">证据:<span>{m.evidence}</span></div>}
-                    {m.unfolding && <div className="mt-1 text-f12 text-faint">{m.unfolding}</div>}
-                    {(Number(m.hit_count || 0) > 0 || m.streak != null) && (
-                      <div className="mt-1 text-meta text-faint">
-                        全书触及 {m.hit_count || 0} 次
-                        {m.streak != null ? ` · 连续 ${m.streak}` : ''}
-                        {m.last_touch != null ? ` · 上次第${m.last_touch}章` : ''}
-                      </div>
-                    )}
-                  </div>
-                ))}
+        {singleRef && row && (
+          <section className="rounded-lg border border-line bg-surface p-4" data-testid="motif-detail-card">
+            <div className="flex items-center gap-2">
+              <div className="text-f14 font-semibold text-ink">{row.name || row.id}</div>
+              {row.heat && (
+                <span className="text-meta text-faint" data-testid="motif-heat">{HEAT_LABEL[row.heat] || row.heat}</span>
+              )}
+            </div>
+            {row.theme && <div className="mt-2 text-f13 text-fore">{row.theme}</div>}
+            {(row.echoes || (Array.isArray(row.echo_terms) && row.echo_terms.length > 0)) && (
+              <div className="mt-1 text-f12 text-faint">
+                回声:{row.echoes || (row.echo_terms || []).join('/')}
               </div>
             )}
-        </section>
+            {row.evidence && <div className="mt-1 text-f12 text-brand">证据:{row.evidence}</div>}
+            {row.unfolding && <div className="mt-1 text-f12 text-faint">{row.unfolding}</div>}
+            {(Number(row.hit_count || 0) > 0 || row.streak != null) && (
+              <div className="mt-2 text-meta text-faint">
+                全书触及 {row.hit_count || 0} 次
+                {row.streak != null ? ` · 连续 ${row.streak}` : ''}
+                {row.last_touch != null ? ` · 上次第${row.last_touch}章` : ''}
+              </div>
+            )}
+          </section>
+        )}
+        {singleRef && state === undefined && (
+          <div className="text-f13 text-faint">加载母题…</div>
+        )}
+        {singleRef && state === null && (
+          <div role="alert" className="text-f13 text-danger">母题加载失败。</div>
+        )}
       </div>
     </div>
   )
