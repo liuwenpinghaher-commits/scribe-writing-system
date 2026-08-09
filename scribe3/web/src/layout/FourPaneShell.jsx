@@ -131,6 +131,15 @@ export function FourPaneShell({
   // 布局与内容自相矛盾。降级(navigated=false)时 effectiveSel===sel,行为不变。
   const isView = effectiveSel?.mode === 'view'
   const isJourneyView = isJourneyViewSel(effectiveSel)
+  // 横切浏览视图（图谱/时间线/仪表盘等）：默认收起右侧聊天，把宽留给图/表
+  const CROSS_VIEW_COLLAPSE_CHAT = new Set([
+    'atlas', 'timeline', 'insight', 'overview', 'progress', 'journey',
+  ])
+  const viewKeyNow = isView
+    ? (effectiveSel?.viewKey
+      || String(effectiveSel?.node?.id || '').replace(/^view:/, '')
+      || '')
+    : ''
   // 单一 layoutMode:storage id / defaults / bounds / panel order 全部同源,禁止 early/late 双路径。
   // 旅程 tab 在 reading 之上再套 resolvePanelLayout 特例（仅换位+会话继承原旅程宽）。
   const layoutMode = resolveLayoutMode({
@@ -222,21 +231,25 @@ export function FourPaneShell({
   useEffect(() => {
     if (ctxError?.code === 'stale_context') showToast(ctxError.message, { tone: 'warn' })
   }, [ctxError])
+  // 横切视图默认收起聊天；写作/钻取态默认展开主编
+  const preferRightCollapsed = isView && CROSS_VIEW_COLLAPSE_CHAT.has(viewKeyNow)
+
   useEffect(() => {
     setDirectoryCollapsed(readCollapsed(work, 'directory'))
-    // 切书：主编强制展开，并清掉该书被污染的折叠位
+    // 切书：按当前入口偏好重置右栏（横切收起 / 写作展开）
     ignoreRightCollapseUntilRef.current = Date.now() + 900
-    setRightCollapsed(false)
-    writeCollapsed(work, 'right', false)
-  }, [work])
+    setRightCollapsed(preferRightCollapsed)
+    writeCollapsed(work, 'right', preferRightCollapsed)
+  }, [work, preferRightCollapsed])
   // work/mode 切换后短暂关闭 onResize 折叠判定，等 Group 布局稳定
   useEffect(() => {
     layoutResizeReadyRef.current = false
     ignoreRightCollapseUntilRef.current = Date.now() + 900
-    setRightCollapsed(false)
+    setRightCollapsed(preferRightCollapsed)
+    writeCollapsed(work, 'right', preferRightCollapsed)
     const t = window.setTimeout(() => { layoutResizeReadyRef.current = true }, 600)
     return () => window.clearTimeout(t)
-  }, [work, layoutMode])
+  }, [work, layoutMode, preferRightCollapsed])
   useEffect(() => {
     if (isView) return
     if (directoryCollapsed) callPanel(directoryRef.current, 'collapse')

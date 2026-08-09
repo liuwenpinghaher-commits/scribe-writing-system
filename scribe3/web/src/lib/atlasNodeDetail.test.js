@@ -164,3 +164,13 @@ describe('knowsSet', () => {
     expect([...s]).toEqual([P1])
   })
 })
+
+describe('humanizeFactId / propositionListLabel', () => {
+  it('decodes ingest fact ids', async () => {
+    const { humanizeFactId, propositionListLabel } = await import('./atlasNodeDetail.js')
+    expect(humanizeFactId('fact:d2-4')).toBe('第2章·行动摘要 #4')
+    expect(humanizeFactId('fact:k5-1')).toBe('第5章·获知摘要 #1')
+    expect(propositionListLabel({ peerId: 'fact:d2-4', label: '' })).toBe('第2章·行动摘要 #4')
+    expect(propositionListLabel({ peerId: 'fact:d2-4', label: '埋灰' })).toBe('埋灰')
+  })
+})

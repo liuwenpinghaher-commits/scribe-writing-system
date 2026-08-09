@@ -13,6 +13,8 @@ import {
   formatArcLine,
   resolveExpandCharacterId,
   edgeLabel,
+  propositionListLabel,
+  humanizeFactId,
   SECRET_PLACEHOLDER,
 } from '../../lib/atlasNodeDetail.js'
 import { seedAtlasDiscuss } from '../../lib/atlasChiefSeed.js'
@@ -340,16 +342,37 @@ function CharacterFacet({ node, focus, hop, nb, diff, arc, onHopBoost }) {
         )}
       </section>
 
-      {/* 已知命题 */}
+      {/* 已知命题：正文反哺的「他知道什么」短摘要，不是设定库标题 */}
       {(nb.knowsOut || []).length > 0 && (
-        <section>
-          <div className="text-meta text-faint uppercase tracking-wider mb-0.5">已知命题</div>
-          <ul className="space-y-0.5">
-            {nb.knowsOut.slice(0, 5).map((r) => (
-              <li key={r.peerId} className="truncate text-ink">
-                {r.secret ? SECRET_PLACEHOLDER : r.peerLabel}
-              </li>
-            ))}
+        <section data-testid="atlas-known-props">
+          <div className="text-meta text-faint uppercase tracking-wider mb-0.5">他知道的事</div>
+          <p className="text-meta text-faint/80 leading-snug mb-1">
+            正文反哺抽取的知识摘要（图上截短显示）。完整句子请点「打开设定」。
+          </p>
+          <ul className="space-y-1">
+            {nb.knowsOut.slice(0, 5).map((r) => {
+              const main = r.secret
+                ? SECRET_PLACEHOLDER
+                : propositionListLabel({
+                    label: r.peerLabel,
+                    peerLabel: r.peerLabel,
+                    peerId: r.peerId,
+                    id: r.peerId,
+                    secret: r.secret,
+                    type: 'proposition',
+                  })
+              const tech = String(r.peerId || '')
+              return (
+                <li key={r.peerId} className="min-w-0">
+                  <div className="text-ink leading-snug break-words">{main}</div>
+                  {tech.startsWith('fact:') && !r.secret && (
+                    <div className="text-meta text-faint/60 tnum truncate" title={tech}>
+                      {humanizeFactId(tech)}
+                    </div>
+                  )}
+                </li>
+              )
+            })}
           </ul>
         </section>
       )}

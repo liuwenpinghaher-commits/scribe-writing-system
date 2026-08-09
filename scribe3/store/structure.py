@@ -35,8 +35,17 @@ class StructureMixin:
         ch = chapter if chapter is not None else 9999
         chars = [{"id": e.id, "type": "character", "label": e.name} for e in self.characters()]
         char_ids = {c["id"] for c in chars}
+        # 图谱节点标签：优先可读摘要。截断略放宽(36)以免半句难懂；私密仍不泄明文。
+        # id 形如 fact:d2-4 / fact:k3-1 仅作内部键，前端抽屉用人话化，勿当标题裸奔。
+        def _prop_label(f) -> str:
+            if f.secret:
+                return "🔒 私密"
+            raw = (f.value or "").strip() or (getattr(f, "attribute", None) or "")
+            raw = str(raw).replace("\n", " ")
+            return (raw[:36] + ("…" if len(raw) > 36 else "")) if raw else ""
+
         props = [{"id": f.id, "type": "proposition",
-                  "label": ("🔒 私密" if f.secret else (f.value or "")[:18]),
+                  "label": _prop_label(f),
                   "secret": f.secret, "_vf": f.valid_from} for f in self.facts_at(ch)]
         facs = []
         for f in (self.list_factions() or []):

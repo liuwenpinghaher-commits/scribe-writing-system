@@ -36,7 +36,34 @@ export function atlasNavType(n) {
 export function displayNodeLabel(node) {
   if (!node) return ''
   if (node.secret) return SECRET_PLACEHOLDER
-  return node.label || node.id || ''
+  const lab = (node.label || '').trim()
+  if (lab) return lab
+  return humanizeFactId(node.id) || node.id || ''
+}
+
+/**
+ * 命题 id 人话化，避免 UI 直接甩 fact:d2-4。
+ * 约定（ingest）：fact:d{章}-{序}=行动抽取；fact:k{章}-{序}=获知抽取；其它 fact: 未命名。
+ */
+export function humanizeFactId(id) {
+  const s = String(id || '')
+  if (!s.startsWith('fact:')) return ''
+  const rest = s.slice(5)
+  let m = /^d(\d+)-(\d+)$/.exec(rest)
+  if (m) return `第${m[1]}章·行动摘要 #${m[2]}`
+  m = /^k(\d+)-(\d+)$/.exec(rest)
+  if (m) return `第${m[1]}章·获知摘要 #${m[2]}`
+  return '未命名事实'
+}
+
+/** 抽屉列表主文案：有摘要用摘要；无则人话 id；永不把 fact: 当主标题裸奔 */
+export function propositionListLabel(row) {
+  if (!row) return ''
+  if (row.secret) return SECRET_PLACEHOLDER
+  const lab = (row.label || row.peerLabel || '').trim()
+  if (lab && !lab.startsWith('fact:')) return lab
+  const id = row.id || row.peerId || lab
+  return humanizeFactId(id) || id || '未命名事实'
 }
 
 function nodeById(nodes, id) {
@@ -77,7 +104,15 @@ export function neighborsOf(nodeId, edges, nodes, focusId) {
     const peerSecret = !!(peer?.secret)
     const peerLabel = peerSecret
       ? SECRET_PLACEHOLDER
-      : (peer?.label || peerId)
+      : (() => {
+          const raw = (peer?.label || '').trim()
+          if (raw && !raw.startsWith('fact:')) return raw
+          // 无摘要 / 摘要即 id 时：角色名保留 id 后缀；命题用 humanize
+          if (peer?.type === 'proposition' || String(peerId).startsWith('fact:')) {
+            return humanizeFactId(peerId) || '未命名事实'
+          }
+          return raw || peerId
+        })()
 
     if (rel === 'knows') {
       const row = {
