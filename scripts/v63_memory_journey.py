@@ -747,6 +747,22 @@ def drive_chapter(work: str, evid: Path, seq: int) -> int:
     print(f"\n===== CH {seq} {title} POV={pov} =====", flush=True)
     _seed_wipe(work, seq, title, pov)
 
+    # A/B：只屏蔽 wipe 前已存在的版本 id；本轮新草稿仍可 restore（否则 advisory 死环）
+    ab_block_old = (os.environ.get("AB_SKIP_VERSION_RESTORE") or "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+    baseline_version_ids: set[str] = set()
+    if ab_block_old:
+        code_b, vs_b = curl("GET", f"/api/chapter-versions?seq={seq}", work=work)
+        if isinstance(vs_b, list):
+            baseline_version_ids = {
+                str(v.get("id")) for v in vs_b if v.get("id")
+            }
+        print(
+            f"  ab_block_old_versions n={len(baseline_version_ids)}",
+            flush=True,
+        )
+
     existing0 = chapter_prose_len(work, seq)
     # D5 质量：SCRIBE3_MEMORY_STEER_MODE=minimal 时只用极简指令（设定靠记忆注入）
     try:
@@ -811,30 +827,27 @@ def drive_chapter(work: str, evid: Path, seq: int) -> int:
             continue
 
         if parked and "advisory" in str(parked).lower():
-            # A/B 消融：禁止从历史版本库恢复（否则 B 组会捡到 A 组成稿，对照失效）
-            skip_restore = (os.environ.get("AB_SKIP_VERSION_RESTORE") or "").strip().lower() in {
-                "1", "true", "yes", "on",
-            }
+            # 从版本库挑「本书锚点」最长稿；A/B 时跳过 wipe 前旧 id（防 B 捡 A）
             best_id, best_n, best_prose = None, 0, ""
-            if not skip_restore:
-                # 从版本库挑「本书锚点」最长稿，拒绝 沈拾灯/青石镇 窜稿
-                code_v, vs = curl("GET", f"/api/chapter-versions?seq={seq}", work=work)
-                if isinstance(vs, list):
-                    for v in vs:
-                        vid = v.get("id")
-                        if not vid:
-                            continue
-                        _, full = curl("GET", f"/api/chapter-version/{vid}", work=work)
-                        prose_v = (full or {}).get("prose") or "" if isinstance(full, dict) else ""
-                        n = cn_len(prose_v)
-                        if n < MIN_CH // 2:
-                            continue
-                        if any(x in prose_v for x in ("沈拾灯", "青石镇", "阿绣", "王阿禾")):
-                            continue
-                        if not any(x in prose_v for x in ("覃灰七", "冷锅婆", "灰狸", "三棱铜匙", "炉巷", "铜腥", "炉灰")):
-                            continue
-                        if n > best_n:
-                            best_id, best_n, best_prose = vid, n, prose_v
+            code_v, vs = curl("GET", f"/api/chapter-versions?seq={seq}", work=work)
+            if isinstance(vs, list):
+                for v in vs:
+                    vid = v.get("id")
+                    if not vid:
+                        continue
+                    if ab_block_old and str(vid) in baseline_version_ids:
+                        continue
+                    _, full = curl("GET", f"/api/chapter-version/{vid}", work=work)
+                    prose_v = (full or {}).get("prose") or "" if isinstance(full, dict) else ""
+                    n = cn_len(prose_v)
+                    if n < MIN_CH // 2:
+                        continue
+                    if any(x in prose_v for x in ("沈拾灯", "青石镇", "阿绣", "王阿禾")):
+                        continue
+                    if not any(x in prose_v for x in ("覃灰七", "冷锅婆", "灰狸", "三棱铜匙", "炉巷", "铜腥", "炉灰")):
+                        continue
+                    if n > best_n:
+                        best_id, best_n, best_prose = vid, n, prose_v
             if best_id and best_n >= MIN_CH * 0.7:
                 print(f"  restore good version {best_id} n={best_n}", flush=True)
                 curl("POST", f"/api/chapters/{seq}/restore-version", {
@@ -850,7 +863,7 @@ def drive_chapter(work: str, evid: Path, seq: int) -> int:
                 # 草稿可能只在 park 文案里；再 step 一次带强制重写
                 print(
                     f"  advisory no good version (best_n={best_n}"
-                    f"{'; ab_skip_restore' if skip_restore else ''}) → rewrite",
+                    f"{'; ab_block_old' if ab_block_old else ''}) → rewrite",
                     flush=True,
                 )
                 draft_tries += 1
