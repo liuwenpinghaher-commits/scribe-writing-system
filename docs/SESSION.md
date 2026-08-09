@@ -17,14 +17,24 @@
 
 | 项 | 值 |
 |----|----|
-| **更新于** | 2026-08-09（上下文检查器 B∪C；schema mark 已修 Surreal 3） |
+| **更新于** | 2026-08-09（章节流水线闭环 PR-1/2/2b 已落地 + demo 热部署） |
 | **产品名（UI）** | 铜炉 / tonglu（仅品牌文案+logo，色板未改） |
-| **默认分支** | `main` |
-| **刚完成** | **上下文检查器 B∪C**：TurnView 读合同、TurnBind、写路径真 session 绑定、discussion 单编译、UI 诚实八块 |
-| **设计** | [`设计文档/2026-08-09-上下文检查器-B合C最优方案.md`](../设计文档/2026-08-09-上下文检查器-B合C最优方案.md) |
-| **进行中目标** | **v6.3** 约 2 万字新书 · chat 驱动 · **记忆可用性主轴**（见 docs/e2e-director-journey-2w-memory.md） |
+| **默认分支** | `main`（ahead origin；ingest pipeline commit `aec23e6`） |
+| **刚完成** | **章节流水线闭环**：共享 lease + IngestPolicy + hold supersede checkpoint + MCP craft + `/ingest/confirm` |
+| **设计** | [`docs/plans/2026-08-09-chapter-pipeline-closed-loop-design.md`](./plans/2026-08-09-chapter-pipeline-closed-loop-design.md)（rev.D） |
+| **进行中目标** | 记忆质量 / 人盲仍独立；流水线工程门已关 P0 |
 | **主验收书** | **`book_aa57f17e`**（2w 记忆）/ **`book_7b918ca0`**（5w 参考） |
 | **活跃分支** | `main` |
+
+### 章节流水线闭环（2026-08-09）
+
+- **模块**：`scribe3/ingest_lease.py` · `scribe3/ingest_policy.py` · migration **112**
+- **单入口**：`schedule_ingest` / `run_or_enqueue` 覆盖 save / checkpoint / loop / restore / 终选 / dedup·polish·semantic_repair / POST `/ingest` / import / accept_unverified / MCP `s3_ingest_chapter` / `_bg_ingest` 占锁
+- **KD18**：advisory hold 后 `checkpoint(final)` 同 prose_fp → `active_hold_supersedes`，**不 enqueue**
+- **MCP**：`s3_save_chapter` 对齐 `evaluate_save_craft_gate`；blocking 不落库
+- **API**：`POST /ingest/confirm`；`GET /ingest/status` 扩 held/lease；capabilities 报 `ingest_lease`/`ingest_policy`/`mcp_craft_gate`
+- **测**：`scribe3/tests/test_ingest_pipeline_policy.py` **15 passed**；证据 `/tmp/grok-goal-c24de3662f01/implementer/`
+- residual：SPA hold 确认条、token 哈希化、独立 lease 表（见 residuals.md）
 
 ### 上下文检查器 B∪C（2026-08-09）
 
