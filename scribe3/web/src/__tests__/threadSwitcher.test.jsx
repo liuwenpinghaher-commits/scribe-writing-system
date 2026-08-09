@@ -57,7 +57,16 @@ describe('ThreadSwitcher', () => {
   })
 
   it('新建会话(延续):fork 后切换并自动归档离开的会话', async () => {
-    apiMock.threads.mockResolvedValue(LIST)
+    apiMock.threads
+      .mockResolvedValueOnce(LIST)
+      // current 变化与归档后 pull
+      .mockResolvedValue({
+        threads: [
+          { thread_id: 't8', title: '新会话', status: 'active', updated_at: '2024-09-01T00:00:00Z' },
+          { thread_id: 't1', title: '主编讨论', status: 'archived', updated_at: '2024-01-01T00:00:00Z' },
+          { thread_id: 't2', title: '门派支线', status: 'active', updated_at: '2024-06-01T00:00:00Z' },
+        ],
+      })
     apiMock.forkThread.mockResolvedValue({ thread_id: 't8', title: '新会话', status: 'active' })
     render(<ThreadSwitcher busy={false} />)
     fireEvent.click(screen.getByText('主编讨论'))

@@ -37,10 +37,29 @@ export function ThreadSwitcher({ busy = false }) {
   const btnRef = useRef(null)
   const menuRef = useRef(null)
   const current = snapshot?.thread_id || null
+
   const pull = () => api.threads()
-    .then((d) => { setThreads(d.threads || []); setError(false) })
-    .catch(() => { setThreads([]); setError(true) })
+    .then((d) => {
+      const list = d.threads || []
+      setThreads(list)
+      setError(false)
+      return list
+    })
+    .catch(() => {
+      setThreads([])
+      setError(true)
+      return []
+    })
+
+  // 打开菜单时拉列表
   useEffect(() => { if (open) pull() }, [open])
+  // 当前 thread 变化（新建/切换）后立即拉列表 —— 会话栏标题与下拉不必整页刷新
+  useEffect(() => {
+    if (!current) return undefined
+    pull()
+    return undefined
+  }, [current])
+
   useEffect(() => {
     if (!open) return undefined
     const onDown = (e) => {
@@ -76,27 +95,70 @@ export function ThreadSwitcher({ busy = false }) {
     Promise.resolve(switchThread(tid)).catch(() => { /* toast 已由 switchThread 发出 */ })
   }
 
+  /**
+   * 新建后立刻改本地列表（不等 pull）：旧线 archived、新线 active 置顶。
+   * 解决「归档已成功但会话栏仍显示旧 active、要整页刷新才对」的观感。
+   */
+  const optimisticAfterNew = (previousId, newId, newTitle = '新会话') => {
+    const now = new Date().toISOString()
+    setThreads((prev) => {
+      const list = Array.isArray(prev) ? prev.map((t) => ({ ...t })) : []
+      const byId = new Map(list.map((t) => [t.thread_id, t]))
+      if (previousId && shouldArchivePreviousOnNew(previousId, newId)) {
+        const old = byId.get(previousId)
+        if (old) {
+          byId.set(previousId, { ...old, status: 'archived' })
+        } else {
+          byId.set(previousId, {
+            thread_id: previousId, title: '已归档', status: 'archived', updated_at: now,
+          })
+        }
+      }
+      const neu = byId.get(newId)
+      byId.set(newId, {
+        ...(neu || {}),
+        thread_id: newId,
+        title: (neu && neu.title) || newTitle || '新会话',
+        status: 'active',
+        updated_at: now,
+      })
+      return [...byId.values()]
+    })
+    // 折叠历史区，列表视觉干净
+    setShowOtherActive(false)
+    setShowArchived(false)
+  }
+
   /** 新建成功后归档离开的会话（fail-soft：归档失败不挡新会话）。 */
-  const archivePreviousAfterNew = async (previousId, newId) => {
-    if (!shouldArchivePreviousOnNew(previousId, newId)) return
+  const archivePreviousAfterNew = async (previousId, newId, newTitle) => {
+    // 先乐观更新，会话栏立刻干净
+    optimisticAfterNew(previousId, newId, newTitle)
+    if (!shouldArchivePreviousOnNew(previousId, newId)) {
+      await pull()
+      return
+    }
     try {
       await api.patchThread(previousId, { status: 'archived' })
-      await pull()
     } catch (e) {
       showToast(
         `新会话已就绪，但旧会话归档失败:${e?.body?.detail || e?.message || '请稍后手动归档'}`,
         { tone: 'info' },
       )
+      // 回拉权威列表（可能旧线仍 active）
+      await pull()
+      return
     }
+    // 再拉服务端权威列表，与乐观态对齐
+    await pull()
   }
 
-  const bindCreatedThread = async (threadId, kind, previousId) => {
+  const bindCreatedThread = async (threadId, kind, previousId, newTitle = '新会话') => {
     setBinding(true)
     try {
       await switchThread(threadId)
       setPendingBind(null)
-      // 主聊区随 threadKey 换绑已干净；再归档旧线 → 列表干净
-      await archivePreviousAfterNew(previousId, threadId)
+      // 主聊区随 threadKey 换绑已干净；归档旧线 + 立即刷新会话栏
+      await archivePreviousAfterNew(previousId, threadId, newTitle)
       setOpen(false)
       showToast(
         kind === 'create'
@@ -106,7 +168,7 @@ export function ThreadSwitcher({ busy = false }) {
       )
       return true
     } catch {
-      setPendingBind({ threadId, kind, previousId })
+      setPendingBind({ threadId, kind, previousId, newTitle })
       showToast('会话已创建，但绑定到界面失败。请点「重试绑定」，勿再新建。', { tone: 'danger' })
       return false
     } finally {
@@ -127,7 +189,7 @@ export function ThreadSwitcher({ busy = false }) {
       const t = await api.forkThread(current, { title: '新会话' })
       createdId = t?.thread_id || null
       if (!createdId) throw new Error('服务器未返回 thread_id')
-      await bindCreatedThread(createdId, 'fork', previousId)
+      await bindCreatedThread(createdId, 'fork', previousId, t?.title || '新会话')
     } catch (e) {
       if (!createdId) {
         showToast(`新建会话失败:${e?.body?.detail || e?.message || ''}`, { tone: 'danger' })
@@ -149,7 +211,7 @@ export function ThreadSwitcher({ busy = false }) {
       const t = await api.createThread()
       createdId = t?.thread_id || null
       if (!createdId) throw new Error('服务器未返回 thread_id')
-      await bindCreatedThread(createdId, 'create', previousId)
+      await bindCreatedThread(createdId, 'create', previousId, t?.title || '新会话')
     } catch (e) {
       if (!createdId) {
         showToast(`全新会话失败:${e?.body?.detail || e?.message || ''}`, { tone: 'danger' })
@@ -165,6 +227,7 @@ export function ThreadSwitcher({ busy = false }) {
       pendingBind.threadId,
       pendingBind.kind,
       pendingBind.previousId,
+      pendingBind.newTitle || '新会话',
     )
   }
   const doRename = async (t) => {
