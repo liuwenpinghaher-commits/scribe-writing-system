@@ -20,6 +20,7 @@
 
 - **产品名（UI）：铜炉** / 拼音 **tonglu**（仅品牌与界面文案，见 [`docs/brand/README.md`](docs/brand/README.md)）。
 - 产品代码在 **`scribe3/`**（SurrealDB + FastAPI + MCP + React 写作台）。
+- **SurrealDB 唯一支持 3.x**（demo **3.2.4**）。禁止 2.x 兼容回退、禁止 `type::thing` 回流（护栏见 `tests/test_migrations_surreal3.py`）。store 集成测须 `SURREAL_BIN` 指向 3.x。
 - 先读 [`docs/CURRENT_ARCHITECTURE.md`](docs/CURRENT_ARCHITECTURE.md)。
 - 设计蓝图在 `设计文档/`（可能过期）；冲突时以 CURRENT + 代码为准。
 - 根目录 `交付说明.md` 是早期 SQLite/`scribe/` **归档**，不要当现行手册。

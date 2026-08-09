@@ -48,8 +48,8 @@
 
 ### 已知坑
 
-- Grok 机禁重活；验收打 demo  
-- 本机 Surreal **2.3.7** 与 demo **3.2.4** 的 `type::record` 参数序不兼容 → 全量 conftest store 测可能假红；B∪C 契约测用 MiniStore  
+- Grok 机禁重活、**禁止本机起 Surreal**；验收只打 **已部署 demo**  
+- **Surreal 唯一 3.x（demo 3.2.4）**：无 2.x 回退；`_migration` 仅 `type::record`；conftest 遇 2.x 直接 fail  
 - 启发式 extract 可能过召回 → 人批拒  
 - full_check AI 味 soft-pass ≠ 质量线自动绿  
 - **Demo 40G 盘**：`compose --build` 会堆悬空镜像；见 [`docs/ops/demo-disk-hygiene.md`](./ops/demo-disk-hygiene.md)  

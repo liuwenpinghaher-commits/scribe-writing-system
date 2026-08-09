@@ -45,13 +45,22 @@ def test_075_no_count_index_legacy():
 
 
 def test_no_type_thing_in_scribe3_sources():
-    """3.x 使用 type::record；禁止回流 type::thing。"""
+    """3.x 使用 type::record；禁止回流 type::thing（含 2.x 兼容回退）。"""
     bad = []
     for p in _iter_source_files():
         text = p.read_text(encoding="utf-8", errors="ignore")
         if "type::thing" in text:
             bad.append(str(p.relative_to(SCRIBE3)))
     assert not bad, f"still has type::thing: {bad[:20]}"
+
+
+def test_migration_mark_uses_type_record_only():
+    """_migration 标记禁止 2.x CREATE 回退 / type::thing。"""
+    text = (SCRIBE3 / "store" / "connection.py").read_text(encoding="utf-8")
+    assert "UPSERT type::record('_migration'" in text or 'UPSERT type::record("_migration"' in text
+    # 可执行路径不得含 2.3 回退 CREATE
+    assert "CREATE _migration:`" not in text
+    assert "type::thing" not in text
 
 
 def test_no_search_analyzer_in_scribe3_sources():

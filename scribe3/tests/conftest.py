@@ -1,9 +1,14 @@
 """scribe3 集成测试夹具:每个测试起一个临时内存 SurrealDB,返回已建 schema 的 SurrealStore。
 
-注意:项目路径含中文「写作 3.0」会让 surreal v3 子进程读环境时 panic(SIGABRT)。
-必须在纯 ASCII 的 cwd(/tmp)+ 净化环境下起服(沿用 scribe2 conftest 已验证的范式)。
+**仅支持 SurrealDB 3.x**（与 demo 3.2.4 对齐）。禁止 2.x 兼容回退。
+Grok 运行机默认禁止起 Surreal 做验收——见用户 host-resource 规则；本夹具供
+CI / 已装 Surreal 3 的开发机 / demo 侧使用。
+
+注意:项目路径含中文会让 surreal 子进程读环境时 panic(SIGABRT)。
+必须在纯 ASCII 的 cwd(/tmp)+ 净化环境下起服。
 """
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -20,13 +25,38 @@ import pytest
 os.environ.setdefault("SCRIBE3_SETTINGS_DB",
                       os.path.join(tempfile.mkdtemp(prefix="scribe3-settings-test-"),
                                    "settings.sqlite3"))
-os.environ.setdefault("SCRIBE3_SCHEMA_SOFT", "1")  # host Surreal minor mismatch fail-soft for tests
+# 3.x 为主；仅允许非致命迁移语法在极端版本漂移时 soft（默认仍应装 3.2.4）
+os.environ.setdefault("SCRIBE3_SCHEMA_SOFT", "1")
 
 
 from scribe3.store import SurrealStore
 
 SURREAL_BIN = (os.environ.get("SURREAL_BIN") or shutil.which("surreal")
                or os.path.expanduser("~/.surrealdb/surreal"))
+
+
+def _require_surreal_3(bin_path: str) -> None:
+    """拒绝 SurrealDB 2.x：type::record 语义与 demo 3.2.4 不一致，禁止双轨。"""
+    if not bin_path or not os.path.isfile(bin_path):
+        raise RuntimeError(
+            f"需要 SurrealDB 3.x 可执行文件（demo 对齐 3.2.4）。未找到: {bin_path!r}。"
+            "请设置 SURREAL_BIN 指向 3.x，或在 CI/demo 机运行 store 集成测。"
+        )
+    try:
+        out = subprocess.check_output(
+            [bin_path, "version"], text=True, stderr=subprocess.STDOUT, timeout=10,
+        )
+    except Exception as e:
+        raise RuntimeError(f"无法执行 {bin_path} version: {e}") from e
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", out or "")
+    if not m:
+        raise RuntimeError(f"无法解析 Surreal 版本: {out!r}")
+    major = int(m.group(1))
+    if major < 3:
+        raise RuntimeError(
+            f"SurrealDB {m.group(0)} 不受支持（禁止 2.x 回退）。"
+            f"请安装 3.x（demo 为 3.2.4）。当前二进制: {bin_path}\n输出: {out.strip()}"
+        )
 
 
 def _free_port() -> int:
@@ -108,6 +138,7 @@ def _clear_context_caches():
 
 def _boot_store():
     """起一个临时内存 SurrealDB 子进程 + 连上的 SurrealStore(schema 尚未应用)。"""
+    _require_surreal_3(SURREAL_BIN)
     port = _free_port()
     clean_env = {"PATH": "/usr/bin:/bin:/usr/local/bin",
                  "HOME": os.path.expanduser("~"), "PWD": "/tmp"}

@@ -1,7 +1,8 @@
-"""B∪C ContextTurnView 合同：纯逻辑 + 写/讨论编译 roundtrip（不依赖本机 Surreal 全量 schema）。
+"""B∪C ContextTurnView 合同：纯逻辑 + 写/讨论编译 roundtrip。
 
-本机 Grok 跑 Surreal 2.3.7 时 type::record 参数序与 demo 3.x 相反，conftest 全量
-apply_schema 不可靠；本文件用 MiniStore 驱动**已交付**的 assemble / bind / view 函数。
+不启 Surreal 子进程（Grok 机资源规则：验收打 demo，禁止本机起库）。
+MiniStore 驱动**已交付**的 assemble / TurnBind / view / handler 路径。
+生产库唯一支持 SurrealDB **3.x**（demo 3.2.4），无 2.x 回退。
 """
 from __future__ import annotations
 

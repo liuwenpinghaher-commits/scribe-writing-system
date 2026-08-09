@@ -60,7 +60,7 @@ class TestPasswordAndSession:
 
 class TestGetWorkRowQuery:
     def test_get_work_row_uses_slug_where_not_type_record(self, monkeypatch):
-        """Regression: type::record('work',$s) 500'd on prod Surreal 2.1.4."""
+        """Regression: work record id 须用 type::record（Surreal 3.x）。"""
         import scribe3.auth.ownership as own
 
         queries: list[str] = []
