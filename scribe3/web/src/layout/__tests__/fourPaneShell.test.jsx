@@ -421,7 +421,7 @@ describe('FourPaneShell 四栏钻取', () => {
     expect(screen.getByTestId('col-directory')).toBeTruthy()
   })
 
-  it('协作模式:再点主编轨折叠后从目录右缘恢复(不误贴 detail 右缘)', () => {
+  it('协作模式:再点主编轨折叠后从详情右缘恢复(会话在最右)', () => {
     render(<Harness />)
 
     expect(screen.getByTestId('chief')).toBeTruthy()
@@ -433,8 +433,8 @@ describe('FourPaneShell 四栏钻取', () => {
 
     expect(screen.queryByTestId('chief')).toBeNull()
     const restore = screen.getByTestId('right-restore-button')
-    // 协作:主编在目录与详情之间 → 还原贴目录右缘
-    expect(restore.getAttribute('data-restore-host')).toBe('directory')
+    // 协作: order=directory|detail|right → 还原贴详情右缘
+    expect(restore.getAttribute('data-restore-host')).toBe('detail')
     expect(restore.getAttribute('data-restore-edge')).toBe('right')
     expect(restore.className).toContain('right-0')
     expect(restore.className).toContain('top-1/2')
