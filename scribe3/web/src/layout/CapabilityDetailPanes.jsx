@@ -247,9 +247,15 @@ export function DeduceDetailPane({ node, work }) {
       if (selected !== 'truth') setSelected('truth')
       return
     }
+    // 左栏点具体角色：ref.character_id 优先
+    const fromNode = node?.ref?.character_id || node?.meta?.character_id
+    if (fromNode) {
+      if (selected !== fromNode) setSelected(fromNode)
+      return
+    }
     const candidate = meta.focalizer || meta.involved_characters?.[0] || meta.deductions?.[0]?.character_id || ''
     if (candidate && selected !== candidate) setSelected(candidate)
-  }, [node?.ref?.view, meta.focalizer, meta.involved_characters, meta.deductions, selected, setSelected])
+  }, [node?.ref?.view, node?.ref?.character_id, node?.meta?.character_id, meta.focalizer, meta.involved_characters, meta.deductions, selected, setSelected])
 
   return <DeduceStage key={node?.id} seq={seq} meta={meta} work={work} />
 }
