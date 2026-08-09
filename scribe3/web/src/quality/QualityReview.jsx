@@ -345,7 +345,7 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
                   />
                   <span>
                     <span className="font-medium">{fp.title || '未命名标尺'}</span>
-                    <span className="text-meta text-faint"> · rev {fp.revision}</span>
+                    <span className="text-meta text-faint"> · 版本 {fp.revision}</span>
                     {fp.full_book_fingerprint && (
                       <span className="block text-meta text-faint">{fp.full_book_fingerprint}</span>
                     )}

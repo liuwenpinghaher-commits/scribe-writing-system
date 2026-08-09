@@ -93,7 +93,7 @@ describe('ContextInspector · 第1层常显', () => {
   it('显示当前 focus、revision 与"主编知道你在看什么"', async () => {
     render(<ContextInspector />)
     expect(screen.getByTestId('context-inspector-focus').textContent).toBe('铜炉认主')
-    expect(screen.getByTestId('context-inspector-revision').textContent).toContain('rev 7')
+    expect(screen.getByTestId('context-inspector-revision').textContent).toContain('版本 7')
     await waitFor(() =>
       expect(screen.getByTestId('context-inspector-status').getAttribute('data-status')).toBe('current'))
     expect(screen.getByTestId('context-inspector-status').textContent).toContain('主编知道你在看什么')
@@ -125,10 +125,12 @@ describe('ContextInspector · 第2层展开', () => {
     for (const k of ['focus', 'global', 'canonical', 'recent', 'procedural', 'reference', 'uncertainty', 'provenance']) {
       expect(screen.getByTestId(`context-block-${k}`)).toBeTruthy()
     }
-    expect(screen.getByTestId('context-block-canonical').textContent).toContain('120 tok')
+    expect(screen.getByTestId('context-block-canonical').textContent).toContain('120 词元')
+    expect(screen.getByTestId('context-block-canonical').textContent).toContain('正典')
     expect(screen.getByTestId('context-block-canonical').textContent).toContain('1 源')
     expect(screen.getByTestId('context-block-recent').textContent).toContain('1 源')
-    expect(screen.getByTestId('context-block-focus').textContent).toContain('20 tok')
+    expect(screen.getByTestId('context-block-focus').textContent).toContain('20 词元')
+    expect(screen.getByTestId('context-block-focus').textContent).toContain('焦点')
   })
 })
 
@@ -161,7 +163,7 @@ describe('ContextInspector · 第3层证据', () => {
     expect(sels[0].textContent).toContain('正典 · 恒真')
     expect(sels[0].textContent).toContain('信心 100%')
     const rej = screen.getByTestId('evidence-rejected')
-    expect(rej.textContent).toContain('conflicts_with_canonical')
+    expect(rej.textContent).toContain('与正典冲突')
   })
 
   it('私密证据只显"秘密事实已屏蔽",不渲染 value(即便后端漏值)', async () => {

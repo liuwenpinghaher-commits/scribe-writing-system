@@ -81,7 +81,7 @@ export function NorthStarPanel({ seq, scope }) {
       {/* ===== 章级 ===== */}
       {scope !== 'book' && (
         seq == null ? <Empty>未选章</Empty> : ch === undefined ? <Skeleton /> : ch === null ? (
-          <Empty>本章暂无 scorecard(无正文或加载失败)</Empty>
+          <Empty>本章暂无评分卡（无正文或加载失败）</Empty>
         ) : (
           <>
             {degraded.length > 0 && (

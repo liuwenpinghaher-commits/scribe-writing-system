@@ -38,9 +38,9 @@ function DashboardCard() {
   const url = (status?.url || '').replace(/\/+$/, '')
   const links = [
     { key: 'models', label: '模型与服务商', href: `${url}/models?profile=scribe3` },
-    { key: 'skills', label: 'Skills', href: `${url}/skills?profile=scribe3` },
-    { key: 'mcp', label: 'MCP', href: `${url}/mcp?profile=scribe3` },
-    { key: 'cron', label: 'Cron', href: `${url}/cron` },
+    { key: 'skills', label: '技能', href: `${url}/skills?profile=scribe3` },
+    { key: 'mcp', label: 'MCP 工具', href: `${url}/mcp?profile=scribe3` },
+    { key: 'cron', label: '定时任务', href: `${url}/cron` },
     { key: 'sessions', label: '会话', href: `${url}/sessions?profile=scribe3` },
   ]
 

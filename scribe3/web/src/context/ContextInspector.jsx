@@ -14,17 +14,57 @@ import { useContextSnapshot } from './ContextSnapshotContext'
 //   无溯源(GET trace 返 404)→ 第3层显"未检索到证据"(而非"没有相关事实"——
 //   没检索≠没有相关事实)。
 
-// 第2层八块(与 context_assembler.BLOCK_BUDGETS / ContextBlock 对齐)
+// 第2层八块(与 context_assembler.BLOCK_BUDGETS / ContextBlock 对齐；key 保持英文协议，label 用户可见中文)
 const BLOCK_DEFS = [
-  { key: 'focus', label: 'Focus' },
-  { key: 'global', label: 'Global' },
-  { key: 'canonical', label: 'Canonical' },
-  { key: 'recent', label: 'Recent' },
-  { key: 'procedural', label: 'Procedural' },
-  { key: 'reference', label: 'Reference' },
-  { key: 'uncertainty', label: 'Uncertainty' },
-  { key: 'provenance', label: 'Provenance' },
+  { key: 'focus', label: '焦点' },
+  { key: 'global', label: '全局' },
+  { key: 'canonical', label: '正典' },
+  { key: 'recent', label: '近期' },
+  { key: 'procedural', label: '流程' },
+  { key: 'reference', label: '参考' },
+  { key: 'uncertainty', label: '不确定' },
+  { key: 'provenance', label: '溯源' },
 ]
+
+// 选入/弃用理由码 → 中文（未知码原样回退，避免丢信息）
+const EVIDENCE_REASON_CN = {
+  canonical: '正典',
+  relevance_rank: '相关度排序',
+  conflicts_with_canonical: '与正典冲突',
+  author_constraint_must_follow: '作者约束须遵循',
+  borrow_not_fact: '仅作参考非事实',
+  fallback_no_importance: '无重要性回退',
+  main_cast_only: '仅主角团',
+  must_link_priority: '必链优先',
+  secret_masked: '秘密已屏蔽',
+  superseded_by_canonical: '已被正典覆盖',
+  discussion_supplement: '讨论补充',
+  author_correction: '作者更正',
+  not_retrieved_yet: '尚未检索',
+}
+
+function evidenceReasonLabel(reason) {
+  if (reason == null || reason === '') return '—'
+  const key = String(reason)
+  return EVIDENCE_REASON_CN[key] || key
+}
+
+// task_kind / 协议 id → 人话
+const TASK_KIND_CN = {
+  'discussion.v1': '讨论',
+  discussion: '讨论',
+  write: '写作',
+  write_stream: '写作',
+  pilot: '主编驾驶',
+  brief: '简报',
+  ingest: '入库',
+}
+
+function taskKindLabel(kind) {
+  if (!kind) return ''
+  const k = String(kind)
+  return TASK_KIND_CN[k] || k.replace(/\.v\d+$/, '')
+}
 
 const STATUS_META = {
   current: { label: '主编知道你在看什么', tone: 'ok' },
@@ -89,7 +129,7 @@ function EvidenceRow({ item, kind }) {
         <span className="font-mono text-ink truncate">{item.source_id}</span>
         <span className="text-faint">· {tenseLabel(item)}</span>
         <span className="text-faint">· {confidenceLabel(item.confidence)}</span>
-        <span data-testid={`evidence-reason-${kind}`} className="ml-auto text-brand">理由:{item.reason || '—'}</span>
+        <span data-testid={`evidence-reason-${kind}`} className="ml-auto text-brand">理由:{evidenceReasonLabel(item.reason)}</span>
       </div>
       <div className="mt-0.5">
         {secret ? (
@@ -228,7 +268,7 @@ export function ContextInspector() {
         <span className="text-faint shrink-0">上下文</span>
         <span data-testid="context-inspector-focus" className="text-ink font-medium truncate max-w-[36%]">{focusLabel(focus)}</span>
         {revision != null && (
-          <span data-testid="context-inspector-revision" className="text-faint tabular-nums">rev {revision}</span>
+          <span data-testid="context-inspector-revision" className="text-faint tabular-nums">版本 {revision}</span>
         )}
         <span data-testid="context-inspector-status" data-status={status} title={statusLabel}
           className={`ml-auto truncate ${toneClass}`}>{statusLabel}</span>
@@ -283,7 +323,7 @@ export function ContextInspector() {
                       className="flex items-center justify-between rounded-md border border-line bg-canvas px-2 py-1 text-meta"
                     >
                       <span className="text-ink">{b.label}</span>
-                      <span className="text-faint tabular-nums">{tokens} tok · {count} 源</span>
+                      <span className="text-faint tabular-nums">{tokens} 词元 · {count} 源</span>
                     </div>
                   )
                 })}
@@ -296,8 +336,8 @@ export function ContextInspector() {
               ) : (
                 <div data-testid="context-inspector-no-evidence" className="rounded-md border border-line bg-canvas px-2 py-1.5 text-meta text-faint">
                   本轮已编译（见上方块预算），但无检索选入/弃用明细。
-                  {trace?.task_kind ? ` · ${trace.task_kind}` : ''}
-                  {trace?.manifest_id ? ` · manifest ${String(trace.manifest_id).slice(0, 8)}…` : ''}
+                  {trace?.task_kind ? ` · ${taskKindLabel(trace.task_kind)}` : ''}
+                  {trace?.manifest_id ? ` · 清单 ${String(trace.manifest_id).slice(0, 8)}…` : ''}
                 </div>
               )}
             </>

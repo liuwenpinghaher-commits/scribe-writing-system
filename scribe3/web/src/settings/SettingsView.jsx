@@ -11,7 +11,7 @@ import { ConfirmDialog } from '../ui/Dialog.jsx'
 // book/prefs/audit 为前端本地分区(Task 15 充实)。
 const SECTIONS = [
   { key: 'connection', label: '连接与服务' },
-  { key: 'llm', label: 'LLM 与用量' },
+  { key: 'llm', label: '模型与用量' },
   { key: 'craft', label: '工艺阈值' },
   { key: 'flags', label: '灰度开关' },
   { key: 'gateway', label: 'Hermes 网关' },

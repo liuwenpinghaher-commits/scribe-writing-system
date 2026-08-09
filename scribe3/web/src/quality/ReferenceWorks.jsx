@@ -39,7 +39,7 @@ function FingerprintCard({ fp, work, onApproved, canApprove }) {
         <Fingerprint size={13} className="text-faint shrink-0" />
         <span className="text-f13 font-medium text-ink" data-field-path="fingerprint.full_book">{data.full_book_fingerprint || '—'}</span>
         <Tag tone={STATUS_TONE[fp.status] || 'faint'}>{STATUS_LABEL[fp.status] || fp.status}</Tag>
-        <span className="ml-auto text-meta text-faint tnum">rev {fp.revision}</span>
+        <span className="ml-auto text-meta text-faint tnum">版本 {fp.revision}</span>
       </div>
       {meta.segment_count != null && (
         <div className="text-meta text-faint" data-field-path="fingerprint.analysis_meta">

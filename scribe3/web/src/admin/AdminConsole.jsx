@@ -527,9 +527,9 @@ export function AdminConsole({ onExit, hasWork = false }) {
                 <Field label="归属账号 *">
                   <input required className={inputCls} value={newWork.owner_user_id}
                     onChange={(e) => setNewWork({ ...newWork, owner_user_id: e.target.value })}
-                    placeholder="username" />
+                    placeholder="账号名" />
                 </Field>
-                <Field label="slug（可空）">
+                <Field label="短标识（可空）">
                   <input className={inputCls} value={newWork.slug}
                     onChange={(e) => setNewWork({ ...newWork, slug: e.target.value })}
                     placeholder="book_xxxx" />
@@ -538,7 +538,7 @@ export function AdminConsole({ onExit, hasWork = false }) {
               </form>
 
               <div className="p-3 rounded-lg border border-line bg-surface grid grid-cols-2 md:grid-cols-4 gap-2 items-end">
-                <Field label="转让 slug">
+                <Field label="转让短标识">
                   <input className={inputCls} value={transfer.slug}
                     onChange={(e) => setTransfer({ ...transfer, slug: e.target.value })} />
                 </Field>
@@ -554,7 +554,7 @@ export function AdminConsole({ onExit, hasWork = false }) {
                   <input className={inputCls} value={wq} onChange={(e) => setWq(e.target.value)} />
                 </Field>
                 <Field label="归属">
-                  <input className={inputCls} value={wOwner} onChange={(e) => setWOwner(e.target.value)} placeholder="username" />
+                  <input className={inputCls} value={wOwner} onChange={(e) => setWOwner(e.target.value)} placeholder="账号名" />
                 </Field>
                 <Field label="范围">
                   <select className={inputCls} value={wArch} onChange={(e) => setWArch(e.target.value)}>

@@ -213,7 +213,7 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApp
             <div className="text-f12 font-medium text-ink">写入影响</div>
             <div className="mt-0.5 text-meta text-faint">
               {writeEffects.map((e, i) => (
-                <div key={i}>{e.kind || '写入'}{e.context_revision != null ? ` · rev ${e.context_revision}` : ''}{e.stale_confirmed ? ' · 过期放行' : ''}</div>
+                <div key={i}>{e.kind || '写入'}{e.context_revision != null ? ` · 版本 ${e.context_revision}` : ''}{e.stale_confirmed ? ' · 过期放行' : ''}</div>
               ))}
             </div>
           </div>

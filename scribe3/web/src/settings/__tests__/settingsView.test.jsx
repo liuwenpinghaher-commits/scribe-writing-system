@@ -307,7 +307,7 @@ describe('SettingsView', () => {
     await waitFor(() => expect(apiMock.resetSetting).toHaveBeenCalledWith('DEEPSEEK_API_KEY'))
     await waitFor(() => expect(apiMock.settings).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(apiMock.aiUsage).toHaveBeenCalledTimes(2))
-    fireEvent.click(screen.getByText('LLM 与用量'))
+    fireEvent.click(screen.getByText('模型与用量'))
     expect(await screen.findByText('未保存密钥')).toBeTruthy()
   })
 

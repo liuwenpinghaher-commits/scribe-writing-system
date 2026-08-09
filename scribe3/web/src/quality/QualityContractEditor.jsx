@@ -183,7 +183,7 @@ export function QualityContractEditor({ work }) {
             <select aria-label="选择已批准标尺" value={pickId} onChange={(e) => setPickId(e.target.value)} className="h-8 rounded-md border border-line bg-canvas px-2 text-f13 text-ink">
               <option value="">选择…</option>
               {yardsticks.map((row) => (
-                <option key={row.fingerprint_id} value={row.fingerprint_id}>{row.title || row.reference_work_id} · rev {row.revision}</option>
+                <option key={row.fingerprint_id} value={row.fingerprint_id}>{row.title || row.reference_work_id} · 版本 {row.revision}</option>
               ))}
             </select>
           </label>

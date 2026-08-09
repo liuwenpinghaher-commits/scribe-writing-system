@@ -228,7 +228,7 @@ function InboxPanel({ seq, onCount }) {
   }
   if (!data.items.length) return <Empty>没有等你的事项——主编在岗,一切有账。</Empty>
   const KIND_LABEL = { needs_human: '需人裁决', promotable_lesson: '升格候选', pulse_decision: '章内决策',
-    pilot_outline: '大纲待放行', pilot_delivered: '交付待终选', pilot_parked: 'Pilot 停靠',
+    pilot_outline: '大纲待放行', pilot_delivered: '交付待终选', pilot_parked: '驾驶停靠',
     idea_setting: '想法 · 动设定', idea_revise: '想法 · 改旧章', idea_unclear: '想法 · 待澄清',
     daily_digest: '每日摘报' }
   const approve = (seqP, expectState) =>
@@ -330,7 +330,7 @@ function DeliveryCard({ card, seq, onOpenProse }) {
     <div className="mt-1.5 rounded-md bg-soft/50 border border-line/60 px-2 py-1.5 space-y-1 text-meta">
       <div className="flex gap-3 text-faint items-center flex-wrap">
         <span className="tnum">{card.words ?? '?'} 字</span>
-        <span className={card.qc ? 'text-danger' : 'text-ok'}>QC {card.qc || 0} 处</span>
+        <span className={card.qc ? 'text-danger' : 'text-ok'}>质检 {card.qc || 0} 处</span>
         {seq != null && typeof onOpenProse === 'function' && (
           <button type="button" onClick={() => onOpenProse(seq)}
             className="text-brand hover:underline cursor-pointer ml-auto">打开正文 →</button>
@@ -371,7 +371,7 @@ function PilotDock({ seq }) {
     const t = setInterval(tick, 3500)   // 常驻轮询:连写进度/停靠/stalled 实时可见(窄查,轻)
     return () => { dead = true; clearInterval(t) }
   }, [seq])
-  if (seq == null) return <Empty>选一章后可用 Pilot 驱动写作</Empty>
+  if (seq == null) return <Empty>选一章后可用主编驾驶驱动写作</Empty>
   const refresh = () => {
     api.pilotStatus(seq).then(setSt).catch(() => setSt(null))
     api.pilotRunStatus().then(setRun).catch(() => {})
@@ -400,7 +400,7 @@ function PilotDock({ seq }) {
           ? ` · 知识回写 ${ing.applied} 条`
           : ''
         const qcHint = (qc && qc.grade && !qc.empty)
-          ? ` · QC ${qc.grade}${(qc.gates_hit || []).length ? `(${qc.gates_hit.slice(0, 3).join('/')})` : ''}`
+          ? ` · 质检 ${qc.grade}${(qc.gates_hit || []).length ? `(${qc.gates_hit.slice(0, 3).join('/')})` : ''}`
           : ''
         toast(
           l1n > 0
@@ -432,7 +432,7 @@ function PilotDock({ seq }) {
   if (st === undefined) {
     return (
       <div className="space-y-3">
-        <SectionTitle icon={Bot}>Pilot · 主编驾驶</SectionTitle>
+        <SectionTitle icon={Bot}>主编驾驶</SectionTitle>
         <div className="text-meta text-faint">加载驾驶状态…</div>
       </div>
     )
@@ -440,9 +440,9 @@ function PilotDock({ seq }) {
   if (st === null) {
     return (
       <div className="space-y-3">
-        <SectionTitle icon={Bot}>Pilot · 主编驾驶</SectionTitle>
+        <SectionTitle icon={Bot}>主编驾驶</SectionTitle>
         <div role="alert" className="text-meta text-danger bg-danger/8 rounded px-2 py-1.5">
-          Pilot 状态加载失败(不是「未启动」)。
+          主编驾驶状态加载失败（不是「未启动」）。
           <button type="button" className="ml-2 underline cursor-pointer" onClick={refresh}>重试</button>
         </div>
       </div>
@@ -466,7 +466,7 @@ function PilotDock({ seq }) {
   }
   return (
     <div className="space-y-3">
-      <SectionTitle icon={Bot}>Pilot · 主编驾驶</SectionTitle>
+      <SectionTitle icon={Bot}>主编驾驶</SectionTitle>
       <div className="text-meta text-faint leading-snug">
         作者=创意总监 · 主编按阶段执行。大纲与终选须你放行;连写不自动定稿。
       </div>
@@ -534,7 +534,7 @@ function PilotDock({ seq }) {
         )}
         {state !== 'idle' && state !== 'finalized' && (
           <button type="button" disabled={busy}
-            onClick={() => { if (window.confirm('退出 Pilot 编排?不动正文/草料,想再用从头 step 即可。')) act(() => api.pilotDismiss(seq), '已退出 Pilot') }}
+            onClick={() => { if (window.confirm('退出主编驾驶编排？不动正文/草料，想再用从头推进即可。')) act(() => api.pilotDismiss(seq), '已退出主编驾驶') }}
             className="h-7 px-2.5 rounded-lg text-meta text-faint hover:text-danger cursor-pointer">退出</button>
         )}
       </div>
@@ -618,7 +618,7 @@ export function useRightDockController({ sel, chapterSel, seq, lastSeq, onRestor
     if (seq != null) next.push({ key: 'selection', icon: GitCompare, label: '选择环 · 轻选/重选', scope: 'object', render: () => <div className="p-3"><SelectionPanel seq={seq} onFinalized={onRestored} /></div> })   // P2审查P1-2:终选落库=恢复语义,bump restoreTick 防编辑器stale buffer盖稿
     if (seq != null) next.push({ key: 'versions', icon: Archive, label: '存档', scope: 'chapter', render: () => <div className="p-3"><RightVersionPanel seq={seq} onRestored={onRestored} /></div> })
     // R1-4:Pilot 驾驶舱——章生命周期状态机 UI 起点(推进/连写/暂停/解卡/退出)
-    if (seq != null) next.push({ key: 'pilot', icon: Bot, label: 'Pilot · 主编驾驶', scope: 'chapter', render: () => <div className="p-3"><PilotDock seq={seq} /></div> })
+    if (seq != null) next.push({ key: 'pilot', icon: Bot, label: '主编驾驶', scope: 'chapter', render: () => <div className="p-3"><PilotDock seq={seq} /></div> })
     // 主编主动化 T4:决策收件箱——badge=等作者事项数(needs_human/升格候选/pulse decision);
     // Task 8 三态:数字仅真实拿到且>0 时显示;undefined=首拉悬挂期 badge 留空不显
     //(有意取舍:防每次挂载先闪「?」再变数字);null=拉取失败,才转 badgeUnknown 显「?」。
@@ -950,7 +950,7 @@ function QCPanel({ seq }) {
   const noProse = qc && typeof qc === 'object' && Object.keys(qc).length === 0
   return (
     <div>
-      <SectionTitle icon={ShieldCheck}>确定性 QC · 本章正文</SectionTitle>
+      <SectionTitle icon={ShieldCheck}>确定性质检 · 本章正文</SectionTitle>
       {ingest?.failed && (
         <div
           data-testid="qc-ingest-fail-banner"
@@ -965,7 +965,7 @@ function QCPanel({ seq }) {
         <div className="mb-2 text-meta text-faint">反哺进行中…</div>
       )}
       {qc === undefined ? <><Skeleton className="w-full" /><Skeleton className="w-full mt-2" /><Skeleton className="w-3/4 mt-2" /></>
-        : qc === null ? <Empty>QC 加载失败,切走再切回可重试</Empty>
+        : qc === null ? <Empty>质检加载失败，切走再切回可重试</Empty>
         : noProse ? <Empty>保存正文后自动体检</Empty>
         : <div>{items.map(([label, hits]) => <QCItem key={label} label={label} hits={hits} />)}</div>}
       {seq != null && qc !== undefined && <TensionCheck seq={seq} />}
