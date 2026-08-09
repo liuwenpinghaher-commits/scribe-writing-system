@@ -163,14 +163,44 @@ def build_regen_constraints(blocking: list[dict], next_attempt: int,
         "findings_schema": "按批注消除该硬伤,保持叙事意图不变",
         "aggregate_ai_grade": "按简报文风重写,拆掉被命中的套路句式,句长错落、情绪走物象",
     }
+    # PSC：pressure_metrics 按 finding.kind 分支（换阶/换场）；禁止同地原地兑锚
+    imper_by_kind = {
+        "progress_stairs_anchored": (
+            "换场或换阶写入台阶证据；禁止同地重复犹豫/感官原地补词兑锚"
+        ),
+        "progress_zero_advance": (
+            "本章须至少落地一格代价或决策台阶；禁止只磨痕迹不挪局面"
+        ),
+        "irreversible_anchored": (
+            "换场写入不可逆痕迹证据；禁止同句型原地补词"
+        ),
+        "location_grind_run": (
+            "压缩同地连续主戏；须尽早付代价、换场或安静落地台阶证据"
+        ),
+        "retreat_no_cost": (
+            "退可以，须代价/决策/不可逆落地；禁止原状空转退回"
+        ),
+        "fork_signal": "岔路须可见选择措辞与后果之一，勿只堆内心戏",
+        "motif_overheat_local": "压缩同意象连刷，改峰段或换场",
+        "ritual_quota_exceeded": "仪式再写须变形，禁止同一记门完整复读",
+        "time_linear_flag": "压时间刻度，允许弯曲/悬置，禁止匀速流水账",
+    }
     lines = [f"## 上稿被确定性检测打回(即将进行第 {next_attempt} 轮重写)",
              "以下约束优先级高于本轮用户指令与大纲中与之冲突的部分;"
              "若约束与叙事意图根本冲突,宁可留疑而不违规(遗留处置 1-C #12)。",
              "以下硬伤必须全部消除;未列出的部分保持原有叙事意图与质感,不要整体翻新:"]
     for b in blocking[:12]:   # 量控:防超长 findings 稀释组装链其余强制项
         q = f"「{b['quote']}」" if b.get("quote") else ""
-        lines.append(f"- [{b.get('detector')}] {b.get('note') or b.get('kind')}{q}"
-                     f"——{imper.get(b.get('detector'), '消除该硬伤')}。")
+        det = b.get("detector")
+        # kind 只读 triage 已填的 b["kind"]，禁止二次解析 note
+        kind = b.get("kind")
+        if det == "pressure_metrics":
+            tip = imper_by_kind.get(kind) or "消除该硬伤（换阶或换场，禁原地补词）"
+        else:
+            tip = imper.get(det, "消除该硬伤")
+        lines.append(
+            f"- [{det}] {b.get('note') or kind or ''}{q}——{tip}。"
+        )
     if len(blocking) > 12:
         lines.append(f"-(另有 {len(blocking) - 12} 条同类硬伤,一并按上述要求处理)")
     if prior_summary:

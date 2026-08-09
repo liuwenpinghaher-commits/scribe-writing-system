@@ -32,7 +32,10 @@ def test_validate_pdc_three_state():
     assert validate_pdc(None)["ok"] is None
     assert validate_pdc({"status": "missing"})["ok"] is None
     good = _load_contract()
-    assert validate_pdc(good)["ok"] is True
+    # gold fixture may lack progress — still core ok
+    r0 = validate_pdc(good)
+    assert r0["ok"] is True
+    assert "progress_ok" in r0
     bad = dict(good)
     bad["fork"] = {"choice": "", "cost_steps": []}
     # has version + empty choice → ok False

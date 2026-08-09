@@ -10,7 +10,10 @@ from scribe3.pressure_drive import (
     validate_pdc,
 )
 
-METRICS_VERSION = "pressure_metrics.v1"
+METRICS_VERSION = "pressure_metrics.v2"
+
+_NARROW_ACT = re.compile(r"接了|拧开|空过|咬合|拨开|嵌进|半寸|锁芯")
+_RETREAT_PAT = re.compile(r"退回|退了|转身离开|缩回|没敢|不敢开|收回.{0,4}匙|头也不回")
 
 _TIME_MARKS = re.compile(
     r"五更|四更|三更|天没亮|天已经|大亮|日头|过午|偏了|入夜|夜里|昨儿|今儿|"
@@ -279,6 +282,132 @@ def measure_pressure(
         anchored=True,
     )
 
+    # --- progress / PSC ---
+    prog = (contract or {}).get("progress") if present else None
+    role = str((contract or {}).get("role") or "") if present else ""
+    low = role in ("低压", "关系回收", "修炼", "信息整理") or cp in (1, 2)
+
+    if not present or not isinstance(prog, dict):
+        metrics["progress_stairs_anchored"] = _metric(None, tier="n/a", detail="无 progress")
+        metrics["progress_zero_advance"] = _metric(None, tier="n/a")
+        metrics["location_grind_run"] = _metric(None, tier="n/a")
+        metrics["retreat_no_cost"] = _metric(None, tier="n/a")
+        metrics["main_channel_idle_ratio"] = _metric(None, tier="n/a")
+    else:
+        stairs = prog.get("stairs") if isinstance(prog.get("stairs"), list) else []
+        try:
+            need = int(prog.get("min_stairs") or 1)
+        except (TypeError, ValueError):
+            need = 1
+        hit = 0
+        missed = []
+        for s in stairs:
+            if not isinstance(s, dict):
+                continue
+            ev = str(s.get("evidence_must_show") or "").strip()
+            if not ev:
+                continue
+            if ev in prose or _norm(ev) in _norm(prose):
+                hit += 1
+            else:
+                missed.append(ev)
+        if not stairs:
+            metrics["progress_stairs_anchored"] = _metric(0, tier="n/a", detail="stairs 空")
+        else:
+            tier = "light" if hit >= need else "heavy"
+            metrics["progress_stairs_anchored"] = _metric(
+                hit,
+                tier=tier,
+                detail=f"hit={hit} need={need} missed={missed[:3]}",
+                anchored=True,
+            )
+            if hit < need:
+                findings.append(_finding(
+                    "progress_stairs_anchored",
+                    f"情节台阶未落地：需≥{need} 格，命中 {hit}；缺「{'」「'.join(missed[:2])}」",
+                    severity=_sev("progress_stairs_anchored", cp, heavy=(hit == 0)),
+                ))
+
+        irrev = contract.get("irreversible") if isinstance(contract.get("irreversible"), dict) else {}
+        irrev_ev = str(irrev.get("evidence_must_show") or "").strip()
+        irrev_hit = bool(irrev_ev and (irrev_ev in prose or _norm(irrev_ev) in _norm(prose)))
+        zero = bool(stairs) and hit == 0 and not irrev_hit
+        metrics["progress_zero_advance"] = _metric(
+            zero,
+            tier="heavy" if zero else "light",
+            detail="hit=0 and irrev miss" if zero else "ok",
+            anchored=True,
+        )
+        if zero:
+            findings.append(_finding(
+                "progress_zero_advance",
+                "本章未检出任何台阶或不可逆痕迹落地，疑似零推进",
+                severity=_sev("progress_zero_advance", cp, heavy=True),
+            ))
+
+        # location_grind_run (K16)
+        if low and need < 2:
+            metrics["location_grind_run"] = _metric(None, tier="n/a", detail="低压跳过")
+        else:
+            lg = prog.get("location_grind") if isinstance(prog.get("location_grind"), dict) else {}
+            primary = str(lg.get("primary_locus") or "主场").strip()
+            try:
+                max_chars = int(lg.get("max_contiguous_chars") or 900)
+            except (TypeError, ValueError):
+                max_chars = 900
+            try:
+                max_paras = int(lg.get("max_contiguous_paras") or 6)
+            except (TypeError, ValueError):
+                max_paras = 6
+            max_run_chars, max_run_paras = _location_grind_stats(
+                prose, contract, primary, synopsis, beats_text,
+            )
+            over = max_run_chars > max_chars or max_run_paras > max_paras
+            metrics["location_grind_run"] = _metric(
+                max_run_chars,
+                tier="heavy" if over and max_run_chars > max_chars * 1.2 else ("mid" if over else "light"),
+                detail=f"max_run_chars={max_run_chars} max_run_paras={max_run_paras} cap={max_chars}/{max_paras}",
+                anchored=True,
+            )
+            if over:
+                findings.append(_finding(
+                    "location_grind_run",
+                    f"同地「{primary}」连续主戏过长（{max_run_chars}字/{max_run_paras}段，顶{max_chars}/{max_paras}）",
+                    severity="advisory",
+                ))
+
+        # retreat_no_cost
+        retreat_hit = bool(_RETREAT_PAT.search(prose))
+        if not retreat_hit:
+            metrics["retreat_no_cost"] = _metric(False, tier="n/a", detail="无退信号")
+        else:
+            cost_hit = False
+            for s in stairs:
+                if not isinstance(s, dict):
+                    continue
+                kind = str(s.get("kind") or "")
+                if not (s.get("is_retreat_cost") or kind in ("cost", "decision", "irreversible")):
+                    continue
+                ev = str(s.get("evidence_must_show") or "").strip()
+                if ev and (ev in prose or _norm(ev) in _norm(prose)):
+                    cost_hit = True
+                    break
+            no_cost = not cost_hit
+            metrics["retreat_no_cost"] = _metric(
+                no_cost,
+                tier="mid" if no_cost else "light",
+                detail="retreat without cost stair" if no_cost else "retreat with cost",
+                anchored=True,
+            )
+            if no_cost:
+                findings.append(_finding(
+                    "retreat_no_cost",
+                    "检出退回/缩手，但无代价/决策/不可逆台阶落地（退而不变）",
+                    severity="advisory",
+                ))
+
+        metrics["main_channel_idle_ratio"] = _metric(None, tier="n/a", detail="report-only stub")
+
     return {
         "version": METRICS_VERSION,
         "contract_present": present,
@@ -287,6 +416,118 @@ def measure_pressure(
         "findings": findings,
         "literary_claim_ban": "machine≠literary≥9.5; human_pass_rule_met never from this module",
     }
+
+
+def _char_len(para: str) -> int:
+    return len(
+        (para or "")
+        .replace(" ", "")
+        .replace("\n", "")
+        .replace("\u3000", "")
+    )
+
+
+def _cost_kind_evidences(contract: dict) -> list[str]:
+    out = []
+    prog = contract.get("progress") if isinstance(contract.get("progress"), dict) else {}
+    for s in (prog.get("stairs") or []):
+        if not isinstance(s, dict):
+            continue
+        kind = str(s.get("kind") or "")
+        if kind not in ("cost", "decision", "irreversible") and not s.get("is_retreat_cost"):
+            continue
+        ev = str(s.get("evidence_must_show") or "").strip()
+        if ev:
+            out.append(ev)
+    irrev = contract.get("irreversible") if isinstance(contract.get("irreversible"), dict) else {}
+    ie = str(irrev.get("evidence_must_show") or "").strip()
+    if ie and ie not in out:
+        out.append(ie)
+    return out
+
+
+def _all_stair_irrev_evidences(contract: dict) -> list[str]:
+    out = []
+    prog = contract.get("progress") if isinstance(contract.get("progress"), dict) else {}
+    for s in (prog.get("stairs") or []):
+        if isinstance(s, dict):
+            ev = str(s.get("evidence_must_show") or "").strip()
+            if ev:
+                out.append(ev)
+    irrev = contract.get("irreversible") if isinstance(contract.get("irreversible"), dict) else {}
+    ie = str(irrev.get("evidence_must_show") or "").strip()
+    if ie:
+        out.append(ie)
+    return out
+
+
+def _location_grind_stats(
+    prose: str,
+    contract: dict,
+    primary: str,
+    synopsis: str,
+    beats_text: str,
+) -> tuple[int, int]:
+    """K16 唯一打断语义。返回 (max_run_chars, max_run_paras)。"""
+    place_set = {primary} if primary else set()
+    place_set |= {p for p in _place_set(synopsis, beats_text) if primary and any(c in p for c in primary)}
+    place_set |= set(_PLACE_CAND.findall(prose[:3000]))
+    cost_evs = _cost_kind_evidences(contract)
+    all_evs = _all_stair_irrev_evidences(contract)
+
+    paras = [p for p in re.split(r"\n\s*\n", prose) if p.strip()]
+    seen_in_run: set[str] = set()
+    run_chars = 0
+    run_paras = 0
+    max_run_chars = 0
+    max_run_paras = 0
+
+    def settle():
+        nonlocal run_chars, run_paras, max_run_chars, max_run_paras, seen_in_run
+        max_run_chars = max(max_run_chars, run_chars)
+        max_run_paras = max(max_run_paras, run_paras)
+        run_chars = 0
+        run_paras = 0
+        seen_in_run = set()
+
+    for para in paras:
+        has_locus = any(p in para for p in place_set) if place_set else bool(_PLACE_CAND.search(para))
+        if not has_locus:
+            settle()
+            continue
+
+        fresh = []
+        for ev in cost_evs:
+            if ev and (ev in para or _norm(ev) in _norm(para)) and ev not in seen_in_run:
+                fresh.append(ev)
+
+        has_any_ev = any(
+            ev and (ev in para or _norm(ev) in _norm(para)) for ev in all_evs
+        )
+        has_act = bool(_FORCE_VERBS.search(para) or _NARROW_ACT.search(para))
+
+        break_run = False
+        if fresh:
+            break_run = True
+        elif has_act and has_any_ev:
+            break_run = True
+
+        if break_run:
+            for ev in cost_evs:
+                if ev and (ev in para or _norm(ev) in _norm(para)):
+                    seen_in_run.add(ev)
+            settle()
+        else:
+            run_chars += _char_len(para)
+            run_paras += 1
+            max_run_chars = max(max_run_chars, run_chars)
+            max_run_paras = max(max_run_paras, run_paras)
+            for ev in cost_evs:
+                if ev and (ev in para or _norm(ev) in _norm(para)):
+                    seen_in_run.add(ev)
+
+    settle()
+    return max_run_chars, max_run_paras
 
 
 def _sev(kind: str, chapter_pressure: int, *, heavy: bool = False) -> str:
@@ -298,6 +539,8 @@ def _sev(kind: str, chapter_pressure: int, *, heavy: bool = False) -> str:
     if kind == "irreversible_anchored":
         return "blocking"
     if kind == "ritual_overuse" and heavy:
+        return "blocking"
+    if kind in ("progress_stairs_anchored", "progress_zero_advance") and heavy:
         return "blocking"
     return "advisory"
 

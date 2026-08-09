@@ -38,6 +38,8 @@ def test_craft_flag_on_skew(monkeypatch):
     assert "闲笔偏科" in block
     assert "感官峰值" in block
     assert "每章≥3" not in block
+    assert "推进优先" in block
+    assert block.count("推进优先") == 1 or "极闲不得连续" in block
 
 
 def test_pressure_drive_write_block_flag_off(monkeypatch):

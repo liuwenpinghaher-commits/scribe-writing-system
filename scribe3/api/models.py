@@ -369,6 +369,8 @@ class ChapterMetaReq(BaseModel):
     deductions: list | None = None          # [{character_id, character_name, prose}]
     purpose_text: str | None = None         # 北极星任务6:一句话章节目的
     deltas: list | None = None              # 北极星任务6:delta 清单(登记时校验+预演)
+    # PDC/PSC：压力驱动合同 JSON（dict 或 JSON 串）；store.update_chapter_meta 已白名单
+    pressure_drive: dict | str | None = None
 
     @field_validator("label")
     @classmethod
