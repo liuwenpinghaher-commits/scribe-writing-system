@@ -811,25 +811,30 @@ def drive_chapter(work: str, evid: Path, seq: int) -> int:
             continue
 
         if parked and "advisory" in str(parked).lower():
-            # 从版本库挑「本书锚点」最长稿，拒绝 沈拾灯/青石镇 窜稿
+            # A/B 消融：禁止从历史版本库恢复（否则 B 组会捡到 A 组成稿，对照失效）
+            skip_restore = (os.environ.get("AB_SKIP_VERSION_RESTORE") or "").strip().lower() in {
+                "1", "true", "yes", "on",
+            }
             best_id, best_n, best_prose = None, 0, ""
-            code_v, vs = curl("GET", f"/api/chapter-versions?seq={seq}", work=work)
-            if isinstance(vs, list):
-                for v in vs:
-                    vid = v.get("id")
-                    if not vid:
-                        continue
-                    _, full = curl("GET", f"/api/chapter-version/{vid}", work=work)
-                    prose_v = (full or {}).get("prose") or "" if isinstance(full, dict) else ""
-                    n = cn_len(prose_v)
-                    if n < MIN_CH // 2:
-                        continue
-                    if any(x in prose_v for x in ("沈拾灯", "青石镇", "阿绣", "王阿禾")):
-                        continue
-                    if not any(x in prose_v for x in ("覃灰七", "冷锅婆", "灰狸", "三棱铜匙", "炉巷", "铜腥", "炉灰")):
-                        continue
-                    if n > best_n:
-                        best_id, best_n, best_prose = vid, n, prose_v
+            if not skip_restore:
+                # 从版本库挑「本书锚点」最长稿，拒绝 沈拾灯/青石镇 窜稿
+                code_v, vs = curl("GET", f"/api/chapter-versions?seq={seq}", work=work)
+                if isinstance(vs, list):
+                    for v in vs:
+                        vid = v.get("id")
+                        if not vid:
+                            continue
+                        _, full = curl("GET", f"/api/chapter-version/{vid}", work=work)
+                        prose_v = (full or {}).get("prose") or "" if isinstance(full, dict) else ""
+                        n = cn_len(prose_v)
+                        if n < MIN_CH // 2:
+                            continue
+                        if any(x in prose_v for x in ("沈拾灯", "青石镇", "阿绣", "王阿禾")):
+                            continue
+                        if not any(x in prose_v for x in ("覃灰七", "冷锅婆", "灰狸", "三棱铜匙", "炉巷", "铜腥", "炉灰")):
+                            continue
+                        if n > best_n:
+                            best_id, best_n, best_prose = vid, n, prose_v
             if best_id and best_n >= MIN_CH * 0.7:
                 print(f"  restore good version {best_id} n={best_n}", flush=True)
                 curl("POST", f"/api/chapters/{seq}/restore-version", {
@@ -843,7 +848,11 @@ def drive_chapter(work: str, evid: Path, seq: int) -> int:
                 curl("POST", "/api/pilot/approve", {"seq": seq}, work=work, timeout=STEP_TIMEOUT)
             else:
                 # 草稿可能只在 park 文案里；再 step 一次带强制重写
-                print(f"  advisory no good version (best_n={best_n}) → rewrite", flush=True)
+                print(
+                    f"  advisory no good version (best_n={best_n}"
+                    f"{'; ab_skip_restore' if skip_restore else ''}) → rewrite",
+                    flush=True,
+                )
                 draft_tries += 1
                 if draft_tries > 6:
                     print("  FAIL draft advisory loop", flush=True)

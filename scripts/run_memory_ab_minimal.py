@@ -32,7 +32,8 @@ os.environ.setdefault("API_BASE", "https://www.qing.blue")
 os.environ["SCRIBE3_MEMORY_STEER_MODE"] = "minimal"
 os.environ.setdefault("MIN_CH_CHARS", "2800")
 os.environ.setdefault("MAX_STEPS_PER_CH", "25")
-
+# 关键：禁止 advisory 从历史版本恢复，否则 B 组会捡到 A 组成稿 → lead≈0 伪对照
+os.environ["AB_SKIP_VERSION_RESTORE"] = "1"
 import importlib.util
 
 _spec = importlib.util.spec_from_file_location(
