@@ -303,6 +303,7 @@ class ChaptersMixin:
             "SELECT seq,title,label,(IF volume THEN meta::id(volume) ELSE NONE END) AS volume,"
             "focalizer,prose,synopsis,beats,draft,"
             "scene_truth,scene_truth_revision,involved_characters,deductions,purpose_text,deltas,"
+            "pressure_drive,"
             "archived,"
             "(IF archived_at IS NONE THEN NONE ELSE <string>archived_at END) AS archived_at,"
             "archive_reason,"
@@ -322,6 +323,10 @@ class ChaptersMixin:
                 r[_k] = json.loads(raw) if raw else []
             except (ValueError, TypeError):
                 r[_k] = []
+        # pressure_drive 保持 str 或 None；dict 已是解析结果则原样
+        pd = r.get("pressure_drive")
+        if pd is not None and not isinstance(pd, (str, dict)):
+            r["pressure_drive"] = str(pd)
         r["scene_truth"] = r.get("scene_truth") or ""
         try:
             r["scene_truth_revision"] = max(0, int(r.get("scene_truth_revision") or 0))
@@ -922,7 +927,8 @@ class ChaptersMixin:
 
         allowed = {"synopsis", "volume", "label", "title", "beats",
                    "scene_truth", "involved_characters", "deductions",
-                   "purpose_text", "deltas"}   # 北极星任务6:目的合同两字段
+                   "purpose_text", "deltas",
+                   "pressure_drive"}   # PDC 压力驱动合同 JSON 串
         # volume 需单独处理(record link 不能传字符串参数)
         volume_id = _UNSET  # 哨兵:区分"未传 volume"与"传了 None(清空)"
         plain: dict = {}
@@ -950,6 +956,14 @@ class ChaptersMixin:
             elif k in ("beats", "deltas"):
                 # list 字段存为 JSON 串(绕 SCHEMAFULL 嵌套校验,同 scene_meta);读时还原。
                 plain[k] = json.dumps(v if v is not None else [], ensure_ascii=False)
+            elif k == "pressure_drive":
+                # PDC 合同：dict → JSON 串；已是 str 则原样；None → 空串清字段
+                if v is None:
+                    plain[k] = None
+                elif isinstance(v, str):
+                    plain[k] = v
+                else:
+                    plain[k] = json.dumps(v, ensure_ascii=False)
             else:
                 plain[k] = v
         # 构建 SET 子句:先处理普通字段,再追加 volume(若有)

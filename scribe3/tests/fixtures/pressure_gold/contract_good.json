@@ -1,0 +1,31 @@
+{
+  "version": "pdc.v1",
+  "chapter_pressure": 5,
+  "role": "高压",
+  "time_budget": {"mode": "collapse", "story_span": "≤两息"},
+  "fork": {
+    "choice": "拧开侧门接名或退回空过三日",
+    "cost_steps": ["拧开则不可装不知道", "退回则三日空过"]
+  },
+  "irreversible": {
+    "action": "半寸插匙",
+    "evidence_must_show": "半寸匙痕"
+  },
+  "ritual_quota": {
+    "class": "记门",
+    "max_full": 1,
+    "second_must_deform": true
+  },
+  "witness_policy": {"mode": "info_gap", "max_same_fact_reporters": 1},
+  "stroke_plan": {
+    "peak_segment": "半寸插匙",
+    "idle_skew": {"ultra_idle": 2, "ultra_hard": 1, "forbid_even_spread": true}
+  },
+  "motif_intensity_caps": [{"term": "铜腥", "max_mentions": 2}],
+  "beats": [
+    {"id": "b1", "text": "侧门前", "p_level": 2, "time_role": "hold", "function": "setup", "is_peak": false, "is_ritual": false, "is_irreversible": false},
+    {"id": "b2", "text": "对峙", "p_level": 4, "time_role": "collapse", "function": "force", "is_peak": false, "is_ritual": true, "is_irreversible": false},
+    {"id": "b3", "text": "抉择", "p_level": 5, "time_role": "collapse", "function": "choice", "is_peak": true, "is_irreversible": true, "is_ritual": false},
+    {"id": "b4", "text": "余波", "p_level": 3, "time_role": "aftermath", "function": "cost", "is_peak": false, "is_ritual": false, "is_irreversible": false}
+  ]
+}

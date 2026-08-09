@@ -419,6 +419,44 @@ class ConnectionMixin:
         else:
             fulfillment = {"status": "not_available", "deltas": [],
                            "note": "本章未登记目的合同(空 delta 章照常可写)"}
+        # PDC 压力 advisory（永不进 constraints；machine≠文学 9.5）
+        try:
+            from scribe3.pressure_drive import load_pdc
+            from scribe3.pressure_metrics import measure_pressure
+            ch = None
+            try:
+                ch = self.get_chapter(int(seq))
+            except Exception:
+                ch = None
+            contract = load_pdc(ch) if ch else None
+            beats_text = ""
+            if ch and isinstance(ch.get("beats"), list):
+                beats_text = " ".join(
+                    str(b.get("text") or "") for b in ch["beats"] if isinstance(b, dict)
+                )
+            try:
+                cp = int((contract or {}).get("chapter_pressure") or 0)
+            except (TypeError, ValueError):
+                cp = 0
+            pr = measure_pressure(
+                prose or "",
+                contract,
+                synopsis=str((ch or {}).get("synopsis") or ""),
+                beats_text=beats_text,
+                chapter_pressure=cp,
+            )
+            advisory["pressure"] = {
+                "contract_present": pr.get("contract_present"),
+                "finding_count": len(pr.get("findings") or []),
+                "metrics_tiers": {
+                    k: (v or {}).get("tier")
+                    for k, v in (pr.get("metrics") or {}).items()
+                },
+                "literary_claim_ban": pr.get("literary_claim_ban"),
+            }
+        except Exception:
+            degraded.append("pressure")
+            advisory["pressure"] = None
         return {"seq": seq, "constraints": constraints, "advisory_scores": advisory,
                 "fulfillment": fulfillment, "degraded": degraded}
 

@@ -3,8 +3,12 @@
 纯常量/纯函数,无 DB/网络,可离线单测。题材特化(升华正则/法器写法)由 craft_rule
 per-work 表承载(已建表,store.py CRUD + seed;方案B任务14补齐 allow_pattern/
 allow_word 豁免路径)。
+
+`SCRIBE3_PDC=1` 时 idle/sensory 切到「闲笔偏科」文案，与压力驱动注入同 flag 原子切换。
 """
 from __future__ import annotations
+
+import os
 
 ENGINES: dict[str, str] = {
     "body": (
@@ -24,6 +28,11 @@ ENGINES: dict[str, str] = {
         "闲笔:每章≥3 个与剧情无关但让世界/角色有温度的具体细节(至少一个世界级、一个角色级)。"
         "必须具体到能画出来。不解释,放在那里就好。豁免契诃夫之枪——闲笔不为推动剧情,是让世界活着。"
     ),
+    # PDC 偏科：禁止与「≥3 均匀」同向；由 build_craft_block 在 flag 下替换 idle/sensory
+    "idle_pdc": (
+        "闲笔偏科(压力驱动):全章约 2 笔极闲(与剧情弱相关但有温度、可画)+1 笔极狠(正笔高峰才全开)。"
+        "禁止同强度三联均铺巷志；禁止每段都「景+身+心+味」四件套齐活。极闲服务蓄力，极狠独占高峰。"
+    ),
     "metaphor": (
         "认知比喻:每个比喻必须让读者理解一件之前不理解的事,且来自角色的专业领域"
         "(思维惯性冒出来,不是在「用修辞」)。三问——①删了它读者少理解什么?「没什么」→删"
@@ -38,6 +47,10 @@ ENGINES: dict[str, str] = {
         "感官锚定:每个关键场景至少 1 个非视觉感官(听/触/嗅/温度/本体感觉)。环境承载情感——"
         "不命名情感,让环境说话。2-3 个精准细节＞5 个泛泛细节。反复出场的场景应有稳定的"
         "「感官签名」(读者闻到那股气味就知道身在何处)。"
+    ),
+    "sensory_pdc": (
+        "感官峰值(压力驱动):正笔高峰可强化非视觉感官;过路场至多 1 个且不得与峰值同意象连刷。"
+        "禁止章内同一气味/触感均摊轰炸——震的是压力台阶,不是再刷同一签名。"
     ),
     "soak": (
         "浸泡(贯穿全程):始终保持 POV 角色的声音——不是你在写,是角色在经历。"
@@ -145,6 +158,11 @@ PALETTE: dict[str, dict] = {
 }
 
 
+def _pdc_craft_skew() -> bool:
+    v = (os.environ.get("SCRIBE3_PDC") or "0").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
 def build_craft_block(rules: list[dict] | None = None, short_mode: bool = False) -> str:
     """组装引擎层引导块(注入渲染 prompt);题材层 rules 叠加其后。
     rules: [{kind, pattern, note}] 来自 craft_rule per-work 表。
@@ -154,17 +172,25 @@ def build_craft_block(rules: list[dict] | None = None, short_mode: bool = False)
     解释""克制收尾"与短篇的直给腔调冲突,short_mode=True 时跳过该引擎的注入,
     其余引擎(身体先行/温度曲线/闲笔/……)不受影响。
 
+    SCRIBE3_PDC=1: idle/sensory 换用偏科文案(与压力注入同 flag)。
+
     TODO(题材包 prompt 消费):四题材包的 pov_tone/moves/opening_patterns 等尚未
     接进本函数的 rules 叠加——本任务(B16)只负责数据落库(genres.seed_genre_pack),
     生成侧消费留待后续任务接线。"""
     _ZH = {"body": "身体先行", "temperature": "温度曲线", "idle": "闲笔",
            "metaphor": "认知比喻", "subtext": "潜台词", "sensory": "感官锚定",
            "soak": "浸泡", "restraint": "留白"}
+    skew = _pdc_craft_skew()
     lines = ["## 写作引擎(题材无关,渲染时遵守)"]
     for key in _ZH:
         if short_mode and key == "restraint":
             continue
-        lines.append(f"- 【{_ZH[key]}】{ENGINES[key]}")
+        engine_key = key
+        if skew and key == "idle":
+            engine_key = "idle_pdc"
+        elif skew and key == "sensory":
+            engine_key = "sensory_pdc"
+        lines.append(f"- 【{_ZH[key]}】{ENGINES[engine_key]}")
     if rules:
         lines.append("## 本书题材规则(本作专属)")
         for r in rules:

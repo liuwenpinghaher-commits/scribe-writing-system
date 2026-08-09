@@ -739,6 +739,44 @@ def _purpose_and_lessons_write_block(st, chapter: int, with_tools: bool = False,
     return "".join(parts)
 
 
+def _pressure_drive_write_block(st, chapter: int) -> str:
+    """PDC 注入块：SCRIBE3_PDC=1 且章有 pressure_drive 时渲染 ≤400 字力学钉。
+
+    插入点：brief_must 后、author_prefs 前。不经 _outline_block。
+    flag 关 / 无合同 / 校验 ok=None → 空串（字节级无新增）。
+    """
+    try:
+        from scribe3.pressure_drive import (
+            load_pdc,
+            pdc_flag_enabled,
+            render_pressure_drive_block,
+            validate_pdc,
+        )
+        if not pdc_flag_enabled():
+            return ""
+        ch = None
+        try:
+            ch = st.get_chapter(int(chapter)) if chapter is not None else None
+        except Exception:
+            ch = None
+        contract = load_pdc(ch) if ch else None
+        if not contract:
+            return ""
+        v = validate_pdc(contract)
+        if v.get("ok") is False:
+            # 结构非法：仍注入短警告钉，避免静默当无合同
+            errs = "；".join((v.get("errors") or [])[:2])
+            warn = f"## 压力驱动合同\n- 合同结构待修：{errs}"
+            return warn[:400]
+        if v.get("ok") is None:
+            return ""
+        return render_pressure_drive_block(contract) or ""
+    except Exception as e:
+        logging.getLogger("scribe3").warning(
+            "写路径 pressure_drive 注入失败(fail-soft): %s", e)
+        return ""
+
+
 def _brief_must_sections_write_block(st, chapter: int, focalizer: str = "") -> str:
     """生产写路径:章前简报**操作必达段**(伏笔/开环/心跳/弧光/因果/stale)。
 
@@ -1003,6 +1041,11 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         rendered += _domain_input(
             f"chapter:{chapter}:brief-must", "brief_must",
             _brief_must_sections_write_block(st, chapter, focalizer=focalizer or ""),
+        )
+        # PDC：brief_must 之后、author_prefs 之前；flag 关或无合同 → 空串
+        rendered += _domain_input(
+            f"chapter:{chapter}:pressure-drive", "pressure_drive",
+            _pressure_drive_write_block(st, chapter),
         )
         # 跨书作者偏好(USER.md)——讨论栈走 _editor_system;写栈此前只身份块,漏挂。
         rendered += _domain_input(

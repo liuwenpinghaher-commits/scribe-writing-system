@@ -746,6 +746,54 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
         degraded = True
         degraded_stages.append("fulfillment")
 
+    # PDC 压力后验（fail-soft；默认 advisory；BLOCKING 仅 env+压力≥4）
+    pressure_report = None
+    try:
+        from scribe3.pressure_drive import load_pdc, parse_pressure_drive
+        from scribe3.pressure_metrics import measure_pressure
+        from scribe3.brief import parse_chapter_meta, chapter_draft_text
+        ch_row = None
+        try:
+            ch_row = st.get_chapter(int(seq)) if seq is not None else None
+        except Exception:
+            ch_row = None
+        contract = load_pdc(ch_row) if ch_row else None
+        draft_meta = {}
+        try:
+            if ch_row:
+                draft_meta = parse_chapter_meta(chapter_draft_text(ch_row)) or {}
+        except Exception:
+            draft_meta = {}
+        try:
+            cp = int(draft_meta.get("pressure") or (contract or {}).get("chapter_pressure") or 0)
+        except (TypeError, ValueError):
+            cp = 0
+        beats_text = ""
+        if ch_row and isinstance(ch_row.get("beats"), list):
+            beats_text = " ".join(
+                str(b.get("text") or "") for b in ch_row["beats"] if isinstance(b, dict)
+            )
+        pressure_report = measure_pressure(
+            req.prose or "",
+            contract,
+            synopsis=str((ch_row or {}).get("synopsis") or ""),
+            beats_text=beats_text,
+            chapter_pressure=cp,
+        )
+        for f in pressure_report.get("findings") or []:
+            # 并入 issues，供 triage 识别 type=pressure
+            issues.append({
+                "type": "pressure",
+                "message": f.get("message") or f.get("text") or "",
+                "text": (str(f.get("text") or f.get("message") or ""))[:120],
+                "range": f.get("range"),
+                "meta": f.get("meta") or {"kind": "pressure", "severity": "advisory"},
+            })
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check pressure_metrics 失败: %s", e)
+        degraded = True
+        degraded_stages.append("pressure_metrics")
+
     from scribe3.critique import _degen_visible_length
     _visible_chars = _degen_visible_length(req.prose or "")
     resp = {
@@ -771,6 +819,7 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
         "unbalanced_quotes": unbalanced_quotes,
         "watch_regression": watch_regression,
         "punct_suggestions": punct_suggestions,
+        "pressure": pressure_report,
     }
     if ai_grade is not None:
         resp["ai_grade"] = ai_grade

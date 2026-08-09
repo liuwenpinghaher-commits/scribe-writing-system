@@ -63,6 +63,14 @@ def triage(post: dict) -> dict:
             blocking.append({"detector": "find_degeneration", "kind": meta.get("kind") or "degeneration",
                              "quote": str(iss.get("text") or "")[:60],
                              "note": str(iss.get("message") or "")[:120]})   # P2-7 note 截断
+        elif iss.get("type") == "pressure" and sev == "blocking":
+            # PDC：仅 measure_pressure 在 SCRIBE3_PDC_BLOCKING=1 且压力级≥4 时标 blocking
+            blocking.append({
+                "detector": "pressure_metrics",
+                "kind": meta.get("kind") or "pressure",
+                "quote": str(iss.get("text") or "")[:60],
+                "note": str(iss.get("message") or "")[:120],
+            })
         elif sev.upper() == "S1" and iss.get("type") == "discipline":
             # R3-1(D-7):按 type 白名单收口——合法 S1 恒为 type="discipline"(共振表升格+
             # 熔断保护,app.py:3093-3102);ooc_signal.severity 可透传到 setting issue 伪成
@@ -134,6 +142,9 @@ def triage(post: dict) -> dict:
 def _is_blocking_issue(iss: dict) -> bool:
     meta = iss.get("meta") or {}
     sev = str(meta.get("severity") or "")
+    # PDC：仅 type=pressure 且 meta.severity=blocking（由 measure_pressure 在 env+压力≥4 时输出）
+    if iss.get("type") == "pressure" and sev == "blocking":
+        return True
     return ((iss.get("type") == "degeneration" and sev == "blocking")
             or sev.upper() == "S1")
 

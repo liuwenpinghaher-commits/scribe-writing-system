@@ -205,6 +205,60 @@ def _pilot_executor(work: str) -> dict:
         st.update_chapter_meta(seq, {"synopsis": out})
         return {"synopsis": out}
 
+    def _try_bootstrap_pdc(st, seq, synopsis: str, beats: list) -> dict:
+        """确定性轻量 bootstrap：从大纲压力级/role 与节拍文生成合同。
+
+        失败或缺核心字段 → 不写 present 合同（ok=None）。
+        完整合法 → 写 pressure_drive。力学永不进 grounding 源。
+        """
+        try:
+            from scribe3.brief import parse_chapter_meta
+            from scribe3.pressure_drive import (
+                bootstrap_pdc_from_texts,
+                pdc_flag_enabled,
+                validate_pdc,
+            )
+            if not pdc_flag_enabled():
+                return {"ok": None, "note": "SCRIBE3_PDC off"}
+            meta = parse_chapter_meta(synopsis or "") or {}
+            try:
+                cp = int(meta.get("pressure") or 4)
+            except (TypeError, ValueError):
+                cp = 4
+            role = str(meta.get("role") or "推进")
+            texts = [
+                str(b.get("text") or "") for b in (beats or []) if isinstance(b, dict)
+            ]
+            # 确定性：用 synopsis 片段作 fork/evidence 种子（须 ≥2 字）
+            seed = (synopsis or "").strip().replace("\n", "")[:40]
+            fork = f"推进或收束本章核心：{seed[:24]}" if seed else "推进本章核心抉择"
+            evidence = "掌心嵌下的灰印" if "灰" in (synopsis or "") else "收不回的一步痕迹"
+            contract = bootstrap_pdc_from_texts(
+                synopsis=synopsis or "",
+                beat_texts=texts,
+                chapter_pressure=cp,
+                role=role,
+                fork_choice=fork,
+                evidence=evidence,
+                irreversible_action="留下痕迹",
+            )
+            if not contract:
+                logging.getLogger("scribe3").info(
+                    "pdc_bootstrap=degraded work=%s seq=%s reason=incomplete_core", work, seq)
+                return {"ok": None, "note": "pdc_bootstrap_degraded"}
+            v = validate_pdc(contract, chapter_beats_count=len(texts) or None)
+            if v.get("ok") is not True:
+                logging.getLogger("scribe3").info(
+                    "pdc_bootstrap=degraded work=%s seq=%s errors=%s",
+                    work, seq, v.get("errors"))
+                return {"ok": None, "note": "pdc_bootstrap_invalid", "errors": v.get("errors")}
+            st.update_chapter_meta(seq, {"pressure_drive": contract})
+            return {"ok": True, "chapter_pressure": cp}
+        except Exception as e:
+            logging.getLogger("scribe3").warning(
+                "pdc_bootstrap fail-soft work=%s seq=%s: %s", work, seq, e)
+            return {"ok": None, "note": f"pdc_bootstrap_error:{e}"}
+
     def expand_beats(st, seq):
         ch = st.get_chapter(seq) or {}
         if ch.get("beats"):
@@ -243,12 +297,14 @@ def _pilot_executor(work: str) -> dict:
                 st.update_chapter_meta(seq, {"beats": fb})
                 logging.getLogger("scribe3").info(
                     "expand_beats synopsis-segment fallback work=%s seq=%s n=%s", work, seq, len(fb))
+                # 回退路径：不写 pressure_drive → validate ok=None；GATE 不 park
                 return {"beats": fb, "grounding": {"ok": True, "fallback": "synopsis_segments"},
-                        "llm_rejected": review}
+                        "llm_rejected": review, "pdc": {"ok": None, "note": "pdc_missing_after_fallback"}}
             return {"pilot_park": "事实对齐失败:节拍含无来源主张，请修订后再推进",
                     "grounding": review, "candidate_beats": beats}
         st.update_chapter_meta(seq, {"beats": beats})
-        return {"beats": beats, "grounding": review}
+        pdc_meta = _try_bootstrap_pdc(st, seq, ch.get("synopsis") or "", beats)
+        return {"beats": beats, "grounding": review, "pdc": pdc_meta}
 
     def deduce(st, seq):
         from scribe3.deduce_helpers import (
