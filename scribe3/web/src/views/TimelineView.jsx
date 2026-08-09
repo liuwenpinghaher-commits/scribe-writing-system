@@ -216,8 +216,9 @@ function buildVis(rawItems, laneMode, maxCh) {
         group: gid,
         start: chToDate(ev.chapter),
         type: 'box',
-        content: esc(ev.label || ev.event_type) + (isFlashback ? ' ⟲' : ''),
-        title: `第${ev.chapter}章 · ${esc(ev.label || ev.event_type)}　主:${esc(subj)}`,
+        // FE 双保险：label || goal || event_type（前后端乱序部署时仍可读）
+        content: esc(ev.label || ev.goal || ev.event_type) + (isFlashback ? ' ⟲' : ''),
+        title: `第${ev.chapter}章 · ${esc(ev.label || ev.goal || ev.event_type)}　主:${esc(subj)}`,
         style: `border-color:${color};box-shadow:inset 3px 0 0 ${color};`,
         _raw: ev, _jump: sc, _cat: 'event',
       })

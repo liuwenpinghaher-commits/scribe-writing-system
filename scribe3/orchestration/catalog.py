@@ -142,8 +142,11 @@ CATALOG: list[dict[str, Any]] = [
     },
     {
         "domain": "fact.proposition",
-        "label": "命题/事实",
-        "match_keywords": ("命题", "事实", "登记事实", "s3_add_fact", "s3_supersede_fact"),
+        "label": "命题/事实/世界真相",
+        "match_keywords": (
+            "命题", "事实", "世界真相", "登记事实",
+            "s3_add_fact", "s3_supersede_fact",
+        ),
         "match_force": ("s3_add_fact", "s3_supersede_fact"),
         "read_tools": ("s3_project_frame",),
         "write_tools": ("s3_add_fact", "s3_supersede_fact"),

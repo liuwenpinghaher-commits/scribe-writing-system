@@ -309,25 +309,45 @@ class StructureMixin:
         def _char_badge(c):
             return [{"kind": "secret", "tone": "faint"}] if c.get("secret") else None
 
-        # 命题(正典事实):开区间投影,ref=裸 id,与 PropositionDetail / GET /facts/{local} 对齐
+        # 世界真相(引擎 ref=proposition):开区间投影 + Must 滤噪(获知/行动/bridge)
+        # 见 truth_surface.tree_hide_must · PR-UX1 / KD-17
+        from scribe3.truth_surface import (
+            WORLD_TRUTH_HINT,
+            WORLD_TRUTH_LABEL,
+            format_fact_as_codex_title,
+            row_source,
+            tree_hide_must,
+        )
         prop_items = []
         try:
             for r in self.list_open_propositions():
                 eid = str(r.get("entity_id") or "")
                 attr = str(r.get("attribute") or "")
                 local = str(r.get("id") or "")
+                src = row_source(r)
+                if tree_hide_must(attr, src):
+                    continue
+                secret = bool(r.get("secret"))
+                val = None if secret else r.get("value")
                 prop_items.append({
                     "id": local,
-                    "text": f"{eid.split(':')[-1] or '—'}·{attr or '—'}",
+                    "text": format_fact_as_codex_title(
+                        eid, attr, None if val is None else str(val), secret=secret),
                     "entity_id": eid,
                     "attribute": attr,
-                    "secret": bool(r.get("secret")),
+                    "secret": secret,
                 })
         except Exception:
             prop_items = []
 
         def _prop_badge(p):
             return [{"kind": "secret", "tone": "faint"}] if p.get("secret") else None
+
+        prop_cat = _cat(
+            "proposition", WORLD_TRUTH_LABEL, prop_items, "proposition",
+            name_key="text", ref_key="id", badge_fn=_prop_badge)
+        # 分类级副文案：全库账本提示（叶子 meta 可忽略）
+        prop_cat["meta"] = {"hint": WORLD_TRUTH_HINT, "advanced": True}
 
         codex_children = [
             _cat("character", "角色", char_items, "character", ref_key="local",
@@ -339,8 +359,7 @@ class StructureMixin:
             _cat("promise", "伏笔", self.list_promises(), "promise",
                  name_key="text", ref_key="id"),
             _cat("motif", "母题", self.list_motifs(), "motif", ref_key="id"),
-            _cat("proposition", "命题", prop_items, "proposition",
-                 name_key="text", ref_key="id", badge_fn=_prop_badge),
+            prop_cat,
         ]
         codex = {
             "id": "codex_root", "type": "codex_root", "label": "设定库",

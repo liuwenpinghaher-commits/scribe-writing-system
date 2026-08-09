@@ -138,12 +138,16 @@ class FactsKnowledgeMixin:
                     r.get("valid_to"), r.get("secret", False), r.get("leak_markers", []))
 
     def list_open_propositions(self, chapter: int = 99999) -> list[dict]:
-        """开区间命题列表(设定树投影用)。返回 [{id, entity_id, attribute, value, valid_from, valid_to, secret}]。
-        D4：同 entity+attribute 只保留 valid_from 最新一条（与 facts_at 一致）。"""
+        """开区间命题列表(设定树投影用)。
+
+        返回 [{id, entity_id, attribute, value, valid_from, valid_to, secret, source}]。
+        source 供 PR-UX1 树隐藏 codex_bridge（只认 source，禁止 attribute 启发式）。
+        D4：同 entity+attribute 只保留 valid_from 最新一条（与 facts_at 一致）。
+        """
         ch = int(chapter)
         rows = self._query(
             "SELECT meta::id(id) AS id, entity_id, attribute, value, "
-            "valid_from, valid_to, secret FROM proposition "
+            "valid_from, valid_to, secret, source FROM proposition "
             "WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch) "
             "AND (archived = NONE OR archived != true) "
             "ORDER BY valid_from DESC",

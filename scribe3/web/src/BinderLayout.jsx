@@ -20,10 +20,23 @@ import { ContextSnapshotProvider } from './context/ContextSnapshotContext'
 // 用大哨兵章拉「当前仍开区间」的全部命题投影进项目树(与 DynamicRelations 的 chapter=9999 同范式)。
 const PROP_SCAN_CHAPTER = 100000
 
-// 收集容器节点 id(默认展开三根 + 各分类容器折叠;手稿支卷默认展开)
+// 收集容器节点 id。entity_first：设定库着陆展开主分类，**不**展开世界真相(cat:proposition)。
+// 刷新不持久化 open（每次首载 defaultExpanded；用户手动展开仅会话内）。
+const ENTITY_FIRST_OPEN_CATS = new Set([
+  'character', 'faction', 'item', 'term', 'world_rule', 'promise', 'motif',
+])
+
 function defaultExpanded(tree) {
   const s = new Set(['manuscript_root', 'codex_root', 'material_root'])
   for (const v of tree?.manuscript?.children || []) s.add(v.id)   // 卷默认展开
+  for (const c of tree?.codex?.children || []) {
+    const ref = c.ref || (c.id || '').replace(/^cat:/, '')
+    // 世界真相 / proposition：默认折叠（KD-16）
+    if (ref === 'proposition') continue
+    if (ENTITY_FIRST_OPEN_CATS.has(ref) || c.id === `cat:${ref}`) {
+      if (c.id) s.add(c.id)
+    }
+  }
   return s
 }
 

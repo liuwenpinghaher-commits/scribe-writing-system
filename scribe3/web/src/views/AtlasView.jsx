@@ -415,7 +415,7 @@ export function AtlasView({ onNavigateToObject }) {
         )}
         <div className="ml-auto flex items-center gap-3 text-meta text-faint shrink-0">
           <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--color-brand)' }} />角色</span>
-          <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--color-irony)' }} />命题</span>
+          <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--color-irony)' }} />知情命题（探索）</span>
           <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--color-secret)' }} /><Lock size={11} />私密</span>
         </div>
       </div>

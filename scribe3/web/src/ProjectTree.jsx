@@ -98,7 +98,7 @@ function Row({ node, style, dragHandle, tree }) {
     >
       <button
         onClick={click}
-        title={data.label}
+        title={data.meta?.hint ? `${data.label} · ${data.meta.hint}` : data.label}
         className={`w-full h-[28px] flex items-center gap-1 rounded-lg pr-1.5 text-left transition-colors cursor-pointer ${selected ? 'bg-soft text-ink ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}
       >
         {isContainer ? (
@@ -113,6 +113,10 @@ function Row({ node, style, dragHandle, tree }) {
             onCommit={handleRename} onCancel={() => node.reset()} />
         ) : (
           <span className="truncate flex-1 text-f13 leading-tight">{data.label}</span>
+        )}
+        {/* 世界真相：高级副文案（KD-16 / PR-UX1 验收②） */}
+        {!node.isEditing && data.meta?.advanced && (
+          <span className="text-meta text-faint/70 shrink-0">高级</span>
         )}
         {!node.isEditing && (data.badges || []).map((b, i) => <Badge key={i} b={b} />)}
       </button>

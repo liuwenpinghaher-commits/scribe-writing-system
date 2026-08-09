@@ -491,11 +491,14 @@ class EventsMixin:
                 {"id": c[0], "chapter": ev_ch_map.get(c[0])}
                 for c in ev.causal_in
             ]
+            from scribe3.event_surface import format_event_timeline_label
+            _label, _label_source = format_event_timeline_label(ev)
             items.append({
                 "chapter": plot_ch,                    # 当前轴的横铺坐标
                 "kind": "event",
                 "id": ev.id,
-                "label": ev.type,
+                "label": _label,
+                "label_source": _label_source,
                 "goal": ev.motivated_by_goal,
                 "lane_keys": subj + obj_,
                 "event_type": ev.type,
