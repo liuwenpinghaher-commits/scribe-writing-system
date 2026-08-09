@@ -17,14 +17,22 @@
 
 | 项 | 值 |
 |----|----|
-| **更新于** | 2026-08-09（**角色弧光完善已落地** + demo 章节 pulse/brief 冒烟） |
+| **更新于** | 2026-08-10（**图谱节点抽屉戏剧操作台 PR-A** + demo frontend 冒烟） |
 | **产品名（UI）** | 铜炉 / tonglu（仅品牌文案+logo，色板未改） |
-| **默认分支** | `main` = `origin/main` @ **f7b01a1**（弧光完善已 push） |
-| **刚完成** | ① **弧光完善已 push f7b01a1** ② demo hot+frontend ③ SMOKE_V2 ④ PR8 arc_tracking migration 115 ⑤ 证据 docs/ops/arc-smoke-2026-08-09/ |
-| **设计** | [`设计文档/2026-08-09-角色弧光子系统完善改进方案.md`](../设计文档/2026-08-09-角色弧光子系统完善改进方案.md)（Accepted） |
-| **进行中目标** | 记忆质量 / 人盲；流水线 residual UX（SPA hold 条等） |
-| **主验收书** | **`book_aa57f17e`**（2w 记忆）/ **`book_7b918ca0`**（5w 参考）；弧光冒烟 **`book_arc_smoke_demo`** |
+| **默认分支** | `main`（待 push 图谱抽屉） |
+| **刚完成** | ① 图谱 NodeDetail 三层操作台 ② hop 升跳保留 pick ③ hop-boost 诚实 UX ④ discuss 问主编 ⑤ demo frontend 部署 |
+| **设计** | [`设计文档/2026-08-09-图谱节点抽屉-戏剧操作台.md`](../设计文档/2026-08-09-图谱节点抽屉-戏剧操作台.md)（Accepted R2） |
+| **进行中目标** | 记忆质量 / 人盲；PR-B frame×2 可选 |
+| **主验收书** | **`book_aa57f17e`**（图谱邻域冒烟）/ **`book_7b918ca0`**（5w 参考） |
 | **活跃分支** | `main` |
+
+### 图谱节点抽屉 · 戏剧操作台（2026-08-10 PR-A）
+
+- **纯函数**：`web/src/lib/atlasNodeDetail.js`（neighbors / knowledgeDiff / hop-boost / secret）· `atlasChiefSeed.js`（discuss）  
+- **UI**：`views/atlas/NodeDetail.jsx` 三层；`AtlasView` hop 保留 picked（KD-19）；列表 pick+设定  
+- **修**：faction/item 打开设定不再误标 proposition  
+- **测**：`run-atlas-unit` ALL_PASS；demo SPA 标记双跑 + `book_aa57f17e` graph×helpers  
+- **证据**：goal scratch `atlas-drawer-unit.log` · `demo-atlas-drawer-smoke.md` · `demo-drawer-sim.json`
 
 ### 角色弧光完善（2026-08-09）
 

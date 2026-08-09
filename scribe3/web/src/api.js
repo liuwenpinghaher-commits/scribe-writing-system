@@ -432,7 +432,11 @@ export const api = {
   patchThread: (id, fields) => patch('/chat/threads/' + enc(id), fields),          // P0a:{title}|{status}
   resolveIdea: (id) => post('/ideas/resolve', { id }),           // R1-5:想法待批处理完出收件箱
   addIdea: (text) => post('/ideas', { text }),
-  charAnchors: (id) => j(`/char-anchors?character_id=${enc(id)}`),
+  charAnchors: (id, opts = {}) => {
+    const qs = [`character_id=${enc(id)}`]
+    if (opts.next_ch != null) qs.push(`next_ch=${enc(opts.next_ch)}`)
+    return j(`/char-anchors?${qs.join('&')}`)
+  },
   patchCharAnchors: (id, anchors) => patch('/char-anchors', { character_id: id, anchors }),
   postArcBeat: (b) => post('/arc-beats', b),
   delArcBeat: (id) => del('/arc-beats/' + enc(id)),
