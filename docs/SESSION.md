@@ -52,9 +52,10 @@
 
 ### 下一步
 
-1. 前端 `deploy_demo.sh frontend`（若需公网 SPA 立刻见八块 UI）  
-2. 待确认设定收件箱完善（P0→P1）  
-3. Phase E 九线结案文（5w 规模线 PARTIAL）  
+1. SPA hold 确认 UX（PR-4 residual）+ 可选 token 哈希  
+2. 前端 `deploy_demo.sh frontend`（若需公网 SPA 立刻见八块 UI）  
+3. 待确认设定收件箱完善；记忆人盲仍须真人  
+4. `git push` 后若需镜像重建再走 GHA / deploy 脚本（当前 demo 已 docker cp 热部署）  
 
 ### 已知坑
 
