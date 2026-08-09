@@ -424,15 +424,32 @@ class MiscMixin:
         if not value:
             raise ValueError(
                 "approve requires value or text on the pending claim")
+        # 身份/血缘/秘密类默认 secret=True（限知安全，防全知讨论批入后进生成链）
+        secret_eff = bool(secret)
+        if attribute in (
+            "identity", "kinship", "secret", "betrayal", "身份", "真名", "本名",
+        ):
+            secret_eff = True
         import uuid
-        from scribe3.ontology import Fact
+        from scribe3.ontology import Entity, Fact
+        # 角色实体不存在时 soft 建壳，避免悬挂 entity_id 命题
+        if entity.startswith("role:"):
+            try:
+                if self.entity(entity) is None:
+                    local = entity.split(":", 1)[-1]
+                    self.add_entity(Entity(entity, "character", local or entity))
+            except Exception:
+                pass
         fact_id = f"fact:pa-{uuid.uuid4().hex[:10]}"
         self.add_fact(Fact(fact_id, entity, attribute, value,
-                           valid_from=int(valid_from), secret=bool(secret)))
+                           valid_from=int(valid_from), secret=secret_eff))
         self._execute_write(
             "UPDATE type::record('pending_authority_claim', $id) SET status='approved'",
             {"id": cid})
-        return {"status": "approved", "claim_id": cid, "fact_id": fact_id}
+        return {
+            "status": "approved", "claim_id": cid, "fact_id": fact_id,
+            "secret": secret_eff, "entity": entity, "attribute": attribute,
+        }
 
     def count_active_context_sessions(self) -> int:
         """runtime-status 指标(Task 16-B):本库仍活跃的上下文会话数(轻量计数,不载快照)。"""

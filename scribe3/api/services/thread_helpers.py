@@ -107,17 +107,23 @@ def _capture_turn_memory(store, *, work: str, thread_id: str, turn_id: str,
     幂等:event_id = turn:<turn_id>(同轮重放不重复记)。分类/正典红线/linked_ids 领域反查
     在 MemoryCapture 内;known_from=chapter 在此传入(限知门对捕获记忆生效,防知情倒灌)。
 
-    产品默认 MEMORY_FABRIC 开:写路径同步捕获经验记忆。
+    产品默认 MEMORY_FABRIC 开:写路径 + 讨论路径同步捕获经验记忆/正典待审。
     仅显式关(env/DB=0)时短路——测试/运维隔离,不是产品 fallback。
-    捕获异常只告警不阻断写作主链路(与 chat_message 同纪律);HTTP /memory/capture-turn 则 fail-loud。"""
-    if not _flag_enabled("SCRIBE3_MEMORY_FABRIC_V1"):
+    捕获异常只告警不阻断主链路(与 chat_message 同纪律);HTTP /memory/capture-turn 则 fail-loud。"""
+    try:
+        fabric_on = _flag_enabled("SCRIBE3_MEMORY_FABRIC_V1")  # type: ignore[name-defined]
+    except NameError:
+        from scribe3.api import app_impl as _core
+        fabric_on = _core._flag_enabled("SCRIBE3_MEMORY_FABRIC_V1")
+    if not fabric_on:
         return
     if not (text or "").strip() or not turn_id:
         return
     try:
         from scribe3.memory_capture import MemoryCapture, turn_event
+        w = (work or getattr(store, "db_name", None) or "main")
         MemoryCapture(store).capture_event(turn_event(
-            text=text, event_id=f"turn:{turn_id}", work=store.db_name,
+            text=text, event_id=f"turn:{turn_id}", work=w,
             thread_id=thread_id, known_from=chapter))
     except Exception:
         logging.getLogger("scribe3").warning("记忆捕获失败(忽略,不阻断写作)", exc_info=True)
@@ -206,8 +212,10 @@ class _ChatTurnLog:
 
     全程 best-effort(D-004):任何一步落库失败只告警,绝不影响对话主链路(SSE 已在飞)。
     留痕存的是【主编回作者的话】——作者对话语境(主编对作者全知),不引入新泄密面,故
-    **不做 for_generation 门控**(那是喂正文生成 prompt 的事,与回看历史无关)。也**不做**
-    chat_write 的意图捕获(_capture_turn_memory 只该挂动稿路径:讨论不是写作意图)。
+    **不做 for_generation 门控**(那是喂正文生成 prompt 的事,与回看历史无关)。
+
+    记忆捕获(2026-08 修):user 落库后同步 _capture_turn_memory——讨论是设定揭示的主路径,
+    此前只挂 chat/write 导致「待审正典」面板几乎恒空。捕获 best-effort,不阻断讨论。
     """
 
     def __init__(self, st, *, user_text: str, chapter: int, stage: str,
@@ -240,6 +248,30 @@ class _ChatTurnLog:
                 thread_id=self._thread_id, focus=self._focus)
         except Exception:
             self._log.warning("chat_message user 落库失败(忽略)", exc_info=True)
+        # 讨论路径捕获 → pending_authority_claim / memory_item(与 write 对称)
+        try:
+            try:
+                _cap = _capture_turn_memory  # type: ignore[name-defined]
+            except NameError:
+                from scribe3.api.services import thread_helpers as _th
+                _cap = _th._capture_turn_memory
+            work = getattr(self._st, "db_name", None) or "main"
+            ch = None
+            try:
+                if self._chapter is not None and int(self._chapter) > 0:
+                    ch = int(self._chapter)
+            except (TypeError, ValueError):
+                ch = None
+            _cap(
+                self._st,
+                work=work,
+                thread_id=self._thread_id or f"discuss:{work}",
+                turn_id=self.turn_id,
+                text=self._user_text,
+                chapter=ch,
+            )
+        except Exception:
+            self._log.warning("讨论记忆捕获失败(忽略)", exc_info=True)
 
     def _persist_assistant(self) -> None:
         text = "".join(self._buf)

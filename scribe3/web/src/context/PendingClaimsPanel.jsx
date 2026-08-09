@@ -5,12 +5,23 @@ import { showToast } from '../ui/Toast.jsx'
 
 /**
  * 作者面·待审正典揭示队列。
- * 调 shipped REST: GET /memory/pending-claims · POST .../resolve
- * fabric 默认开;capabilities 报关时不渲染(与 Inspector 诚实同口径)。
+ *
+ * 业务：讨论/写作捕获的高风险设定断言(身份/血缘/生死/秘密…)不进 memory_item，
+ * 先进 pending_authority_claim；作者批入正典或拒绝。
+ * API: GET /memory/pending-claims · POST .../resolve
+ * fabric 关时不渲染。
  */
+const IDENTITY_ATTRS = new Set([
+  'identity', 'kinship', 'secret', 'betrayal', '身份', '真名', '本名',
+])
+
 export function PendingClaimsPanel() {
-  const { capabilities } = useContextSnapshot()
+  const { capabilities, snapshot } = useContextSnapshot()
   const fabricOn = capabilities?.flags?.memory_fabric_v1 !== false
+  const workKey = (snapshot?.work || (typeof api?.getWork === 'function' ? api.getWork() : null) || '')
+  const chapter = snapshot?.chapter != null && Number.isFinite(Number(snapshot.chapter))
+    ? Number(snapshot.chapter)
+    : null
   const [claims, setClaims] = useState([])
   const [loading, setLoading] = useState(false)
   const [busyId, setBusyId] = useState(null)
@@ -30,26 +41,36 @@ export function PendingClaimsPanel() {
         setError(e?.body?.detail || e?.message || '加载失败')
       })
       .finally(() => setLoading(false))
-  }, [fabricOn])
+  }, [fabricOn, workKey])
 
   useEffect(() => {
     reload()
   }, [reload])
 
-  const resolve = async (claimId, decision) => {
+  // 讨论/写作结束后可刷新：听 live 或短轮询不合适；作者点刷新即可。
+  // work 切换已由 workKey 触发 reload。
+
+  const resolve = async (claim, decision) => {
+    const claimId = claim?.id || claim?.claim_id
     if (!claimId || busyId) return
     setBusyId(claimId)
     try {
+      const attr = String(claim?.attribute || '').trim()
+      const secretDefault = IDENTITY_ATTRS.has(attr)
+      const validFrom = chapter != null && chapter > 0 ? chapter : 1
       const out = await api.resolvePendingClaim(claimId, {
         decision,
-        valid_from: 1,
-        secret: false,
+        valid_from: validFrom,
+        // 身份类默认 secret；其它尊重后端/默认 false
+        secret: decision === 'approve' ? secretDefault : false,
       })
       if (decision === 'approve' && !out?.fact_id && out?.status !== 'approved') {
         throw new Error(out?.error || '批准未写入正典')
       }
       showToast(
-        decision === 'approve' ? '已写入正典' : '已拒绝该条',
+        decision === 'approve'
+          ? (out?.secret ? '已写入正典（标为私密）' : '已写入正典')
+          : '已拒绝该条',
         { tone: decision === 'approve' ? 'ok' : 'warn' },
       )
       setClaims((prev) => prev.filter((c) => {
@@ -90,8 +111,8 @@ export function PendingClaimsPanel() {
         </div>
       )}
       {!loading && claims.length === 0 && !error && (
-        <div data-testid="pending-claims-empty" className="text-meta text-faint">
-          暂无待审揭示
+        <div data-testid="pending-claims-empty" className="text-meta text-faint leading-snug">
+          暂无待审揭示。讨论或写作中若提到身份/血缘/生死/秘密等稳定断言，会进入此队列等人批后再写进设定圣经（与 Codex「待确认设定」不同路径）。
         </div>
       )}
       <ul data-testid="pending-claims-list" className="space-y-1.5">
@@ -100,6 +121,7 @@ export function PendingClaimsPanel() {
           const text = c.text || c.claim_text || c.summary
             || [c.entity, c.attribute, c.value].filter(Boolean).join(' · ')
             || id
+          const meta = [c.entity, c.attribute].filter(Boolean).join(' · ')
           return (
             <li
               key={id}
@@ -108,13 +130,19 @@ export function PendingClaimsPanel() {
               className="rounded border border-line bg-canvas/80 px-2 py-1.5 text-meta"
             >
               <div className="text-ink leading-snug break-words">{text}</div>
+              {meta ? (
+                <div className="mt-0.5 text-faint text-f12 font-mono truncate" title={meta}>
+                  {meta}
+                  {IDENTITY_ATTRS.has(String(c.attribute || '')) ? ' · 将标私密' : ''}
+                </div>
+              ) : null}
               <div className="mt-1 flex gap-2">
                 <button
                   type="button"
                   data-testid="pending-claim-approve"
                   disabled={!!busyId}
                   className="text-f12 text-ok hover:underline disabled:opacity-40"
-                  onClick={() => resolve(id, 'approve')}
+                  onClick={() => resolve(c, 'approve')}
                 >
                   批准入正典
                 </button>
@@ -123,7 +151,7 @@ export function PendingClaimsPanel() {
                   data-testid="pending-claim-reject"
                   disabled={!!busyId}
                   className="text-f12 text-warn hover:underline disabled:opacity-40"
-                  onClick={() => resolve(id, 'reject')}
+                  onClick={() => resolve(c, 'reject')}
                 >
                   拒绝
                 </button>
