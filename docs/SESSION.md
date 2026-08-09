@@ -19,8 +19,8 @@
 |----|----|
 | **更新于** | 2026-08-09（**角色弧光完善已落地** + demo 章节 pulse/brief 冒烟） |
 | **产品名（UI）** | 铜炉 / tonglu（仅品牌文案+logo，色板未改） |
-| **默认分支** | `main`（本地可能 ahead；demo 已 hot/frontend 热更） |
-| **刚完成** | ① **弧光假绿修复 + arc_signals** ② **里程碑 MCP + lie_belief 透传** ③ **节拍 focus brief/pulse** ④ **GET anchors.alignment + Codex 消费** ⑤ demo 冒烟 |
+| **默认分支** | `main` = `origin/main` @ **f7b01a1**（弧光完善已 push） |
+| **刚完成** | ① **弧光完善已 push f7b01a1** ② demo hot+frontend ③ SMOKE_V2 ④ PR8 arc_tracking migration 115 ⑤ 证据 docs/ops/arc-smoke-2026-08-09/ |
 | **设计** | [`设计文档/2026-08-09-角色弧光子系统完善改进方案.md`](../设计文档/2026-08-09-角色弧光子系统完善改进方案.md)（Accepted） |
 | **进行中目标** | 记忆质量 / 人盲；流水线 residual UX（SPA hold 条等） |
 | **主验收书** | **`book_aa57f17e`**（2w 记忆）/ **`book_7b918ca0`**（5w 参考）；弧光冒烟 **`book_arc_smoke_demo`** |
