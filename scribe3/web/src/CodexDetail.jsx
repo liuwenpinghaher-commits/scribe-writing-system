@@ -14,6 +14,7 @@ import {
   watchCodexObjectGone, notifyCodexTreeRefresh,
 } from './lib/codexLifecycle.js'
 import { uiStatusLabel, PROMISE_STATUS_CN, PROMISE_TIER_CN } from './lib/statusLabels'
+import { EntityTruthPanel } from './components/EntityTruthPanel'
 
 // 项目树「素材叶」类型 → CodexView DetailView 的 type 值。
 const TYPE_MAP = {
@@ -812,6 +813,28 @@ export function CodexDetail({ node, onDeleted, onNavigateToObject }) {
           onUpdate={undefined}
           onDelete={openDelete}
         />
+        {/* PR-5：档案后、关系/弧光前 — 状态与演变 + 谁知道（吃 PR-4 读契约） */}
+        {detailType === 'chars' && row?.id && (
+          <EntityTruthPanel
+            entityId={row.id.startsWith('role:') ? row.id : `role:${localOf(row)}`}
+            entityLabel={row.name}
+            detailType="chars"
+          />
+        )}
+        {detailType === 'factions' && row?.name && (
+          <EntityTruthPanel
+            entityId={String(row.id || '').startsWith('faction:') ? row.id : `faction:${row.name}`}
+            entityLabel={row.name}
+            detailType="factions"
+          />
+        )}
+        {detailType === 'items' && row?.name && (
+          <EntityTruthPanel
+            entityId={String(row.id || '').startsWith('item:') ? row.id : `item:${row.name}`}
+            entityLabel={row.name}
+            detailType="items"
+          />
+        )}
         {/* 伏笔专属(断头修复#21):收 + 草蛇灰线线索 */}
         {detailType === 'promises' && row?.id && <PromiseLifecycle row={row} />}
         {detailType === 'items' && row?.name && <ItemStateChange name={row.name} />}
