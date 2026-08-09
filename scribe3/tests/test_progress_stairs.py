@@ -163,6 +163,37 @@ def test_grind_g3_force_and_evidence_clears():
     assert m["metrics"]["location_grind_run"]["tier"] in ("light", "n/a", "mid")
 
 
+def test_grind_g4_repaste_same_evidence_does_not_clear():
+    """G4 抗锚刷：同 evidence 连贴 ≥10 段 → run 不断；须出 grind finding。
+
+    旧 bug：settle() 每次证据打断清空 seen，再贴同一串又算 fresh → max_run=0。
+    """
+    c = _base_contract()
+    c["progress"]["location_grind"] = {
+        "primary_locus": "侧门",
+        "max_contiguous_chars": 80,
+        "max_contiguous_paras": 4,
+    }
+    c["progress"]["stairs"] = [
+        {
+            "id": "s1",
+            "kind": "cost",
+            "label": "空过",
+            "evidence_must_show": "空过三日",
+            "is_retreat_cost": True,
+        },
+    ]
+    # 15 段同地 + 同一 cost evidence（无离场）
+    paras = ["侧门前他空过三日，又站着。"] * 15
+    prose = "\n\n".join(paras)
+    m = measure_pressure(prose, c, synopsis="侧门", beats_text="侧门", chapter_pressure=5)
+    kinds = [(f.get("meta") or {}).get("kind") for f in m["findings"]]
+    assert "location_grind_run" in kinds, m["metrics"]["location_grind_run"]
+    # 首段可作 fresh 落地打断；其后 14 段须累计 → max_run 远大于 0
+    assert m["metrics"]["location_grind_run"]["value"] > 80, m["metrics"]["location_grind_run"]
+    assert m["metrics"]["location_grind_run"]["tier"] in ("mid", "heavy")
+
+
 def test_retreat_no_cost():
     c = _base_contract()
     c["progress"]["stairs"] = [

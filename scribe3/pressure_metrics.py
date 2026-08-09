@@ -476,57 +476,78 @@ def _location_grind_stats(
     all_evs = _all_stair_irrev_evidences(contract)
 
     paras = [p for p in re.split(r"\n\s*\n", prose) if p.strip()]
+    # 同地连续段内抗锚刷：seen 只在离场 (A) 清空；证据打断 (B/C) 保留 seen
     seen_in_run: set[str] = set()
     run_chars = 0
     run_paras = 0
     max_run_chars = 0
     max_run_paras = 0
 
-    def settle():
+    def settle(*, clear_seen: bool = False) -> None:
+        """结算当前 run 长度。clear_seen 仅离场时为 True。"""
         nonlocal run_chars, run_paras, max_run_chars, max_run_paras, seen_in_run
         max_run_chars = max(max_run_chars, run_chars)
         max_run_paras = max(max_run_paras, run_paras)
         run_chars = 0
         run_paras = 0
-        seen_in_run = set()
+        if clear_seen:
+            seen_in_run = set()
+
+    def _ev_in_para(ev: str, para: str) -> bool:
+        return bool(ev) and (ev in para or _norm(ev) in _norm(para))
 
     for para in paras:
         has_locus = any(p in para for p in place_set) if place_set else bool(_PLACE_CAND.search(para))
         if not has_locus:
-            settle()
+            # (A) 离场 → 打断并清空 seen（新地点重新计 fresh）
+            settle(clear_seen=True)
             continue
 
         fresh = []
         for ev in cost_evs:
-            if ev and (ev in para or _norm(ev) in _norm(para)) and ev not in seen_in_run:
+            if _ev_in_para(ev, para) and ev not in seen_in_run:
                 fresh.append(ev)
 
-        has_any_ev = any(
-            ev and (ev in para or _norm(ev) in _norm(para)) for ev in all_evs
-        )
+        # 本段命中的、尚未计入 seen 的任意 stair/irrev 证据（供 C 与抗锚刷）
+        unseen_any = [
+            ev for ev in all_evs
+            if _ev_in_para(ev, para) and ev not in seen_in_run
+        ]
+        has_any_ev = any(_ev_in_para(ev, para) for ev in all_evs)
         has_act = bool(_FORCE_VERBS.search(para) or _NARROW_ACT.search(para))
 
         break_run = False
+        # (B) 本段首次出现未计过的 cost|decision|irreversible evidence
         if fresh:
             break_run = True
-        elif has_act and has_any_ev:
+        # (C) force/窄表 ∧ 本段有尚未 seen 的 stair/irrev 证据
+        #     已 seen 的同串再贴 → 不 break（G4 抗锚刷）
+        elif has_act and unseen_any:
             break_run = True
 
         if break_run:
             for ev in cost_evs:
-                if ev and (ev in para or _norm(ev) in _norm(para)):
+                if _ev_in_para(ev, para):
                     seen_in_run.add(ev)
-            settle()
+            for ev in all_evs:
+                if _ev_in_para(ev, para):
+                    seen_in_run.add(ev)
+            # 落地段本身不算磨；保留 seen，同地再贴同 evidence 不得再当 fresh
+            settle(clear_seen=False)
         else:
+            # 累计磨戏（含：同地 + 重复贴同一 evidence + 裸 force 无锚）
             run_chars += _char_len(para)
             run_paras += 1
             max_run_chars = max(max_run_chars, run_chars)
             max_run_paras = max(max_run_paras, run_paras)
             for ev in cost_evs:
-                if ev and (ev in para or _norm(ev) in _norm(para)):
+                if _ev_in_para(ev, para):
+                    seen_in_run.add(ev)
+            for ev in all_evs:
+                if _ev_in_para(ev, para):
                     seen_in_run.add(ev)
 
-    settle()
+    settle(clear_seen=False)
     return max_run_chars, max_run_paras
 
 
