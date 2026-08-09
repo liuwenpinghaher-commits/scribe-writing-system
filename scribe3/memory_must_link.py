@@ -15,8 +15,15 @@ from typing import Any
 
 
 def steer_mode() -> str:
-    """full（默认）| minimal（质量验收：极简指令，禁止靠 steer 灌设定）。"""
-    return (os.environ.get("SCRIBE3_MEMORY_STEER_MODE") or "full").strip().lower()
+    """minimal（产品默认 · rev.4）| full（作者粘贴设定模式）。"""
+    try:
+        from scribe3.settings import get_setting
+        v = str(get_setting("SCRIBE3_MEMORY_STEER_MODE") or "").strip().lower()
+        if v:
+            return v
+    except Exception:
+        pass
+    return (os.environ.get("SCRIBE3_MEMORY_STEER_MODE") or "minimal").strip().lower()
 
 
 def is_minimal_steer() -> bool:
@@ -354,6 +361,52 @@ def format_must_link_items(anchors: list[dict[str, Any]], work: str = "") -> lis
             },
         ))
     return lines
+
+
+def build_must_prefix(
+    store,
+    chapter: int | None,
+    *,
+    limit: int | None = None,
+    query: str = "",
+    focalizer: str = "",
+) -> str:
+    """写路径 brief 用：与 assembler must 同源（format + limit + ablation）。"""
+    if ablation_disables_must_link():
+        return ""
+    lim = limit if limit is not None else must_link_limit(8)
+    anchors = collect_must_anchors(store, chapter, limit=lim, query=query)
+    if not anchors:
+        return ""
+    # 限知：帧外 secret 源不进压力前缀
+    if focalizer and chapter is not None:
+        try:
+            from scribe3.epistemic_guard import (
+                collect_secret_surface_strings, frame_known_fact_ids,
+            )
+            known = frame_known_fact_ids(store, focalizer, int(chapter))
+            off: list[str] = []
+            for row in collect_secret_surface_strings(store, int(chapter)):
+                fid = row.get("fact_id") or ""
+                if fid and fid in known:
+                    continue
+                for s in row.get("strings") or []:
+                    if s and len(s) >= 2:
+                        off.append(s)
+            if off:
+                anchors = [
+                    a for a in anchors
+                    if not any(s in str(a.get("text") or "") for s in off)
+                ]
+        except Exception:
+            pass
+    if not anchors:
+        return ""
+    lines = "\n".join(f"- 〔压力〕{a.get('text')}" for a in anchors)
+    return (
+        "\n\n【戏剧压力·来自记忆/正典｜写成可感冲突与触感，禁止设定表点名】\n"
+        + lines + "\n"
+    )
 
 def pin_must_first(canonical_texts: list[str], must_lines: list[str]) -> list[str]:
     """把 must 行置顶，并去掉与 must 正文高度重复的后续行（省预算）。"""

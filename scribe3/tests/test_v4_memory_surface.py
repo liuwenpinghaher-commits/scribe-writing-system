@@ -102,3 +102,68 @@ def test_must_link_limit_bounds(monkeypatch):
         "scribe3.settings.get_setting", _boom, raising=False)
     n = must_link_limit(10)
     assert 3 <= n <= 24
+
+
+def test_three_tier_gates_and_scorer_v2():
+    from scribe3.memory_gain import (
+        score_prose_heuristic_v2, three_tier_gates, comparison_protocol,
+    )
+    a = score_prose_heuristic_v2(
+        "覃灰七" * 5 + "三棱铜匙缺口" + "冷锅婆" + "一炉香债" + ("正文" * 1200),
+        "缺口",
+        label="A",
+    )
+    b = score_prose_heuristic_v2(
+        "覃灰七" * 2 + "铜腥" * 10 + ("正文" * 900),
+        "缺口",
+        label="B",
+    )
+    # 铜腥多不应把 B 的 echo 抬到与 A 同档
+    assert a["canon_echo"] >= b["canon_echo"]
+    keys = ("coherence", "canon_echo", "contradiction")
+    avg_a = sum(a[k] for k in keys) / 3
+    avg_b = sum(b[k] for k in keys) / 3
+    g = three_tier_gates(avg_a, avg_b, a, b)
+    assert "engineering_gate" in g and "machine_pass_rule_met" in g
+    assert g["pass_rule_met"] == g["machine_pass_rule_met"]
+    assert g["human_pass_rule_met"] is None
+    p = comparison_protocol()
+    assert "escalation" in p["tracks"]["track2_memory_contrib"]
+
+
+def test_iron_strip_mode(monkeypatch):
+    import os
+    import scribe3.memory_gain as mg
+    os.environ["SCRIBE3_MEMORY_IRON_IN_ABLATION"] = "strip"
+    assert mg.iron_strip_mode() == "strip"
+    assert mg.should_strip_iron_laws() is True
+    os.environ["SCRIBE3_MEMORY_IRON_IN_ABLATION"] = "keep"
+    assert mg.iron_strip_mode() == "keep"
+    assert mg.should_strip_iron_laws() is False
+
+
+def test_reorder_l1_first_prioritizes_must():
+    from scribe3.context_assembler import ContextAssembler
+
+    class _Src:
+        def __init__(self, sid, reason=""):
+            self.source_id = sid
+            self.reason = reason
+
+    class _I:
+        def __init__(self, text, sid, reason=""):
+            self.text = text
+            self.source = _Src(sid, reason)
+
+    noise = _I("- 噪声杂项" * 5, "noise:1")
+    must = _I("- 〔压力〕物件「匙」当前状态：缺口", "must_link:x", "must_link_priority")
+    ca = ContextAssembler.__new__(ContextAssembler)
+    out = ContextAssembler._reorder_l1_first(ca, [noise, must])
+    assert "压力" in out[0].text
+    assert out[0] is must
+
+
+def test_build_must_prefix_respects_ablation(monkeypatch):
+    import scribe3.memory_must_link as mml
+    monkeypatch.setattr(mml, "ablation_disables_must_link", lambda: True)
+    assert mml.build_must_prefix(None, 1) == ""

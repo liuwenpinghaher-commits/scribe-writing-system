@@ -345,14 +345,21 @@ def _editor_system(st, focalizer: str = "", chapter: int = None,
     except Exception:
         raise   # U-011 fail-loud: _editor_system 素材提示块
     red = (intent.get("red_lines") or "").strip()
-    # D2：铁律单独成块、置于设定之前，写/讨论时必须当约束而非背景
+    strip_iron = False
+    try:
+        from scribe3.memory_gain import should_strip_iron_laws
+        strip_iron = should_strip_iron_laws()
+    except Exception:
+        strip_iron = False
+    # D2：铁律单独成块；B2/B3 strip 时 constraint 与北极星行内红线一并清空
     constraint = ""
-    if red:
+    if red and not strip_iron:
         constraint = (
             "\n【作者铁律·写作宪法｜必须遵守，禁止违反、禁止装忘、禁止用系统流/面板腔稀释】\n"
             f"{red}\n"
             "落实要求:正文中须可观察到上述约束的结果(如触感/禁忌/禁写法),勿仅口头复述原句。\n"
         )
+    red_inline = "—" if strip_iron else (intent.get("red_lines") or "—")
     # D6：讨论全知 vs 限知写作分身标注
     mode_banner = ""
     try:
@@ -369,7 +376,7 @@ def _editor_system(st, focalizer: str = "", chapter: int = None,
         "你是这部长篇小说的资深主编(责编),与作者面对面讨论创作。\n"
         f"{mode_banner}"
         f"【北极星·作品意图】读者感受:{intent['reader_feeling'] or '—'};"
-        f"情感弧:{intent['emotional_arc'] or '—'};绝不背叛的红线:{intent['red_lines'] or '—'}\n"
+        f"情感弧:{intent['emotional_arc'] or '—'};绝不背叛的红线:{red_inline}\n"
         f"{constraint}"
         f"【主要角色】{ctx_chars}\n{set_label}\n{ctx_set}\n\n"
         f"【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n{_codex_block(st, reveal=not focalizer, focalizer=focalizer, chapter=chapter, for_generation=for_generation) or '(尚无设定)'}\n\n"
@@ -737,18 +744,9 @@ def _brief_must_sections_write_block(st, chapter: int, focalizer: str = "") -> s
     D3：前置「戏剧必需锚」短块，与 context_assembler must_link 同源。"""
     must_prefix = ""
     try:
-        from scribe3.memory_must_link import (
-            collect_must_anchors, ablation_disables_must_link, must_link_limit,
-        )
-        if not ablation_disables_must_link():
-            anchors = collect_must_anchors(
-                st, int(chapter), limit=must_link_limit(8))
-            if anchors:
-                lines = "\n".join(f"- 〔压力〕{a.get('text')}" for a in anchors)
-                must_prefix = (
-                    "\n\n【戏剧压力·来自记忆/正典｜写成可感冲突与触感，禁止设定表点名】\n"
-                    + lines + "\n"
-                )
+        from scribe3.memory_must_link import build_must_prefix
+        must_prefix = build_must_prefix(
+            st, int(chapter), focalizer=focalizer or "")
     except Exception as e:
         logging.getLogger("scribe3").warning(
             "写路径 must_link 注入失败(fail-soft): %s", e)

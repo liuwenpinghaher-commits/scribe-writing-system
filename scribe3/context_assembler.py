@@ -532,6 +532,11 @@ class ContextAssembler:
     # --- 预算分配 ---
     def _allocate(self, items: dict[str, list[_Item]]
                   ) -> tuple[list[ContextBlock], list[dict], int]:
+        # L1：canonical/global 内 must/state/铁律优先，再进既有 _truncate_items
+        items = {
+            k: (self._reorder_l1_first(list(v)) if k in ("canonical", "global") else list(v or []))
+            for k, v in (items or {}).items()
+        }
         kept_blocks: list[ContextBlock] = []
         omitted: list[dict] = []
         used = 0
@@ -549,6 +554,30 @@ class ContextAssembler:
                 for it in keep:
                     omitted.append(_omit(it, name, "token_budget"))
         return kept_blocks, omitted, used
+
+    @staticmethod
+    def _is_l1_priority_item(it: "_Item") -> bool:
+        """must 钉锚 / 状态事实 / 作者铁律 / 主角色 → L1。"""
+        src = getattr(it, "source", None)
+        sid = str(getattr(src, "source_id", "") or "")
+        reason = str(getattr(src, "reason", "") or "")
+        text = str(getattr(it, "text", "") or "")
+        if reason in ("must_link_priority", "author_constraint_must_follow", "main_cast_only"):
+            return True
+        if sid.startswith("must_link") or sid == "intent:author_constraints":
+            return True
+        if sid.startswith("fact:") and any(k in text for k in ("state", "condition", "状态", "缺口", "〔压力〕")):
+            return True
+        if "〔压力〕" in text or "作者铁律" in text:
+            return True
+        return False
+
+    def _reorder_l1_first(self, items: list) -> list:
+        if not items:
+            return []
+        hi = [it for it in items if self._is_l1_priority_item(it)]
+        lo = [it for it in items if not self._is_l1_priority_item(it)]
+        return hi + lo
 
     # ---------------- 逐块取数 ----------------
 
@@ -621,14 +650,21 @@ class ContextAssembler:
         out: list[_Item] = []
         # U-011: 删静默降级,失败上抛(作者要 fail-loud)
         intent = self.store.get_intent() or {}
+        strip_iron = False
+        try:
+            from scribe3.memory_gain import should_strip_iron_laws
+            strip_iron = should_strip_iron_laws()
+        except Exception:
+            strip_iron = False
+        red_disp = "—" if strip_iron else (intent.get("red_lines") or "—")
         star = (f"北极星:读者感受={intent.get('reader_feeling') or '—'};"
                 f"情感弧={intent.get('emotional_arc') or '—'};"
-                f"红线={intent.get('red_lines') or '—'}")
+                f"红线={red_disp}")
         out.append(_Item("- " + star, ContextSource(
             source_id="intent:main", source_kind="global", work=snapshot.work)))
-        # D2 质量：红线升格为「必须遵守」段，避免淹没在一长串北极星里
+        # D2 质量：红线升格为「必须遵守」段；B2 strip 时整段不注入
         red = (intent.get("red_lines") or "").strip()
-        if red:
+        if red and not strip_iron:
             out.append(_Item(
                 "- 【作者铁律·写作宪法｜本次输出必须遵守，禁止违反或装忘】\n"
                 f"  {red.replace(chr(10), '；')}",

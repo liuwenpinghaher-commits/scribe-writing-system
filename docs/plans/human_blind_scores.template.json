@@ -1,0 +1,28 @@
+{
+  "protocol": "memory_gain_ab_v2_human_blind",
+  "work": "",
+  "seq": 0,
+  "rater_id": "",
+  "blind_labels": {"X": "unknown", "Y": "unknown"},
+  "scores_X": {
+    "coherence": null,
+    "canon_echo": null,
+    "contradiction": null,
+    "memory_carrying_Y_N": null,
+    "notes": ""
+  },
+  "scores_Y": {
+    "coherence": null,
+    "canon_echo": null,
+    "contradiction": null,
+    "memory_carrying_Y_N": null,
+    "notes": ""
+  },
+  "d6_questionnaire": {
+    "question": "读限知章后，是否认为非知情角色已经知道完整秘密句？",
+    "answer_yes_no_uncertain": null,
+    "target": "否 ≥80% across ≥5 raters"
+  },
+  "human_pass_rule_met": null,
+  "ban": "不得仅凭本模板空白或机器分宣称任一维 ≥9.5"
+}

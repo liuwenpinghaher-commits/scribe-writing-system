@@ -121,10 +121,7 @@ def build_usage_digest_from_manifest(manifest: dict | None) -> dict[str, Any]:
 def comparison_protocol() -> dict[str, Any]:
     """D7 有/无记忆对照实验协议（质量 9.5 用人评，脚本只固定流程）。
 
-    v2（best-plan-v4）：双轨对照——
-      轨1 产品增益：关 fabric；
-      轨2 记忆贡献：fabric 仍开，但 SCRIBE3_MEMORY_ABLATION=no_must_facts。
-    对外「记忆在扛」以轨2 为主证据；轨1 测总开关体验。
+    v2：双轨 + 轨2 B 臂 B1→B2→B3 escalation（design rev.4）。
     """
     return {
         "name": "memory_gain_ab_v2",
@@ -142,12 +139,27 @@ def comparison_protocol() -> dict[str, Any]:
                 "B": "FABRIC=on + SCRIBE3_MEMORY_ABLATION=no_must_facts + minimal",
                 "primary": True,
                 "env_b": "SCRIBE3_MEMORY_ABLATION=no_must_facts",
+                "escalation": [
+                    {"arm": "B1", "ablation": "no_must_facts", "strip_iron": False},
+                    {"arm": "B2", "ablation": "no_must_facts", "strip_iron": True},
+                    {
+                        "arm": "B3",
+                        "ablation": "no_must_facts",
+                        "strip_iron": True,
+                        "desensitize_synopsis": True,
+                    },
+                ],
             },
+        },
+        "gates": {
+            "engineering_gate": "lead≥1.0 且 A 三项均 ≥4.0",
+            "machine_pass_rule": "lead≥1.5 且 A 三项均 ≥4.5（= pass_rule_met）",
+            "human_pass_rule": "真人双盲三项 + lead；正式 ≥9.5 唯一路径",
         },
         "setup": [
             "同一 book slug、同一章 synopsis、同一模型与 max_tokens",
             "A 组：MEMORY_FABRIC 开 + must-link + 正典注入（正常产品）",
-            "B 组轨1：显式关 fabric；B 组轨2：fabric 开但 no_must_facts（禁 must+fact 注入）",
+            "B 组轨2：B1 no_must_facts → 未过门则 B2 剥铁律 → 仍未过则 B3 脱敏 synopsis",
             "作者指令仅给冲突与 POV（SCRIBE3_MEMORY_STEER_MODE=minimal）",
             "禁止作者粘贴全书设定；若 detect_author_restated_canon 则作废该次",
             "A/B 禁止 restore wipe 前旧章节版本（AB_SKIP_VERSION_RESTORE）",
@@ -169,3 +181,130 @@ def comparison_protocol() -> dict[str, Any]:
             "scores.json", "00-author-path.md",
         ],
     }
+
+
+def three_tier_gates(avg_a: float, avg_b: float, sa: dict, sb: dict | None = None) -> dict[str, Any]:
+    """从 A/B 三项分组装三层闸门（纯函数，无 I/O）。
+
+    sa 需含 coherence/canon_echo/contradiction。
+    """
+    keys = ("coherence", "canon_echo", "contradiction")
+    lead = float(avg_a) - float(avg_b)
+    a_ok_eng = all(float(sa.get(k) or 0) >= 4.0 for k in keys)
+    a_ok_mach = all(float(sa.get(k) or 0) >= 4.5 for k in keys)
+    eng = bool(a_ok_eng and lead >= 1.0)
+    mach = bool(a_ok_mach and lead >= 1.5)
+    return {
+        "lead_A_minus_B": round(lead, 3),
+        "engineering_gate": eng,
+        "engineering_gate_rule": "lead≥1.0 且 A 三项均 ≥4.0",
+        "machine_pass_rule_met": mach,
+        "pass_rule_met": mach,  # 兼容旧字段
+        "pass_rule": (
+            "A 组 coherence/canon_echo/contradiction 均 ≥4.5，"
+            "且相对 B 平均领先 ≥1.5"
+        ),
+        "human_pass_rule_met": None,
+        "human_pass_rule": "真人双盲三项 + lead；正式 ≥9.5 唯一路径",
+        "void_reason": None,
+        "scorer": "heuristic_v2_not_human_blind",
+        "note": "禁止仅凭 machine/heuristic 宣称任一维 ≥9.5",
+    }
+
+
+def score_prose_heuristic_v2(prose: str, syn: str = "", *, label: str = "X") -> dict[str, Any]:
+    """scorer v2：物件态/专名/债 加权；铜腥等书无关感官降权（design OQ4）。"""
+    import re
+
+    def cn_len(s: str) -> int:
+        return len(re.sub(r"\s+", "", s or ""))
+
+    n = cn_len(prose)
+    anchors = {
+        "覃灰七": prose.count("覃灰七"),
+        "三棱铜匙": prose.count("三棱铜匙"),
+        "缺口": prose.count("缺口"),
+        "铜腥": prose.count("铜腥") + prose.count("炉灰"),
+        "冷锅婆": prose.count("冷锅婆"),
+        "一炉香债": prose.count("一炉香债") + prose.count("香债"),
+        "完整无缺": prose.count("完整无缺"),
+        "沈拾灯": prose.count("沈拾灯"),
+        "A7_full": prose.count("炉心印能开旧库侧门"),
+        "炉心印": prose.count("炉心印"),
+        "侧门": prose.count("侧门"),
+    }
+    coh = 2.0
+    if n >= 3000:
+        coh += 1.0
+    if n >= 3800:
+        coh += 0.5
+    if n >= 4500:
+        coh += 0.5
+    if anchors["沈拾灯"] == 0:
+        coh += 0.5
+    coh = min(5.0, coh)
+
+    # v2：state/专名/债为主；铜腥最多 +0.2（原 +0.7）
+    echo = 1.5
+    if anchors["覃灰七"] >= 3:
+        echo += 0.9
+    if anchors["三棱铜匙"] >= 1:
+        echo += 0.9
+    if anchors["缺口"] >= 1:
+        echo += 0.9
+    if anchors["冷锅婆"] >= 1:
+        echo += 0.5
+    if anchors["一炉香债"] >= 1:
+        echo += 0.5
+    if anchors["炉心印"] >= 1 or anchors["侧门"] >= 1:
+        echo += 0.3
+    if anchors["铜腥"] >= 1:
+        echo += 0.2  # 降权
+    echo = min(5.0, echo)
+
+    contra = 5.0
+    if anchors["完整无缺"] and anchors["缺口"]:
+        contra -= 2.0
+    if anchors["完整无缺"] and "缺口" in (syn or ""):
+        contra -= 1.5
+    if anchors["沈拾灯"]:
+        contra -= 2.0
+    if anchors["A7_full"]:
+        contra -= 1.5
+    contra = max(1.0, contra)
+
+    effort = 4.5 if n >= 2500 else 3.0
+    return {
+        "label": label,
+        "chars": n,
+        "anchors": anchors,
+        "coherence": round(coh, 2),
+        "canon_echo": round(echo, 2),
+        "contradiction": round(contra, 2),
+        "author_effort": round(effort, 2),
+    }
+
+
+def iron_strip_mode() -> str:
+    """keep（产品默认）| strip（B2/B3 评测）。"""
+    import os
+    v = ""
+    try:
+        from scribe3.settings import get_setting
+        v = str(get_setting("SCRIBE3_MEMORY_IRON_IN_ABLATION") or "")
+    except Exception:
+        v = ""
+    if not v:
+        v = os.environ.get("SCRIBE3_MEMORY_IRON_IN_ABLATION") or "keep"
+    # env 显式 strip 优先于默认 keep（测试/脚本）
+    env = (os.environ.get("SCRIBE3_MEMORY_IRON_IN_ABLATION") or "").strip().lower()
+    if env in {"strip", "off", "0", "false", "no", "ablate"}:
+        v = env
+    v = v.strip().lower()
+    if v in {"strip", "off", "0", "false", "no", "ablate"}:
+        return "strip"
+    return "keep"
+
+
+def should_strip_iron_laws() -> bool:
+    return iron_strip_mode() == "strip"
