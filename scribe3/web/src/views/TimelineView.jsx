@@ -483,9 +483,33 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
     if (data && !canNarrative && axis === 'narrative') switchAxis('story')
   }, [canNarrative, data])  // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── 容器像素尺寸：maxHeight/height 用 % 时泳道一多无法竖向滚动；必须钉像素高 ──
+  const [boxSize, setBoxSize] = useState({ w: 0, h: 0 })
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return undefined
+    const ro = new ResizeObserver((entries) => {
+      const cr = entries[0]?.contentRect
+      if (!cr) return
+      const w = Math.round(cr.width)
+      const h = Math.round(cr.height)
+      setBoxSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
+    })
+    ro.observe(el)
+    // 首帧同步一次（部分浏览器 RO 延迟）
+    const r = el.getBoundingClientRect()
+    if (r.width > 0 && r.height > 0) {
+      setBoxSize({ w: Math.round(r.width), h: Math.round(r.height) })
+    }
+    return () => ro.disconnect()
+  }, [hasContent])
+
   // ── 初始化 / 更新 vis-timeline ────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current || !hasContent) return
+    // 高度未就绪时不建实例，避免 height=0 导致永远滚不动
+    const pxH = boxSize.h > 40 ? boxSize.h : 0
+    if (!pxH) return
 
     if (!timelineRef.current) {
       // 首次创建
@@ -498,12 +522,15 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
         zoomable: true,
         moveable: true,
         selectable: true,
+        // 关键：多泳道时必须开竖向滚动，否则底部裁切且无法下拉
+        verticalScroll: true,
         horizontalScroll: true,
-        zoomKey: 'ctrlKey',          // ctrl+滚轮缩放,普通滚轮垂直滚动
+        zoomKey: 'ctrlKey',          // ctrl+滚轮缩放,普通滚轮垂直滚动泳道
         margin: { item: { horizontal: 4, vertical: 6 }, axis: 6 },
         groupHeightMode: 'auto',
-        minHeight: '100%',
-        maxHeight: '100%',
+        // 钉死像素高度（勿用 100%：vis 在 % 下经常不算滚动条）
+        height: pxH,
+        maxHeight: pxH,
         zoomMin: 1000 * 60 * 60 * 24 * 2,        // 最细约 2 章
         zoomMax: 1000 * 60 * 60 * 24 * 100000,   // 最粗整书
         // 轴标签:把合成日期换算回章号显示「第N章」
@@ -539,6 +566,10 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
       // 数据重载(泳道/轴切换/刷新):旧选中失效——仅当当前 focus 确为时间线所发时才清空,
       // 不误清别处(面板/图谱等)刚设的聚焦。
       if (focusRef.current?.origin === 'timeline') setFocusRef.current(null)
+      // 容器变高/变矮时同步 vis 高度，否则竖滚条失效
+      try {
+        timelineRef.current.setOptions({ height: pxH, maxHeight: pxH, verticalScroll: true })
+      } catch { /* */ }
     }
 
     // 默认窗口:大书只看最近 ~40 章(虚拟化生效);小书看全书概览
@@ -549,7 +580,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
     tl.setWindow(chToDate(Math.max(1, lo - 0.5)), chToDate(hi + 2.5), { animation: false })
     // 容器尺寸在挂载后可能变化,强制重绘
     requestAnimationFrame(() => tl.redraw())
-  }, [items, groups, hasContent, maxCh])
+  }, [items, groups, hasContent, maxCh, boxSize.h])
 
   // 卸载销毁
   useEffect(() => () => {
@@ -560,7 +591,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
   const fitAll = () => timelineRef.current?.fit({ animation: !prefersReducedMotion() })
 
   return (
-    <div className="h-full flex flex-col bg-canvas" style={{ minHeight: 0 }}>
+    <div className="h-full min-h-0 flex flex-col bg-canvas overflow-hidden" data-testid="timeline-view">
       {/* ── 顶栏:Upstream 胶囊切换 ── */}
       <div className="h-11 shrink-0 border-b border-line/60 bg-surface/95 backdrop-blur-sm flex items-center gap-2 px-4 overflow-x-auto">
         <Clock size={15} className="text-brand shrink-0" />
@@ -618,12 +649,12 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
         </div>
       </div>
 
-      {/* ── 主体 ── */}
-      <div className="flex-1 min-h-0 flex">
+      {/* ── 主体：min-h-0 保证 flex 子项可滚动；左列表与画布各自 overflow ── */}
+      <div className="flex-1 min-h-0 flex overflow-hidden">
         {listItems.length > 0 && (
           <div role="region" aria-label="时间线事件列表"
-            className="w-56 shrink-0 border-r border-line bg-surface overflow-y-auto hidden md:block">
-            <div className="sticky top-0 bg-surface/95 backdrop-blur px-3 py-2 border-b border-line flex items-center gap-1.5 text-meta font-medium text-faint">
+            className="w-56 shrink-0 border-r border-line bg-surface min-h-0 overflow-y-auto overscroll-contain hidden md:block">
+            <div className="sticky top-0 z-[1] bg-surface/95 backdrop-blur px-3 py-2 border-b border-line flex items-center gap-1.5 text-meta font-medium text-faint">
               <List size={12} />事件列表 · {listItems.length}
             </div>
             <ul className="py-1">
@@ -632,7 +663,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
                 const label = raw.label || raw.event_type || relLabel(raw.refs?.relation) || raw.id
                 return (
                   <li key={`${cat}:${raw.id}`}>
-                    <button onClick={() => onNavigateToObject?.(timelineTarget(raw, cat))}
+                    <button type="button" onClick={() => onNavigateToObject?.(timelineTarget(raw, cat))}
                       className="w-full text-left px-3 py-1.5 text-f12 text-ink hover:bg-soft/60 flex items-center gap-1.5 transition-colors">
                       {ch != null && <span className="shrink-0 text-meta text-faint tnum">第{ch}章</span>}
                       <span className="truncate">{label}</span>
@@ -643,7 +674,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
             </ul>
           </div>
         )}
-        <div className="flex-1 min-w-0 relative">
+        <div className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
           {error && (
             <div className="absolute inset-0 flex items-center justify-center p-4">
               <div className="text-f13 text-red-500 bg-red-50 rounded-lg px-3 py-2 border border-red-200">{error}</div>
@@ -663,10 +694,11 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
               </div>
             </div>
           )}
-          {/* vis-timeline 挂载容器(始终在 DOM,有内容才可见) */}
+          {/* vis-timeline 挂载容器：绝对铺满，供 ResizeObserver 量像素高 */}
           <div
             ref={containerRef}
-            className="tl-vis absolute inset-0"
+            className="tl-vis absolute inset-0 overflow-hidden"
+            data-testid="timeline-canvas"
             style={{ visibility: hasContent ? 'visible' : 'hidden' }}
           />
         </div>
@@ -707,7 +739,11 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
 
       {/* vis-timeline 主题微调(贴 tailwind/CSS 变量) */}
       <style>{`
-        .tl-vis .vis-timeline { border: none; font-family: inherit; }
+        .tl-vis { touch-action: pan-x pan-y; }
+        .tl-vis .vis-timeline { border: none; font-family: inherit; height: 100% !important; }
+        .tl-vis .vis-panel.vis-center, .tl-vis .vis-panel.vis-left {
+          /* 允许内部竖向滚；避免父层吃掉 wheel */
+        }
         .tl-vis .vis-panel.vis-left,
         .tl-vis .vis-panel.vis-center,
         .tl-vis .vis-panel.vis-top,
@@ -717,6 +753,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
         .tl-vis .vis-labelset .vis-label { color: var(--color-faint); font-size: 11px; }
         .tl-vis .vis-labelset .vis-label .vis-inner { padding: 4px 8px; font-weight: 500; }
         .tl-vis .vis-time-axis .vis-text { color: var(--color-faint); font-size: 10px; }
+        .tl-vis .vis-vertical-scroll { overflow-y: auto !important; }
         .tl-vis .vis-time-axis .vis-grid.vis-minor { border-color: color-mix(in srgb, var(--color-line) 60%, transparent); }
         .tl-vis .vis-item {
           border-radius: 6px; border-width: 1px;

@@ -72,11 +72,13 @@ export function DetailPane(props) {
     ? `view:${sel.viewKey}`
     : (sel?.node?.id ?? 'empty')
   return (
-    <ErrorBoundary key={boundaryKey}>
-      <Suspense fallback={<DetailLoading />}>
-        {renderDetail(props)}
-      </Suspense>
-    </ErrorBoundary>
+    <div className="h-full min-h-0 flex flex-col overflow-hidden" data-testid="detail-pane-root">
+      <ErrorBoundary key={boundaryKey}>
+        <Suspense fallback={<DetailLoading />}>
+          {renderDetail(props)}
+        </Suspense>
+      </ErrorBoundary>
+    </div>
   )
 }
 
