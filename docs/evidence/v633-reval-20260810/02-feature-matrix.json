@@ -1,0 +1,115 @@
+{
+  "F11_health": {
+    "pass": true,
+    "detail": "<!doctype html>\n<html lang=\"zh-CN\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <meta name=\"application-name\" content=\"tonglu\" />\n    <meta name=\"description\" content=\"铜炉 · 长篇写作工作台\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"/brand/tonglu-mark.svg\" />\n    <link rel=\"apple-touch-icon\" href=\"/brand/tonglu-mark-app.svg\" />\n    <title>铜炉 · 长篇写作工作台</title>\n    <script type=\"module\" crossorigin src=\"/assets/index-ELsYWtok"
+  },
+  "F1_issues_coverage": {
+    "pass": true,
+    "detail": {
+      "code": "200",
+      "mode": "deterministic_only",
+      "skipped": [
+        "discipline",
+        "llm_review",
+        "quality_dim",
+        "tension_rubric",
+        "leaks"
+      ],
+      "n": 1
+    }
+  },
+  "F2_honest_note": {
+    "pass": true,
+    "detail": "未跑语义深检；点「全量体检」或 POST /review/chapter"
+  },
+  "F3_review_det": {
+    "pass": true,
+    "detail": {
+      "code": "200",
+      "coverage": {
+        "mode": "deterministic",
+        "tracks": [
+          "D"
+        ],
+        "reviewers_run": [
+          "deterministic_d"
+        ],
+        "reviewers_skipped": [
+          "llm_review_l1",
+          "llm_review_l2",
+          "llm_review_l3",
+          "llm_review_l4",
+          "llm_review_l5"
+        ],
+        "prose_fp": "e3b0c44298fc1c14",
+        "note": ""
+      }
+    }
+  },
+  "F6_timeline_labels": {
+    "pass": true,
+    "detail": {
+      "events": 0,
+      "humanish": 0
+    }
+  },
+  "F7_world_truth_tree": {
+    "pass": true,
+    "detail": {
+      "label": "世界真相",
+      "leaves": 4,
+      "noise_like": 0
+    }
+  },
+  "F8_truth_history": {
+    "pass": true,
+    "detail": {
+      "code": "200",
+      "n": 3
+    }
+  },
+  "F9_source_bucket": {
+    "pass": true,
+    "detail": {
+      "code": "200",
+      "has_bucket": true,
+      "n": 5
+    }
+  },
+  "F10_causal": {
+    "pass": true,
+    "detail": {
+      "no_event_data": true,
+      "violations": []
+    }
+  },
+  "F5_triage_s1": {
+    "pass": true,
+    "detail": "blocking"
+  },
+  "F4_review_full_route": {
+    "pass": true,
+    "detail": {
+      "code": "200",
+      "coverage": {
+        "mode": "partial",
+        "tracks": [
+          "D"
+        ],
+        "reviewers_run": [
+          "deterministic_d"
+        ],
+        "reviewers_skipped": [
+          "discipline_l0",
+          "llm_review_l1",
+          "llm_review_l2",
+          "llm_review_l3",
+          "llm_review_l4",
+          "llm_review_l5"
+        ],
+        "prose_fp": "e3b0c44298fc1c14",
+        "note": "partial"
+      }
+    }
+  }
+}
