@@ -125,9 +125,10 @@ export const api = {
     return j('/graph' + (qs.length ? '?' + qs.join('&') : ''))
   },
   // axis: 'story'(故事编年,默认)| 'narrative'(叙事顺序);完整期双轴(spec §3.1)
-  timeline: (from = 1, to, axis) => j('/timeline?ch_from=' + from
+  timeline: (from = 1, to, axis, limit) => j('/timeline?ch_from=' + from
     + (to != null ? '&ch_to=' + to : '')
-    + (axis ? '&axis=' + enc(axis) : '')),
+    + (axis ? '&axis=' + enc(axis) : '')
+    + (limit != null ? '&limit=' + enc(limit) : '')),
   quality: () => j('/quality'),
   // 质量缓存由正文保存/回写时维护；规则升级或历史缓存过期时作者可显式刷新。
   refreshQuality: () => post('/quality/refresh', {}),

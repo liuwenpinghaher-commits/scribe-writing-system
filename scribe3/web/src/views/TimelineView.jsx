@@ -39,7 +39,58 @@ import { useSelection } from '../selectionContext'
 const EPOCH = Date.UTC(2000, 0, 1)
 const DAY = 86400000
 const chToDate = (ch) => new Date(EPOCH + (ch - 1) * DAY)
-const dateToCh = (d) => Math.round((d.getTime() - EPOCH) / DAY) + 1
+const dateToCh = (d) => Math.round((new Date(d).getTime() - EPOCH) / DAY) + 1
+
+/** 单次请求章窗口宽度（动态加载，非整书一次塞进 vis） */
+const CH_WINDOW = 50
+/** 声明 max_chapter 超过此值且 items 明显偏前时，视为烟雾/脏章污染 */
+const MAX_CH_SANE = 5000
+
+function itemsChapterMax(items) {
+  let m = 0
+  for (const it of items || []) {
+    const c = Number(it?.chapter) || 0
+    const s = Number(it?.story_chapter) || 0
+    if (c > m) m = c
+    if (s > m) m = s
+  }
+  return m
+}
+
+/**
+ * 有效末章：避免 max_chapter 被测试章号（如 999902）污染后窗口落到空区间。
+ * 优先信任已加载 items 的最高章；声明值合理时再取较大者。
+ */
+function effectiveMaxChapter(data) {
+  if (!data) return 0
+  const declared = Number(data.max_chapter) || 0
+  const itemMax = itemsChapterMax(data.items)
+  if (declared > MAX_CH_SANE && itemMax > 0 && itemMax < declared - 100) return itemMax
+  if (declared > MAX_CH_SANE && itemMax === 0) return 0
+  return Math.max(declared, itemMax)
+}
+
+function mergeTimelinePayload(prev, next) {
+  if (!prev) return next
+  if (!next) return prev
+  const byKey = new Map()
+  for (const it of prev.items || []) {
+    byKey.set(`${it.kind}:${it.id}`, it)
+  }
+  for (const it of next.items || []) {
+    byKey.set(`${it.kind}:${it.id}`, it)
+  }
+  const items = [...byKey.values()].sort((a, b) => (a.chapter || 0) - (b.chapter || 0))
+  return {
+    ...prev,
+    ...next,
+    from: Math.min(prev.from ?? next.from ?? 1, next.from ?? prev.from ?? 1),
+    to: Math.max(prev.to ?? 0, next.to ?? 0),
+    max_chapter: Math.max(prev.max_chapter || 0, next.max_chapter || 0),
+    truncated: Boolean(prev.truncated || next.truncated),
+    items,
+  }
+}
 
 // ── 配色(对齐产品 token 家族:brand / irony / secret / fore / ok / danger / faint) ──
 // vis-timeline 要可序列化的色值;运行时从 CSS 变量读,缺省回落到 light 真源。
@@ -435,18 +486,80 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
   // 保住刚选中的 event/promise 聚焦(与 InsightView 卡内跳章行为对齐)。
   const jumpKeepFocus = (ch) => { suppressRef.current(); onJumpRef.current?.(ch) }
 
-  const load = useCallback((ax = axis) => {
-    setLoading(true); setError(null)
-    api.timeline(1, null, ax)
-      .then((d) => { setData(d); setLoading(false) })
-      .catch((e) => { setError(e.message || '加载失败'); setLoading(false) })
+  // 已加载章区间集合，避免 rangechange 重复请求
+  const loadedRangesRef = useRef([]) // [{from,to}]
+  const loadingRangeRef = useRef(false)
+  const dataRef = useRef(null)
+  dataRef.current = data
+
+  const markRangeLoaded = (from, to) => {
+    loadedRangesRef.current = [...loadedRangesRef.current, { from, to }]
+  }
+  const isRangeCovered = (from, to) => loadedRangesRef.current.some(
+    (r) => r.from <= from && r.to >= to,
+  )
+
+  /** 拉取 [from,to] 并入 data（动态窗口，非整书一次加载） */
+  const fetchRange = useCallback(async (from, to, ax = axis, { replace = false } = {}) => {
+    const lo = Math.max(1, Math.floor(from))
+    const hi = Math.max(lo, Math.floor(to))
+    if (!replace && isRangeCovered(lo, hi)) return null
+    const d = await api.timeline(lo, hi, ax, 800)
+    markRangeLoaded(d.from ?? lo, d.to ?? hi)
+    setData((prev) => (replace || !prev ? d : mergeTimelinePayload(prev, d)))
+    return d
+  }, [axis])
+
+  /**
+   * 首屏：探测 max_chapter → 只拉「有内容的末窗」约 50 章。
+   * 若 max 被脏章号污染，退回前 50 章（有真实 items 的区间）。
+   */
+  const load = useCallback(async (ax = axis) => {
+    setLoading(true)
+    setError(null)
+    loadedRangesRef.current = []
+    try {
+      // 探测：只取 ch 1..1 也能拿到 max_chapter（items 可能很少）
+      const probe = await api.timeline(1, 1, ax, 50)
+      let maxDecl = Number(probe.max_chapter) || 1
+      // 脏 max：再探前 80 章，用 items 推断真实末章
+      let boot
+      if (maxDecl > MAX_CH_SANE) {
+        boot = await api.timeline(1, 80, ax, 800)
+        markRangeLoaded(1, 80)
+        const im = itemsChapterMax(boot.items)
+        if (im > 0) {
+          // 再补真实末窗（若 im 已在 1..80 内则 boot 已够）
+          if (im > 80) {
+            const lo = Math.max(1, im - CH_WINDOW + 1)
+            const tail = await api.timeline(lo, im, ax, 800)
+            markRangeLoaded(lo, im)
+            boot = mergeTimelinePayload(boot, tail)
+          }
+          setData(boot)
+        } else {
+          setData(boot)
+        }
+      } else {
+        const hi = Math.max(1, maxDecl)
+        const lo = Math.max(1, hi - CH_WINDOW + 1)
+        boot = await api.timeline(lo, hi, ax, 800)
+        markRangeLoaded(lo, hi)
+        // 合并 probe 的 max_chapter
+        setData({ ...boot, max_chapter: maxDecl })
+      }
+    } catch (e) {
+      setError(e.message || '加载失败')
+    } finally {
+      setLoading(false)
+    }
   }, [axis])
 
   useEffect(() => { load() }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const switchAxis = (ax) => { setAxis(ax); load(ax) }
 
-  const maxCh = data?.max_chapter || 0
+  const maxCh = effectiveMaxChapter(data)
 
   const counts = useMemo(() => {
     if (!data) return { events: 0, promises: 0, arcs: 0, relations: 0 }
@@ -483,57 +596,60 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
     if (data && !canNarrative && axis === 'narrative') switchAxis('story')
   }, [canNarrative, data])  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── 容器像素尺寸：maxHeight/height 用 % 时泳道一多无法竖向滚动；必须钉像素高 ──
+  // ── 容器像素尺寸（始终观察；fallback 避免 height=0 整页空白）──
   const [boxSize, setBoxSize] = useState({ w: 0, h: 0 })
+  const axisRef = useRef(axis)
+  axisRef.current = axis
   useEffect(() => {
     const el = containerRef.current
-    if (!el || typeof ResizeObserver === 'undefined') return undefined
-    const ro = new ResizeObserver((entries) => {
-      const cr = entries[0]?.contentRect
-      if (!cr) return
-      const w = Math.round(cr.width)
-      const h = Math.round(cr.height)
+    if (!el) return undefined
+    const measure = () => {
+      const r = el.getBoundingClientRect()
+      let h = Math.round(r.height)
+      let w = Math.round(r.width)
+      // 父链未撑开时用 parent / 视口兜底，避免永远不建 vis
+      if (h < 40) {
+        const ph = el.parentElement?.clientHeight || 0
+        h = ph > 40 ? ph : Math.max(360, Math.round(window.innerHeight * 0.45))
+      }
+      if (w < 40) w = el.parentElement?.clientWidth || 640
       setBoxSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
-    })
-    ro.observe(el)
-    // 首帧同步一次（部分浏览器 RO 延迟）
-    const r = el.getBoundingClientRect()
-    if (r.width > 0 && r.height > 0) {
-      setBoxSize({ w: Math.round(r.width), h: Math.round(r.height) })
     }
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => window.removeEventListener('resize', measure)
+    }
+    const ro = new ResizeObserver(() => measure())
+    ro.observe(el)
+    if (el.parentElement) ro.observe(el.parentElement)
     return () => ro.disconnect()
-  }, [hasContent])
+  }, [])
 
   // ── 初始化 / 更新 vis-timeline ────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current || !hasContent) return
-    // 高度未就绪时不建实例，避免 height=0 导致永远滚不动
-    const pxH = boxSize.h > 40 ? boxSize.h : 0
-    if (!pxH) return
+    const pxH = boxSize.h > 40 ? boxSize.h : Math.max(360, Math.round(window.innerHeight * 0.45))
 
     if (!timelineRef.current) {
-      // 首次创建
       itemsDsRef.current = new DataSet(items)
       groupsDsRef.current = new DataSet(groups)
       const tl = new Timeline(containerRef.current, itemsDsRef.current, groupsDsRef.current, {
-        stack: true,                 // 同组自动堆叠防重叠(根治叠加)
+        stack: true,
         stackSubgroups: true,
         orientation: { axis: 'top', item: 'top' },
         zoomable: true,
         moveable: true,
         selectable: true,
-        // 关键：多泳道时必须开竖向滚动，否则底部裁切且无法下拉
         verticalScroll: true,
         horizontalScroll: true,
-        zoomKey: 'ctrlKey',          // ctrl+滚轮缩放,普通滚轮垂直滚动泳道
+        zoomKey: 'ctrlKey',
         margin: { item: { horizontal: 4, vertical: 6 }, axis: 6 },
         groupHeightMode: 'auto',
-        // 钉死像素高度（勿用 100%：vis 在 % 下经常不算滚动条）
         height: pxH,
         maxHeight: pxH,
-        zoomMin: 1000 * 60 * 60 * 24 * 2,        // 最细约 2 章
-        zoomMax: 1000 * 60 * 60 * 24 * 100000,   // 最粗整书
-        // 轴标签:把合成日期换算回章号显示「第N章」
+        zoomMin: 1000 * 60 * 60 * 24 * 2,
+        zoomMax: 1000 * 60 * 60 * 24 * 100000,
         format: {
           minorLabels: (date) => '第' + dateToCh(new Date(date)) + '章',
           majorLabels: () => '',
@@ -541,46 +657,54 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
         tooltip: { followMouse: true, overflowMethod: 'cap' },
       })
 
-      // 单击选中 → 详情面板 + 通用选中总线(主编聚焦)
       tl.on('select', (props) => {
         const id = props.items?.[0]
         if (!id) { setSelected(null); setFocusRef.current(null); return }
         const it = itemsDsRef.current.get(id)
         if (it) { setSelected({ raw: it._raw, cat: it._cat }); setFocusRef.current(visItemFocus(it)) }
       })
-      // 双击 → 跳章(保聚焦:suppress 掉跳章引发的 sel 镜像)
       tl.on('doubleClick', (props) => {
         if (!props.item) return
         const it = itemsDsRef.current.get(props.item)
         if (it) jumpKeepFocus(it._jump ?? it._raw?.chapter)
       })
+      // 拖动/缩放窗口 → 动态补载可见章区间（±半窗）
+      tl.on('rangechanged', (props) => {
+        if (loadingRangeRef.current) return
+        try {
+          const startCh = dateToCh(props.start)
+          const endCh = dateToCh(props.end)
+          if (!Number.isFinite(startCh) || !Number.isFinite(endCh)) return
+          const pad = Math.ceil(CH_WINDOW / 2)
+          const lo = Math.max(1, Math.min(startCh, endCh) - pad)
+          const hi = Math.max(startCh, endCh) + pad
+          if (isRangeCovered(lo, hi)) return
+          loadingRangeRef.current = true
+          fetchRange(lo, hi, axisRef.current || 'story')
+            .catch(() => { /* 静默：保留已有画布 */ })
+            .finally(() => { loadingRangeRef.current = false })
+        } catch { /* */ }
+      })
 
       timelineRef.current = tl
+      // 首窗：对齐「已加载内容」的有效末章，勿跳到污染 max_chapter 空区
+      const d0 = dataRef.current
+      const hi0 = Math.max(1, effectiveMaxChapter(d0) || itemsChapterMax(d0?.items) || 1)
+      const lo0 = Math.max(1, hi0 - CH_WINDOW + 1)
+      tl.setWindow(chToDate(Math.max(1, lo0 - 0.5)), chToDate(hi0 + 2.5), { animation: false })
     } else {
-      // 更新数据(laneMode / axis / 刷新)——保留实例避免重建闪烁
-      itemsDsRef.current.clear()
-      groupsDsRef.current.clear()
-      groupsDsRef.current.add(groups)
-      itemsDsRef.current.add(items)
-      setSelected(null)
-      // 数据重载(泳道/轴切换/刷新):旧选中失效——仅当当前 focus 确为时间线所发时才清空,
-      // 不误清别处(面板/图谱等)刚设的聚焦。
-      if (focusRef.current?.origin === 'timeline') setFocusRef.current(null)
-      // 容器变高/变矮时同步 vis 高度，否则竖滚条失效
+      // 增量：同步 DataSet，保留窗口（动态加载不 reset 视野）
       try {
+        itemsDsRef.current.clear()
+        itemsDsRef.current.add(items)
+        groupsDsRef.current.clear()
+        groupsDsRef.current.add(groups)
         timelineRef.current.setOptions({ height: pxH, maxHeight: pxH, verticalScroll: true })
       } catch { /* */ }
     }
 
-    // 默认窗口:大书只看最近 ~40 章(虚拟化生效);小书看全书概览
-    const tl = timelineRef.current
-    const hi = maxCh || 1
-    const lo = Math.max(1, hi - 40)
-    // 右端多留 ~1.5 章余白,末章不贴边(避免被右栏视觉挤压);左端留 0.5 章。
-    tl.setWindow(chToDate(Math.max(1, lo - 0.5)), chToDate(hi + 2.5), { animation: false })
-    // 容器尺寸在挂载后可能变化,强制重绘
-    requestAnimationFrame(() => tl.redraw())
-  }, [items, groups, hasContent, maxCh, boxSize.h])
+    requestAnimationFrame(() => timelineRef.current?.redraw())
+  }, [items, groups, hasContent, maxCh, boxSize.h, fetchRange])
 
   // 卸载销毁
   useEffect(() => () => {
@@ -588,7 +712,19 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
   }, [])
 
   // 无障碍:系统「减弱动态」时全览缩放不做动画。
-  const fitAll = () => timelineRef.current?.fit({ animation: !prefersReducedMotion() })
+  const fitAll = () => {
+    const tl = timelineRef.current
+    if (!tl) return
+    // 全览前尽量拉齐「有效」全书窗（不请求脏 max）
+    const hi = maxCh || 1
+    if (hi > 0 && !isRangeCovered(1, Math.min(hi, CH_WINDOW))) {
+      fetchRange(1, Math.min(hi, CH_WINDOW * 2)).finally(() => {
+        tl.fit({ animation: !prefersReducedMotion() })
+      })
+      return
+    }
+    tl.fit({ animation: !prefersReducedMotion() })
+  }
 
   return (
     <div className="h-full min-h-0 flex flex-col bg-canvas overflow-hidden" data-testid="timeline-view">
@@ -599,8 +735,14 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
         {data && (
           <span className="text-meta text-faint tnum shrink-0">
             {counts.events}事件·{counts.promises}伏笔·{counts.arcs}弧光·{counts.relations}关系
-            {maxCh > 0 && ` · 共${maxCh}章`}
-            {data.truncated && <span className="text-warn"> · 已截断(缩小区间)</span>}
+            {maxCh > 0 && ` · 约至第${maxCh}章`}
+            {data.from != null && data.to != null && (
+              <span className="text-faint"> · 已载 ch{data.from}–{data.to}</span>
+            )}
+            {data.truncated && <span className="text-warn"> · 区间截断</span>}
+            {(Number(data.max_chapter) || 0) > MAX_CH_SANE && (
+              <span className="text-warn" title="库中存在异常大章号，已按实际条目估算窗口"> · 已忽略脏章号</span>
+            )}
           </span>
         )}
 
@@ -694,12 +836,15 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
               </div>
             </div>
           )}
-          {/* vis-timeline 挂载容器：绝对铺满，供 ResizeObserver 量像素高 */}
+          {/* 始终占位可量高度；无内容时用 visibility 隐藏，勿 display:none */}
           <div
             ref={containerRef}
             className="tl-vis absolute inset-0 overflow-hidden"
             data-testid="timeline-canvas"
-            style={{ visibility: hasContent ? 'visible' : 'hidden' }}
+            style={{
+              visibility: hasContent ? 'visible' : 'hidden',
+              minHeight: 360,
+            }}
           />
         </div>
 
