@@ -186,12 +186,20 @@ class ConnectionMixin:
             # API 与 Hermes MCP 是独立进程，首次打开同一 work 时可能同时读到
             # 尚未应用。迁移正文已要求幂等，记录写入也必须幂等，不能由第二个
             # initializer 的唯一键冲突把整个 MCP 读取路径打断。
-            # Surreal 2.3/3.x: type::record('_migration', name) 会把表名/id 拧反；
-            # type::thing 在 2.3.7 与 3.x 均可用（本机/demo 验收过）。
-            self._raw_query(
-                "UPSERT type::thing('_migration', $name) SET applied_at = time::now()",
-                {"name": f.stem},
-            )
+            # Surreal **3.x（demo）**：UPSERT type::record('_migration', $name) 正确。
+            # Surreal **2.3.x（本机）**：type::record 双参会拧表/id；type::thing 在 3.x 不存在。
+            # 故：先 3.x 主路径，失败再 2.3 兼容 CREATE（幂等：先 DELETE 同 id）。
+            try:
+                self._raw_query(
+                    "UPSERT type::record('_migration', $name) SET applied_at = time::now()",
+                    {"name": f.stem},
+                )
+            except Exception:
+                safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in f.stem)
+                self._raw_query(
+                    f"DELETE _migration:`{safe}`; "
+                    f"CREATE _migration:`{safe}` SET applied_at = time::now();",
+                )
         if failures:
             # SCRIBE3_SCHEMA_SOFT=1: continue after non-fatal migration parse/version skew
             # (local/CI host Surreal minor mismatch). Default remains strict for production.
