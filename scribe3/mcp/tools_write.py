@@ -11,7 +11,8 @@ from scribe3.mcp.gating import *  # noqa: F403
 @mcp.tool(annotations=_RO)
 
 def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None = None,
-                    work: str | None = None, danger_draft: bool = False) -> dict:
+                    work: str | None = None, danger_draft: bool = False,
+                    skip_craft_gate: bool = False) -> dict:
     """落/覆盖某章正文(作者草稿,不经 elicitation;manuscript 非世界状态)。
 
     C-1(正文覆写三路对称):覆写正文后与 app /save-chapter 对称落 final 版本——补版本历史断链
@@ -19,9 +20,34 @@ def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None
     _pending_ingest 去重队列,且有专用 s3_ingest_chapter 工具供 agent 显式客观回写;把慢 LLM 抽取
     硬塞进存稿工具会阻塞且跨进程无从与 app 去重集协同,故只落版,知识回写走 s3_ingest_chapter。
 
+    KD16:与 HTTP 共用 evaluate_save_craft_gate;blocking → 不落库。
     门A/KR1:与 /save-chapter 共用 check_finalize_for_save;blocking 默认拒落 final。
     danger_draft=true 为显式危险旁路(须 agent/作者知情)。"""
     st = _store_for(work)
+    # craft 门与 HTTP save 对称(PR-2b)
+    try:
+        from scribe3.verify_craft_compliance import evaluate_save_craft_gate
+        cg = evaluate_save_craft_gate(
+            st, seq, prose, skip=bool(skip_craft_gate))
+        if not cg.get("allowed"):
+            return {
+                "status": "blocked",
+                "seq": seq,
+                "code": cg.get("code") or "craft_gate",
+                "message": cg.get("detail") or "工艺门闩未通过,正文未落库",
+                "blocking": cg.get("blocking") or [],
+                "root_causes": cg.get("root_causes") or [],
+            }
+    except Exception as e:
+        import logging
+        logging.getLogger("scribe3.mcp").error(
+            "s3_save_chapter craft gate 失败(阻断) seq=%s: %s", seq, e, exc_info=True)
+        return {
+            "status": "blocked",
+            "seq": seq,
+            "code": "craft_gate_error",
+            "message": f"工艺门闩评估失败,已阻断存稿: {e}",
+        }
     from scribe3.finalize_gate import check_finalize_for_save
     fg = check_finalize_for_save(
         st, seq, prose, focalizer=focalizer, danger_draft=bool(danger_draft))
@@ -45,11 +71,42 @@ def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None
         import logging
         logging.getLogger("scribe3.mcp").warning(
             "s3_save_chapter 自动留 final 版失败(存稿已落库) seq=%s: %s", seq, e)
+    # 不内联 ingest;返回策略建议(active hold / auto required)
+    from scribe3.ingest_policy import GateSnapshot, decide_ingest
+    _verdict = str(fg.get("verdict") or "pass").lower()
+    if fg.get("advisory_items") and _verdict in ("", "pass", "ok"):
+        _verdict = "advisory"
+    dec = decide_ingest(
+        st, (work or "main").strip() or "main", seq,
+        gate=GateSnapshot(
+            path="mcp_save", craft_allowed=True,
+            finalize_verdict=_verdict, danger_draft=bool(danger_draft),
+        ),
+        prose=prose, source="mcp_save",
+    )
+    if dec.action == "hold":
+        from scribe3.ingest_policy import write_hold
+        write_hold(
+            st, seq, reason=dec.hold_reason or dec.reason,
+            token=dec.confirm_token, prose_fp=dec.prose_fp,
+        )
     return {
         "status": "saved", "seq": seq,
         "finalize_gate": {
             "code": fg.get("code"), "verdict": fg.get("verdict"),
             "danger_draft": bool(danger_draft),
+        },
+        "ingest": {
+            "action": dec.action,
+            "reason": dec.reason or dec.skip_reason or dec.hold_reason,
+            "held": dec.action == "hold",
+            "required": dec.action == "auto",
+            "confirm_token": dec.confirm_token or None,
+            "hold_reason": dec.hold_reason or None,
+            "prose_fp": dec.prose_fp,
+            "hint": "调用 s3_ingest_chapter 执行客观回写" if dec.action == "auto"
+                    else ("确认后 s3_ingest_chapter(force=true) 或 POST /ingest/confirm"
+                          if dec.action == "hold" else "无需回写"),
         },
     }
 
@@ -648,16 +705,19 @@ async def s3_fold_voice_flags(ctx: Context, character_id: str, work: str | None 
         lambda: _store_for(work).fold_voice_flags(character_id, hermes_complete))
 
 
-def s3_ingest_chapter(seq: int, work: str | None = None, force: bool = False) -> dict:
+def s3_ingest_chapter(seq: int, work: str | None = None, force: bool = False,
+                      confirm_token: str | None = None) -> dict:
     """章节回写(客观回写,不待批):读定稿抽"谁新知道什么/做了什么"→更新知识账本。
     非创作虚构(add_fact/add_event 那些经 elicitation);ingest 反映已定稿正文,
     后端 save-chapter 也会自动后台跑同一逻辑。
 
-    force=true 时忽略同正文指纹跳过,强制 purge+重抽。
+    经 IngestPolicy + 共享 lease(与 HTTP 同 choke point)。held 且无 force/token → 拒绝。
+    force=true 时忽略 hold / 同正文指纹跳过,强制 purge+重抽。
     此工具运行在 Hermes MCP 桥内(单 tool call 上限 300 秒)，所以直连补全必须显式
     小于该上限且禁用内部重试；抽取层最多两次尝试，失败会诚实返回 parse_failed。"""
-    from scribe3.ingest import ingest_chapter
     from scribe3.llm import hermes_complete
+    from scribe3.api.services.ingest_bg import schedule_ingest
+    from scribe3.ingest_policy import GateSnapshot
 
     def bounded_complete(prompt: str) -> str:
         return hermes_complete(
@@ -668,9 +728,51 @@ def s3_ingest_chapter(seq: int, work: str | None = None, force: bool = False) ->
         )
 
     w = (work or "main").strip() or "main"
-    return ingest_chapter(
-        _store_for(w), seq, bounded_complete, max_attempts=2, work=w, force=bool(force),
+    st = _store_for(w)
+    ch = st.get_chapter(int(seq)) or {}
+    prose = ch.get("prose") or ""
+    src = "confirm" if confirm_token else "mcp_ingest"
+    out = schedule_ingest(
+        st, w, int(seq),
+        prose=prose,
+        gate=GateSnapshot(path="mcp_ingest", craft_allowed=True, finalize_verdict="pass"),
+        force=bool(force),
+        source=src,
+        mode="sync",
+        confirm_token=confirm_token,
+        complete_fn=bounded_complete,
+        max_attempts=2,
     )
+    if out.get("held"):
+        return {
+            "status": "held",
+            "code": "held",
+            "seq": seq,
+            "hold_reason": out.get("hold_reason") or out.get("reason"),
+            "confirm_token": out.get("confirm_token"),
+            "prose_fp": out.get("prose_fp"),
+            "message": "章处于 ingest hold,传 force=true 或 confirm_token 后重试",
+        }
+    if out.get("action") == "skip" and out.get("reason") == "lease_busy":
+        return {
+            "status": "busy",
+            "code": "lease_busy",
+            "seq": seq,
+            "message": "同章 ingest 租约被占用(HTTP/MCP 并发),请稍后重试",
+            "lease_owner": out.get("lease_owner"),
+        }
+    # 透传 ingest 结果字段
+    ing = out.get("ingest") or {}
+    return {
+        "status": "ok" if out.get("action") == "auto" else out.get("action"),
+        "seq": seq,
+        "action": out.get("action"),
+        "reason": out.get("reason"),
+        "prose_fp": out.get("prose_fp") or ing.get("prose_fp"),
+        "skipped": bool(ing.get("skipped")),
+        "parse_failed": bool(ing.get("parse_failed")),
+        "distilled": out.get("distilled"),
+    }
 
 
 async def s3_record_knowledge(ctx: Context, knower: str, proposition: str,

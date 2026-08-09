@@ -780,13 +780,36 @@ def checkpoint(req: CheckpointReq, seq: int, background: BackgroundTasks, work: 
     st = _store_for(work)
     vid = st.add_chapter_version(seq, req.prose, label=req.label,
                                  kind=req.kind, qc=req.qc)
-    # kind=final → 这是正式定稿,知识图谱应同步更新(非 final 的草稿快照不 ingest)。
-    # P0-1:走去重排队——"存为正文"里 save-chapter 已排的同章 ingest 仍在途时,这里跳过,
-    # 不重复排(checkpoint 的职责是落 final 版本;ingest 由 save-chapter 负责)。
-    # checkpoint 单独触达(无前置 save-chapter)时仍会正常排入,不丢 ingest。
+    # kind=final → 正式定稿路径。KD18: active hold 优先于本第二跳,不得 silent enqueue。
+    # 无 gate snapshot → decide 安全 hold(禁止当 pass);同 prose_fp 已 held 则 supersede。
+    ingest_meta = None
     if req.kind == "final":
-        _enqueue_ingest(background, work, seq)
-    return {"status": "saved", "id": vid, "seq": seq, "kind": req.kind}
+        from scribe3.ingest_policy import GateSnapshot
+        from scribe3.api.services.ingest_bg import schedule_ingest
+        # checkpoint 本身无 craft/finalize 快照 → GateSnapshot 缺 verdict → hold
+        _gate = GateSnapshot(path="checkpoint", craft_allowed=None, finalize_verdict=None)
+        _ing = schedule_ingest(
+            st, work, seq,
+            background=background,
+            prose=req.prose or "",
+            gate=_gate,
+            source="checkpoint",
+            mode="bg",
+        )
+        ingest_meta = {
+            "action": _ing.get("action"),
+            "reason": _ing.get("reason"),
+            "held": bool(_ing.get("held")),
+            "enqueued": bool(_ing.get("enqueued")),
+            "confirm_token": _ing.get("confirm_token"),
+            "hold_reason": _ing.get("hold_reason"),
+            "prose_fp": _ing.get("prose_fp"),
+        }
+    out = {"status": "saved", "id": vid, "seq": seq, "kind": req.kind}
+    if ingest_meta is not None:
+        out["ingest"] = ingest_meta
+        out["ingesting"] = bool(ingest_meta.get("enqueued"))
+    return out
 
 
 

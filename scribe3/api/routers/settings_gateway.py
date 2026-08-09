@@ -49,6 +49,11 @@ def capabilities():
     assembler_v1 恒 True(统一写作内核);emergency_rest_write 默认关。
     capabilities 只上报运行时事实。"""
     from scribe3 import context_cache, embed
+    try:
+        from scribe3.ingest_policy import policy_mode
+        _ingest_policy = policy_mode()
+    except Exception:
+        _ingest_policy = "auto_if_pass"
     return {
         "flags": {
             "snapshot_v1": _flag_enabled("SCRIBE3_CONTEXT_SNAPSHOT_V1"),
@@ -59,7 +64,12 @@ def capabilities():
             "assembler_v1": True,
             # 紧急 REST 世界写后门(默认关;测试/运维显式开)。
             "emergency_rest_write": _flag_enabled("SCRIBE3_EMERGENCY_REST_WRITE"),
+            # 章节流水线闭环(PR-1/2)
+            "ingest_lease": True,
+            "ingest_policy": True,
+            "mcp_craft_gate": True,
         },
+        "ingest_policy_default": _ingest_policy,
         "versions": {
             "retrieval_policy": context_cache.RETRIEVAL_POLICY_VERSION,
             "embedding_model": embed.model_version(),

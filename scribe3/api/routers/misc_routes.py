@@ -499,7 +499,43 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
         except Exception as e:
             _lg.getLogger("scribe3").error("find_leaks 失败 work=%s seq=%s", work, req.seq, exc_info=True)
             leak_error = str(e)[:160]
-    enqueued = _enqueue_ingest(background, work, req.seq)
+    # Writeback 单入口：IngestPolicy + hold supersedes checkpoint 第二跳
+    from scribe3.ingest_policy import GateSnapshot
+    from scribe3.api.services.ingest_bg import schedule_ingest
+    _verdict = "pass"
+    if fg_decision is not None:
+        _verdict = str(fg_decision.get("verdict") or "pass").lower()
+        if fg_decision.get("code") == "advisory" or (
+            fg_decision.get("advisory_items") and not fg_decision.get("blocking")
+        ):
+            # check_finalize may return allowed+advisory
+            v0 = str(fg_decision.get("verdict") or "").lower()
+            if v0 in ("advisory", "warn", "warning"):
+                _verdict = "advisory"
+            elif fg_decision.get("advisory_items") and v0 in ("", "pass", "ok"):
+                # 有 advisory 项且允许落库 → 策略 hold
+                _verdict = "advisory"
+    _ai = None
+    try:
+        _ai = (fg_decision or {}).get("ai_grade")
+    except Exception:
+        _ai = None
+    _gate = GateSnapshot(
+        path="save",
+        craft_allowed=True,
+        finalize_verdict=_verdict,
+        danger_draft=bool(req.danger_draft),
+        ai_grade=_ai,
+    )
+    _ing = schedule_ingest(
+        st, work, req.seq,
+        background=background,
+        prose=req.prose,
+        gate=_gate,
+        source="save",
+        mode="bg",
+    )
+    enqueued = bool(_ing.get("enqueued"))
     out = {"status": "saved", "seq": req.seq,
             "qc": {"repetition": len(qf["repetition"]), "structural": len(qf["structural"]),
                    "purple": len(qf["purple"]), "cross_repetition": len(cross_rep),
@@ -507,7 +543,15 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
             "cross_repetition_phrases": [h["phrase"] for h in cross_rep[:12]],
             "leaks": leaks, "leak_error": leak_error,
             "qc_errors": qc_errs or None, "ingesting": bool(enqueued),
-            "ingest_enqueued": bool(enqueued)}
+            "ingest_enqueued": bool(enqueued),
+            "ingest": {
+                "action": _ing.get("action"),
+                "reason": _ing.get("reason"),
+                "held": bool(_ing.get("held")),
+                "confirm_token": _ing.get("confirm_token"),
+                "hold_reason": _ing.get("hold_reason"),
+                "prose_fp": _ing.get("prose_fp"),
+            }}
     if fg_decision is not None:
         out["finalize_gate"] = {
             "code": fg_decision.get("code"),
@@ -573,8 +617,14 @@ def dedup_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
             import logging
             logging.getLogger("scribe3").warning(
                 "dedup-chapter 自动留 final 版失败(改写已落库) work=%s seq=%s: %s", work, seq, e)
-        # 内容变了 → 排 ingest(去重护栏防与自动 ingest 撞双份)
-        _enqueue_ingest(background, work, seq)
+        # 内容变了 → 单入口策略(缺 snapshot 安全 hold; active hold supersede)
+        from scribe3.ingest_policy import GateSnapshot
+        from scribe3.api.services.ingest_bg import schedule_ingest
+        schedule_ingest(
+            st, work, seq, background=background, prose=res["prose"],
+            gate=GateSnapshot(path="dedup", finalize_verdict=None),
+            source="dedup", mode="bg",
+        )
     return {"seq": seq, "rewritten": res["rewritten"],
             "cross_repetition_before": res["before"], "cross_repetition_after": res["after"]}
 
@@ -660,7 +710,13 @@ def polish_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
             import logging
             logging.getLogger("scribe3").warning(
                 "polish-chapter 自动留 final 版失败(改写已落库) work=%s seq=%s: %s", work, seq, e)
-        _enqueue_ingest(background, work, seq)
+        from scribe3.ingest_policy import GateSnapshot
+        from scribe3.api.services.ingest_bg import schedule_ingest
+        schedule_ingest(
+            st, work, seq, background=background, prose=res["prose"],
+            gate=GateSnapshot(path="polish", finalize_verdict=None),
+            source="polish", mode="bg",
+        )
     resp = {"seq": seq, "rewritten": res["rewritten"],
             "intra_issues_before": res["before"], "intra_issues_after": res["after"]}
     if quote_repairs:
@@ -707,10 +763,21 @@ def semantic_repair(seq: int, background: BackgroundTasks, work: str = "main"):
     st.save_chapter(seq, candidate, title=ch.get("title") or "", focalizer=ch.get("focalizer") or "")
     st.add_chapter_version(seq, candidate, label="semantic repair", kind="final", stage="semantic_repair",
                            stats=_prose_stats(candidate))
-    # 正文已变化，必须与手动存稿/去重改写保持同一账本更新语义；队列去重会避免双跑。
-    _enqueue_ingest(background, work, seq)
+    # 正文已变化 → 单入口策略(与 save/dedup 同 choke point)
+    from scribe3.ingest_policy import GateSnapshot
+    from scribe3.api.services.ingest_bg import schedule_ingest
+    _ing = schedule_ingest(
+        st, work, seq, background=background, prose=candidate,
+        gate=GateSnapshot(path="semantic_repair", finalize_verdict=None),
+        source="semantic_repair", mode="bg",
+    )
     return {"status": "repaired", "seq": seq, "gate": gate,
-            "discipline": after.get("discipline") or {}, "ingesting": True}
+            "discipline": after.get("discipline") or {},
+            "ingesting": bool(_ing.get("enqueued")),
+            "ingest": {
+                "action": _ing.get("action"), "held": bool(_ing.get("held")),
+                "reason": _ing.get("reason"),
+            }}
 
 def draft_check(req: DraftCheckReq, seq: int = 0, work: str = "main"):
     """块四b(§5.4):草稿阶段轻量确定性分析。对**任意草稿文本**跑确定性检测器

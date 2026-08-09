@@ -25,6 +25,23 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 
 
+# 进程内在途集合：模块自持；生产路径优先对齐 app_impl 同名集合（rebind 后单源）。
+_pending_ingest: set[tuple[str, int]] = set()
+_pending_ingest_lock = threading.Lock()
+
+
+def _pending_pair():
+    """返回 (set, lock)；优先 app_impl 全局，避免双集合去重失效。"""
+    try:
+        from scribe3.api import app_impl as _A
+        s = getattr(_A, "_pending_ingest", None)
+        lk = getattr(_A, "_pending_ingest_lock", None)
+        if s is not None and lk is not None:
+            return s, lk
+    except Exception:
+        pass
+    return _pending_ingest, _pending_ingest_lock
+
 
 # Note: function bodies resolve free names via rebound globals on app_impl.
 def mark_chapter_ingest_status(
@@ -86,15 +103,30 @@ def _refresh_scorecard_after_ingest(st, seq: int) -> None:
 def _bg_ingest(work: str, seq: int) -> None:
     """后台客观回写:开**独立** store 连接跑 ingest_chapter(P2-3:不复用 _store_for 的共享 ws,
     避免多后台任务跨线程交错同一连接)。异常只记日志,不影响存稿(non-fatal)。
-    schema 已由端点侧 _store_for(work) 建好,此处不重复 apply。完成时(finally)清在途标记。"""
+    schema 已由端点侧 _store_for(work) 建好,此处不重复 apply。完成时(finally)清在途标记。
+
+    PR-1: worker 侧再占共享 ingest lease,防 MCP 同步 ingest ∥ HTTP 后台双 purge。
+    """
     import logging
     from scribe3.ingest import ingest_chapter
+    from scribe3.ingest_lease import (
+        combined_backend, new_owner, try_acquire_ingest_lease, release_ingest_lease,
+    )
     from scribe3.llm import hermes_complete
     # 审计 P1-6:ingest 结果状态落 chapter——单源 mark_chapter_ingest_status
     # (同步 /ingest 同路径,防 retry 成功后 status 仍 failed、UI 角标永不消)。
     st = None
+    owner = ""
+    backend = None
     try:
         st = SurrealStore(ns="scribe3", db=work)
+        backend = combined_backend(st)
+        owner = new_owner()
+        acq = try_acquire_ingest_lease(backend, work, int(seq), owner, ttl=600.0)
+        if not acq.ok:
+            logging.getLogger("scribe3").info(
+                "后台 ingest %s 第%s章: lease_busy owner=%s", work, seq, acq.owner)
+            return
         r = ingest_chapter(st, seq, hermes_complete, work=work)
         if r.get("skipped"):
             # 终选 unified 已 apply+钉指纹:跳过 scorecard/distill 二次开销
@@ -121,8 +153,14 @@ def _bg_ingest(work: str, seq: int) -> None:
         if st is not None:
             mark_chapter_ingest_status(st, seq, "failed", str(e))
     finally:
-        with _pending_ingest_lock:
-            _pending_ingest.discard((work, seq))
+        if backend is not None and owner:
+            try:
+                release_ingest_lease(backend, work, int(seq), owner)
+            except Exception:
+                pass
+        pend, plock = _pending_pair()
+        with plock:
+            pend.discard((work, seq))
         if st is not None:
             try:
                 st.close()
@@ -131,17 +169,57 @@ def _bg_ingest(work: str, seq: int) -> None:
                     "后台 ingest 独立连接关闭失败 %s 第%s章: %s", work, seq, ce)
 
 
-def _enqueue_ingest(background: BackgroundTasks, work: str, seq: int) -> bool:
-    """排后台 ingest,同章去重(P0-1 竞态根治):同 (work,seq) 已在途/在排 → 跳过第二次排队。
-    谁先排谁负责,第二个跳过——这样"存为正文"的 save-chapter + checkpoint(final) 双触发
-    只会真正跑一次 ingest。返回是否真正排入(在途标记随 _bg_ingest 完成时清除)。"""
+def _enqueue_ingest_raw(background: BackgroundTasks, work: str, seq: int) -> bool:
+    """底层排队：进程内去重 set + BackgroundTasks。策略层请走 schedule_ingest。"""
     key = (work, seq)
-    with _pending_ingest_lock:
-        if key in _pending_ingest:
+    pend, plock = _pending_pair()
+    with plock:
+        if key in pend:
             return False
-        _pending_ingest.add(key)
+        pend.add(key)
     background.add_task(_bg_ingest, work, seq)
     return True
+
+
+def _enqueue_ingest(background: BackgroundTasks, work: str, seq: int) -> bool:
+    """兼容入口：无 gate 时默认 pass 自动入队（旧调用方）。
+
+    新路径请用 schedule_ingest(..., gate=...)。
+    """
+    return _enqueue_ingest_raw(background, work, seq)
+
+
+def schedule_ingest(
+    st,
+    work: str,
+    seq: int,
+    *,
+    background: BackgroundTasks | None = None,
+    prose: str = "",
+    gate=None,
+    force: bool = False,
+    source: str = "save",
+    mode: str = "bg",
+    confirm_token: str | None = None,
+    complete_fn=None,
+    max_attempts: int = 3,
+    distill: bool = True,
+) -> dict:
+    """生产单入口（设计 run_or_enqueue）。"""
+    from scribe3.ingest_policy import run_or_enqueue
+    return run_or_enqueue(
+        st, work, int(seq),
+        mode="sync" if mode == "sync" else "bg",
+        background=background,
+        gate=gate,
+        prose=prose,
+        force=force,
+        source=source,
+        confirm_token=confirm_token,
+        complete_fn=complete_fn,
+        max_attempts=max_attempts,
+        distill=distill,
+    )
 
 
 def _semantic_repair_violations(prose: str, quality: dict, leaks: list, discipline: dict) -> list[str]:

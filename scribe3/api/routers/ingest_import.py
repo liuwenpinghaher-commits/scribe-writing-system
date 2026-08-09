@@ -71,76 +71,99 @@ def author_session_clip_ep(m: SessionClipIn, work: str = "main"):
     return {"ok": True, "id": mid, "title": title, "kind": kind, "source": source,
             "origin": "session_clip"}
 
-def ingest(seq: int, work: str = "main", force: bool = False):
-    """手动反哺设定库(前端"反哺设定库"按钮),同步跑 ingest_chapter。
-    P0-1 收尾:纳入 _pending_ingest 去重护栏——与后台 _bg_ingest/_enqueue_ingest
-    共用同一 (work,seq) 在途集合。同章已有 ingest 在途(后台自动或另一次手点)时拒 409,
-    防手点反哺撞自动 ingest 交错造成 knows/reader_knows/char_state/motif_instance/
-    promise_touch 双份或互删。自身执行期间也占位在途,故并发 _enqueue_ingest 同章会被跳过;
-    完成/异常均在 finally 清标记(避免该章永久锁死)。
+def ingest(seq: int, work: str = "main", force: bool = False,
+           confirm_token: str | None = None):
+    """手动反哺设定库(前端"反哺设定库"按钮),经 IngestPolicy + 共享 lease 同步跑。
 
-    force=true:忽略同正文指纹跳过,强制 purge+重抽(作者明确要重放时)。
+    force=true:覆盖 hold / 同正文指纹,强制 purge+重抽(作者明确要重放时)。
+    confirm_token:确认 hold 后放行(与 POST /ingest/confirm 同源策略)。
     同指纹已成功回写时默认 skipped,不结算/不蒸馏/不二次 mark(账本已齐)。
-
-    KR3:结果经 mark_chapter_ingest_status 落 chapter.ingest_status/error——与后台
-    _bg_ingest 同单源;否则 retry 成功后 GET /ingest/status 仍可能假 failed。"""
-    from scribe3.ingest import ingest_chapter
+    """
     from scribe3.llm import hermes_complete
-    key = (work, seq)
-    with _pending_ingest_lock:
-        if key in _pending_ingest:
-            raise HTTPException(status_code=409, detail="该章正在反哺中,请稍候再试")
-        _pending_ingest.add(key)
-    st = None
+    from scribe3.ingest_policy import GateSnapshot
+    from scribe3.api.services.ingest_bg import schedule_ingest
+    st = _store_for(work)
+    ch = st.get_chapter(seq) or {}
+    prose = ch.get("prose") or ""
+    if not prose.strip():
+        raise HTTPException(status_code=404, detail="chapter empty or missing")
+    _dfn = _complete_fn
+    if _dfn is None:
+        _dfn = hermes_complete
+    src = "confirm" if confirm_token else "http_ingest"
     try:
-        st = _store_for(work)
-        r = ingest_chapter(st, seq, hermes_complete, work=work, force=bool(force))
-        if r.get("skipped"):
-            # 同正文指纹已 apply:账本与指纹已齐,不做 settle/scorecard/distill 二次开销
-            return r
-        if r.get("parse_failed"):
-            mark_chapter_ingest_status(
-                st, seq, "parse_failed", "LLM 回复解析失败,知识账本未更新")
-        else:
-            # 北极星任务6:手动链路结构类结算(认知类留面板人工;loop 链有完整结算)。
-            # settle 在 scorecard 刷新之前——刷新要读结算后的 deltas 状态。
-            try:
-                from scribe3.purpose import (check_fulfillment_structural,
-                                             parse_deltas, settle_purpose)
-                _ds = parse_deltas((st.get_chapter(seq) or {}).get("deltas"))
-                if _ds:
-                    settle_purpose(st, seq, check_fulfillment_structural(st, seq, _ds))
-            except Exception as e:
-                logging.getLogger("scribe3").warning("/ingest 目的合同结算失败(忽略): %s", e)
-            _refresh_scorecard_after_ingest(st, seq)   # P2-3:主链路 ingest 后哨兵转真值
-            # ingest_chapter 成功路径已 mark+prose_fp;此处再 mark 仅兜底无指纹写
-            mark_chapter_ingest_status(
-                st, seq, "ok", prose_fp=r.get("prose_fp") or None)
-        # 北极星任务8:章后复盘蒸馏(事件驱动挂 ingest 路径,蓝图定死不走 cron)——
-        # 与知识抽取成败无关(对话的方法教训独立于 parse_failed);fail-soft 绝不拖垮 ingest。
-        try:
-            from scribe3.lesson import distill_chapter
-            _dfn = _complete_fn
-            if _dfn is None:
-                from scribe3.llm import hermes_complete as _dfn
-            distill_chapter(st, seq, _dfn)
-        except Exception as e:
-            # U-011:蒸馏失败不 raise(正文已落),但放进响应 lesson_error 让作者看见"这章教训没记住"。
-            logging.getLogger("scribe3").error("/ingest 复盘蒸馏失败 seq=%s", seq, exc_info=True)
-            if isinstance(r, dict):
-                r["lesson_error"] = str(e)[:120]
-        return r
-    except HTTPException:
-        raise
+        _ing = schedule_ingest(
+            st, work, seq,
+            prose=prose,
+            gate=GateSnapshot(
+                path="http_ingest", craft_allowed=True, finalize_verdict="pass",
+            ),
+            force=bool(force),
+            source=src,
+            mode="sync",
+            confirm_token=confirm_token,
+            complete_fn=_dfn,
+            distill=True,
+        )
     except Exception as e:
-        # 失败必须落 failed,不可只 raise 让 status 停在旧值(retry UI 假红根因)
-        if st is not None:
-            mark_chapter_ingest_status(st, seq, "failed", str(e))
+        mark_chapter_ingest_status(st, seq, "failed", str(e))
         logging.getLogger("scribe3").error("/ingest 失败 seq=%s", seq, exc_info=True)
         raise
-    finally:
-        with _pending_ingest_lock:
-            _pending_ingest.discard(key)
+    if _ing.get("held"):
+        return {
+            "status": "held",
+            "code": "held",
+            "seq": seq,
+            "held": True,
+            "hold_reason": _ing.get("hold_reason") or _ing.get("reason"),
+            "confirm_token": _ing.get("confirm_token"),
+            "prose_fp": _ing.get("prose_fp"),
+            "message": "章处于 ingest hold,传 force=1 或 confirm_token 确认",
+        }
+    if _ing.get("reason") == "lease_busy":
+        raise HTTPException(status_code=409, detail="该章正在反哺中,请稍候再试")
+    r = _ing.get("ingest") or {}
+    if r.get("skipped") or _ing.get("reason") in ("same_prose_fp_ingest", "same_prose_fp"):
+        return r if r else {
+            "skipped": True, "reason": _ing.get("reason"), "prose_fp": _ing.get("prose_fp"),
+        }
+    if not r.get("parse_failed"):
+        try:
+            from scribe3.purpose import (check_fulfillment_structural,
+                                         parse_deltas, settle_purpose)
+            _ds = parse_deltas((st.get_chapter(seq) or {}).get("deltas"))
+            if _ds:
+                settle_purpose(st, seq, check_fulfillment_structural(st, seq, _ds))
+        except Exception as e:
+            logging.getLogger("scribe3").warning("/ingest 目的合同结算失败(忽略): %s", e)
+        _refresh_scorecard_after_ingest(st, seq)
+    if isinstance(r, dict) and _ing.get("distilled") is False:
+        r["lesson_error"] = "distill_failed"
+    if isinstance(r, dict):
+        r.setdefault("action", _ing.get("action"))
+        r.setdefault("prose_fp", _ing.get("prose_fp"))
+    return r if r else {
+        "status": "ok", "action": _ing.get("action"),
+        "prose_fp": _ing.get("prose_fp"), "distilled": _ing.get("distilled"),
+    }
+
+
+def ingest_confirm(
+    seq: int,
+    confirm_token: str,
+    work: str = "main",
+    force: bool = False,
+):
+    """确认 hold 后的客观回写(设计 POST /ingest/confirm)。
+
+    token 匹配 → 同步跑 ingest(+distill);不匹配/无 hold → 410;lease busy → 409。
+    """
+    if not (confirm_token or "").strip() and not force:
+        raise HTTPException(status_code=422, detail="confirm_token required")
+    return ingest(
+        seq, work=work, force=bool(force),
+        confirm_token=(confirm_token or "").strip() or None,
+    )
 
 def story_import(req: ImportReq, work: str = "main"):
     """story-import 逆向导入(方案B任务24,P3 战略):作者贴已发布章节 → 逐章复用现有单章
@@ -163,8 +186,9 @@ def story_import(req: ImportReq, work: str = "main"):
       失败重跑会覆写该章正文(幂等覆盖)——journal 保护的是"跳过已完成章",
       不是"正文不被重写"。
     """
-    from scribe3.ingest import ingest_chapter
     from scribe3.pipeline_journal import PipelineJournal
+    from scribe3.ingest_policy import GateSnapshot
+    from scribe3.api.services.ingest_bg import schedule_ingest
 
     st = _store_for(work)
     complete_fn = _complete_fn
@@ -191,7 +215,23 @@ def story_import(req: ImportReq, work: str = "main"):
         journal.start_stage(stage)
         st.save_chapter(item.seq, item.prose)
         try:
-            result = ingest_chapter(st, item.seq, complete_fn, work=work)
+            # W11: import 作者整包意图 → force 放行 + 必占 lease
+            _ing = schedule_ingest(
+                st, work, item.seq,
+                prose=item.prose,
+                gate=GateSnapshot(
+                    path="import", craft_allowed=True, finalize_verdict="pass",
+                ),
+                force=True, source="import", mode="sync",
+                complete_fn=complete_fn, distill=False,
+            )
+            if _ing.get("reason") == "lease_busy":
+                return {
+                    "imported": imported, "skipped": skipped, "resume_from": item.seq,
+                    "open_promises": _open_promises(), "annotated_total": annotated_total,
+                    "error": f"第 {item.seq} 章 ingest 租约占用,已中止",
+                }
+            result = _ing.get("ingest") or {}
         except Exception as e:
             # 中途崩溃:journal 保持 in_progress=stage,不 complete——下次重跑本端点会
             # 从这一章重新整章跑(should_skip 对未 complete 的 stage 恒返回 False)。
@@ -225,7 +265,21 @@ def accept_unverified_ep(uid: str, background: BackgroundTasks, work: str = "mai
     row = next((item for item in st.list_unverified("pending") if item.get("id") == uid), None)
     result = st.accept_unverified(uid)
     seq = (row or {}).get("seq")
-    replay_queued = _enqueue_ingest(background, work, int(seq)) if seq is not None else False
+    replay_queued = False
+    if seq is not None:
+        from scribe3.ingest_policy import GateSnapshot
+        from scribe3.api.services.ingest_bg import schedule_ingest
+        ch = st.get_chapter(int(seq)) or {}
+        _ing = schedule_ingest(
+            st, work, int(seq), background=background,
+            prose=ch.get("prose") or "",
+            gate=GateSnapshot(
+                path="accept_unverified", craft_allowed=True, finalize_verdict="pass",
+            ),
+            force=True,  # 作者已接受角色 → 允许放行
+            source="accept_unverified", mode="bg",
+        )
+        replay_queued = bool(_ing.get("enqueued"))
     return {**result, "replay_queued": replay_queued}
 
 def ignore_unverified_ep(uid: str, work: str = "main"):
@@ -484,6 +538,14 @@ def _bind_and_register() -> None:
     setattr(core, 'ingest', _re)
     g['ingest'] = _re
     router.add_api_route('/ingest', _re, methods=['POST'], name='ingest')
+
+    _fn = g['ingest_confirm']
+    _re = types.FunctionType(_fn.__code__, core.__dict__, 'ingest_confirm', _fn.__defaults__, _fn.__closure__)
+    if _fn.__annotations__:
+        _re.__annotations__ = dict(_fn.__annotations__)
+    setattr(core, 'ingest_confirm', _re)
+    g['ingest_confirm'] = _re
+    router.add_api_route('/ingest/confirm', _re, methods=['POST'], name='ingest_confirm')
 
     _fn = g['story_import']
     _re = types.FunctionType(_fn.__code__, core.__dict__, 'story_import', _fn.__defaults__, _fn.__closure__)

@@ -62,7 +62,6 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
     - post_check 直接调用 /post-check 端点函数(判据零漂移);
     - blocking→自动回炉≤2轮 / advisory→清单待批不重写 / pass→落库+final版+同步 ingest;
     - loop 自动轮不写 chat_message(D-010,journal 已留痕)。"""
-    from scribe3.ingest import ingest_chapter
     from scribe3.loop import run_chapter_loop
     from scribe3.pipeline_journal import PipelineJournal
     st = _store_for(work)
@@ -136,28 +135,40 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
                                    stage="final", stats=_prose_stats(prose))
         except Exception as e:
             logging.getLogger("scribe3").warning("loop final 留版失败(不阻断): %s", e)
-        # P0门审查 P1-3:loop 的同步 ingest 也走 _pending_ingest 在途护栏——与 /ingest、
-        # _bg_ingest 共用同一 (work,seq) 集合,防 loop 长请求期间用户手点反哺/存稿触发的
-        # ingest 与本次交错(knows/char_state/motif_instance 双份或互删)。
-        ikey = (work, req.chapter)
-        with _pending_ingest_lock:
-            if ikey in _pending_ingest:
-                return {"ok": False,
-                        "error": "同章 ingest 在途(_pending_ingest 护栏),本次跳过;正文已落库,稍后可手动 /ingest"}
-            _pending_ingest.add(ikey)
+        # 经 IngestPolicy + 共享 lease(与 /ingest、MCP 同 choke point)。
+        # loop 仅在 pass finalize 时调用 → gate verdict=pass; distill 由单入口处理。
         try:
             from scribe3.llm import hermes_complete
-            r = ingest_chapter(st, req.chapter, hermes_complete, work=work)
-            if r.get("skipped"):
+            from scribe3.ingest_policy import GateSnapshot
+            from scribe3.api.services.ingest_bg import schedule_ingest
+            _dfn2 = _complete_fn if _complete_fn is not None else hermes_complete
+            _ing = schedule_ingest(
+                st, work, req.chapter,
+                prose=prose,
+                gate=GateSnapshot(path="loop", craft_allowed=True, finalize_verdict="pass"),
+                source="loop", mode="sync", complete_fn=_dfn2, distill=True,
+            )
+            if _ing.get("held"):
                 return {
-                    "ok": True, "skipped": True, "reason": r.get("reason"),
+                    "ok": False,
+                    "error": f"ingest held: {_ing.get('hold_reason') or _ing.get('reason')}",
+                    "held": True,
+                    "confirm_token": _ing.get("confirm_token"),
+                }
+            if _ing.get("reason") == "lease_busy":
+                return {
+                    "ok": False,
+                    "error": "同章 ingest 租约占用,正文已落库,稍后可手动 /ingest",
+                    "lease_busy": True,
+                }
+            r = _ing.get("ingest") or {}
+            if r.get("skipped") or _ing.get("reason") == "same_prose_fp_ingest":
+                return {
+                    "ok": True, "skipped": True,
+                    "reason": r.get("reason") or _ing.get("reason"),
                     "parse_failed": False, "lesson_error": None,
                 }
-            # 北极星任务6 + P1门审查 P0-1:结算必须在 ingest **之后**——promise_touch/
-            # relation_touch/获知 fact 正是 ingest 抽取落库的,先结算必然把已兑现的
-            # delta 误判 not_achieved 错误滚入下章(错账向后污染,brief 会催 LLM 重做
-            # 已做过的回收)。结构类此刻现场重算;认知类沿用最后一轮 post-check 的
-            # LLM verdicts 合并(此前的时序错误正是把真机 ch7 的 promise 误记 carried)。
+            # 北极星任务6:结算必须在 ingest **之后**
             try:
                 from scribe3.purpose import (check_fulfillment_structural,
                                              parse_deltas, settle_purpose)
@@ -177,39 +188,21 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
                     settle_purpose(st, req.chapter, _merged)
             except Exception as se:
                 logging.getLogger("scribe3").warning("loop 目的合同结算失败(忽略): %s", se)
-            # 北极星任务8:loop 章 ingest 后复盘蒸馏(loop 自动轮不写 chat_message,
-            # 该章无人工对话时蒸馏自动 no_messages 跳过;有过讨论则照常沉淀)。
-            # P1门审查 P2-5:与 /ingest 一致认 _complete_fn(测试可注入)。
             lesson_err = None
-            try:
-                from scribe3.lesson import distill_chapter
-                _dfn2 = _complete_fn
-                if _dfn2 is None:
-                    _dfn2 = hermes_complete
-                distill_chapter(st, req.chapter, _dfn2)
-            except Exception as de:
-                # U-011:教训蒸馏失败此前只 log"忽略"——作者以为经验在积累,某轮悄悄没记住。
-                # 不 raise(正文已落库,蒸馏是存后沉淀),但把失败放进响应 lesson_error 让作者看见。
-                logging.getLogger("scribe3").error("loop 复盘蒸馏失败", exc_info=True)
-                lesson_err = str(de)[:120]
-            # ingest 后刷新 scorecard(P2-3 单源;在 settle 之后——fulfillment 读结算态)。
+            if _ing.get("distilled") is False:
+                lesson_err = "distill_failed"
+            # ingest 后刷新 scorecard(P2-3 单源;在 settle 之后)
             _refresh_scorecard_after_ingest(st, req.chapter)
-            # KR3:与 /ingest /_bg_ingest 共用 mark 单源
-            if r.get("parse_failed"):
-                mark_chapter_ingest_status(
-                    st, req.chapter, "parse_failed",
-                    "LLM 回复解析失败,知识账本未更新")
-            else:
-                mark_chapter_ingest_status(
-                    st, req.chapter, "ok", prose_fp=r.get("prose_fp") or None)
-            return {"ok": True, "parse_failed": bool(r.get("parse_failed")), "lesson_error": lesson_err}
+            return {
+                "ok": True,
+                "parse_failed": bool(r.get("parse_failed")),
+                "lesson_error": lesson_err,
+                "ingest_action": _ing.get("action"),
+            }
         except Exception as e:
             logging.getLogger("scribe3").warning("loop ingest 失败(正文已落库,如实上报): %s", e)
             mark_chapter_ingest_status(st, req.chapter, "failed", str(e))
             return {"ok": False, "error": str(e)[:160]}
-        finally:
-            with _pending_ingest_lock:
-                _pending_ingest.discard(ikey)
 
     try:
         result = run_chapter_loop(chapter=req.chapter, generate=_generate,
@@ -310,15 +303,31 @@ def restore_chapter_version(
         logging.getLogger("scribe3").warning(
             "restore-version 留 checkpoint 失败 work=%s seq=%s: %s", work, seq, e)
     ingested = False
+    ingest_meta = None
     if req.reingest:
-        ingested = _enqueue_ingest(background, work, seq)
-    return {
+        from scribe3.ingest_policy import GateSnapshot
+        from scribe3.api.services.ingest_bg import schedule_ingest
+        _ing = schedule_ingest(
+            st, work, seq, background=background, prose=prose,
+            gate=GateSnapshot(path="restore", finalize_verdict=None),
+            source="restore", mode="bg",
+        )
+        ingested = bool(_ing.get("enqueued"))
+        ingest_meta = {
+            "action": _ing.get("action"), "held": bool(_ing.get("held")),
+            "reason": _ing.get("reason"),
+            "confirm_token": _ing.get("confirm_token"),
+        }
+    out_restore = {
         "status": "restored",
         "seq": seq,
         "version_id": vid or None,
         "reingest_enqueued": bool(ingested),
         "chars": len("".join(prose.split())),
     }
+    if ingest_meta is not None:
+        out_restore["ingest"] = ingest_meta
+    return out_restore
 
 def chapter_impact(seq: int, work: str = "main"):
     impact = _store_for(work).chapter_lifecycle_impact(seq)
@@ -656,7 +665,20 @@ def select_finalize(req: SelectFinalizeReq, background: BackgroundTasks, work: s
             "message": f"定稿门闩评估失败: {e}",
         }) from e
     st.save_chapter(req.chapter, prose, title=title, focalizer=foc)
-    _enqueue_ingest(background, work, req.chapter)   # C3(D-13):终选定稿反哺知识账本(去重后台),不再停在旧稿
+    # C3(D-13):终选定稿 → 单入口策略(finalize 已通过 → pass 快照)
+    from scribe3.ingest_policy import GateSnapshot
+    from scribe3.api.services.ingest_bg import schedule_ingest
+    _fin_verdict = str((_fg or {}).get("verdict") or "pass").lower()
+    if (_fg or {}).get("advisory_items") and _fin_verdict in ("", "pass", "ok"):
+        _fin_verdict = "advisory"
+    schedule_ingest(
+        st, work, req.chapter, background=background, prose=prose,
+        gate=GateSnapshot(
+            path="select_finalize", craft_allowed=True,
+            finalize_verdict=_fin_verdict,
+        ),
+        source="select_finalize", mode="bg",
+    )
     try:
         st.add_chapter_version(req.chapter, prose, label=f"终选定稿·{ver.get('label') or ''}",
                                kind="final", stage="final", stats=_prose_stats(prose))

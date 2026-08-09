@@ -178,15 +178,38 @@ def build_ingest_status_row(
     stt = ch.get("ingest_status")
     err = ch.get("ingest_error") or ""
     is_pending = bool(pending)
-    ok = (stt == "ok") and not is_pending
-    failed = (not is_pending) and stt in ("failed", "parse_failed")
+    hold_reason = (ch.get("ingest_hold_reason") or "").strip()
+    hold_until = float(ch.get("ingest_hold_until") or 0)
+    import time as _time
+    hold_active = bool(hold_reason) and (hold_until <= 0 or hold_until > _time.time())
+    if is_pending:
+        display = "pending"
+    elif hold_active or stt == "held":
+        display = "held"
+    else:
+        display = stt or "unknown"
+    ok = (stt == "ok") and not is_pending and not hold_active
+    failed = (not is_pending) and (not hold_active) and stt in ("failed", "parse_failed")
+    lease_owner = (ch.get("ingest_lease_owner") or "").strip() or None
+    lease_until = float(ch.get("ingest_lease_until") or 0) or None
+    lease_state = "idle"
+    if lease_owner and lease_until and lease_until > _time.time():
+        lease_state = "leased"
     return {
         "seq": int(ch_seq),
-        "ingest_status": "pending" if is_pending else (stt or "unknown"),
+        "ingest_status": display,
         "ingest_error": "" if is_pending else err,
         "ok": ok,
         "failed": failed,
         "pending": is_pending,
+        "held": bool(hold_active),
+        "hold_reason": hold_reason if hold_active else "",
+        "hold_until": hold_until if hold_active else None,
+        "lease": {
+            "state": lease_state,
+            "owner": lease_owner if lease_state != "idle" else None,
+            "until": lease_until if lease_state != "idle" else None,
+        },
     }
 
 
