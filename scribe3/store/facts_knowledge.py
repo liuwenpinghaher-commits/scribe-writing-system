@@ -261,6 +261,51 @@ class FactsKnowledgeMixin:
             })
         return out
 
+    def backfill_ingest_source_heuristic(self, *, dry_run: bool = True) -> dict:
+        """M2c 可选：为「source 空 + 噪音 attribute」旧行批写 source=ingest。
+
+        安全边界（设计 Q3）：
+        - **只**更新 source 为 NONE/空 且 attribute ∈ {获知, 行动, from_knowledge} 的行
+        - **不**碰 codex_bridge / author / canon / 已有非空 source
+        - dry_run=True 仅计数，不写库
+
+        返回 {"matched": int, "updated": int, "dry_run": bool}。
+        """
+        from scribe3.truth_surface import NOISE_ATTRS
+
+        rows = self._query(
+            "SELECT meta::id(id) AS local, attribute, source FROM proposition "
+            "WHERE (source = NONE OR source = '' OR source = NULL) "
+            "AND (archived = NONE OR archived != true)"
+        ) or []
+        targets: list[str] = []
+        for r in rows:
+            attr = (r.get("attribute") or "").strip()
+            if attr not in NOISE_ATTRS:
+                continue
+            src = r.get("source")
+            if src is not None and str(src).strip():
+                continue
+            loc = r.get("local")
+            if loc:
+                targets.append(str(loc))
+        if dry_run or not targets:
+            return {"matched": len(targets), "updated": 0, "dry_run": bool(dry_run)}
+        # 按条 UPDATE 保持可审计；量级通常为百级
+        n = 0
+        for loc in targets:
+            self._execute_write(
+                "UPDATE type::record('proposition', $local) SET source='ingest' "
+                "WHERE (source = NONE OR source = '' OR source = NULL)",
+                {"local": loc},
+            )
+            n += 1
+        try:
+            _emit_cache_invalidation("proposition", getattr(self, "db_name", None))
+        except Exception:
+            pass
+        return {"matched": len(targets), "updated": n, "dry_run": False}
+
     def _secret_proposition_values(self) -> set[str]:
         """本 work 权威 secret 命题的真值集(供 ai_run_trace redactor 抹工具回抛的秘密明文)。
         含单字真值(I-1:中文单字名讳常见)——单字由 redactor 走有界屏蔽,不全文裸替换。

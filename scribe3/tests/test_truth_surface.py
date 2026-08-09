@@ -66,6 +66,17 @@ def test_ingest_source_via_fact_dataclass():
     assert classify_bucket(f.source, f.attribute) == "ingest_noise"
 
 
+def test_backfill_predicate_matches_noise_only():
+    """M2c 回填谓词：仅噪音 attr + 空 source 应匹配（纯逻辑对齐）。"""
+    from scribe3.truth_surface import NOISE_ATTRS, classify_bucket, tree_hide_must
+    assert "获知" in NOISE_ATTRS and "行动" in NOISE_ATTRS
+    # 回填后 bucket 与树隐藏一致
+    assert classify_bucket("ingest", "获知") == "ingest_noise"
+    assert tree_hide_must("获知", "ingest") is True
+    # 手写 author 获知仍不藏
+    assert tree_hide_must("获知", "author") is False
+
+
 def test_fact_item_bucket_and_source():
     from types import SimpleNamespace
     from scribe3.api.services.misc_helpers import _fact_item
