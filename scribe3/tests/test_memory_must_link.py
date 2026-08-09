@@ -118,6 +118,21 @@ def test_is_minimal_steer_env(monkeypatch):
     assert is_minimal_steer() is False
 
 
+def test_ablation_mode_env(monkeypatch):
+    import os
+    from scribe3.memory_must_link import (
+        ablation_mode, ablation_disables_must_link, ablation_disables_fact_injection,
+    )
+    import scribe3.memory_must_link as mml
+    monkeypatch.setenv("SCRIBE3_MEMORY_ABLATION", "no_must_facts")
+    monkeypatch.setattr(mml, "_setting_str", lambda k, d="": os.environ.get(k) or d)
+    assert ablation_mode() == "no_must_facts"
+    assert ablation_disables_must_link() is True
+    assert ablation_disables_fact_injection() is True
+    monkeypatch.setenv("SCRIBE3_MEMORY_ABLATION", "none")
+    assert ablation_mode() == "none"
+
+
 def test_collect_must_anchors_no_chapter_still_has_promises():
     """讨论态无 chapter：仍应钉住开放伏笔与主角。"""
     a = collect_must_anchors(_FakeStore(), None, limit=10, query="铜匙 缺口")

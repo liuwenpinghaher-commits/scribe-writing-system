@@ -737,14 +737,18 @@ def _brief_must_sections_write_block(st, chapter: int, focalizer: str = "") -> s
     D3：前置「戏剧必需锚」短块，与 context_assembler must_link 同源。"""
     must_prefix = ""
     try:
-        from scribe3.memory_must_link import collect_must_anchors
-        anchors = collect_must_anchors(st, int(chapter), limit=8)
-        if anchors:
-            lines = "\n".join(f"- 〔压力〕{a.get('text')}" for a in anchors)
-            must_prefix = (
-                "\n\n【戏剧压力·来自记忆/正典｜写成可感冲突与触感，禁止设定表点名】\n"
-                + lines + "\n"
-            )
+        from scribe3.memory_must_link import (
+            collect_must_anchors, ablation_disables_must_link, must_link_limit,
+        )
+        if not ablation_disables_must_link():
+            anchors = collect_must_anchors(
+                st, int(chapter), limit=must_link_limit(8))
+            if anchors:
+                lines = "\n".join(f"- 〔压力〕{a.get('text')}" for a in anchors)
+                must_prefix = (
+                    "\n\n【戏剧压力·来自记忆/正典｜写成可感冲突与触感，禁止设定表点名】\n"
+                    + lines + "\n"
+                )
     except Exception as e:
         logging.getLogger("scribe3").warning(
             "写路径 must_link 注入失败(fail-soft): %s", e)

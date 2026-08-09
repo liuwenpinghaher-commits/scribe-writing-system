@@ -23,6 +23,57 @@ def is_minimal_steer() -> bool:
     return steer_mode() in {"minimal", "min", "ablation", "1", "true", "yes"}
 
 
+def _setting_str(key: str, default: str = "") -> str:
+    """优先热设置（demo PUT /api/settings），回落 env / 默认。"""
+    try:
+        from scribe3.settings import get_setting
+        v = get_setting(key)
+        if v is None:
+            return default
+        return str(v).strip()
+    except Exception:
+        return (os.environ.get(key) or default).strip()
+
+
+def ablation_mode() -> str:
+    """轨 2 消融：测量「记忆贡献」时关闭注入面（fabric 可仍开）。
+
+    设置/环境 SCRIBE3_MEMORY_ABLATION（热切换）：
+      · none / 空：正常产品（默认）
+      · no_must：禁用 must-link 钉锚
+      · no_must_facts：禁用 must-link + 正典 fact 类注入（轨 2 B 组）
+    """
+    raw = _setting_str("SCRIBE3_MEMORY_ABLATION", "none").lower()
+    if raw in {"", "0", "false", "off", "no", "none", "normal"}:
+        return "none"
+    if raw in {"no_must", "must_off", "1"}:
+        return "no_must"
+    if raw in {"no_must_facts", "no_facts", "track2_b", "memory_contrib_b", "2"}:
+        return "no_must_facts"
+    return raw
+
+
+def ablation_disables_must_link() -> bool:
+    return ablation_mode() in {"no_must", "no_must_facts"}
+
+
+def ablation_disables_fact_injection() -> bool:
+    return ablation_mode() == "no_must_facts"
+
+
+def must_link_limit(default: int = 10) -> int:
+    """Canon 压力锚数量上限（防 50+ 源稀释；Wave-B / v4 S2.4）。"""
+    try:
+        from scribe3.settings import get_setting
+        n = int(get_setting("SCRIBE3_MUST_LINK_LIMIT"))
+    except Exception:
+        try:
+            n = int(os.environ.get("SCRIBE3_MUST_LINK_LIMIT") or default)
+        except (TypeError, ValueError):
+            n = default
+    return max(3, min(n, 24))
+
+
 def _cn_len(s: str) -> int:
     return len(re.sub(r"\s+", "", s or ""))
 

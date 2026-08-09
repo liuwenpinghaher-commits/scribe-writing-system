@@ -417,6 +417,22 @@ class ContextAssembler:
         items["reference"] = self._reference_items(snapshot, by_kind.get("reference"))
         items["uncertainty"] = self._uncertainty_items(
             snapshot, by_kind.get("uncertainty"), superseded)
+        # 轨 2 B：去掉 canonical 中 fact 命题注入（保留 global 铁律/角色等）
+        try:
+            from scribe3.memory_must_link import ablation_disables_fact_injection
+            if ablation_disables_fact_injection():
+                kept_c: list[_Item] = []
+                for it in items.get("canonical") or []:
+                    sid = str(getattr(it.source, "source_id", "") or "")
+                    reason = str(getattr(it.source, "reason", "") or "")
+                    if sid.startswith("fact:") or "fact:" in sid or reason == "must_link_priority":
+                        policy_omitted.append(_omit(
+                            it, "canonical", "ablation_no_must_facts"))
+                        continue
+                    kept_c.append(it)
+                items["canonical"] = kept_c
+        except Exception as e:
+            _log.warning("ablation fact filter fail-soft: %s", e)
         # Creative Context Policy 的禁用来源必须在 render/provenance 之前
         # 移除；ContextBlock 只保留摘要，组装后已无法无损删掉对应正文。
         # 被禁用项只留不含正文的 omitted 审计记录。
@@ -673,10 +689,16 @@ class ContextAssembler:
         try:
             from scribe3.memory_must_link import (
                 collect_must_anchors, format_must_link_items,
+                ablation_disables_must_link, must_link_limit,
             )
+            # 轨 2 B：禁 must-link，测正典记忆贡献（fabric 可仍 ON）
+            if ablation_disables_must_link():
+                return base
             must_stats: dict = {}
             anchors = collect_must_anchors(
-                self.store, snapshot.chapter, limit=10, query=user_query or "",
+                self.store, snapshot.chapter,
+                limit=must_link_limit(10),
+                query=user_query or "",
                 stats_out=must_stats,
             )
             if not anchors:

@@ -119,16 +119,38 @@ def build_usage_digest_from_manifest(manifest: dict | None) -> dict[str, Any]:
     }
 
 def comparison_protocol() -> dict[str, Any]:
-    """D7 有/无记忆对照实验协议（质量 9.5 用人评，脚本只固定流程）。"""
+    """D7 有/无记忆对照实验协议（质量 9.5 用人评，脚本只固定流程）。
+
+    v2（best-plan-v4）：双轨对照——
+      轨1 产品增益：关 fabric；
+      轨2 记忆贡献：fabric 仍开，但 SCRIBE3_MEMORY_ABLATION=no_must_facts。
+    对外「记忆在扛」以轨2 为主证据；轨1 测总开关体验。
+    """
     return {
-        "name": "memory_gain_ab_v1",
+        "name": "memory_gain_ab_v2",
         "goal": "证明有记忆时成稿更连贯、设定回指更强、作者更少粘贴设定",
+        "tracks": {
+            "track1_product": {
+                "label": "产品增益（总开关）",
+                "A": "MEMORY_FABRIC=on + must + facts + 铁律 + minimal",
+                "B": "MEMORY_FABRIC=off + minimal",
+                "primary": False,
+            },
+            "track2_memory_contrib": {
+                "label": "记忆贡献（正典注入）",
+                "A": "FABRIC=on + must + facts + minimal",
+                "B": "FABRIC=on + SCRIBE3_MEMORY_ABLATION=no_must_facts + minimal",
+                "primary": True,
+                "env_b": "SCRIBE3_MEMORY_ABLATION=no_must_facts",
+            },
+        },
         "setup": [
             "同一 book slug、同一章 synopsis、同一模型与 max_tokens",
-            "A 组：MEMORY_FABRIC 开 + must-link + 铁律注入（正常产品）",
-            "B 组：显式关 fabric 且/或 forbidden 掉 canonical/recent（仅测试 env）",
+            "A 组：MEMORY_FABRIC 开 + must-link + 正典注入（正常产品）",
+            "B 组轨1：显式关 fabric；B 组轨2：fabric 开但 no_must_facts（禁 must+fact 注入）",
             "作者指令仅给冲突与 POV（SCRIBE3_MEMORY_STEER_MODE=minimal）",
             "禁止作者粘贴全书设定；若 detect_author_restated_canon 则作废该次",
+            "A/B 禁止 restore wipe 前旧章节版本（AB_SKIP_VERSION_RESTORE）",
         ],
         "scores": [
             {"key": "coherence", "label": "跨句/跨段连贯", "scale": "1-5"},
@@ -138,7 +160,8 @@ def comparison_protocol() -> dict[str, Any]:
         ],
         "pass_rule": (
             "A 组三项（coherence/canon_echo/contradiction）均 ≥4.5，"
-            "且相对 B 组平均领先 ≥1.5；否则 D7 不得报 ≥9.0"
+            "且相对 B 组平均领先 ≥1.5；否则 D7 不得报 ≥9.0；"
+            "正式 ≥9.5 须真人双盲覆核"
         ),
         "artifacts": [
             "a_prose.md", "b_prose.md",

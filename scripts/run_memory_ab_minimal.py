@@ -91,6 +91,16 @@ def set_fabric(on: bool) -> None:
         print("WARN fabric flag mismatch", flush=True)
 
 
+def set_ablation(mode: str) -> None:
+    """轨 2：热设 SCRIBE3_MEMORY_ABLATION（none | no_must | no_must_facts）。"""
+    m = (mode or "none").strip() or "none"
+    code, res = v63.curl(
+        "PUT", "/api/settings/SCRIBE3_MEMORY_ABLATION",
+        {"value": m}, timeout=60,
+    )
+    print(f"set ablation={m} http={code} {str(res)[:160]}", flush=True)
+
+
 def usage_preview(work: str, seq: int) -> dict:
     code, j = v63.curl(
         "POST", "/api/memory/usage-preview",
@@ -205,6 +215,13 @@ def main():
     ap.add_argument("--work", required=True)
     ap.add_argument("--seq", type=int, default=6)
     ap.add_argument(
+        "--track",
+        type=int,
+        default=2,
+        choices=(1, 2),
+        help="1=产品增益(关 fabric)；2=记忆贡献(no_must_facts，默认，v4 主证据)",
+    )
+    ap.add_argument(
         "--out-dir",
         default="",
         help="证据目录，默认 artifacts/ab-minimal-{work}-ch{seq}",
@@ -212,8 +229,9 @@ def main():
     args = ap.parse_args()
     work = args.work
     seq = args.seq
+    track = int(args.track)
     out = Path(args.out_dir) if args.out_dir else (
-        ROOT / "artifacts" / f"ab-minimal-{work}-ch{seq}"
+        ROOT / "artifacts" / f"ab-minimal-{work}-ch{seq}-track{track}"
     )
     out.mkdir(parents=True, exist_ok=True)
 
@@ -227,17 +245,22 @@ def main():
     if isinstance(ch, dict):
         syn = ch.get("synopsis") or ""
         title = ch.get("title") or title
-    print(f"chapter {seq} title={title} syn_len={v63.cn_len(syn)}", flush=True)
+    print(
+        f"chapter {seq} title={title} syn_len={v63.cn_len(syn)} track={track}",
+        flush=True,
+    )
 
-    # ── A：fabric ON + minimal ──
-    print("===== A: fabric ON + minimal =====", flush=True)
+    # ── A：fabric ON + ablation none + minimal ──
+    print("===== A: fabric ON + ablation=none + minimal =====", flush=True)
     set_fabric(True)
+    set_ablation("none")
     time.sleep(1)
     n_a = ab_drive_chapter(work, evid, seq)
     prose_a = extract_prose(work, seq)
     ud_a = usage_preview(work, seq)
     (out / "a_prose.md").write_text(
-        f"# A · fabric ON · minimal · ch{seq} chars={v63.cn_len(prose_a)}\n\n{prose_a}\n",
+        f"# A · track{track} · fabric ON · ablation=none · ch{seq} "
+        f"chars={v63.cn_len(prose_a)}\n\n{prose_a}\n",
         encoding="utf-8",
     )
     (out / "a_usage_digest.json").write_text(
@@ -245,18 +268,28 @@ def main():
     )
     print(f"A done chars={v63.cn_len(prose_a)} drive_n={n_a}", flush=True)
 
-    # ── B：fabric OFF + minimal ──
-    print("===== B: fabric OFF + minimal =====", flush=True)
+    # ── B：轨1 关 fabric；轨2 fabric 开 + no_must_facts ──
+    if track == 1:
+        print("===== B: track1 fabric OFF + minimal =====", flush=True)
+    else:
+        print("===== B: track2 fabric ON + ablation=no_must_facts =====", flush=True)
     try:
-        set_fabric(False)
+        if track == 1:
+            set_fabric(False)
+            set_ablation("none")
+        else:
+            set_fabric(True)
+            set_ablation("no_must_facts")
         time.sleep(1)
-        # 清空后再写，避免 A 稿残留
         n_b = ab_drive_chapter(work, evid, seq)
         prose_b = extract_prose(work, seq)
-        # usage-preview 在 fabric 关时应 403
         ud_b = usage_preview(work, seq)
+        b_label = (
+            "fabric OFF" if track == 1 else "ablation=no_must_facts"
+        )
         (out / "b_prose.md").write_text(
-            f"# B · fabric OFF · minimal · ch{seq} chars={v63.cn_len(prose_b)}\n\n{prose_b}\n",
+            f"# B · track{track} · {b_label} · minimal · ch{seq} "
+            f"chars={v63.cn_len(prose_b)}\n\n{prose_b}\n",
             encoding="utf-8",
         )
         (out / "b_usage_digest.json").write_text(
@@ -264,7 +297,8 @@ def main():
         )
         print(f"B done chars={v63.cn_len(prose_b)} drive_n={n_b}", flush=True)
     finally:
-        print("===== restore fabric ON =====", flush=True)
+        print("===== restore fabric ON + ablation=none =====", flush=True)
+        set_ablation("none")
         set_fabric(True)
 
     scores = score_pair(prose_a, prose_b, syn)
