@@ -17,12 +17,12 @@
 
 | 项 | 值 |
 |----|----|
-| **更新于** | 2026-08-09（章节流水线闭环 PR-1/2/2b 已落地 + demo 热部署） |
+| **更新于** | 2026-08-09（B∪C 检查器 + Surreal 3 only + 流水线 lease CAS + **main 已 push** + demo 前后端已部署） |
 | **产品名（UI）** | 铜炉 / tonglu（仅品牌文案+logo，色板未改） |
-| **默认分支** | `main`（ahead origin；ingest pipeline commit `aec23e6`） |
-| **刚完成** | **章节流水线闭环**：共享 lease + IngestPolicy + hold supersede checkpoint + MCP craft + `/ingest/confirm` |
-| **设计** | [`docs/plans/2026-08-09-chapter-pipeline-closed-loop-design.md`](./plans/2026-08-09-chapter-pipeline-closed-loop-design.md)（rev.D） |
-| **进行中目标** | 记忆质量 / 人盲仍独立；流水线工程门已关 P0 |
+| **默认分支** | `main` = `origin/main`（已 push） |
+| **刚完成** | ① **上下文检查器 B∪C** ② **Surreal 仅 3.x** ③ **章节流水线闭环 + lease CAS 表** ④ demo 后端 hot + 前端 deploy |
+| **设计** | B∪C：[`设计文档/2026-08-09-上下文检查器-B合C最优方案.md`](../设计文档/2026-08-09-上下文检查器-B合C最优方案.md)；流水线：[`docs/plans/2026-08-09-chapter-pipeline-closed-loop-design.md`](./plans/2026-08-09-chapter-pipeline-closed-loop-design.md) |
+| **进行中目标** | 记忆质量 / 人盲仍独立；流水线 residual UX（SPA hold 条等） |
 | **主验收书** | **`book_aa57f17e`**（2w 记忆）/ **`book_7b918ca0`**（5w 参考） |
 | **活跃分支** | `main` |
 
@@ -34,7 +34,8 @@
 - **MCP**：`s3_save_chapter` 对齐 `evaluate_save_craft_gate`；blocking 不落库
 - **API**：`POST /ingest/confirm`；`GET /ingest/status` 扩 held/lease；capabilities 报 `ingest_lease`/`ingest_policy`/`mcp_craft_gate`
 - **测**：`scribe3/tests/test_ingest_pipeline_policy.py` **15 passed**；证据 `/tmp/grok-goal-c24de3662f01/implementer/`
-- residual：SPA hold 确认条、token 哈希化、独立 lease 表（见 residuals.md）
+- lease CAS：migration **113** `ingest_lease` 表 + `TableLeaseBackend`；purge 前 assert owner  
+- residual：SPA hold 确认条、token 哈希化（见 residuals.md）
 
 ### 上下文检查器 B∪C（2026-08-09）
 
