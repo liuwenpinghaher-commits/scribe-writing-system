@@ -79,6 +79,38 @@ def test_inject_order_constants_in_source():
     assert "def _pressure_drive_write_block" in text
 
 
+def test_app_impl_rebind_exposes_pressure_drive_helper():
+    """生产路径：_rebind_services 把 helper 绑进 app_impl 全局，与 write 组装同解析方式。
+
+    直接 import write_assemble 会漏掉 rebind 缺口；此处断言 app_impl 命名空间。
+    """
+    import scribe3.api.app_impl as app_impl
+    # 强制再 rebind（幂等），模拟进程启动
+    if hasattr(app_impl, "_rebind_services"):
+        app_impl._rebind_services()
+    assert hasattr(app_impl, "_pressure_drive_write_block")
+    fn = getattr(app_impl, "_pressure_drive_write_block")
+    assert callable(fn)
+    # 与 rebind 后的 _assemble_write_instructions_v1 共享 globals
+    assem = getattr(app_impl, "_assemble_write_instructions_v1", None)
+    assert assem is not None
+    assert "_pressure_drive_write_block" in assem.__code__.co_names or (
+        # nested _render_final_input 可能把名字关在 code object 的 co_names 里
+        any(
+            "_pressure_drive_write_block" in (c.co_names if hasattr(c, "co_names") else ())
+            for c in assem.__code__.co_consts
+            if hasattr(c, "co_names")
+        )
+        or "_pressure_drive_write_block" in assem.__globals__
+    )
+    assert "_pressure_drive_write_block" in assem.__globals__
+    # 真调用：flag 关 → 空串，不得 NameError
+    st = MagicMock()
+    st.get_chapter.return_value = None
+    out = assem.__globals__["_pressure_drive_write_block"](st, 1)
+    assert out == ""
+
+
 def test_blocking_policy_pressure_ge_4(monkeypatch):
     monkeypatch.delenv("SCRIBE3_PDC_BLOCKING", raising=False)
     c = _contract()
