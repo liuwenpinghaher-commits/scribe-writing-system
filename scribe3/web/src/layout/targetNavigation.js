@@ -62,23 +62,33 @@ function issueNode(target) {
 function codexNode(target) {
   const rawId = target.id || target.ref || target.label || ''
   const type = target.type
+  const panel = target.panel || target.meta?.panel
+  const withPanel = (node) => (panel ? { ...node, panel, meta: { ...(node.meta || {}), panel } } : node)
   if (type === 'character' || type === 'role' || String(rawId).startsWith('role:')) {
     const local = localRoleId(rawId)
-    return { id: `character:${local}`, type: 'character', ref: local, label: target.label || local }
+    return withPanel({ id: `character:${local}`, type: 'character', ref: local, label: target.label || local })
+  }
+  if (type === 'faction' || String(rawId).startsWith('faction:')) {
+    const local = String(rawId).replace(/^faction:/, '')
+    return withPanel({ id: `faction:${local}`, type: 'faction', ref: local, label: target.label || local })
+  }
+  if (type === 'item' || String(rawId).startsWith('item:')) {
+    const local = String(rawId).replace(/^item:/, '')
+    return withPanel({ id: `item:${local}`, type: 'item', ref: local, label: target.label || local })
   }
   if (type === 'proposition' || type === 'fact' || type === 'frame_fact' || String(rawId).startsWith('fact:')) {
     const local = String(rawId).replace(/^(fact|proposition):/, '')
-    return { id: `proposition:${local}`, type: 'proposition', ref: local, label: target.label || local }
+    return withPanel({ id: `proposition:${local}`, type: 'proposition', ref: local, label: target.label || local })
   }
   if (type === 'relation' || type === 'character_relation') {
     return { id: 'cat:character_relation', type: 'codex_category', ref: 'character_relation', label: '角色关系' }
   }
-  return {
+  return withPanel({
     id: normalizedId(type || 'codex', rawId),
     type: type || 'codex_category',
     ref: target.ref ?? rawId,
     label: target.label || String(rawId || '设定项'),
-  }
+  })
 }
 
 export function targetNodeToSelection(raw) {

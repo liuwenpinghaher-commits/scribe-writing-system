@@ -58,6 +58,14 @@ def test_world_truth_label_constant():
     assert WORLD_TRUTH_LABEL == "世界真相"
 
 
+def test_ingest_source_via_fact_dataclass():
+    """PR-7: Fact.source=ingest 与 classify_bucket 对齐。"""
+    from scribe3.ontology import Fact
+    from scribe3.truth_surface import classify_bucket
+    f = Fact("fact:x", "role:a", "行动", "跑", 1, source="ingest")
+    assert classify_bucket(f.source, f.attribute) == "ingest_noise"
+
+
 def test_fact_item_bucket_and_source():
     from types import SimpleNamespace
     from scribe3.api.services.misc_helpers import _fact_item

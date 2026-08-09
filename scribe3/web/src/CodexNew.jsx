@@ -61,7 +61,7 @@ export function CodexNew({ catType, label, onCancel, onCreated }) {
         ? ((draft.tier === 'arc' || draft.tier === 'book')
           ? '卷级和书级伏笔必须填写作者存档的真实答案' : '请填写伏笔内容')
         : catType === 'proposition'
-          ? '请填写主体、属性、值,生效章须为 ≥1 的章号'
+          ? '请填写：关于谁、哪方面状态、具体内容；从第几章起成立须为 ≥1'
           : '请填写名称')
       return
     }
@@ -93,6 +93,11 @@ export function CodexNew({ catType, label, onCancel, onCreated }) {
           className="mb-3 rounded border border-line bg-surface/60 px-3 py-2 text-meta text-faint leading-snug"
         >
           设定写入须经主编待批(s3_ 工具),不直连 REST。填完点下方按钮把草稿交给主编。
+          {catType === 'proposition' && (
+            <span className="block mt-1">
+              「世界真相」是全书时态状态（非场景 deduce 真相）。改已有状态请用演变/超越，勿原地抹历史。
+            </span>
+          )}
         </div>
         <DetailView
           type={type}

@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { History, Users, Lock, Plus } from 'lucide-react'
 import { api } from '../api'
 import { SectionTitle, Empty, Btn } from '../ui'
-import { seedChiefCodexWrite } from '../views/CodexView'
+import { seedChiefTruthSupersede } from '../lib/chiefSeed.js'
 
 const HIDE_BUCKETS = new Set(['bridge', 'ingest_noise'])
 
@@ -77,12 +77,21 @@ export function EntityTruthPanel({
   const groups = useMemo(() => groupByAttribute(visible), [visible])
 
   const seedSupersede = (attr = '状态') => {
-    const name = entityLabel || String(entityId || '').split(':').pop()
-    seedChiefCodexWrite(detailType === 'chars' ? 'chars' : detailType, {
-      id: entityId,
-      name,
-    }, `请自当前章起，将「${name}」的「${attr}」演变为新状态（使用 s3_supersede_fact，勿 edit_fact 抹历史）。`)
+    seedChiefTruthSupersede({
+      entityId,
+      entityLabel,
+      attribute: attr,
+      valueHint: '（请填写新状态）',
+      sinceChapter: '当前章',
+    })
   }
+
+  // SCRIBE3_TRUTH_UI=legacy_tree 时可不挂载（设计 PR-5）；前端可读 window 注入或 env 占位
+  try {
+    if (typeof window !== 'undefined' && window.__S3_TRUTH_UI === 'legacy_tree') {
+      return null
+    }
+  } catch { /* */ }
 
   if (!entityId) return null
 

@@ -236,17 +236,26 @@ async def s3_patch_character(ctx: Context, character_id: str,
 async def s3_add_fact(ctx: Context, oid: str, entity: str, attribute: str, value: str,
                       valid_from: int, secret: bool = False,
                       work: str | None = None) -> dict:
-    """新增事实/状态@章(写,待批)。secret=True 标私密(泄露=穿帮)。
+    """新增世界真相/状态@章(写,待批)。作者表面亦称「世界真相」。
+
+    参数语义（业务话术）：
+    - entity：关于谁（如 role:焦三）
+    - attribute：哪方面状态（如 state / 位置）
+    - value：具体内容
+    - valid_from：从第几章起成立
+    - secret：私密（限知；非持有者视角不可直说）
 
     同 entity+attribute 的开区间旧命题会被关闭(valid_to=valid_from)，避免改设定后
-    新旧真值并存污染检索/写作（记忆质量 D4）。若确需多值并存请用底层
-    store.add_fact(..., supersede_open=False)（产品路径默认不开放）。"""
-    ok = await _ask(ctx, f"新增事实 {oid}:{entity}·{attribute}={value}")
+    新旧真值并存污染检索/写作（记忆质量 D4）。改已有状态请优先 s3_supersede_fact
+    （勿依赖 REST edit_fact 原地抹历史）。"""
+    ok = await _ask(ctx, f"新增世界真相 {oid}:{entity}·{attribute}={value}")
 
     def _write():
         st = _store_for(work)
-        st.add_fact(Fact(oid, entity, attribute, value, valid_from, secret=secret),
-                    supersede_open=True)
+        st.add_fact(
+            Fact(oid, entity, attribute, value, valid_from, secret=secret, source="author"),
+            supersede_open=True,
+        )
         # add_fact 内已 semantic_index；保留二次调用幂等（旧行为兼容）
         try:
             st.semantic_index(oid, value)
@@ -859,11 +868,13 @@ async def s3_record_knowledge(ctx: Context, knower: str, proposition: str,
 async def s3_supersede_fact(ctx: Context, entity_id: str, attribute: str, value: str,
                              since_chapter: int, secret: bool = False,
                              work: str | None = None) -> dict:
-    """超越事实:关闭该 entity+attribute 的所有开区间先驱并写入新值(写,待批)。
-    不自动破坏多值属性——调用方需显式控制。
-    entity_id: 实体 oid(如 role:焦三);attribute: 属性名;value: 新值;
-    since_chapter: 新值生效章号(同时是先驱的 valid_to)。"""
-    ok = await _ask(ctx, f"超越事实 {entity_id}·{attribute}={value}(章{since_chapter}起)")
+    """演变世界真相（超越）:关闭该 entity+attribute 开区间先驱并写入新值(写,待批)。
+
+    作者话术：请自第 since_chapter 章起，将「entity」的「attribute」演变为 value。
+    保留历史段（valid_to），勿用 edit_fact 原地抹历史。
+    entity_id: 关于谁（如 role:焦三）；attribute: 哪方面；value: 新内容；
+    since_chapter: 新值生效章（同时是先驱 valid_to）；secret: 是否私密。"""
+    ok = await _ask(ctx, f"演变真相 {entity_id}·{attribute}={value}(章{since_chapter}起)")
     return commit_if_approved("s3_supersede_fact", ok,
                               lambda: _store_for(work).supersede_fact(
                                   entity_id, attribute, value, since_chapter, secret=secret))

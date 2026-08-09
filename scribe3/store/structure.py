@@ -309,8 +309,9 @@ class StructureMixin:
         def _char_badge(c):
             return [{"kind": "secret", "tone": "faint"}] if c.get("secret") else None
 
-        # 世界真相(引擎 ref=proposition):开区间投影 + Must 滤噪(获知/行动/bridge)
-        # 见 truth_surface.tree_hide_must · PR-UX1 / KD-17
+        # 世界真相(引擎 ref=proposition):开区间投影 + classify_bucket 滤噪
+        # 见 truth_surface · PR-UX1/UX1b / KD-17；SCRIBE3_TRUTH_UI=legacy_tree 跳过滤
+        import os
         from scribe3.truth_surface import (
             WORLD_TRUTH_HINT,
             WORLD_TRUTH_LABEL,
@@ -318,6 +319,8 @@ class StructureMixin:
             row_source,
             tree_hide_must,
         )
+        truth_ui = (os.environ.get("SCRIBE3_TRUTH_UI") or "entity_first").strip().lower()
+        show_engine = truth_ui in ("legacy_tree", "show_engine")
         prop_items = []
         try:
             for r in self.list_open_propositions():
@@ -325,7 +328,7 @@ class StructureMixin:
                 attr = str(r.get("attribute") or "")
                 local = str(r.get("id") or "")
                 src = row_source(r)
-                if tree_hide_must(attr, src):
+                if tree_hide_must(attr, src, show_engine=show_engine):
                     continue
                 secret = bool(r.get("secret"))
                 val = None if secret else r.get("value")

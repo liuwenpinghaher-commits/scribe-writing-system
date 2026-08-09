@@ -207,6 +207,7 @@ def global_search(q: str, limit: int = Query(default=30, ge=1, le=100), work: st
 
     for ev in st._all_events_bulk():
         from scribe3.knowledge import iter_participants
+        from scribe3.event_surface import format_event_timeline_label
         _p_oids = [oid for _, oid in iter_participants(ev.participants)]
         text = "\n".join([
             ev.id or "",
@@ -218,7 +219,9 @@ def global_search(q: str, limit: int = Query(default=30, ge=1, le=100), work: st
         ])
         if _search_hit(query, text):
             seq = int(ev.story_time or 0)
-            label = ev.type or ev.id
+            # PR-UX0b：与主时间线同一人话 label 公式
+            label, _ = format_event_timeline_label(ev)
+            label = label or ev.type or ev.id
             add({
                 "id": f"search:event:{ev.id}",
                 "type": "event",

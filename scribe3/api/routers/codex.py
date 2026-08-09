@@ -180,12 +180,34 @@ def del_char(local: str, confirm_impact_token: str | None = None, work: str = "m
 def add_fact_ep(f: FactIn, work: str = "main"):
     import uuid
     oid = f"fact:{uuid.uuid4().hex[:8]}"
-    _store_for(work).add_fact(Fact(oid, f.entity, f.attribute, f.value, f.valid_from,
-                                   valid_to=f.valid_to, secret=f.secret,
-                                   leak_markers=f.leak_markers))
+    # REST 直写视为作者路径 source=author（正典路径优先 supersede）
+    _store_for(work).add_fact(Fact(
+        oid, f.entity, f.attribute, f.value, f.valid_from,
+        valid_to=f.valid_to, secret=f.secret,
+        leak_markers=f.leak_markers, source="author",
+    ))
     return {"ok": True, "oid": oid}
 
 def edit_fact(local: str, f: FactIn, work: str = "main"):
+    """PR-9 · emergency：默认拒绝原地 PATCH，防抹历史。
+
+    正典改值请用 POST /facts/supersede 或 MCP s3_supersede_fact。
+    仅当环境变量 SCRIBE3_ALLOW_FACT_EDIT=1 时允许 emergency 原地改。
+    见 docs/plans/2026-08-09-proposition-full-chain-optimization.md · PR-9。
+    """
+    import os
+    allow = (os.environ.get("SCRIBE3_ALLOW_FACT_EDIT") or "0").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+    if not allow:
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                "edit_fact 已降级为 emergency："
+                "请用 POST /facts/supersede（或 s3_supersede_fact）保留时态历史。"
+                "确需原地改写时设置 SCRIBE3_ALLOW_FACT_EDIT=1。"
+            ),
+        )
     st = _store_for(work)
     st.update_record(f"fact:{local}", {
         "entity_id": f.entity,

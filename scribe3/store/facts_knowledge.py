@@ -41,13 +41,20 @@ class FactsKnowledgeMixin:
             except Exception as _e:
                 logging.getLogger("scribe3.store").warning(
                     "add_fact supersede_open 关闭先驱失败(仍写入新命题): %s", _e)
+        # PR-7：source 列 — ingest 路径必写 source=ingest；显式 f.source 优先
+        src = getattr(f, "source", None)
+        if src is not None:
+            src = (str(src).strip() or None)
+        if src is None and ingest_seq is not None:
+            src = "ingest"
         self._execute_write(
             "UPSERT type::record('proposition', $local) SET entity_id=$entity, "
             "attribute=$attr, value=$value, valid_from=$vf, valid_to=$vt, secret=$secret, "
-            "leak_markers=$lm"
+            "leak_markers=$lm, source=$src"
             + (", ingest_seq=$iseq" if ingest_seq is not None else ""),
             {"local": local, "entity": f.entity_id, "attr": f.attribute, "value": f.value,
              "vf": f.valid_from, "vt": f.valid_to, "secret": f.secret, "lm": f.leak_markers,
+             "src": src,
              **({"iseq": ingest_seq} if ingest_seq is not None else {})})
         # 写入后建语义索引(与 s3_add_fact 对齐;embed 失败不阻断主写)
         try:
@@ -108,7 +115,11 @@ class FactsKnowledgeMixin:
                 {"e": entity_id, "a": a, "since": since_chapter})
         # 2. 写入新命题（add_fact 再扫一遍，幂等）
         new_oid = f"fact:{uuid.uuid4().hex[:8]}"
-        new_fact = Fact(new_oid, entity_id, attr, new_value, valid_from=since_chapter, secret=secret)
+        # 作者/正典演变：标记 source=author（与 ingest/bridge 分桶）
+        new_fact = Fact(
+            new_oid, entity_id, attr, new_value,
+            valid_from=since_chapter, secret=secret, source="author",
+        )
         self.add_fact(new_fact, supersede_open=True)
         return new_oid
 

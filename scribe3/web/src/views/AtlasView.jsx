@@ -3,10 +3,12 @@ import { MultiDirectedGraph } from 'graphology'
 import { SigmaContainer, useLoadGraph, useRegisterEvents, useSigma } from '@react-sigma/core'
 import '@react-sigma/core/lib/style.css'
 import forceAtlas2 from 'graphology-layout-forceatlas2'
-import { Eye, X, Crosshair, ChevronRight, Loader2, Lock, List } from 'lucide-react'
+import { Eye, Crosshair, ChevronRight, Loader2, Lock, List } from 'lucide-react'
 import { api } from '../api'
 import { REL_LABEL, relColor } from '../lib/relColors'
 import { useSelection } from '../selectionContext'
+import { atlasNavType } from '../lib/atlasNodeDetail.js'
+import { NodeDetail } from './atlas/NodeDetail.jsx'
 
 // 关系图谱 = scribe3 真知识图:角色 —knows→ 命题(谁知道什么)+ 角色关系边。
 // 重写要点(波A):sigma(WebGL/canvas)+ graphology + forceAtlas2,默认只画 focus 角色的
@@ -45,20 +47,8 @@ function nodeColor(n, theme) {
   return n.secret ? theme['--color-secret'] : theme['--color-irony']
 }
 
-function atlasNavType(n) {
-  if (n?.type === 'character') return 'character'
-  if (n?.type === 'faction') return 'faction'
-  if (n?.type === 'item') return 'item'
-  if (n?.type === 'proposition') return 'proposition'
-  // 兼容 id 前缀
-  const id = String(n?.id || '')
-  if (id.startsWith('role:')) return 'character'
-  if (id.startsWith('faction:')) return 'faction'
-  if (id.startsWith('item:')) return 'item'
-  return 'proposition'
-}
-
 // —— graphology 构建 + forceAtlas2 布局,挂进 sigma(在数据加载后跑有限迭代) ——
+// 禁止依赖 picked/抽屉状态（KD-9：pick 不重跑 forceAtlas2）
 function buildGraph(data, focus, theme) {
   const g = new MultiDirectedGraph()
   const nodes = data?.nodes || []
@@ -164,58 +154,6 @@ function GraphContent({ data, focus, theme, onPickNode, onHoverNode }) {
   return null
 }
 
-// 节点详情面板(点击后弹出)
-function NodeDetail({ node, focus, edges, onExpand, onOpenNode, onClose }) {
-  if (!node) return null
-  // 该节点与 focus 之间的关系(若直连)
-  const relToFocus = focus && focus !== node.id
-    ? edges.find((e) =>
-        (e.src === node.id && e.dst === focus) || (e.src === focus && e.dst === node.id))
-    : null
-  return (
-    <div className="absolute top-3 right-3 z-20 w-64 rounded-md border border-line/70 bg-surface/95 backdrop-blur p-3.5 flex flex-col gap-2.5 shadow-[var(--shadow-card)]">
-      <div className="flex items-start gap-2">
-        <span className="text-f14 font-medium text-ink leading-snug flex-1 break-words">
-          {node.secret ? <span className="inline-flex items-center gap-1"><Lock size={13} />私密命题</span> : node.label}
-        </span>
-        <button onClick={onClose} className="text-faint hover:text-ink shrink-0 mt-0.5"><X size={14} /></button>
-      </div>
-      <div className="flex items-center gap-1.5 text-f12 text-faint">
-        <i className="w-2.5 h-2.5 rounded-full inline-block"
-          style={{ background: node.type === 'character' ? 'var(--color-brand)' : node.secret ? 'var(--color-secret)' : 'var(--color-irony)' }} />
-        {node.type === 'character' ? '角色' : node.secret ? '私密命题' : '命题'}
-      </div>
-      {relToFocus && (
-        <div className="text-f12 text-ink">
-          与中心关系:<span className="font-medium">{REL_LABEL[relToFocus.rel] || (relToFocus.rel === 'knows' ? '知道' : relToFocus.rel)}</span>
-        </div>
-      )}
-      {node.secret && (
-        <div className="text-meta text-faint leading-relaxed">该命题为私密内容,图谱中不展示明文。</div>
-      )}
-      <button
-        onClick={() => onOpenNode?.({
-          id: node.id,
-          type: node.type === 'character' ? 'character' : 'proposition',
-          label: node.secret ? '私密命题' : node.label,
-          secret: !!node.secret,
-        })}
-        className="mt-0.5 inline-flex items-center justify-center gap-1.5 h-8 rounded-lg text-f13 text-ink hover:bg-soft cursor-pointer"
-      >
-        打开设定
-      </button>
-      {node.type === 'character' && (
-        <button
-          onClick={() => onExpand(node.id)}
-          className="mt-0.5 inline-flex items-center justify-center gap-1.5 h-8 rounded-lg bg-brand text-brandfg text-f13 font-medium hover:opacity-90"
-        >
-          <Crosshair size={13} /> 以此为中心展开
-        </button>
-      )}
-    </div>
-  )
-}
-
 export function AtlasView({ onNavigateToObject }) {
   const [raw, setRaw] = useState(null)        // 当前子图数据
   const [chars, setChars] = useState([])      // 全部角色(下拉用)— 仅 id/label
@@ -230,6 +168,9 @@ export function AtlasView({ onNavigateToObject }) {
   const [theme, setTheme] = useState(readTheme)
   const [retryTick, setRetryTick] = useState(0) // 重试触发器
   const reqId = useRef(0)
+  // KD-19: 仅 hop 变化时保留/恢复 picked（升跳不关抽屉）
+  const retainPickRef = useRef(null)
+  const prevGraphDeps = useRef({ focus: '', hop: 1, sliceChapter: null, retryTick: 0 })
   // 块三:选中节点 → 通用选中总线(主编聚焦);清选中 → focus 清空(回退视图级话术)。
   const { setFocus: setBusFocus } = useSelection()
   const pickNode = useCallback((n) => {
@@ -245,13 +186,33 @@ export function AtlasView({ onNavigateToObject }) {
     }
   }, [setBusFocus])
 
-  // 键盘等价路径:图谱对象列表项 → 与图形节点「打开设定」相同的 onNavigateToObject。
+  /** 工具条 / boost 共用：升跳前记下选中，加载后恢复 */
+  const changeHop = useCallback((h, keepPick = true) => {
+    if (keepPick && picked) {
+      retainPickRef.current = {
+        id: picked.id,
+        label: picked.label,
+        type: picked.type,
+        secret: !!picked.secret,
+      }
+    } else if (!keepPick) {
+      retainPickRef.current = null
+    }
+    setHop(h)
+  }, [picked])
+
+  // 键盘等价路径:列表「设定」→ 与「打开设定」相同的 onNavigateToObject。
+  // PR-8：角色/势力/物件带 panel:'truth' → 实体卡「状态与演变」区。
   const navToNode = useCallback((n) => {
+    const t = atlasNavType(n)
+    const panel = (t === 'character' || t === 'faction' || t === 'item') ? 'truth' : undefined
     onNavigateToObject?.({
       id: n.id,
-      type: atlasNavType(n),
-      label: n.secret ? '私密命题' : (n.label || n.id),
+      type: t,
+      label: n.secret ? '私密真相' : (n.label || n.id),
       secret: !!n.secret,
+      panel,
+      meta: panel ? { panel } : undefined,
     })
   }, [onNavigateToObject])
 
@@ -313,22 +274,54 @@ export function AtlasView({ onNavigateToObject }) {
   }, [retryTick])
 
   // focus / hop / 章切片 / 重试 → 拉 ego 子图(默认不全量)
+  // KD-19: 仅 hop 变化时不清 picked；子图返回后按 id 恢复
   useEffect(() => {
     if (!focus) return
     let alive = true
     const myReq = ++reqId.current
-    setLoading(true); setErr(null); setPicked(null)
+    const prev = prevGraphDeps.current
+    const hopOnly = prev.focus === focus
+      && prev.sliceChapter === sliceChapter
+      && prev.retryTick === retryTick
+      && prev.hop !== hop
+    prevGraphDeps.current = { focus, hop, sliceChapter, retryTick }
+
+    if (!hopOnly) {
+      retainPickRef.current = null
+      setPicked(null)
+      setBusFocus(null)
+    } else if (picked && !retainPickRef.current) {
+      retainPickRef.current = {
+        id: picked.id, label: picked.label, type: picked.type, secret: !!picked.secret,
+      }
+    }
+
+    setLoading(true); setErr(null)
     const opts = { focus, hop, limit: 300 }
     if (sliceChapter != null) opts.chapter = sliceChapter
     api.graph(opts).then((g) => {
       if (!alive || myReq !== reqId.current) return
       setRaw(g); setLoading(false)
+      const retain = retainPickRef.current
+      if (hopOnly && retain?.id) {
+        const n = (g.nodes || []).find((x) => x.id === retain.id)
+        if (n) {
+          pickNode({
+            id: n.id,
+            label: n.label || retain.label,
+            type: n.type || retain.type,
+            secret: !!n.secret,
+          })
+        }
+        // 保留 ref 至下次非 hop 切换；不在此清空以免竞态
+      }
     }).catch((e) => {
       if (!alive || myReq !== reqId.current) return
       setErr(e.message || '加载失败'); setLoading(false)
     })
     return () => { alive = false }
-  }, [focus, hop, sliceChapter, retryTick])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pickNode/picked 故意不进 deps，hop 恢复用 ref
+  }, [focus, hop, sliceChapter, retryTick, setBusFocus])
 
   const stat = useMemo(() => {
     const ns = raw?.nodes || []
@@ -340,8 +333,9 @@ export function AtlasView({ onNavigateToObject }) {
   }, [raw])
 
   const onExpandTo = useCallback((id) => {
+    retainPickRef.current = null
     setHop(1)
-    setFocus(id) // 以该节点为新中心拉子图
+    setFocus(id) // 以该角色为新中心拉子图
   }, [])
 
   const sigmaSettings = useMemo(() => ({
@@ -360,7 +354,10 @@ export function AtlasView({ onNavigateToObject }) {
     () => [...new Set((raw?.edges || []).map((e) => e.rel).filter((r) => r && r !== 'knows'))],
     [raw])
 
+  // KD-17: focusLabel fallback 防 session 非角色 id 空白
   const focusLabel = chars.find((c) => c.id === focus)?.label
+    || (raw?.nodes || []).find((n) => n.id === focus)?.label
+    || focus
 
   return (
     <div className="h-full flex flex-col bg-canvas">
@@ -387,7 +384,8 @@ export function AtlasView({ onNavigateToObject }) {
           {[1, 2, 3].map((h) => (
             <button
               key={h}
-              onClick={() => setHop(h)}
+              type="button"
+              onClick={() => changeHop(h, true)}
               className={`min-w-7 h-6 px-1.5 rounded-lg text-meta transition-colors cursor-pointer ${hop === h ? 'bg-surface text-brand font-medium shadow-sm' : 'text-faint hover:text-ink'}`}
             >{h}</button>
           ))}
@@ -429,17 +427,39 @@ export function AtlasView({ onNavigateToObject }) {
               <List size={12} />对象列表 · {raw.nodes.length}
             </div>
             <ul className="py-1 px-1">
-              {raw.nodes.map((n) => (
-                <li key={n.id}>
-                  <button onClick={() => navToNode(n)}
-                    className="w-full text-left px-2.5 py-1.5 rounded-lg text-f12 text-ink hover:bg-soft inline-flex items-center gap-1.5 transition-colors">
-                    <i className="w-2 h-2 rounded-full shrink-0"
-                      style={{ background: n.type === 'character' ? 'var(--color-brand)' : n.secret ? 'var(--color-secret)' : 'var(--color-irony)' }} />
-                    {n.secret && <Lock size={11} className="shrink-0 text-faint" />}
-                    <span className="truncate">{n.secret ? '私密命题' : (n.label || n.id)}</span>
-                  </button>
-                </li>
-              ))}
+              {raw.nodes.map((n) => {
+                const lab = n.secret ? '私密命题' : (n.label || n.id)
+                return (
+                  <li key={n.id} className="flex items-center gap-0.5 group">
+                    <button
+                      type="button"
+                      data-testid="atlas-list-pick"
+                      aria-label={`选中 ${lab}`}
+                      onClick={() => pickNode({
+                        id: n.id,
+                        label: n.label || n.id,
+                        type: n.type,
+                        secret: !!n.secret,
+                      })}
+                      className={`flex-1 min-w-0 text-left px-2 py-1.5 rounded-lg text-f12 text-ink hover:bg-soft inline-flex items-center gap-1.5 transition-colors ${picked?.id === n.id ? 'bg-soft' : ''}`}
+                    >
+                      <i className="w-2 h-2 rounded-full shrink-0"
+                        style={{ background: n.type === 'character' ? 'var(--color-brand)' : n.secret ? 'var(--color-secret)' : 'var(--color-irony)' }} />
+                      {n.secret && <Lock size={11} className="shrink-0 text-faint" />}
+                      <span className="truncate">{lab}</span>
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="atlas-list-open-codex"
+                      aria-label={`打开设定 ${lab}`}
+                      onClick={() => navToNode(n)}
+                      className="shrink-0 px-1.5 py-1 text-meta text-faint hover:text-brand rounded cursor-pointer"
+                    >
+                      设定
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           </div>
         )}
@@ -508,9 +528,15 @@ export function AtlasView({ onNavigateToObject }) {
             <NodeDetail
               node={picked}
               focus={focus}
+              hop={hop}
               edges={raw?.edges || []}
+              nodes={raw?.nodes || []}
+              focusLabel={focusLabel}
+              sliceChapter={sliceChapter}
+              maxChapter={maxChapter}
               onExpand={onExpandTo}
-              onOpenNode={onNavigateToObject}
+              onHopBoost={(h) => changeHop(h, true)}
+              onOpenNode={navToNode}
               onClose={() => pickNode(null)}
             />
           </>

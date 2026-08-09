@@ -36,7 +36,7 @@ export const stripSecretMask = (obj) =>
 const TABS = [
   { key: 'overview', label: '概览', icon: PieChart },
   { key: 'chars', label: '角色', icon: Users },
-  { key: 'facts', label: '设定·命题', icon: Boxes },
+  { key: 'facts', label: '设定·世界真相', icon: Boxes },
   { key: 'rules', label: '世界规则', icon: Shield },
   { key: 'factions', label: '势力', icon: Swords },
   { key: 'items', label: '物品', icon: MapPin },
@@ -925,9 +925,16 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete, onCha
   }
 
   const fieldMap = {
-    // 批D 件1:命题生产表单(限知引擎核心)。entity 填实体 oid(role:名);secret 勾选后命题对读者隐藏,
-    // leak_markers 是"出现即算泄密"的标记词表 —— find_leaks 据此对 UI 作者的命题做限知泄露检测。
-    facts: [['entity','主体(实体 oid,如 role:焦三)','text'],['attribute','属性','text'],['value','值','textarea'],['valid_from','生效章','number'],['secret','命题私密(对读者隐藏,find_leaks 检测泄露)','secret_flag'],['leak_markers','泄露标记词(逗号分隔,出现即视为泄密)','array_csv']],
+    // 批D 件1 + PR-6：世界真相生产表单。勿与「场景真相/deduce」混淆。
+    // leak_markers = 破绽词（出现即算泄密）；改已有状态请 supersede 勿原地抹历史。
+    facts: [
+      ['entity', '关于谁（角色/物件等，如 role:焦三）', 'text'],
+      ['attribute', '哪方面状态（如 state/位置）', 'text'],
+      ['value', '具体内容', 'textarea'],
+      ['valid_from', '从第几章起成立', 'number'],
+      ['secret', '私密（限知；非持有者视角不可直说）', 'secret_flag'],
+      ['leak_markers', '破绽词（出现即算泄密，可选，逗号分隔）', 'array_csv'],
+    ],
     rules: [['name','规则名','text'],['category','类别','rule_cat'],['source','源头','text'],['cost','代价','textarea'],['scope','作用域','scope'],['established_chapter','确立章节','number'],['limitations','限制条件(逗号分隔)','array_csv'],['exceptions','例外情形(逗号分隔)','array_csv'],['capabilities','赋予能力(逗号分隔)','array_csv'],['note','备注','textarea']],
     factions: [['name','势力名','text'],['ideology','意识形态','textarea'],['leader','领袖','text'],['public_face','公开面目','textarea'],['private_operation','私下运作','textarea'],['known_members','已知成员(逗号分隔)','array_csv'],['private_operation_secret','私密(私下运作)','secret_flag']],
     items: [['name','物品名','text'],['category','类别','text'],['description','描述','textarea'],['symbolic_state','状态','select'],['current_owner','持有者','text'],['first_chapter','首次出场章','number'],['special_properties','特殊属性(逗号分隔)','array_csv']],

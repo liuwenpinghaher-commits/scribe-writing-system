@@ -1261,12 +1261,25 @@ def test_factin_writes_valid_to(store):
     assert oid not in at10, f"valid_to=8 的命题在第10章应已失效: {oid}"
 
 
-def test_patch_fact_preserves_and_reembeds(store):
-    """P3-b: PATCH /facts/{local} 应保留 valid_from/valid_to/leak_markers,并在 value 变更后重建 embedding。
-    修复前:PATCH 只 SET entity/attribute/value/secret → valid_from/valid_to/leak_markers 被丢失,
-           且 value 改变后旧 embedding 未刷新,语义召回指向陈旧向量。
-    修复后:PATCH 传入所有字段;value 变更后调用 semantic_index 重建 embedding。
-    """
+def test_patch_fact_default_gone_pr9(store, monkeypatch):
+    """PR-9: 默认拒绝 edit_fact（410），正典路径走 supersede。"""
+    monkeypatch.delenv("SCRIBE3_ALLOW_FACT_EDIT", raising=False)
+    c = _client(store)
+    r = c.post("/facts", json={
+        "entity": "role:甲", "attribute": "状态", "value": "旧", "valid_from": 1,
+    })
+    assert r.status_code == 200
+    local = r.json()["oid"].split(":", 1)[1]
+    pr = c.patch(f"/facts/{local}", json={
+        "entity": "role:甲", "attribute": "状态", "value": "新", "valid_from": 1, "secret": False,
+    })
+    assert pr.status_code == 410, pr.text
+    assert "supersede" in (pr.json().get("detail") or "").lower() or "emergency" in (pr.json().get("detail") or "").lower()
+
+
+def test_patch_fact_preserves_and_reembeds(store, monkeypatch):
+    """P3-b / PR-9 emergency: 仅 SCRIBE3_ALLOW_FACT_EDIT=1 时允许 PATCH 并重建 embedding。"""
+    monkeypatch.setenv("SCRIBE3_ALLOW_FACT_EDIT", "1")
     c = _client(store)
     # 1. 创建一条带 leak_markers 和 valid_from=2、valid_to=10 的命题
     r = c.post("/facts", json={

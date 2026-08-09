@@ -312,7 +312,7 @@ function CharVoice({ characterId, characterName, refreshKey = 0 }) {
 // 注意 GET /facts 有损:私密命题 value 被后端屏蔽为 null(_facts),且不回 valid_from/valid_to/leak_markers,
 // 亦无单条 reveal 端点 —— 故此处【不做整行 PATCH 回写】(会把私密值 null 掉/抹掉 leak_markers,同 F-1/F-2 坑),
 // 改为时态正确的三动作:超越(改值·保历史)/ 让 knower 遗忘(知识边)/ 删除。全字段生产在「+ 新建命题」。
-// 命题详情:只读展示 + 写入走主编(与设定档案政策一致)。删除走 s3_delete_codex 待批。
+// 世界真相详情(PR-3)：叙事标题 + reveal_secret；写入走主编；禁止 REST PATCH 抹历史。
 export function PropositionDetail({ node, onDeleted, onNavigateToObject }) {
   const [row, setRow] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -320,15 +320,16 @@ export function PropositionDetail({ node, onDeleted, onNavigateToObject }) {
   const [delOpen, setDelOpen] = useState(false)
   const [delLoading, setDelLoading] = useState(false)
   const [deleteImpact, setDeleteImpact] = useState(null)
+  const [revealSecret, setRevealSecret] = useState(false)
 
   const reload = () => {
     setLoading(true); setLoadErr('')
     // 单条 GET /facts/{local},禁止 facts(100000) 全量扫
-    api.getFact(node.ref)
+    api.getFact(node.ref, { revealSecret })
       .then((r) => { setRow(r || null); setLoading(false) })
       .catch((e) => { setRow(null); setLoadErr(e?.body?.detail || e?.message || '加载失败'); setLoading(false) })
   }
-  useEffect(() => { setDeleteImpact(null); reload() }, [node?.id])
+  useEffect(() => { setDeleteImpact(null); reload() }, [node?.id, revealSecret])
 
   const openDelete = async () => {
     if (delLoading) return
@@ -379,23 +380,27 @@ export function PropositionDetail({ node, onDeleted, onNavigateToObject }) {
     }
   }
 
-  if (loading) return <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={20} className="animate-spin mr-2" />加载命题…</div>
+  if (loading) return <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={20} className="animate-spin mr-2" />加载世界真相…</div>
   if (loadErr) return (
     <div className="p-4">
-      <AsyncState state="error" title="命题加载失败" message={loadErr} onRetry={reload} />
+      <AsyncState state="error" title="世界真相加载失败" message={loadErr} onRetry={reload} />
     </div>
   )
-  if (!row) return <div className="p-6 text-f13 text-faint">未找到该命题(可能已被超越或删除)。项目树只投影仍处开区间的命题。</div>
+  if (!row) return <div className="p-6 text-f13 text-faint">未找到该条目(可能已被演变关闭或删除)。项目树默认只投影仍处开区间的世界真相。</div>
 
   const entLocal = String(row.entity || '').split(':').pop() || '—'
-  const seedBase = { name: `${entLocal}·${row.attribute || ''}`, id: row.id, text: row.value }
+  const attr = row.attribute || '—'
+  const titleNarrative = row.is_secret && (row.value == null || row.value === '')
+    ? `${entLocal} · ${attr}（私密）`
+    : `${entLocal} · ${attr}${row.value ? `：${String(row.value).slice(0, 48)}` : ''}`
+  const seedBase = { name: `${entLocal}·${attr}`, id: row.id, text: row.value }
   const propAtlasFocus = atlasFocusId({ kind: 'proposition', row, ref: node.ref })
 
   return (
     <div className="h-full overflow-y-auto bg-canvas" data-testid="proposition-detail">
       <div className="max-w-2xl mx-auto px-5 py-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 py-1" data-testid="proposition-readonly-banner">
-          <span className="text-meta text-faint">只读检视 · 超越/遗忘走主编审批写</span>
+          <span className="text-meta text-faint">只读检视 · 演变/遗忘走主编审批写（禁 edit_fact 抹历史）</span>
           <div className="flex flex-wrap items-center gap-2">
             {propAtlasFocus && (
               <button type="button" data-testid="codex-open-graph" onClick={graphFocus}
@@ -403,54 +408,73 @@ export function PropositionDetail({ node, onDeleted, onNavigateToObject }) {
                 <GitBranch size={13} />在图谱中打开
               </button>
             )}
+            {row.is_secret && (
+              <button type="button" data-testid="proposition-reveal-secret"
+                onClick={() => setRevealSecret((v) => !v)}
+                className="text-meta text-brand hover:text-brand/80 cursor-pointer inline-flex items-center gap-1">
+                <Lock size={13} />{revealSecret ? '隐藏私密值' : '作者揭开私密值'}
+              </button>
+            )}
             <button type="button" data-testid="proposition-ask-chief"
               onClick={() => seedChiefCodexWrite('facts', seedBase,
-                `请处理命题「${entLocal}·${row.attribute || ''}」:可超越改值(保历史)或设置 knower 遗忘;用 s3_ 写工具提交审批。`)}
+                `请处理世界真相「${entLocal}·${attr}」:可演变改值(s3_supersede_fact 保历史)或设置 knower 遗忘;勿 edit_fact。`)}
               className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-f12 bg-brand text-brandfg hover:opacity-90 cursor-pointer">
               让主编写入
             </button>
           </div>
         </div>
 
-        <SectionTitle icon={Boxes}>命题详情</SectionTitle>
+        <SectionTitle icon={Boxes}>世界真相</SectionTitle>
+        <h2 className="text-f15 font-medium text-ink mt-1 mb-2 leading-snug" data-testid="proposition-narrative-title">
+          {titleNarrative}
+        </h2>
         <div className="space-y-0.5 mt-1">
-          <ReadOnlyText label="主体" value={entLocal} entityLabel={`${entLocal}·${row.attribute || ''}`} fieldKey="entity" />
-          <ReadOnlyText label="属性" value={row.attribute} entityLabel={`${entLocal}·${row.attribute || ''}`} fieldKey="attribute" />
+          <ReadOnlyText label="关于谁" value={entLocal} entityLabel={`${entLocal}·${attr}`} fieldKey="entity" />
+          <ReadOnlyText label="哪方面状态" value={attr} entityLabel={`${entLocal}·${attr}`} fieldKey="attribute" />
           <ReadOnlyText
-            label="值"
-            value={row.is_secret ? null : row.value}
-            emptyHint={row.is_secret ? '私密 · 值对读者屏蔽(限知)' : '—'}
-            entityLabel={`${entLocal}·${row.attribute || ''}`}
+            label="具体内容"
+            value={row.is_secret && !revealSecret ? null : row.value}
+            emptyHint={row.is_secret && !revealSecret ? '私密 · 值对读者屏蔽(限知)；可点「作者揭开」' : '—'}
+            entityLabel={`${entLocal}·${attr}`}
             fieldKey="value"
             emptyAsk={!row.is_secret}
           />
+          <ReadOnlyText label="从第几章起" value={row.valid_from != null ? String(row.valid_from) : '—'} entityLabel={`${entLocal}·${attr}`} fieldKey="valid_from" />
+          {row.valid_to != null && (
+            <ReadOnlyText label="关闭于章" value={String(row.valid_to)} entityLabel={`${entLocal}·${attr}`} fieldKey="valid_to" />
+          )}
+          {(row.source != null || row.bucket) && (
+            <div className="py-1 text-meta text-faint">
+              来源 {row.source || '（空）'} · 分桶 {row.bucket || '—'}
+            </div>
+          )}
           {row.is_secret && (
-            <div className="py-1 text-f13 text-faint inline-flex items-center gap-1.5"><Lock size={13} />限知私密命题</div>
+            <div className="py-1 text-f13 text-faint inline-flex items-center gap-1.5"><Lock size={13} />限知私密</div>
           )}
         </div>
 
         <div className="mt-5 pt-3 border-t border-line flex items-center gap-3 flex-wrap">
           <button type="button" data-testid="proposition-supersede-chief"
             onClick={() => seedChiefCodexWrite('facts', seedBase,
-              `请超越命题「${entLocal}·${row.attribute || ''}」:关闭现开区间并自指定章写入新值(旧值封存)。`)}
+              `请自指定章起演变「${entLocal}」的「${attr}」为新值(s3_supersede_fact，旧值封存)。勿 edit_fact。`)}
             className="text-meta text-brand hover:text-brand/80 cursor-pointer inline-flex items-center gap-1">
-            <History size={13} />让主编超越
+            <History size={13} />让主编演变
           </button>
           <button type="button" data-testid="proposition-forget-chief"
             onClick={() => seedChiefCodexWrite('facts', seedBase,
-              `请为命题「${entLocal}·${row.attribute || ''}」设置 knower 遗忘(默认 reader,指定 until_chapter)。`)}
+              `请为世界真相「${entLocal}·${attr}」设置 knower 遗忘(默认 reader,指定 until_chapter)。`)}
             className="text-meta text-brand hover:text-brand/80 cursor-pointer inline-flex items-center gap-1">
             <EyeOff size={13} />让主编设遗忘
           </button>
           <button onClick={openDelete} disabled={delLoading} className="ml-auto text-f12 text-faint hover:text-danger cursor-pointer inline-flex items-center gap-1 transition-colors duration-150 disabled:opacity-40">
-            {delLoading ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}删除命题
+            {delLoading ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}删除
           </button>
         </div>
       </div>
       <ConfirmDialog
         open={delOpen}
-        title={deleteImpact?.recommended_action === 'archive' ? '确认归档命题?' : '确认删除命题?'}
-        body={lifecycleDeleteBody(deleteImpact, `将删除「${entLocal}·${row.attribute}」,此操作不可撤销。`)}
+        title={deleteImpact?.recommended_action === 'archive' ? '确认归档世界真相?' : '确认删除世界真相?'}
+        body={lifecycleDeleteBody(deleteImpact, `将删除「${entLocal}·${attr}」,此操作不可撤销。`)}
         danger={deleteImpact?.recommended_action !== 'archive'}
         confirmText={deleteImpact?.recommended_action === 'archive' ? '归档' : '删除'}
         onConfirm={doDelete}
@@ -679,6 +703,18 @@ export function CodexDetail({ node, onDeleted, onNavigateToObject }) {
       .catch((e) => { setRow(null); setLoadErr(e?.body?.detail || e?.message || '加载失败'); setLoading(false) })
   }
   useEffect(() => { setDeleteImpact(null); reload() }, [node?.id, leafRef]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // PR-8：图谱跳转 panel=truth → 滚入状态与演变区
+  useEffect(() => {
+    const panel = node?.panel || node?.meta?.panel
+    if (panel !== 'truth') return
+    const t = setTimeout(() => {
+      try {
+        document.getElementById('entity-truth-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      } catch { /* */ }
+    }, 200)
+    return () => clearTimeout(t)
+  }, [node?.id, node?.panel, node?.meta?.panel, loading])
 
   if (!detailType) return <div className="p-6 text-f13 text-faint">未知设定类型:{node?.type}</div>
   if (ghostLeaf) {

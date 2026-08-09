@@ -86,10 +86,43 @@ export function seedChiefCodexCreate(catType, fields = {}) {
   const tool = toolByCat[catType] || 's3_add_character'
   const label = fields.name || fields.text || fields.entity || catType
   const payload = JSON.stringify(fields || {}, null, 0)
+  if (catType === 'proposition') {
+    const entity = fields.entity || 'role:…'
+    const attr = fields.attribute || 'state'
+    const value = fields.value || '…'
+    const ch = fields.valid_from ?? 1
+    const secret = fields.secret ? 'true' : 'false'
+    const lines = [
+      `请登记世界真相（时态状态，勿与场景 deduce 混淆）并写入落库(需我审批)。`,
+      `请自第 ${ch} 章起，将「${entity}」的「${attr}」确立为：${value}。secret=${secret}。`,
+      `使用工具 ${tool}（或已有同槽时用 s3_supersede_fact 演变）；勿使用 edit_fact 原地抹历史。`,
+      `字段草稿:${payload}`,
+      '先只读核实是否已有同 entity+attribute 开区间,再写入;未获批准不得声称已落库。',
+    ]
+    return focusChiefWithSeed(lines.join('\n'))
+  }
   const lines = [
     `请新建设定「${label}」(类型:${catType})并写入落库(需我审批)。`,
     `使用工具 ${tool} 提交写入提案;字段草稿:${payload}`,
     '先只读核实是否已有同名实体,再写入;未获批准不得声称已落库。',
+  ]
+  return focusChiefWithSeed(lines.join('\n'))
+}
+
+/** PR-6：演变种子模板（实体卡 / 命题详情共用） */
+export function seedChiefTruthSupersede({
+  entityId,
+  entityLabel,
+  attribute = '状态',
+  valueHint = '（请填写新状态）',
+  sinceChapter = '当前章',
+  secret = false,
+} = {}) {
+  const name = entityLabel || String(entityId || '').split(':').pop() || '该实体'
+  const lines = [
+    `请自第 ${sinceChapter} 章起，将「${name}」的状态「${attribute}」演变为：${valueHint}。`,
+    `使用 s3_supersede_fact（entity_id=${JSON.stringify(String(entityId || ''))}）；secret=${secret ? 'true' : 'false'}。`,
+    '勿使用 edit_fact 原地抹历史；未获批准不得声称已落库。',
   ]
   return focusChiefWithSeed(lines.join('\n'))
 }

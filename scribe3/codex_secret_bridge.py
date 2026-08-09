@@ -122,16 +122,39 @@ def sync_faction_secrets(store, name: str, row: dict) -> dict:
         if flagged and has_value:
             text = _summarize(row.get(key))
             if existing_local:
+                # 策略 B：镜像 UPSERT value，无演变史；保持 source=codex_bridge
                 store._execute_write(
-                    "UPDATE type::record('proposition', $local) SET value=$val, secret=true",
-                    {"local": existing_local, "val": text})
+                    "UPDATE type::record('proposition', $local) SET value=$val, secret=true, source=$src",
+                    {"local": existing_local, "val": text, "src": SOURCE})
                 counts["updated"] += 1
+                # best-effort 语义索引 + 缓存失效（与 add_fact 对齐）
+                try:
+                    store.semantic_index(f"fact:{existing_local}", text)
+                except Exception:
+                    pass
+                try:
+                    from scribe3.store.core_preamble import _emit_cache_invalidation
+                    _emit_cache_invalidation("proposition", getattr(store, "db_name", None))
+                except Exception:
+                    pass
             else:
                 store._execute_write(
                     "CREATE proposition SET entity_id=$eid, attribute=$attr, value=$val, "
                     "valid_from=1, secret=true, source=$src",
                     {"eid": entity_id, "attr": key, "val": text, "src": SOURCE})
                 counts["created"] += 1
+                try:
+                    # CREATE 后查 local 可能已有 existing 路径；用 attribute 再找一次
+                    loc = _find_bridge_local(store, entity_id, key) or existing_local
+                    if loc:
+                        store.semantic_index(f"fact:{loc}", text)
+                except Exception:
+                    pass
+                try:
+                    from scribe3.store.core_preamble import _emit_cache_invalidation
+                    _emit_cache_invalidation("proposition", getattr(store, "db_name", None))
+                except Exception:
+                    pass
         elif existing_local:
             store._execute_write(
                 "DELETE type::record('proposition', $local)", {"local": existing_local})
