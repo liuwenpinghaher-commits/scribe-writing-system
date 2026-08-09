@@ -42,6 +42,18 @@ describe('filterPromiseRows', () => {
   })
 })
 
+describe('statusLabels · 列表 meta 中文', () => {
+  it('heat/status 可映射中文', async () => {
+    const { uiStatusLabel, MOTIF_HEAT_CN, PROMISE_STATUS_CN } = await import('../../lib/statusLabels')
+    expect(uiStatusLabel('hot', MOTIF_HEAT_CN)).toBe('过热')
+    expect(uiStatusLabel('cold', MOTIF_HEAT_CN)).toBe('该回声')
+    expect(uiStatusLabel('neutral', MOTIF_HEAT_CN)).toBe('平稳')
+    expect(uiStatusLabel('open', PROMISE_STATUS_CN)).toBe('未收')
+    expect(uiStatusLabel('closed', PROMISE_STATUS_CN)).toBe('已收')
+    expect(uiStatusLabel('abandoned', PROMISE_STATUS_CN)).toBe('已弃')
+  })
+})
+
 describe('filterMotifRows', () => {
   const state = {
     motifs: [

@@ -13,6 +13,7 @@ import {
   registerPendingCodexDelete, clearPendingCodexDelete,
   watchCodexObjectGone, notifyCodexTreeRefresh,
 } from './lib/codexLifecycle.js'
+import { uiStatusLabel, PROMISE_STATUS_CN, PROMISE_TIER_CN } from './lib/statusLabels'
 
 // 项目树「素材叶」类型 → CodexView DetailView 的 type 值。
 const TYPE_MAP = {
@@ -433,8 +434,8 @@ function PromiseLifecycle({ row }) {
         <span className="text-f13 text-ink">
           埋第{row.setup_chapter ?? '—'}章
           {row.payoff_chapter != null ? ` → 收第${row.payoff_chapter}章` : ' → 待收'}
-          {row.status ? ` (${row.status})` : ''}
-          {row.tier ? ` · ${row.tier}` : ''}
+          {row.status ? ` (${uiStatusLabel(row.status, PROMISE_STATUS_CN)})` : ''}
+          {row.tier ? ` · ${uiStatusLabel(row.tier, PROMISE_TIER_CN)}` : ''}
         </span>
         <button
           type="button"

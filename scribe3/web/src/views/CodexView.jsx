@@ -5,6 +5,18 @@ import { Tag, Input, Textarea, Btn } from '../ui'
 import { Field as UIField } from '../ui/Field.jsx'
 import { EditableText, ReadOnlyText } from '../ui/EditableText.jsx'
 import { showToast } from '../ui/Toast'
+import {
+  uiStatusLabel,
+  optionValue,
+  optionLabel,
+  labeledOptions,
+  ITEM_STATE_CN,
+  SCOPE_CN,
+  IMPORTANCE_CN,
+  PROMISE_TIER_CN,
+  PROMISE_KIND_CN,
+  RULE_CAT_CN,
+} from '../lib/statusLabels'
 
 
 // 注:本文件仅导出 DetailView(被 CodexNew/CodexDetail 复用)。
@@ -81,7 +93,8 @@ function Field({ label, value, onSave, type = 'text', options, placeholder, sect
         : (value || '')
       return <ReadOnlyField label={label} value={text} section={section} entityLabel={entityLabel} fieldKey={fieldKey} />
     }
-    return <ReadOnlyField label={label} value={value} section={section} entityLabel={entityLabel} fieldKey={fieldKey} />
+    const display = type === 'select' ? uiStatusLabel(value) : value
+    return <ReadOnlyField label={label} value={display} section={section} entityLabel={entityLabel} fieldKey={fieldKey} />
   }
 
   if (immediate && type !== 'tags' && type !== 'abilities') {
@@ -94,7 +107,10 @@ function Field({ label, value, onSave, type = 'text', options, placeholder, sect
           ) : type === 'select' ? (
             <select value={val ?? ''} onChange={(e) => set(e.target.value)}
               className="w-full h-9 rounded-lg border border-line bg-canvas px-3 text-f13 text-ink outline-none transition-colors focus:border-brand cursor-pointer">
-              <option value="">—</option>{(options || []).map((o) => <option key={o} value={o}>{o}</option>)}
+              <option value="">—</option>
+              {(options || []).map((o) => (
+                <option key={String(optionValue(o))} value={optionValue(o)}>{optionLabel(o)}</option>
+              ))}
             </select>
           ) : (
             <Input variant="bordered" type={type === 'number' ? 'number' : 'text'} value={val}
@@ -163,7 +179,10 @@ function SelectClickField({ id, label, value, options, description, section, pla
         <select ref={ref} id={id} value={val ?? ''} onChange={(e) => setVal(e.target.value)} onBlur={commit}
           onKeyDown={(e) => { if (e.key === 'Escape') cancel() }}
           className="w-full h-9 rounded-lg border border-brand/40 bg-canvas px-3 text-f13 text-ink outline-none focus:border-brand cursor-pointer">
-          <option value="">—</option>{(options || []).map((o) => <option key={o} value={o}>{o}</option>)}
+          <option value="">—</option>
+          {(options || []).map((o) => (
+            <option key={String(optionValue(o))} value={optionValue(o)}>{optionLabel(o)}</option>
+          ))}
         </select>
         <div className="text-meta text-faint/50 mt-0.5">失焦自动保存 · ESC 取消</div>
       </div>
@@ -187,7 +206,7 @@ function SelectClickField({ id, label, value, options, description, section, pla
             setEditing(true)
           }
         }}
-      >{value || placeholder || '—'}</div>
+      >{value ? uiStatusLabel(value) : (placeholder || '—')}</div>
     </div>
   )
 }
@@ -414,9 +433,9 @@ function ItemStateHistory({ item }) {
   const history = item.state_history || []
   return (
     <div className="mt-4">
-      <div className="flex items-center gap-2 mb-2"><span className="text-meta text-faint uppercase tracking-wider">状态流转</span><span className="text-meta text-faint/50">当前: {item.symbolic_state}</span></div>
+      <div className="flex items-center gap-2 mb-2"><span className="text-meta text-faint uppercase tracking-wider">状态流转</span><span className="text-meta text-faint/50">当前: {uiStatusLabel(item.symbolic_state, ITEM_STATE_CN)}</span></div>
       {history.length === 0 ? <div className="text-f12 text-faint/50 py-2">尚无状态变更记录。</div> : (
-        <div className="relative pl-6 border-l-2 border-brand/30 space-y-2">{history.map((h, i) => (<div key={i} className="relative"><div className="absolute -left-[27px] top-1.5 w-3 h-3 rounded-full border-2 border-surface" style={{ background: h.state === 'active' ? 'var(--color-ok)' : h.state === 'lost' ? 'var(--color-fore)' : 'var(--color-danger)' }} /><div className="flex items-center gap-2"><Tag tone={h.state === 'active' ? 'ok' : h.state === 'lost' ? 'fore' : 'faint'}>{h.state}</Tag>{h.chapter && <span className="text-meta text-faint">第{h.chapter}章</span>}</div>{h.note && <div className="text-f12 text-faint mt-0.5">{h.note}</div>}</div>))}</div>
+        <div className="relative pl-6 border-l-2 border-brand/30 space-y-2">{history.map((h, i) => (<div key={i} className="relative"><div className="absolute -left-[27px] top-1.5 w-3 h-3 rounded-full border-2 border-surface" style={{ background: h.state === 'active' ? 'var(--color-ok)' : h.state === 'lost' ? 'var(--color-fore)' : 'var(--color-danger)' }} /><div className="flex items-center gap-2"><Tag tone={h.state === 'active' ? 'ok' : h.state === 'lost' ? 'fore' : 'faint'}>{uiStatusLabel(h.state, ITEM_STATE_CN)}</Tag>{h.chapter && <span className="text-meta text-faint">第{h.chapter}章</span>}</div>{h.note && <div className="text-f12 text-faint mt-0.5">{h.note}</div>}</div>))}</div>
       )}
     </div>
   )
@@ -839,7 +858,7 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete, onCha
             return (
               <>
                 <Field label="名字" value={row.name} placeholder="输入角色名" onSave={(v) => save('name', v)} immediate={isNew} required={requiredNew('name')} {...f('名字', { fieldKey: 'name' })} />
-                <Field label="重要度" value={row.importance} type="select" options={['protagonist','major','minor','background']} onSave={(v) => save('importance', v)} immediate={isNew} {...f('重要度', { fieldKey: 'importance' })} />
+                <Field label="重要度" value={row.importance} type="select" options={labeledOptions(['protagonist', 'major', 'minor', 'background'], IMPORTANCE_CN)} onSave={(v) => save('importance', v)} immediate={isNew} {...f('重要度', { fieldKey: 'importance' })} />
                 <Field label="外貌" value={row.appearance} type="textarea" placeholder="描述外貌特征" onSave={(v) => save('appearance', v)} immediate={isNew} {...f('外貌', { fieldKey: 'appearance' })} />
                 <Field label="性格标签" type="tags" options={row.personality_tags} onSave={(v) => save('personality_tags', v)} {...f('性格标签', { fieldKey: 'personality_tags' })} />
                 <Field label="性格深描" value={row.personality_detail} type="textarea" placeholder="深入描述性格" onSave={(v) => save('personality_detail', v)} immediate={isNew} {...f('性格深描', { fieldKey: 'personality_detail' })} />
@@ -918,11 +937,11 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete, onCha
   }
   const fields = fieldMap[type] || []
   const tabLabel = TABS.find((t) => t.key === type)?.label || type
-  const stateOptions = ['active','lost','destroyed','unknown']
+  const stateOptions = labeledOptions(['active', 'lost', 'destroyed', 'unknown'], ITEM_STATE_CN)
   // 世界规则作用域:严格对齐后端 DB ASSERT(migrations/027_setting_completeness.surql
   // `scope IN ['global','regional','faction_specific']`)。曾误含 'local' → 用户选中保存必被
   // SurrealDB 断言拒绝(报文不可读)。P1-8:去 'local',补正确三值。
-  const scopeOptions = ['global','regional','faction_specific']
+  const scopeOptions = labeledOptions(['global', 'regional', 'faction_specific'], SCOPE_CN)
   const tierOptions = [
     { value: 'chapter', label: '章级（近场 +1~3 章内兑现）' },
     { value: 'arc',     label: '卷级（中程 +5~15 章内兑现）' },
@@ -933,17 +952,13 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete, onCha
   // 因请求体缺 promise_kind 被后端默认 'promise' 静默重置 red_herring——现统一读写 `kind`,
   // 由 api.editPromise/addPromiseNew 在线上转译 kind→promise_kind(请求体字段名),两向对齐。
   const kindOptions = [
-    { value: 'promise',     label: '正伏笔（promise · 需兑现）' },
-    { value: 'red_herring', label: '障眼法（red_herring · 误导，永不兑现）' },
+    { value: 'promise',     label: '正伏笔（需兑现）' },
+    { value: 'red_herring', label: '障眼法（误导，永不兑现）' },
   ]
-  const ruleCatOptions = [
-    { value: 'magic',      label: '魔法' },
-    { value: 'technology', label: '科技' },
-    { value: 'social',     label: '社会' },
-    { value: 'physical',   label: '物理' },
-    { value: 'economic',   label: '经济' },
-    { value: 'political',  label: '政治' },
-  ]
+  const ruleCatOptions = labeledOptions(
+    ['magic', 'technology', 'social', 'physical', 'economic', 'political'],
+    RULE_CAT_CN,
+  )
   // Helper: array ↔ comma-separated string
   const arrToCSV = (v) => Array.isArray(v) ? v.join(', ') : (v || '')
   const csvToArr = (s) => s.split(',').map((x) => x.trim()).filter(Boolean)
@@ -983,23 +998,23 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete, onCha
           ) :
           ftype === 'bool' ? (<div key={k} className="py-2"><div className="text-meta text-faint uppercase tracking-wider mb-1">{label}</div><div className="text-f13 text-ink">{row[k] ? '是' : '否'}</div></div>) :
           ftype === 'rule_cat' ? (
-            ro ? <ReadOnlyField key={k} label={label} value={row[k] || 'magic'} {...roField} /> : (
+            ro ? <ReadOnlyField key={k} label={label} value={uiStatusLabel(row[k] || 'magic', RULE_CAT_CN)} {...roField} /> : (
             <SelectRow key={k} id={`${uid}-${k}`} label={label} isNew={isNew} value={row[k] || 'magic'} onChange={(v) => save(k, v)}>
-              {ruleCatOptions.map((o) => <option key={o.value} value={o.value}>{o.label}（{o.value}）</option>)}
+              {ruleCatOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </SelectRow>
             )
           ) :
           ftype === 'scope' ? (
-            ro ? <ReadOnlyField key={k} label={label} value={row[k] || '—'} {...roField} /> : (
+            ro ? <ReadOnlyField key={k} label={label} value={row[k] ? uiStatusLabel(row[k], SCOPE_CN) : '—'} {...roField} /> : (
             <SelectRow key={k} id={`${uid}-${k}`} label={label} isNew={isNew} value={row[k] || ''} onChange={(v) => save(k, v || null)}>
               <option value="">—</option>
-              {scopeOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+              {scopeOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </SelectRow>
             )
           ) :
           ftype === 'tier_sel' ? (
             // 伏笔兑现层级(B-2):章级近场兑现 / 卷级中程 / 书级贯穿全书(书级永不超期)。
-            ro ? <ReadOnlyField key={k} label={label} value={row[k] || 'chapter'} {...roField} /> : (
+            ro ? <ReadOnlyField key={k} label={label} value={uiStatusLabel(row[k] || 'chapter', PROMISE_TIER_CN)} {...roField} /> : (
             <SelectRow key={k} id={`${uid}-${k}`} label={label} isNew={isNew} value={row[k] || 'chapter'} onChange={(v) => save(k, v)}>
               {tierOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </SelectRow>
@@ -1007,7 +1022,7 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete, onCha
           ) :
           ftype === 'kind_sel' ? (
             // 伏笔类型(P1-3):读写 row.kind;缺省视作 promise。改此值等价 mark-herring(store 同为 SET kind)。
-            ro ? <ReadOnlyField key={k} label={label} value={row[k] || 'promise'} {...roField} /> : (
+            ro ? <ReadOnlyField key={k} label={label} value={uiStatusLabel(row[k] || 'promise', PROMISE_KIND_CN)} {...roField} /> : (
             <SelectRow key={k} id={`${uid}-${k}`} label={label} isNew={isNew} value={row[k] || 'promise'} onChange={(v) => save(k, v)}>
               {kindOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </SelectRow>

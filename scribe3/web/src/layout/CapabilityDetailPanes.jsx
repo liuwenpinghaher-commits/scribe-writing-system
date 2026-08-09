@@ -6,6 +6,7 @@ import { IssueDetail } from '../capabilities/issues/IssueDetail'
 import { capabilityConfig, capabilityGroup, formatScope } from './capabilityTree'
 import { filterPromiseRows, filterMotifRows, MOTIF_VIEW_KEYS, normMotifId } from './capabilityItems'
 import { useDeduceSel } from '../deduceContext'
+import { MOTIF_HEAT_CN, MOTIF_PHASE_CN, uiStatusLabel } from '../lib/statusLabels'
 
 const COPY = {
   recall_result: {
@@ -260,7 +261,7 @@ export function DeduceDetailPane({ node, work }) {
   return <DeduceStage key={node?.id} seq={seq} meta={meta} work={work} />
 }
 
-const HEAT_LABEL = { hot: '过热', cold: '该回声', neutral: '平稳' }
+const HEAT_LABEL = MOTIF_HEAT_CN
 
 export function MotifDetailPane({ node, work }) {
   const [state, setState] = useState(undefined)
@@ -354,6 +355,11 @@ export function MotifDetailPane({ node, work }) {
               <div className="text-f14 font-semibold text-ink">{row.name || row.id}</div>
               {row.heat && (
                 <span className="text-meta text-faint" data-testid="motif-heat">{HEAT_LABEL[row.heat] || row.heat}</span>
+              )}
+              {row.phase && (
+                <span className="text-meta text-faint" data-testid="motif-phase">
+                  · {uiStatusLabel(row.phase, MOTIF_PHASE_CN)}
+                </span>
               )}
             </div>
             {row.theme && <div className="mt-2 text-f13 text-fore">{row.theme}</div>}

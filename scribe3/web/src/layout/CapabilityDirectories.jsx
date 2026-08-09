@@ -9,6 +9,19 @@ import {
   promiseItemNode,
   motifItemNode,
 } from './capabilityItems'
+import {
+  uiStatusLabel,
+  PROMISE_STATUS_CN,
+  MOTIF_HEAT_CN,
+} from '../lib/statusLabels'
+
+/** 列表行右侧 meta：优先超期；否则状态/热度中文 */
+function itemMetaText(item) {
+  if (item?.meta?.overdue) return '超期'
+  if (item?.meta?.status) return uiStatusLabel(item.meta.status, PROMISE_STATUS_CN)
+  if (item?.meta?.heat) return uiStatusLabel(item.meta.heat, MOTIF_HEAT_CN)
+  return undefined
+}
 
 function rowRef(row, seq, groupId) {
   if (typeof row.ref === 'object') return { ...row.ref, group: groupId, seq }
@@ -193,7 +206,7 @@ function LiveListCapabilityDirectory({ capability, seq, onSelectItem }) {
                             <DirectoryRow
                               key={item.id}
                               title={item.label}
-                              meta={item.meta?.overdue ? '超期' : (item.meta?.status || item.meta?.heat || undefined)}
+                              meta={itemMetaText(item)}
                               onClick={() => onSelectItem?.(item)}
                               aria-label={item.label}
                               data-testid={`capability-item-${item.id}`}

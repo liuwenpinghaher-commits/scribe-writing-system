@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
 import { Btn } from './ui.jsx'
+import { uiStatusLabel, LETTER_STATUS_CN } from './lib/statusLabels'
 
 const GRID_CELLS = [
-  ['goal', '目标 Goal'],
-  ['conflict', '冲突 Conflict'],
-  ['disaster', '灾难 Disaster'],
-  ['reaction', '反应 Reaction'],
-  ['dilemma', '两难 Dilemma'],
-  ['decision', '决定 Decision'],
+  ['goal', '目标'],
+  ['conflict', '冲突'],
+  ['disaster', '灾难'],
+  ['reaction', '反应'],
+  ['dilemma', '两难'],
+  ['decision', '决定'],
 ]
 
 const emptyGrid = () => Object.fromEntries(GRID_CELLS.map(([k]) => [k, '']))
@@ -141,8 +142,8 @@ export function ExperiencePressurePanel({ seq }) {
               data-testid={`exp-letter-item-${it.id}`}
             >
               <div className="flex flex-wrap items-baseline gap-2">
-                <span className="text-meta uppercase tracking-wide text-faint">{it.kind}</span>
-                <span className="text-meta text-faint">· {it.status || 'open'}</span>
+                <span className="text-meta uppercase tracking-wide text-faint">{uiStatusLabel(it.kind)}</span>
+                <span className="text-meta text-faint">· {uiStatusLabel(it.status || 'open', LETTER_STATUS_CN)}</span>
               </div>
               <div className="mt-1 text-f13 leading-snug">{it.question || it.summary || it.title || it.text || it.id}</div>
               <div className="mt-2 flex flex-wrap items-center gap-2">
