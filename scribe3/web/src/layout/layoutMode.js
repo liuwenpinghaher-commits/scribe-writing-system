@@ -3,7 +3,7 @@
  * 默认按章阶段自动：大纲/节拍/演绎/草稿 → collaboration；正文 final → reading。
  * 非章上下文（设定/素材等）默认 collaboration。全画布 view → reading。
  *
- * 栏序（用户偏好）：主编会话始终在**最左侧**（入口轨之后），再目录、再详情；
+ * 栏序（用户偏好）：目录 | 详情 | 主编会话 —— 聊天在**最右侧**；
  * 默认宽度仍为 right=52 / detail=34 / directory=14（聊天:内容 ≈ 6:4）。
  */
 
@@ -89,13 +89,13 @@ export const LAYOUT_BOUNDS_BY_MODE = Object.freeze({
 
 /**
  * Panel 横向顺序（id）。
- * 全模式统一：主编(right) | 目录 | 详情 —— 会话在最左，避免夹在中间。
+ * 全模式统一：目录 | 详情 | 主编(right) —— 聊天在最右。
  * @param {'collaboration'|'reading'} mode
  * @returns {Array<'directory'|'detail'|'right'>}
  */
 export function panelOrderForMode(mode) {
   void mode
-  return ['right', 'directory', 'detail']
+  return ['directory', 'detail', 'right']
 }
 
 /** 是否顶栏「旅程」横切视图 */
@@ -104,11 +104,11 @@ export function isJourneyViewSel(sel) {
 }
 
 /**
- * 旅程 tab：与全局相同 — 会话 | 目录 | 旅程详情。
+ * 旅程 tab：与全局相同 — 目录 | 旅程详情 | 会话（最右）。
  * @returns {Array<'directory'|'detail'|'right'>}
  */
 export function panelOrderForJourney() {
-  return ['right', 'directory', 'detail']
+  return ['directory', 'detail', 'right']
 }
 
 /**
@@ -128,7 +128,7 @@ export function resolvePanelLayout(opts = {}) {
       panelOrder: panelOrderForJourney(),
       layoutDefaults: JOURNEY_LAYOUT_SHARES,
       layoutBounds: journeyBounds,
-      storageMode: 'journey-v3',
+      storageMode: 'journey-v4',
       // 旅程详情不要锁 min 56%，否则默认 34% 无效且几乎拖不动
       detailMinPercent: 28,
     }
@@ -143,8 +143,8 @@ export function resolvePanelLayout(opts = {}) {
   }
 }
 
-/** layout persistence 前缀 v6：会话回最左，清掉 v5 的「目录|会话|详情」顺序缓存 */
-export const FOUR_PANE_LAYOUT_ID_V3 = 's3.fourPane.layout.v6'
+/** layout persistence 前缀 v7：会话在最右，清掉 v6 最左顺序缓存 */
+export const FOUR_PANE_LAYOUT_ID_V3 = 's3.fourPane.layout.v7'
 
 export function layoutStorageId(work, mode) {
   return `${FOUR_PANE_LAYOUT_ID_V3}:${mode}:${work || 'main'}`
@@ -183,10 +183,12 @@ export function restoreSlotsForOrder(panelOrder, state = {}) {
     let next = idx >= 0 && idx < order.length - 1 ? order[idx + 1] : null
     if (gone(prev)) prev = idx > 1 ? order[idx - 2] : null
     if (gone(next)) next = idx >= 0 && idx + 2 < order.length ? order[idx + 2] : null
-    if (prev) {
+    if (prev && !gone(prev)) {
       right = { hostId: prev, edge: 'right' }
-    } else if (next) {
+    } else if (next && !gone(next)) {
       right = { hostId: next, edge: 'left' }
+    } else if (prev) {
+      right = { hostId: prev, edge: 'right' }
     }
   }
 

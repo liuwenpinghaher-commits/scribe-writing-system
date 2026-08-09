@@ -409,8 +409,8 @@ describe('FourPaneShell 四栏钻取', () => {
 
     expect(screen.queryByTestId('col-directory')).toBeNull()
     const restore = screen.getByTestId('directory-restore-button')
-    // 协作 order=right|directory|detail → 目录折叠后还原贴主编左缘
-    expect(restore.getAttribute('data-restore-host')).toBe('right')
+    // 协作 order=directory|detail|right → 目录折叠后还原贴详情左缘
+    expect(restore.getAttribute('data-restore-host')).toBe('detail')
     expect(restore.getAttribute('data-restore-edge')).toBe('left')
     expect(restore.className).toContain('left-0')
     expect(restore.className).toContain('top-1/2')
@@ -495,7 +495,7 @@ describe('FourPaneShell 四栏钻取', () => {
     const mode = screen.getByTestId('four-col').getAttribute('data-layout-mode')
     expect(mode).toBe('collaboration')
     expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
-      id: `s3.fourPane.layout.v6:${mode}:book-sync`,
+      id: `s3.fourPane.layout.v7:${mode}:book-sync`,
     }))
     expect(screen.getByTestId('detail-panel').getAttribute('data-layout-mode')).toBe(mode)
     expect(screen.getByTestId('right-panel').getAttribute('data-layout-mode')).toBe(mode)
@@ -677,7 +677,7 @@ describe('FourPaneShell 四栏钻取', () => {
   it('scopes panel layout by work and mode (v5)', () => {
     render(<Harness work="book-a" />)
     expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
-      id: 's3.fourPane.layout.v6:collaboration:book-a',
+      id: 's3.fourPane.layout.v7:collaboration:book-a',
     }))
   })
 
@@ -721,7 +721,7 @@ describe('FourPaneShell 四栏钻取', () => {
     expect(detailW).toBe(34)
     expect(rightW).toBe(52)
     expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
-      id: 's3.fourPane.layout.v6:reading:demo',
+      id: 's3.fourPane.layout.v7:reading:demo',
     }))
   })
 
@@ -750,7 +750,7 @@ describe('FourPaneShell 四栏钻取', () => {
       expect(screen.getByTestId('four-col').getAttribute('data-layout-mode')).toBe('reading')
     })
     expect(screen.getByTestId('four-col').getAttribute('data-journey-layout')).toBe('1')
-    expect(screen.getByTestId('four-col').getAttribute('data-panel-order')).toBe('right|directory|detail')
+    expect(screen.getByTestId('four-col').getAttribute('data-panel-order')).toBe('directory|detail|right')
     // view 隐藏目录 → 两栏份额归一；会话:旅程 ≈ 52:34，且详情 min 可拖（非 56）
     const detailW = Number(screen.getByTestId('detail-panel').getAttribute('data-default-size'))
     const rightW = Number(screen.getByTestId('right-panel').getAttribute('data-default-size'))
@@ -760,7 +760,7 @@ describe('FourPaneShell 四栏钻取', () => {
     expect(detailMin).toBe(28)
     expect(detailMin).toBeLessThanOrEqual(detailW)
     expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
-      id: 's3.fourPane.layout.v6:journey-v3:demo',
+      id: 's3.fourPane.layout.v7:journey-v4:demo',
     }))
   })
 })

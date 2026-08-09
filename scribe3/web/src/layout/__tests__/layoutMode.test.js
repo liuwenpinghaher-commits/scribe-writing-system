@@ -65,19 +65,19 @@ describe('layout defaults by mode', () => {
 })
 
 describe('panel order + storage id', () => {
-  it('all modes put chief (right) leftmost then directory then detail', () => {
-    expect(panelOrderForMode('collaboration')).toEqual(['right', 'directory', 'detail'])
-    expect(panelOrderForMode('reading')).toEqual(['right', 'directory', 'detail'])
+  it('all modes put chief (right) rightmost: directory | detail | right', () => {
+    expect(panelOrderForMode('collaboration')).toEqual(['directory', 'detail', 'right'])
+    expect(panelOrderForMode('reading')).toEqual(['directory', 'detail', 'right'])
   })
 
-  it('layoutStorageId isolates work and mode (v6)', () => {
-    expect(layoutStorageId('demo', 'collaboration')).toContain('v6')
+  it('layoutStorageId isolates work and mode (v7)', () => {
+    expect(layoutStorageId('demo', 'collaboration')).toContain('v7')
     expect(layoutStorageId('demo', 'collaboration')).toContain('collaboration')
     expect(layoutStorageId('demo', 'collaboration')).not.toBe(layoutStorageId('demo', 'reading'))
   })
 })
 
-describe('journey tab shares + leftmost session', () => {
+describe('journey tab shares + rightmost session', () => {
   it('isJourneyViewSel only for viewKey=journey', () => {
     expect(isJourneyViewSel({ mode: 'view', viewKey: 'journey' })).toBe(true)
     expect(isJourneyViewSel({ mode: 'view', viewKey: 'atlas' })).toBe(false)
@@ -85,8 +85,8 @@ describe('journey tab shares + leftmost session', () => {
     expect(isJourneyViewSel(null)).toBe(false)
   })
 
-  it('journey order: session | directory | detail (session leftmost)', () => {
-    expect(panelOrderForJourney()).toEqual(['right', 'directory', 'detail'])
+  it('journey order: directory | detail | session (session rightmost)', () => {
+    expect(panelOrderForJourney()).toEqual(['directory', 'detail', 'right'])
   })
 
   it('journey defaults: session 52%, journey/detail 34%', () => {
@@ -104,14 +104,14 @@ describe('journey tab shares + leftmost session', () => {
 
   it('resolvePanelLayout journey only overrides when isJourneyView', () => {
     const journey = resolvePanelLayout({ layoutMode: 'reading', isJourneyView: true })
-    expect(journey.panelOrder).toEqual(['right', 'directory', 'detail'])
+    expect(journey.panelOrder).toEqual(['directory', 'detail', 'right'])
     expect(journey.layoutDefaults.right).toBe(52)
     expect(journey.layoutDefaults.detail).toBe(34)
     expect(journey.detailMinPercent).toBe(28)
-    expect(journey.storageMode).toBe('journey-v3')
+    expect(journey.storageMode).toBe('journey-v4')
 
     const atlas = resolvePanelLayout({ layoutMode: 'reading', isJourneyView: false, isView: true })
-    expect(atlas.panelOrder).toEqual(['right', 'directory', 'detail'])
+    expect(atlas.panelOrder).toEqual(['directory', 'detail', 'right'])
     expect(atlas.layoutDefaults.right).toBe(52)
     expect(atlas.layoutDefaults.detail).toBe(34)
     expect(atlas.detailMinPercent).toBe(40)
@@ -119,33 +119,31 @@ describe('journey tab shares + leftmost session', () => {
   })
 })
 
-describe('restoreSlotsForOrder (by panel order, not hard-coded on detail)', () => {
-  const order = panelOrderForMode('collaboration') // right | directory | detail
+describe('restoreSlotsForOrder (directory | detail | right)', () => {
+  const order = panelOrderForMode('collaboration')
 
-  it('directory collapsed: restore host is chief (right) left edge', () => {
+  it('directory collapsed: restore on detail left', () => {
     expect(restoreSlotsForOrder(order, { directoryCollapsed: true, rightCollapsed: false, isView: false }))
-      .toEqual({ directory: { hostId: 'right', edge: 'left' }, right: null })
+      .toEqual({ directory: { hostId: 'detail', edge: 'left' }, right: null })
   })
 
-  it('right collapsed: restore host is next visible neighbor (directory) left edge', () => {
+  it('right collapsed: restore on detail right edge', () => {
     expect(restoreSlotsForOrder(order, { directoryCollapsed: false, rightCollapsed: true, isView: false }))
-      .toEqual({ directory: null, right: { hostId: 'directory', edge: 'left' } })
+      .toEqual({ directory: null, right: { hostId: 'detail', edge: 'right' } })
   })
 
-  it('both collapsed: directory on detail left; right skips gone directory → detail', () => {
+  it('both collapsed: directory left + right opposite on detail', () => {
     const slots = restoreSlotsForOrder(order, {
       directoryCollapsed: true,
       rightCollapsed: true,
       isView: false,
     })
     expect(slots.directory).toEqual({ hostId: 'detail', edge: 'left' })
-    // right collapsed at index 0, next directory is gone → detail left; conflict flips edge
-    expect(slots.right.hostId).toBe('detail')
-    expect(['left', 'right']).toContain(slots.right.edge)
+    expect(slots.right).toEqual({ hostId: 'detail', edge: 'right' })
   })
 
-  it('view: no directory restore; right collapsed hosts on detail', () => {
+  it('view: no directory restore; right collapsed hosts on detail right', () => {
     expect(restoreSlotsForOrder(order, { directoryCollapsed: true, rightCollapsed: true, isView: true }))
-      .toEqual({ directory: null, right: { hostId: 'detail', edge: 'left' } })
+      .toEqual({ directory: null, right: { hostId: 'detail', edge: 'right' } })
   })
 })
