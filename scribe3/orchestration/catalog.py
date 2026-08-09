@@ -32,14 +32,20 @@ CATALOG: list[dict[str, Any]] = [
         "label": "角色设定",
         "match_keywords": (
             "角色", "人物", "主角", "配角", "角色设定", "人物设定", "外貌", "欲望", "恐惧",
-            "表层目标", "弧光", "锚点", "character", "s3_add_character", "s3_patch_character",
-            "s3_set_char_anchors", "更正角色", "更新角色",
+            "表层目标", "弧光", "锚点", "里程碑", "character", "s3_add_character", "s3_patch_character",
+            "s3_set_char_anchors", "s3_add_arc_beat", "s3_delete_arc_beat", "s3_add_char_state",
+            "更正角色", "更新角色",
         ),
-        "match_force": ("s3_add_character", "s3_patch_character", "s3_set_char_anchors", "更正角色", "更新角色"),
+        "match_force": (
+            "s3_add_character", "s3_patch_character", "s3_set_char_anchors",
+            "s3_add_arc_beat", "s3_delete_arc_beat", "s3_add_char_state",
+            "更正角色", "更新角色", "里程碑", "弧光",
+        ),
         "read_tools": ("s3_list_chapters", "s3_character_timeline", "s3_get_voice_profile"),
         "write_tools": (
             "s3_add_character", "s3_patch_character", "s3_set_char_anchors",
             "s3_set_voice_profile", "s3_add_char_state",
+            "s3_add_arc_beat", "s3_delete_arc_beat",
         ),
         "required_outcome": "write_proposal",
         "ui": {"entry": "codex", "phase": None, "node": {"type": "character"}, "right_tab": "chief",

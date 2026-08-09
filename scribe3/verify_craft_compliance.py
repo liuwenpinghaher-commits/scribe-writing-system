@@ -223,6 +223,32 @@ def gate_a(st, *, thresholds: CraftGateThresholds | None = None) -> GateReport:
             "A2", "pass", f"{len(rich)} 名档案齐全角色",
             {"ids": [c.id for c in rich]}))
 
+    # A-ARC 主档缺 Lie — soft only（不进 save hard block）
+    try:
+        from scribe3 import arc_signals as AS
+        missing_lie = []
+        for c in chars:
+            a = st.char_anchors(c.id) if hasattr(st, "char_anchors") else {}
+            if (a.get("lie") or "").strip():
+                continue
+            imp = ""
+            if isinstance(getattr(c, "traits", None), dict):
+                imp = str((c.traits or {}).get("importance") or "")
+            if AS.is_main_cast_importance(imp):
+                missing_lie.append(getattr(c, "name", None) or c.id)
+        if missing_lie:
+            checks.append(CheckResult(
+                "A-ARC", "warn",
+                f"主角色缺 Lie 锚 {len(missing_lie)} 人: {', '.join(missing_lie[:5])}",
+                {"names": missing_lie}, "RC-EMPTY-AUX", hard=False))
+        else:
+            checks.append(CheckResult(
+                "A-ARC", "pass", "主角色 Lie 锚齐全或无主档", hard=False))
+    except Exception as e:
+        checks.append(CheckResult(
+            "A-ARC", "warn", f"弧光锚检查失败: {e}", hard=False,
+            root_cause_hint="RC-DETECTOR-BUG"))
+
     n_facts = 0
     if hasattr(st, "facts_at"):
         try:

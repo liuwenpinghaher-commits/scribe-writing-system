@@ -72,23 +72,17 @@ def platform_deterministic(text: str, platform: str) -> list[dict]:
 
 def arc_directive(name: str, anchors: dict, arc_plan: list[dict],
                   lie_belief: int | None, next_ch: int) -> str:
-    """单角色弧光三行指令:当前值 + 当前拍→下一拍 + 禁止事项。
-    Task7-B①:done 判定严格 <(target_chapter == next_ch 属"本章应到达该拍",
-    该拍进"下一拍"指令,不得提前算已完成)。"""
-    name = (name or "").replace("\n", " ")   # Task8审查:name 也补齐换行清洗
-    lie = (anchors.get("lie") or "—").replace("\n", " ")   # Task7-B②:防多行伪造 section 头
-    at = (anchors.get("arc_type") or "—").replace("\n", " ")   # Task8:与 lie/promise/agenda 拉齐清洗
-    done = [b for b in arc_plan if b["target_chapter"] < next_ch]
-    ahead = [b for b in arc_plan if b["target_chapter"] >= next_ch]
-    cur = (done[-1]["beat_name"] if done else "开场常态").replace("\n", " ")   # Task8:beat_name 清洗
-    nxt = (f"{(ahead[0]['beat_name'] or '').replace(chr(10), ' ')}(目标第{ahead[0]['target_chapter']}章"
-           + (f",信奉度趋 {ahead[0]['lie_belief_target']}" if ahead[0].get("lie_belief_target") is not None else "")
-           + ")") if ahead else "终局"
-    cur_v = f"{lie_belief}" if lie_belief is not None else "未测"
-    return (f"【角色弧光·{name}】弧型:{at} | 信念(Lie):「{lie}」\n"
-            f"当前信奉度:{cur_v};所处节拍:{cur} → 下一拍:{nxt}\n"
-            f"本章指令:朝下一拍缓移,位移须由本章事件背书。"
-            f"禁止:一步顿悟、借台词明说信念、跳到终局姿态。")
+    """单角色弧光三行指令：以 arc_beat_focus 为权威（KD18），避免与逾期决策自相矛盾。"""
+    from scribe3 import arc_signals as AS
+    focus = AS.arc_beat_focus(
+        arc_plan or [],
+        belief=lie_belief,
+        next_ch=next_ch,
+        arc_type=(anchors or {}).get("arc_type"),
+        slack=AS.ARC_BELIEF_SLACK,
+    )
+    return AS.arc_directive_from_focus(
+        name, anchors or {}, focus, lie_belief, next_ch, plan=arc_plan or [])
 
 
 def promise_directives(rows: list[dict]) -> dict:
@@ -283,16 +277,19 @@ def stale_entity_directives(rows: list[dict], next_ch: int) -> dict:
 
 
 def heartbeat_list(chars: list[dict], next_ch: int, gap: int = 3) -> list[dict]:
-    """待激活名单:有 private_agenda 且距上次活跃超过 gap 章的角色。"""
+    """待激活名单:有 private_agenda 且距上次活跃超过 gap 章的角色。
+    last_active is None（从未活跃）视为 0 / 永久 cold，可入名单（P1b）。"""
     out = []
     for c in chars:
         agenda = (c.get("private_agenda") or "").replace("\n", " ").strip()   # Task7-B②
         last = c.get("last_active")
-        if not agenda or last is None:
+        if not agenda:
             continue
-        if next_ch - last > gap:
+        # 从未活跃：当作 last_active=0，允许进入待激活
+        last_n = 0 if last is None else int(last)
+        if next_ch - last_n > gap:
             out.append({"name": (c["name"] or "").replace("\n", " "),   # Task8审查:name 清洗
-                        "agenda": agenda, "last_active": last})
+                        "agenda": agenda, "last_active": last if last is not None else 0})
     return out
 
 
@@ -650,24 +647,90 @@ def assemble_chapter_brief(st, seq: int, focalizer: str = "", target_emotion: st
     当前 assemble_chapter_brief 现有数据源(章 meta/beats)里没有现成的"目标情绪"字段,
     故留为显式可选参数——接线点留给写作端点:调用方从大纲/节拍的情绪标注(如有)或
     作者手动指定中取值后传入。"""
+    from scribe3 import arc_signals as AS
+
     next_ch = seq
     max_ch = max(0, seq - 1)
     rows = st.promises_with_lifecycle(max_chapter=max_ch)
     arcs = []
     chars_hb = []
+
+    # 作品级静音：不注入弧光指令/冷启动（仍组其余简报段）
+    _tracking_off = False
+    try:
+        if hasattr(st, "get_intent") and AS.is_arc_tracking_off(st.get_intent()):
+            _tracking_off = True
+        else:
+            from scribe3 import settings_store
+            work = str(getattr(st, "db_name", None) or getattr(st, "db", None) or "main")
+            if AS.is_arc_tracking_off(settings_store.get_override(f"arc_tracking:{work}")):
+                _tracking_off = True
+    except Exception:
+        _tracking_off = False
+
+    # 多源 last_active：char_state / relation_touch / involved_characters
+    last_by_cid: dict[str, int] = {}
+    try:
+        for c in st.characters():
+            states = st.list_char_states(c.id) or []
+            if states:
+                last_by_cid[c.id] = max(int(s.get("chapter") or 0) for s in states)
+    except Exception as e:
+        _log.debug("assemble last_active char_state: %s", e)
+    try:
+        for t in st.list_relation_touches() or []:
+            ch = int(t.get("chapter") or 0)
+            for key in ("a", "b"):
+                cid = t.get(key)
+                if cid:
+                    last_by_cid[cid] = max(last_by_cid.get(cid, 0), ch)
+    except Exception as e:
+        _log.debug("assemble last_active relation_touch: %s", e)
+    try:
+        for ch_row in (st.chapters_lite() if hasattr(st, "chapters_lite") else []) or []:
+            ch_seq = int(ch_row.get("seq") or 0)
+            inv = ch_row.get("involved_characters") or []
+            if not inv and hasattr(st, "get_chapter"):
+                full = st.get_chapter(ch_seq) or {}
+                inv = full.get("involved_characters") or []
+            for ent in inv:
+                if isinstance(ent, dict):
+                    cid = ent.get("character_id") or ent.get("id") or ""
+                else:
+                    cid = str(ent or "")
+                if cid:
+                    if not str(cid).startswith("role:"):
+                        cid = f"role:{cid}" if ":" not in str(cid) else str(cid)
+                    last_by_cid[cid] = max(last_by_cid.get(cid, 0), ch_seq)
+    except Exception as e:
+        _log.debug("assemble last_active involved: %s", e)
+
     for c in st.characters():
         a = st.char_anchors(c.id)
-        states = st.list_char_states(c.id)
-        # 留档(Task6跟进③):last_active 用 char_state 最大章是近似——露面但无弧光变化
-        # 不刷新;从未有 char_state 的有日程角色永不入待激活名单。若后续有真实露面源
-        # (如章 involved_characters)可替换;P1 再改。
-        last_active = max((s.get("chapter") or 0) for s in states) if states else None
+        last_active = last_by_cid.get(c.id)
         chars_hb.append({"id": c.id, "name": c.name,
                          "private_agenda": a.get("private_agenda"),
                          "last_active": last_active})
-        if a.get("lie"):
-            arcs.append(arc_directive(c.name, a, st.list_arc_plan(c.id),
-                                      st.latest_lie_belief(c.id, max_ch), next_ch))
+        if _tracking_off:
+            continue
+        # 冷启动：主档无 lie
+        if not (a.get("lie") or "").strip():
+            if AS.is_main_cast_importance(
+                    (c.traits or {}).get("importance") if isinstance(getattr(c, "traits", None), dict)
+                    else None):
+                arcs.append(AS.format_cold_start_decision(c.name, tools=True))
+            continue
+        plan = st.list_arc_plan(c.id) or []
+        belief = st.latest_lie_belief(c.id, max_ch)
+        focus = AS.arc_beat_focus(
+            plan, belief=belief, next_ch=next_ch,
+            arc_type=a.get("arc_type"), slack=AS.ARC_BELIEF_SLACK)
+        line = arc_directive(c.name, a, plan, belief, next_ch)
+        if focus and (focus.get("status") or "") in ("overdue_miss", "overdue_unmeasured"):
+            line = line + "\n⚠ " + AS.format_beat_decision(c.name, focus, tools=True)
+        arcs.append(line)
+    if _tracking_off:
+        arcs = [AS.tracking_off_message()]
     # 方案B任务12:连续性 heat/last_touch 状态机——char/promise/relation 三维度取数汇总,
     # 逐维度 fail-soft:任一维度取不到数据就跳过该维度,不影响其余维度与整体简报组装。
     stale_rows: list[dict] = []

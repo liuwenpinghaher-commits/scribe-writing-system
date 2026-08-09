@@ -361,11 +361,59 @@ def motif_timeline_ep(mid: str, work: str = "main"):
         raise HTTPException(status_code=404, detail=f"motif '{mid}' 不存在")
     return st.list_motif_timeline(mid)
 
-def get_char_anchors(character_id: str, work: str = "main"):
-    """单角色的弧光锚(七键)+ 里程碑计划(按 target_chapter 有序)。"""
+def get_char_anchors(character_id: str, work: str = "main",
+                     next_ch: int | None = Query(default=None)):
+    """单角色的弧光锚(七键)+ 里程碑计划 + 只读 alignment（focus 派生）。
+
+    next_ch: 写作目标章；缺省时取全书最大章号+1（即将写），至少为 1。
+    """
+    from scribe3 import arc_signals as AS
     st = _store_for(work)
-    return {"anchors": st.char_anchors(character_id),
-            "arc_plan": st.list_arc_plan(character_id)}
+    anchors = st.char_anchors(character_id)
+    plan = st.list_arc_plan(character_id)
+    if next_ch is None:
+        try:
+            lite = st.chapters_lite() if hasattr(st, "chapters_lite") else []
+            max_seq = max((int(c.get("seq") or 0) for c in (lite or [])), default=0)
+            next_ch = max(1, max_seq + 1) if max_seq else 1
+        except Exception:
+            next_ch = 1
+    else:
+        next_ch = int(next_ch)
+    belief = None
+    try:
+        # 与 brief 契约一致：即将写章用 max_ch=next_ch-1
+        belief = st.latest_lie_belief(character_id, max(0, next_ch - 1))
+    except Exception:
+        belief = None
+    focus = AS.arc_beat_focus(
+        plan or [],
+        belief=belief,
+        next_ch=next_ch,
+        arc_type=(anchors or {}).get("arc_type"),
+        slack=AS.ARC_BELIEF_SLACK,
+    )
+    alignment = None
+    if focus:
+        alignment = {
+            "focus_beat_id": focus.get("focus_beat_id") or focus.get("beat_id"),
+            "beat_name": focus.get("beat_name"),
+            "status": focus.get("status") or focus.get("alignment"),
+            "current_belief": focus.get("current_belief"),
+            "target": focus.get("target"),
+            "target_chapter": focus.get("target_chapter"),
+            "next_ch": next_ch,
+            "miss_slack": AS.ARC_BELIEF_SLACK,
+        }
+    elif (anchors or {}).get("lie"):
+        alignment = {
+            "status": "no_plan" if not plan else "passed_all",
+            "current_belief": belief,
+            "target": None,
+            "next_ch": next_ch,
+            "miss_slack": AS.ARC_BELIEF_SLACK,
+        }
+    return {"anchors": anchors, "arc_plan": plan, "alignment": alignment}
 
 def patch_char_anchors(req: dict, work: str = "main"):
     """局部更新弧光锚:只写传入的键,未传字段不动(store 层 _ANCHOR_KEYS 白名单)。
@@ -571,7 +619,17 @@ def char_states(character_id: str, work: str = "main"):
     return _store_for(work).list_char_states(character_id)
 
 def add_char_state_endpoint(req: dict, work: str = "main"):
+    """记录弧光质变。change_type 含 belief；lie_belief 0–100 透传 store。"""
+    from fastapi import HTTPException
     st = _store_for(work)
+    lb = req.get("lie_belief")
+    if lb is not None:
+        if isinstance(lb, bool) or not isinstance(lb, (int, float)) or not (0 <= float(lb) <= 100):
+            raise HTTPException(status_code=422, detail="lie_belief 须为 0-100 的数值或不传")
+        lb = int(lb)
+    ct = req.get("change_type") or ""
+    if ct == "belief" and lb is None:
+        raise HTTPException(status_code=422, detail="change_type=belief 时须提供 lie_belief(0-100)")
     st.add_char_state(req["character_id"], req["chapter"], req["change_type"],
                       req["summary"],
                       before_state=req.get("before_state"),
@@ -579,7 +637,8 @@ def add_char_state_endpoint(req: dict, work: str = "main"):
                       trigger_event=req.get("trigger_event"),
                       arc_phase=req.get("arc_phase"),
                       affects_voice=req.get("affects_voice"),
-                      confidence=req.get("confidence", "confirmed"))
+                      confidence=req.get("confidence", "confirmed"),
+                      lie_belief=lb)
     return {"ok": True}
 
 def char_state_at(character_id: str, chapter: int, work: str = "main"):

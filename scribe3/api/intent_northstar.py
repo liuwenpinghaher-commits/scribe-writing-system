@@ -20,6 +20,7 @@ router = APIRouter(tags=["intent"])
 # Narrative north-star fields still go through PUT /intent (world-write gate).
 _INTENT_ENGINEERING_KEYS = frozenset({
     "total_word_goal", "daily_word_goal", "overdue_threshold",
+    "arc_tracking",  # 作品级弧光追踪 on|off（工艺旋钮，非叙事正文）
 })
 
 
@@ -34,13 +35,15 @@ class IntentIn(BaseModel):
     overdue_threshold: int | None = None
     total_word_goal: int | None = None
     daily_word_goal: int | None = None
+    arc_tracking: str | None = None  # on|off
 
 
 class IntentGoalsIn(BaseModel):
-    """Engineering quota-only: word goals / overdue threshold. No narrative fields."""
+    """Engineering quota-only: word goals / overdue / arc_tracking. No narrative fields."""
     total_word_goal: int | None = None
     daily_word_goal: int | None = None
     overdue_threshold: int | None = None
+    arc_tracking: str | None = None
 
 
 @router.get("/intent")

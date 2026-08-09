@@ -16,17 +16,23 @@ def _dims(out):
     return {d["dimension"]: d for d in out["dimensions"]}
 
 
-def test_pulse_six_dimensions_shape(store):
+def test_pulse_dimensions_shape(store):
     store.save_chapter(1, "正文。", title="一")
     out = P.chapter_pulse(store, 1)
     d = _dims(out)
-    assert set(d.keys()) == {"promise", "arc", "relation", "tension", "causal", "quality"}
+    # 七维含 scene；勿写死「恰好六维」
+    assert {"promise", "arc", "relation", "tension", "causal", "quality"}.issubset(d.keys())
     for dim in d.values():
         assert dim["severity"] in ("info", "nudge", "decision")
         assert isinstance(dim["items"], list)
         for it in dim["items"]:
             assert it["message"].strip(), "B-3 同型防:条目 message 必须非空"
     assert "score" not in out and "total" not in out, "宪法:不造总分"
+    # 空/无主档书：arc 不得假绿「未见跳变」
+    arc = d["arc"]
+    msgs = " ".join(it["message"] for it in arc["items"])
+    assert "未见跳变" not in msgs
+    assert arc.get("degraded") is not True
 
 
 def test_overdue_promise_maps_to_decision(store):

@@ -158,6 +158,7 @@ _REST_WORLD_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _INTENT_ENGINEERING_PATH = "/intent-goals"
 _INTENT_ENGINEERING_KEYS = frozenset({
     "total_word_goal", "daily_word_goal", "overdue_threshold",
+    "arc_tracking",
 })
 
 

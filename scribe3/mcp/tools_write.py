@@ -154,10 +154,12 @@ async def s3_set_intent(ctx: Context,
                         overdue_threshold: int | None = None,
                         total_word_goal: int | None = None,
                         daily_word_goal: int | None = None,
+                        arc_tracking: str | None = None,
                         work: str | None = None) -> dict:
     """写入/合并本书北极星意图(写,待批)。
 
     只传需要更新的字段;未传字段保留库中旧值(与 store.set_intent MERGE 语义一致)。
+    arc_tracking: on|off — 作品级关闭弧光追踪（PR8）。
     作者对话驱动落库的正道——禁止要求作者去北极星表单失焦保存。"""
     fields: dict = {}
     if reader_feeling is not None:
@@ -172,6 +174,12 @@ async def s3_set_intent(ctx: Context,
         fields["total_word_goal"] = total_word_goal
     if daily_word_goal is not None:
         fields["daily_word_goal"] = daily_word_goal
+    if arc_tracking is not None:
+        at = str(arc_tracking).strip().lower()
+        if at not in ("on", "off"):
+            return {"status": "error", "tool": "s3_set_intent",
+                    "reason": "arc_tracking 须为 on|off"}
+        fields["arc_tracking"] = at
     if not fields:
         return {"status": "noop", "tool": "s3_set_intent", "reason": "no fields"}
     summary = " / ".join(f"{k}={str(v)[:40]}" for k, v in fields.items())
@@ -484,6 +492,7 @@ async def s3_add_entity_relation(ctx: Context, a: str, b: str, relation_type: st
                                   a, b, relation_type, since_chapter=since_chapter, **kwargs))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_add_char_state(ctx: Context, character_id: str, chapter: int,
                              change_type: str, summary: str,
                              before_state: dict | None = None,
@@ -491,24 +500,76 @@ async def s3_add_char_state(ctx: Context, character_id: str, chapter: int,
                              trigger_event: str | None = None,
                              arc_phase: str | None = None,
                              affects_voice: bool | None = None,
+                             lie_belief: int | None = None,
+                             confidence: str | None = None,
                              work: str | None = None) -> dict:
-    """记录角色弧光质变点(写,待批)。change_type: ability/relation/personality/composite。
-    动静结合:静态基石不变,动态演变记录在此。
+    """记录角色弧光质变点(写,待批)。
+    change_type: ability/relation/personality/composite/belief。
 
     after_state 按 change_type 填写对应快照键:
       ability     → {"ability_snapshot": {"技能名": "描述", ...}}
       relation    → {"relation_snapshot": {"角色/势力": "关系描述", ...}}
       personality → {"personality_snapshot": "简短描述字符串"}
       composite   → 可同时含 ability_snapshot / relation_snapshot / personality_snapshot
+      belief      → 须提供 lie_belief(0-100)，summary 可写 why 依据
     before_state 结构同 after_state,记录变化前状态(可选)。
+    lie_belief: 该章结束时对核心错误信念的信奉度(0-100)；belief 类型必填。
+    confidence: confirmed|inferred 等，默认 confirmed。
     char_state_at(character_id, chapter) 将按章序累积 after_state 合成时点快照。"""
+    if lie_belief is not None:
+        if isinstance(lie_belief, bool) or not isinstance(lie_belief, (int, float)) \
+                or not (0 <= float(lie_belief) <= 100):
+            return {"status": "error", "tool": "s3_add_char_state",
+                    "reason": "lie_belief 须为 0-100 的数值"}
+        lie_belief = int(lie_belief)
+    if change_type == "belief" and lie_belief is None:
+        return {"status": "error", "tool": "s3_add_char_state",
+                "reason": "change_type=belief 时须提供 lie_belief(0-100)"}
+    conf = confidence if confidence is not None else "confirmed"
     ok = await _ask(ctx, f"记录弧光 {character_id} 第{chapter}章 [{change_type}]: {summary[:30]}")
     return commit_if_approved("s3_add_char_state", ok,
                               lambda: _store_for(work).add_char_state(
                                   character_id, chapter, change_type, summary,
                                   before_state=before_state, after_state=after_state,
                                   trigger_event=trigger_event, arc_phase=arc_phase,
-                                  affects_voice=affects_voice))
+                                  affects_voice=affects_voice,
+                                  confidence=conf, lie_belief=lie_belief))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_add_arc_beat(ctx: Context, character_id: str, beat_name: str,
+                          target_chapter: int,
+                          lie_belief_target: int | None = None,
+                          trigger_event: str = "",
+                          work: str | None = None) -> dict:
+    """加弧光里程碑节拍(写,待批)。对齐 REST POST /arc-beats。
+    lie_belief_target 若给须 0-100；角色存在性与 REST 同宽(不 404)。"""
+    if lie_belief_target is not None:
+        if isinstance(lie_belief_target, bool) \
+                or not isinstance(lie_belief_target, (int, float)) \
+                or not (0 <= float(lie_belief_target) <= 100):
+            return {"status": "error", "tool": "s3_add_arc_beat",
+                    "reason": "lie_belief_target 须为 0-100 的数值或不传"}
+        lie_belief_target = int(lie_belief_target)
+    ok = await _ask(
+        ctx,
+        f"规划弧光里程碑 {character_id}「{beat_name}」→第{target_chapter}章"
+        + (f" 信奉度趋{lie_belief_target}" if lie_belief_target is not None else ""))
+    return commit_if_approved(
+        "s3_add_arc_beat", ok,
+        lambda: _store_for(work).add_arc_beat(
+            character_id, beat_name, int(target_chapter),
+            lie_belief_target, trigger_event or ""))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_delete_arc_beat(ctx: Context, beat_id: str,
+                             work: str | None = None) -> dict:
+    """删除弧光里程碑(写,待批)。对齐 REST DELETE /arc-beats/{id}：静默删。"""
+    ok = await _ask(ctx, f"删除弧光里程碑 {beat_id}")
+    return commit_if_approved(
+        "s3_delete_arc_beat", ok,
+        lambda: _store_for(work).delete_arc_beat(beat_id))
 
 
 async def s3_set_voice_profile(ctx: Context, character_id: str,

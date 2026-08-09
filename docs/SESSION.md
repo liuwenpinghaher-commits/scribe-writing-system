@@ -17,14 +17,26 @@
 
 | 项 | 值 |
 |----|----|
-| **更新于** | 2026-08-09（B∪C 检查器 + Surreal 3 only + 流水线 lease CAS + **main 已 push** + demo 前后端已部署） |
+| **更新于** | 2026-08-09（**角色弧光完善已落地** + demo 章节 pulse/brief 冒烟） |
 | **产品名（UI）** | 铜炉 / tonglu（仅品牌文案+logo，色板未改） |
-| **默认分支** | `main` = `origin/main`（已 push） |
-| **刚完成** | ① **上下文检查器 B∪C** ② **Surreal 仅 3.x** ③ **章节流水线闭环 + lease CAS 表** ④ demo 后端 hot + 前端 deploy |
-| **设计** | B∪C：[`设计文档/2026-08-09-上下文检查器-B合C最优方案.md`](../设计文档/2026-08-09-上下文检查器-B合C最优方案.md)；流水线：[`docs/plans/2026-08-09-chapter-pipeline-closed-loop-design.md`](./plans/2026-08-09-chapter-pipeline-closed-loop-design.md) |
-| **进行中目标** | 记忆质量 / 人盲仍独立；流水线 residual UX（SPA hold 条等） |
-| **主验收书** | **`book_aa57f17e`**（2w 记忆）/ **`book_7b918ca0`**（5w 参考） |
+| **默认分支** | `main`（本地可能 ahead；demo 已 hot/frontend 热更） |
+| **刚完成** | ① **弧光假绿修复 + arc_signals** ② **里程碑 MCP + lie_belief 透传** ③ **节拍 focus brief/pulse** ④ **GET anchors.alignment + Codex 消费** ⑤ demo 冒烟 |
+| **设计** | [`设计文档/2026-08-09-角色弧光子系统完善改进方案.md`](../设计文档/2026-08-09-角色弧光子系统完善改进方案.md)（Accepted） |
+| **进行中目标** | 记忆质量 / 人盲；流水线 residual UX（SPA hold 条等） |
+| **主验收书** | **`book_aa57f17e`**（2w 记忆）/ **`book_7b918ca0`**（5w 参考）；弧光冒烟 **`book_arc_smoke_demo`** |
 | **活跃分支** | `main` |
+
+### 角色弧光完善（2026-08-09）
+
+- **模块**：`scribe3/arc_signals.py`（纯函数）；接线 `pulse._arc_dim` / `brief.assemble_chapter_brief` / `arc_directive` focus 驱动  
+- **假绿**：无 eligible → info「未启用可忽略」；主档缺 lie → decision；**禁止**「未见跳变」当健康；配置态 **不** `degraded`  
+- **节拍**：`arc_beat_focus` 每角一条；`miss_belief` 有向；brief ⚠ 与 pulse decision 同文案源（工具名可执行）  
+- **工具**：MCP `s3_add_arc_beat` / `s3_delete_arc_beat`；`s3_add_char_state` + REST `POST /char-states` 透传 `lie_belief`  
+- **UI**：`CodexDetail` 消费 `alignment`、冷启动条、质变历史折叠  
+- **测**：`scribe3/tests/test_arc_signals.py` **14 passed**  
+- **demo**：hot+frontend；HTTP pulse/brief **写前/写后** 捕获；MCP `commit_if_approved` 自动批写入 belief=88 + beat add/delete；URL 编码 GET anchors.alignment  
+- **证据**（goal scratch）：`demo-chapter-pulse-before/after.json`、`demo-char-anchors.json`、`demo-char-states.json`、`demo-arc-smoke.md`、`demo-arc-write.log`  
+- **注**：世界 REST 写默认关；章节验证写路径走 **MCP 工具**（与产品口径一致）
 
 ### 章节流水线闭环（2026-08-09）
 

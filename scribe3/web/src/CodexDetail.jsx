@@ -128,36 +128,70 @@ function LieBeliefSpark({ states, arcPlan }) {
   )
 }
 
+const ALIGN_LABEL = {
+  overdue_miss: '逾期·偏离',
+  overdue_unmeasured: '逾期·未测',
+  overdue_no_target: '逾期·无目标',
+  due: '本章应达',
+  approaching: '临近',
+  no_plan: '无里程碑',
+  passed_all: '节拍已过完',
+}
+
 // 弧光锚:只读展示 + 主编写入(与档案字段同一政策,禁止常驻表单墙)
+// 消费 GET /char-anchors 的 alignment，不在前端重算 focus
 function CharArcAnchors({ characterId, characterName }) {
   const [anchors, setAnchors] = useState(null)   // null=加载中
   const [arcPlan, setArcPlan] = useState([])
+  const [alignment, setAlignment] = useState(null)
   const [states, setStates] = useState([])
+  const [histOpen, setHistOpen] = useState(false)
 
   useEffect(() => {
     setAnchors(null)
+    setAlignment(null)
     api.charAnchors(characterId)
       .then((r) => {
         setAnchors(r?.anchors || {})
         setArcPlan(Array.isArray(r?.arc_plan) ? r.arc_plan : [])
+        setAlignment(r?.alignment || null)
       })
-      .catch(() => { setAnchors({}); setArcPlan([]) })
+      .catch(() => { setAnchors({}); setArcPlan([]); setAlignment(null) })
     api.charStates(characterId).then((s) => setStates(Array.isArray(s) ? s : [])).catch(() => setStates([]))
   }, [characterId])
 
   if (anchors === null) return <div className="mt-6 text-f12 text-faint/50">弧光锚加载中…</div>
   const name = characterName || String(characterId || '').split(':').pop()
   const arcTypeLabel = ARC_TYPES.find((t) => t.v === anchors.arc_type)?.label || anchors.arc_type
+  const missingLie = !(anchors?.lie || '').trim()
+  const stLabel = alignment?.status ? (ALIGN_LABEL[alignment.status] || alignment.status) : null
   return (
     <div className="mt-6 pt-4 border-t border-line" data-testid="char-arc-anchors">
       <SectionTitle icon={GitBranch} right={
         <button type="button" data-testid="arc-ask-chief"
           onClick={() => seedChiefCodexWrite('chars', { id: characterId, name },
-            '请更新弧光锚(ghost/lie/truth/want/need/arc_type/private_agenda)与弧光里程碑;用 PATCH 锚与节拍写工具提交审批。')}
+            missingLie
+              ? '冷启动:请写入弧光锚 lie(错误信念)及 ghost/truth/want/need/arc_type;用 s3_set_char_anchors 提交审批。需要里程碑时用 s3_add_arc_beat;信奉度采样用 s3_add_char_state change_type=belief + lie_belief。'
+              : '请更新弧光锚(ghost/lie/truth/want/need/arc_type/private_agenda)与弧光里程碑;用 s3_set_char_anchors / s3_add_arc_beat / s3_add_char_state(belief+lie_belief) 提交审批。')}
           className="text-meta text-brand hover:text-brand/80 cursor-pointer normal-case tracking-normal font-normal">
           让主编写入弧光
         </button>
       }>弧光锚 · 角色内核</SectionTitle>
+      {missingLie && (
+        <div className="mb-2 px-2 py-1.5 rounded bg-amber-500/10 text-f12 text-amber-800/90" data-testid="arc-cold-start">
+          冷启动：尚未填写错误信念(Lie)。弧光指令与信奉度采样依赖 Lie 锚——请用「让主编写入弧光」。
+        </div>
+      )}
+      {stLabel && (
+        <div className="mb-2 flex flex-wrap items-center gap-2" data-testid="arc-alignment">
+          <span className="text-meta text-faint uppercase tracking-wider">关注拍</span>
+          <span className="text-f12 px-1.5 py-0.5 rounded bg-soft text-ink">{stLabel}</span>
+          {alignment?.beat_name && <span className="text-f13 text-ink">「{alignment.beat_name}」</span>}
+          {alignment?.target_chapter != null && <span className="text-meta text-faint tnum">第{alignment.target_chapter}章</span>}
+          {alignment?.current_belief != null && <span className="text-meta text-brand">信奉度 {alignment.current_belief}</span>}
+          {alignment?.target != null && <span className="text-meta text-faint">→ 目标 {alignment.target}</span>}
+        </div>
+      )}
       <div className="space-y-0.5">
         {ANCHOR_TEXT.map(([k, label]) => (
           <ReadOnlyText key={k} label={label} value={anchors?.[k]} emptyHint="—" entityLabel={name || characterId} fieldKey={k} />
@@ -186,6 +220,32 @@ function CharArcAnchors({ characterId, characterName }) {
       </div>
 
       <LieBeliefSpark states={states} arcPlan={arcPlan} />
+
+      <div className="mt-4">
+        <button type="button" data-testid="arc-history-toggle"
+          onClick={() => setHistOpen((v) => !v)}
+          className="text-meta text-faint hover:text-ink cursor-pointer">
+          弧光质变历史 · {states.length} 条 {histOpen ? '▴' : '▾'}
+        </button>
+        {histOpen && (
+          <div className="mt-1.5 space-y-1" data-testid="arc-state-history">
+            {states.length === 0 ? <Empty>尚无 char_state 记录</Empty> : states.map((s) => (
+              <div key={s.id || `${s.chapter}-${s.change_type}-${s.summary}`}
+                className="flex items-start gap-2 py-1 px-1.5 rounded hover:bg-soft/40 text-f12">
+                <span className="text-meta text-faint tnum shrink-0">第{s.chapter}章</span>
+                <span className="text-meta text-brand shrink-0">{s.change_type}</span>
+                {typeof s.lie_belief === 'number' && <span className="text-meta shrink-0">信奉度={s.lie_belief}</span>}
+                {s.confidence === 'inferred' && <span className="text-meta text-faint/70 shrink-0">机抽</span>}
+                <span className="text-ink min-w-0 truncate">{s.summary}</span>
+              </div>
+            ))}
+            <button type="button" className="text-meta text-brand hover:text-brand/80 cursor-pointer mt-1"
+              onClick={() => seedChiefCodexWrite('chars', { id: characterId, name },
+                '请补正或追加弧光质变/信奉度:用 s3_add_char_state(change_type=belief, lie_belief=0-100, summary=依据) 或 ability/relation/personality。')}
+            >让主编改历史/补采样</button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

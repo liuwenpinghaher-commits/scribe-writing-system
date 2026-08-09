@@ -22,6 +22,7 @@ EXPECTED_WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_r
                           "s3_craft_rule_remove", "s3_add_character_relation",
                           "s3_add_world_rule", "s3_patch_world_rule", "s3_add_faction",
                           "s3_patch_faction", "s3_add_char_state",
+                          "s3_add_arc_beat", "s3_delete_arc_beat",
                           "s3_set_voice_profile", "s3_add_item", "s3_patch_item",
                           "s3_add_term", "s3_patch_term",
                           "s3_supersede_fact", "s3_forget_knowledge",

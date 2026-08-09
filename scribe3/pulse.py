@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 _log = logging.getLogger("scribe3.pulse")
 
@@ -45,8 +46,106 @@ def _promise_dim(st, seq: int) -> dict:
     return _dim("promise", items)
 
 
+def _arc_tracking_flag(st) -> Any:
+    """作品级 arc_tracking：intent 优先，settings_store 备选。"""
+    try:
+        if hasattr(st, "get_intent"):
+            intent = st.get_intent() or {}
+            if intent.get("arc_tracking") is not None:
+                return intent
+    except Exception:
+        pass
+    try:
+        from scribe3 import settings_store
+        work = str(getattr(st, "db_name", None) or getattr(st, "db", None) or "main")
+        raw = settings_store.get_override(f"arc_tracking:{work}")
+        if raw is not None:
+            return str(raw)
+    except Exception:
+        pass
+    return None
+
+
 def _arc_dim(st, seq: int) -> dict:
+    """弧光维：诚实分级；配置态永不 degraded（仅传感器故障由 chapter_pulse 设）。"""
+    from scribe3 import arc_signals as AS
+
+    # 作品级静音
+    if AS.is_arc_tracking_off(_arc_tracking_flag(st)):
+        return _dim("arc", [_item(AS.tracking_off_message())])
+
+    chars = list(st.characters() or [])
+    anchors_by_id: dict = {}
+    for c in chars:
+        try:
+            anchors_by_id[c.id] = st.char_anchors(c.id) or {}
+        except Exception:
+            anchors_by_id[c.id] = {}
+    parts = AS.partition_arc_chars(chars, anchors_by_id)
+    with_lie = parts["with_lie"]
+    no_lie = parts["eligible_no_lie"]
     items: list[dict] = []
+
+    # 冷启动：主档缺 lie
+    for row in no_lie:
+        msg = AS.format_cold_start_decision(row["name"], tools=True)
+        items.append(_item(msg, "decision",
+                           _chat_action(f"{row['name']} 缺 Lie 锚，帮我写弧光内核?")))
+
+    if not with_lie and not no_lie:
+        # 合法未启用 — info 静音，禁止「未见跳变」假绿
+        return _dim("arc", [_item(AS.quiet_arc_message())])
+
+    # 有 lie：采样 / 跳变 / 节拍 focus
+    n_samples = 0
+    unmeasured_names: list[str] = []
+    for row in with_lie:
+        cid = row["id"]
+        belief = None
+        try:
+            belief = st.latest_lie_belief(cid, seq)
+        except Exception:
+            belief = None
+        if belief is not None:
+            n_samples += 1
+        else:
+            unmeasured_names.append(row["name"])
+
+        plan = []
+        try:
+            plan = st.list_arc_plan(cid) or []
+        except Exception:
+            plan = []
+        anchors = row.get("anchors") or {}
+        focus = AS.arc_beat_focus(
+            plan,
+            belief=belief,
+            next_ch=seq,
+            arc_type=anchors.get("arc_type"),
+            slack=AS.ARC_BELIEF_SLACK,
+        )
+        if focus and (focus.get("status") or "") in (
+            "overdue_miss", "overdue_unmeasured",
+        ):
+            msg = AS.format_beat_decision(row["name"], focus, tools=True)
+            items.append(_item(
+                msg, "decision",
+                _chat_action(f"{row['name']} 弧光节拍逾期，三选一怎么处理?")))
+        elif focus and (focus.get("status") or "") == "due":
+            bn = focus.get("beat_name") or "—"
+            items.append(_item(
+                f"弧光节拍·{row['name']}：本章应到达「{bn}」(第{focus.get('target_chapter')}章)",
+                "nudge",
+                _chat_action(f"{row['name']} 本章节拍「{bn}」怎么落?")))
+
+    if unmeasured_names and with_lie:
+        # 有 lie 全未测或部分未测 → nudge（不全靠假绿）
+        if n_samples == 0:
+            items.append(_item(
+                AS.format_unmeasured_nudge(unmeasured_names),
+                "nudge",
+                _chat_action("这些角色还没有信奉度采样，怎么补?")))
+
     for j in st.lie_belief_jumps(threshold=_ARC_JUMP_MAX):
         if j["chapter"] > seq:
             continue
@@ -54,19 +153,24 @@ def _arc_dim(st, seq: int) -> dict:
         gap = j.get("gap") or 1
         move = abs(j["cur"] - j["prev"])
         if gap <= 1:
-            # 相邻章大位移=顿悟太便宜(强信号 → decision)
             items.append(_item(
                 f"弧光跳变:{name} 信奉度 第{j['prev_chapter']}章 {j['prev']} → 第{j['chapter']}章 {j['cur']}"
                 f"(单章位移 {move} > {_ARC_JUMP_MAX},顿悟太便宜——补事件背书或摊到多章)",
                 "decision", _chat_action(f"{name} 这次信念位移是不是太陡了?帮我看第{j['chapter']}章怎么补")))
         else:
-            # 审查 P1-4:跨多章记录稀疏,可能是渐变——降 nudge,文案如实说跨章
             items.append(_item(
                 f"弧光节奏留意:{name} 信奉度 第{j['prev_chapter']}→{j['chapter']}章(跨 {gap} 章)位移 {move}"
                 f"——若中间无铺垫章,补一次刷新;有则忽略",
                 "nudge", _chat_action(f"{name} 第{j['prev_chapter']}到{j['chapter']}章的信念变化衔接够吗?")))
+
     if not items:
-        items = [_item("弧光节奏未见跳变")]
+        if n_samples > 0:
+            items = [_item(AS.healthy_arc_message(n_samples))]
+        elif with_lie:
+            items = [_item(AS.format_unmeasured_nudge(
+                [r["name"] for r in with_lie]), "nudge")]
+        else:
+            items = [_item(AS.quiet_arc_message())]
     return _dim("arc", items)
 
 

@@ -134,6 +134,24 @@ class CharacterArcMixin:
         if len(motifs) < MIN_BIBLE_MOTIFS:
             missing.append(f"母题(已有{len(motifs)}，目标≥{MIN_BIBLE_MOTIFS})")
 
+        # 弧光冷启动：主角色档缺 Lie 聚合一条 missing（-20 一次，不按人 *5）
+        try:
+            from scribe3 import arc_signals as AS
+            n_missing_lie = 0
+            for c in chars:
+                a = self.char_anchors(c.id) if hasattr(self, "char_anchors") else {}
+                if (a.get("lie") or "").strip():
+                    continue
+                imp = ""
+                if isinstance(getattr(c, "traits", None), dict):
+                    imp = str((c.traits or {}).get("importance") or "")
+                if AS.is_main_cast_importance(imp):
+                    n_missing_lie += 1
+            if n_missing_lie:
+                missing.append(f"主角色弧光锚(Lie):{n_missing_lie}人缺错误信念")
+        except Exception:
+            pass
+
         return {
             "total_chars": len(chars),
             "total_rules": len(rules),
