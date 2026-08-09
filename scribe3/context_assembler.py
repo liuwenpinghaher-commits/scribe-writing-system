@@ -845,7 +845,18 @@ class ContextAssembler:
         out: list[_Item] = []
         # U-011(2026-07-15,作者要 fail-loud): 删静默降级,失败上抛——canonical 必须
         # 有真数据,facts_at 查询失败不能悄悄假装"这本书没有事实"。
-        facts = self.store.facts_at(ch) or []
+        facts = list(self.store.facts_at(ch) or [])
+        # Wave-C / v4：有焦点者时帧外 secret 不进「已知」正典转储
+        if snapshot.focalizer:
+            try:
+                from scribe3.epistemic_guard import partition_facts_for_focalizer
+                part = partition_facts_for_focalizer(
+                    self.store, facts,
+                    focalizer=snapshot.focalizer, chapter=int(ch),
+                )
+                facts = list(part.get("known") or [])
+            except Exception as e:
+                _log.warning("partition_facts_for_focalizer fail-soft: %s", e)
         for f in facts[:40]:
             if _is_bridge_mirror(f.entity_id, f.attribute):
                 continue

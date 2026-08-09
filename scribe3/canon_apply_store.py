@@ -170,7 +170,7 @@ def _apply_term(st, name, field, after, op) -> dict:
 def _apply_fact(st, target, field, after, op) -> dict:
     from scribe3.ontology import Fact
     from scribe3.fact_surface import (
-        is_state_slot_attr, looks_like_state_value, should_cross_supersede_attr,
+        normalize_state_attribute, should_cross_supersede_attr,
     )
     # target may be fact:oid or entity; field=attribute; after=value
     vf = 1
@@ -190,13 +190,16 @@ def _apply_fact(st, target, field, after, op) -> dict:
         value = after
         secret = False
         oid = f"fact:{uuid.uuid4().hex[:8]}"
+    # D4：状态类 attribute 规范到 state，避免 condition/status 多槽双真
+    attr = normalize_state_attribute(str(attr), str(value))
     # D4：状态变更走 supersede_fact，交叉关闭 condition/artifact 旧态
     if hasattr(st, "supersede_fact") and should_cross_supersede_attr(str(attr), str(value)):
         new_oid = st.supersede_fact(
             str(entity), str(attr), str(value), since_chapter=vf, secret=secret)
-        return {"status": "written", "module": "fact", "oid": new_oid, "superseded": True}
+        return {"status": "written", "module": "fact", "oid": new_oid, "superseded": True,
+                "attribute": str(attr)}
     st.add_fact(Fact(oid, str(entity), str(attr), str(value), valid_from=vf, secret=secret))
-    return {"status": "written", "module": "fact", "oid": oid}
+    return {"status": "written", "module": "fact", "oid": oid, "attribute": str(attr)}
 
 
 def _apply_knowledge(st, knower, proposition, via) -> dict:
