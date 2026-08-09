@@ -73,7 +73,25 @@ export const api = {
   }).then(handle),
 
   entities: () => j('/entities'),
-  facts: (ch) => j(`/facts?chapter=${ch}`),
+  // PR-4: entity / include_closed / with_knowers 可选；仅 chapter 与现网兼容
+  facts: (ch, opts = {}) => {
+    const q = new URLSearchParams({ chapter: String(ch) })
+    if (opts.entity) q.set('entity', opts.entity)
+    if (opts.includeClosed) q.set('include_closed', 'true')
+    if (opts.withKnowers) q.set('with_knowers', 'true')
+    if (opts.revealSecret) q.set('reveal_secret', 'true')
+    return j(`/facts?${q}`)
+  },
+  listEntityTruths: (entity, { includeClosed = true, chapter = 99999, withKnowers = true, revealSecret = false } = {}) => {
+    const q = new URLSearchParams({
+      chapter: String(chapter),
+      entity: String(entity),
+      include_closed: includeClosed ? 'true' : 'false',
+    })
+    if (withKnowers) q.set('with_knowers', 'true')
+    if (revealSecret) q.set('reveal_secret', 'true')
+    return j(`/facts?${q}`)
+  },
   events: (ch) => j(`/events?chapter=${ch}`),
   frame: (foc, ch) => j(`/frame?focalizer=${enc(foc)}&chapter=${ch}`),
   irony: (foc, ch) => j(`/irony?focalizer=${enc(foc)}&chapter=${ch}`),
@@ -195,7 +213,10 @@ export const api = {
   getWorldRule: (name) => j('/world-rules/' + enc(name)),
   getPromise: (pid) => j('/promises/' + enc(pid)),
   getMotif: (mid) => j('/motifs/' + enc(mid)),
-  getFact: (local) => j('/facts/' + enc(local)),
+  getFact: (local, { revealSecret = false } = {}) =>
+    j('/facts/' + enc(local) + (revealSecret ? '?reveal_secret=true' : '')),
+  getFactKnowers: (local, chapter) =>
+    j('/facts/' + enc(local) + '/knowers?chapter=' + enc(chapter)),
 
   // 设定库增删改(正式写 emergency 关时 403;作者主路径走主编 MCP)
   addChar: (b) => post('/characters', b),

@@ -84,29 +84,131 @@ class RecallMixin:
             out.append(f)
         return out
 
-    def knowers_at_chapter(self, prop_local: str, chapter: int) -> list[str]:
-        """命题在 chapter 的知情角色名列表。
+    def list_knowers_for_proposition(self, prop_local: str, chapter: int) -> list[dict]:
+        """命题在 chapter 的知情角色富字段列表（PR-4 · 「谁知道」真源）。
+
         与 project_frame / graph() 同谓词: since_chapter<=ch 且 (until is None 或 until>ch)。
-        纯库查询,不依赖 KNN——单测可确定性断言。"""
+        返回 [{id, name, since_chapter, until_chapter, acquired_via}, ...]。
+        **不**返回 proposition value（secret 安全）。
+        """
         ch = int(chapter)
+        plocal = (prop_local or "").strip()
+        if plocal.startswith("fact:"):
+            plocal = plocal.split(":", 1)[-1]
+        if not plocal:
+            return []
         knower_rows = self._query(
-            "SELECT in.name AS name, since_chapter, until_chapter FROM knows "
+            "SELECT meta::id(in) AS knower_local, meta::tb(in) AS knower_tb, "
+            "in.name AS name, since_chapter, until_chapter, acquired_via "
+            "FROM knows "
             "WHERE out = type::record('proposition', $p)",
-            {"p": prop_local})
-        knowers: list[str] = []
+            {"p": plocal})
+        knowers: list[dict] = []
         for kr in knower_rows or []:
             sc = kr.get("since_chapter")
             if sc is None:
                 sc = 0
-            if int(sc) > ch:
+            try:
+                sc_i = int(sc)
+            except (TypeError, ValueError):
+                sc_i = 0
+            if sc_i > ch:
                 continue
             uc = kr.get("until_chapter")
-            if uc is not None and int(uc) <= ch:
-                continue
-            nm = kr.get("name")
-            if nm:
-                knowers.append(nm)
+            uc_i = None
+            if uc is not None:
+                try:
+                    uc_i = int(uc)
+                except (TypeError, ValueError):
+                    uc_i = None
+                if uc_i is not None and uc_i <= ch:
+                    continue
+            kloc = kr.get("knower_local")
+            ktb = (kr.get("knower_tb") or "character").strip() or "character"
+            # 角色对外 oid 统一 role: 前缀（与 Entity 一致）
+            if ktb in ("character", "role"):
+                kid = f"role:{kloc}" if kloc else None
+            else:
+                kid = f"{ktb}:{kloc}" if kloc else None
+            knowers.append({
+                "id": kid,
+                "name": kr.get("name") or (str(kloc) if kloc else ""),
+                "since_chapter": sc_i,
+                "until_chapter": uc_i,
+                "acquired_via": kr.get("acquired_via") or "given",
+            })
         return knowers
+
+    def reader_knows_at_chapter(self, prop_local: str, chapter: int) -> bool:
+        """读者帧是否已知该命题（reader_knows 表 · 章门 since<=ch）。"""
+        ch = int(chapter)
+        plocal = (prop_local or "").strip()
+        if plocal.startswith("fact:"):
+            plocal = plocal.split(":", 1)[-1]
+        if not plocal:
+            return False
+        # reader_knows.proposition 写入多为 fact:local 字符串；兼容裸 local / record
+        candidates = [f"fact:{plocal}", plocal]
+        for p in candidates:
+            rows = self._query(
+                "SELECT since_chapter FROM reader_knows WHERE proposition = $p",
+                {"p": p}) or []
+            for r in rows:
+                sc = r.get("since_chapter")
+                try:
+                    sc_i = 0 if sc is None else int(sc)
+                except (TypeError, ValueError):
+                    sc_i = 0
+                if sc_i <= ch:
+                    return True
+        return False
+
+    def knowers_at_chapter(self, prop_local: str, chapter: int) -> list[str]:
+        """命题在 chapter 的知情角色名列表（兼容薄封装 → list_knowers_for_proposition）。
+        与 project_frame / graph() 同谓词: since_chapter<=ch 且 (until is None 或 until>ch)。
+        纯库查询,不依赖 KNN——单测可确定性断言。"""
+        return [
+            k["name"] for k in self.list_knowers_for_proposition(prop_local, chapter)
+            if k.get("name")
+        ]
+
+    def attach_knowers_to_fact_items(
+        self,
+        items: list[dict],
+        chapter: int,
+        *,
+        fill_closed: bool = False,
+    ) -> list[dict]:
+        """为 _fact_item 结果批量附 knowers / reader_knows（同请求内批处理，禁 graph ego）。
+
+        规格：with_knowers=1 时至少为 **仍 open** 的行填 knowers；closed 默认 [] 省成本。
+        """
+        ch = int(chapter)
+
+        def _open_at(vf, vt) -> bool:
+            try:
+                vf_i = int(vf) if vf is not None else 0
+            except (TypeError, ValueError):
+                vf_i = 0
+            if vf_i > ch:
+                return False
+            if vt is None:
+                return True
+            try:
+                return int(vt) > ch
+            except (TypeError, ValueError):
+                return True
+
+        for it in items:
+            fid = str(it.get("id") or "")
+            local = fid.split(":", 1)[-1] if fid else ""
+            if not _open_at(it.get("valid_from"), it.get("valid_to")) and not fill_closed:
+                it["knowers"] = []
+                it["reader_knows"] = False
+                continue
+            it["knowers"] = self.list_knowers_for_proposition(local, ch)
+            it["reader_knows"] = self.reader_knows_at_chapter(local, ch)
+        return items
 
     def graph_recall(self, query: str, chapter: int, k: int = 5) -> list[dict]:
         """Graph RAG:向量召回种子命题 + 沿图边拼知识子图(B枢纽)。

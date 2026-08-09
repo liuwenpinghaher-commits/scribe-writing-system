@@ -27,23 +27,64 @@ _FACTION_TYPE_MAP: dict[str, type] = {
 }
 
 
-def _fact_item(f, reveal_secret: bool = False) -> dict:
+def _fact_item(f, reveal_secret: bool = False, *, extra: dict | None = None) -> dict:
     """命题序列化(单条,列表/单条端点共用)。
     批E-A1 无损化:回全字段 valid_from/valid_to/leak_markers,让前端能整行安全编辑
     (此前只回 value,现有命题只能 supersede/删除)。私密门控:secret 且未解锁时,
     value 与 leak_markers 一并屏蔽——leak_markers 是私密的"破绽词",本身即敏感,
-    与 value 同级隐藏。"""
-    hide = f.secret and not reveal_secret
-    return {
-        "id": f.id,
-        "entity": f.entity_id,
-        "attribute": f.attribute,
-        "is_secret": f.secret,
-        "value": None if hide else f.value,   # 私密 value 屏蔽,前端只知"此处有私密"
-        "valid_from": f.valid_from,
-        "valid_to": f.valid_to,
-        "leak_markers": [] if hide else list(f.leak_markers or []),
+    与 value 同级隐藏。
+
+    PR-4 增量: source / bucket（classify_bucket）；extra 可附 knowers / reader_knows。
+    支持 Fact 或 dict 行（history 路径）。
+    """
+    from scribe3.truth_surface import classify_bucket, row_source
+
+    if isinstance(f, dict):
+        fid = f.get("id") or (
+            f"fact:{f['local']}" if f.get("local") else f.get("id")
+        )
+        if fid and not str(fid).startswith("fact:") and ":" not in str(fid):
+            fid = f"fact:{fid}"
+        entity = f.get("entity") or f.get("entity_id") or ""
+        attribute = f.get("attribute") or ""
+        secret = bool(f.get("secret") if "secret" in f else f.get("is_secret"))
+        value = f.get("value")
+        valid_from = f.get("valid_from")
+        valid_to = f.get("valid_to")
+        leak_markers = f.get("leak_markers") or []
+        src = row_source(f)
+        archived = bool(f.get("archived")) if f.get("archived") is not None else False
+    else:
+        fid = f.id
+        entity = f.entity_id
+        attribute = f.attribute
+        secret = bool(f.secret)
+        value = f.value
+        valid_from = f.valid_from
+        valid_to = f.valid_to
+        leak_markers = list(f.leak_markers or [])
+        src = getattr(f, "source", None)
+        if src is not None:
+            src = (str(src).strip() or None)
+        archived = bool(getattr(f, "archived", False) or False)
+
+    hide = secret and not reveal_secret
+    item = {
+        "id": fid,
+        "entity": entity,
+        "attribute": attribute,
+        "is_secret": secret,
+        "value": None if hide else value,
+        "valid_from": valid_from,
+        "valid_to": valid_to,
+        "leak_markers": [] if hide else list(leak_markers or []),
+        "source": src,
+        "bucket": classify_bucket(src, attribute, is_secret=secret),
+        "archived": archived,
     }
+    if extra:
+        item.update(extra)
+    return item
 
 
 def _facts(fs, reveal_secret: bool = False):

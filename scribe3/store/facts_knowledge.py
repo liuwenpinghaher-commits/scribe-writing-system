@@ -128,14 +128,19 @@ class FactsKnowledgeMixin:
     def fact(self, oid: str) -> Fact | None:
         _, local = _split(oid)
         rows = self._query(
-            "SELECT entity_id, attribute, value, valid_from, valid_to, secret, leak_markers "
+            "SELECT entity_id, attribute, value, valid_from, valid_to, secret, "
+            "leak_markers, source "
             "FROM type::record('proposition',$local)", {"local": local})
         if not rows:
             return None
         r = rows[0]
         eid = r.get("entity_id") or ""
+        src = r.get("source")
+        if src is not None:
+            src = (str(src).strip() or None)
         return Fact(oid, eid, r["attribute"], r["value"], r["valid_from"],
-                    r.get("valid_to"), r.get("secret", False), r.get("leak_markers", []))
+                    r.get("valid_to"), r.get("secret", False), r.get("leak_markers", []),
+                    source=src)
 
     def list_open_propositions(self, chapter: int = 99999) -> list[dict]:
         """开区间命题列表(设定树投影用)。
@@ -158,18 +163,92 @@ class FactsKnowledgeMixin:
     def facts_at(self, chapter: int) -> list[Fact]:
         rows = self._query(
             "SELECT meta::id(id) AS local, entity_id, attribute, value, "
-            "valid_from, valid_to, secret, leak_markers, injection_mode, priority FROM proposition "
+            "valid_from, valid_to, secret, leak_markers, injection_mode, priority, "
+            "source FROM proposition "
             "WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch) "
             "AND (archived = NONE OR archived != true)", {"ch": chapter})
-        facts = [Fact(f"fact:{r['local']}", r.get("entity_id") or "",
-                      r["attribute"], r["value"],
-                      r["valid_from"], r.get("valid_to"), r.get("secret", False),
-                      r.get("leak_markers", []),
-                      injection_mode=r.get("injection_mode"), priority=r.get("priority"))
-                 for r in rows]
+        facts = []
+        for r in rows:
+            src = r.get("source")
+            if src is not None:
+                src = (str(src).strip() or None)
+            facts.append(Fact(
+                f"fact:{r['local']}", r.get("entity_id") or "",
+                r["attribute"], r["value"],
+                r["valid_from"], r.get("valid_to"), r.get("secret", False),
+                r.get("leak_markers", []),
+                injection_mode=r.get("injection_mode"), priority=r.get("priority"),
+                source=src,
+            ))
         # D4 读路径：同键折叠 + 同 entity 互斥 value 消解（注入面单真）
         from scribe3.fact_surface import resolve_injection_facts
         return resolve_injection_facts(facts)
+
+    def list_entity_truth_history(
+        self,
+        entity_id: str,
+        chapter: int = 99999,
+        *,
+        include_closed: bool = True,
+    ) -> list[dict]:
+        """按实体读命题段（演变时间线真源 · PR-4）。
+
+        include_closed=True：含被 supersede 的 closed 段；**禁止** resolve_injection_facts。
+        include_closed=False：仅 open 半开区间（仍不强制 D4 折叠——调用方当前态应走 facts_at 过滤）。
+        每行附 bucket（classify_bucket）。
+        """
+        from scribe3.truth_surface import classify_bucket
+
+        ch = int(chapter)
+        eid = (entity_id or "").strip()
+        if not eid:
+            return []
+        if include_closed:
+            rows = self._query(
+                "SELECT meta::id(id) AS id, entity_id, attribute, value, "
+                "valid_from, valid_to, secret, leak_markers, source, archived "
+                "FROM proposition "
+                "WHERE entity_id=$e AND valid_from <= $ch "
+                "AND (archived = NONE OR archived != true) "
+                "ORDER BY attribute ASC, valid_from ASC",
+                {"e": eid, "ch": ch},
+            ) or []
+        else:
+            rows = self._query(
+                "SELECT meta::id(id) AS id, entity_id, attribute, value, "
+                "valid_from, valid_to, secret, leak_markers, source, archived "
+                "FROM proposition "
+                "WHERE entity_id=$e AND valid_from <= $ch "
+                "AND (valid_to = NONE OR valid_to > $ch) "
+                "AND (archived = NONE OR archived != true) "
+                "ORDER BY attribute ASC, valid_from ASC",
+                {"e": eid, "ch": ch},
+            ) or []
+        out: list[dict] = []
+        for r in rows:
+            src = r.get("source")
+            if src is not None:
+                src = (str(src).strip() or None)
+            attr = r.get("attribute") or ""
+            secret = bool(r.get("secret", False))
+            local = str(r.get("id") or "")
+            out.append({
+                "id": f"fact:{local}" if local and not str(local).startswith("fact:") else local,
+                "local": local,
+                "entity_id": r.get("entity_id") or eid,
+                "entity": r.get("entity_id") or eid,
+                "attribute": attr,
+                "value": r.get("value"),
+                "valid_from": r.get("valid_from"),
+                "valid_to": r.get("valid_to"),
+                "secret": secret,
+                "is_secret": secret,
+                "leak_markers": r.get("leak_markers") or [],
+                "source": src,
+                "bucket": classify_bucket(src, attr, is_secret=secret),
+                "archived": bool(r.get("archived")),
+            })
+        return out
 
     def _secret_proposition_values(self) -> set[str]:
         """本 work 权威 secret 命题的真值集(供 ai_run_trace redactor 抹工具回抛的秘密明文)。

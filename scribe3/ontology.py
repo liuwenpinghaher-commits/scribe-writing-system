@@ -40,6 +40,7 @@ class Fact:
     tx_to: int | None = None
     injection_mode: str | None = None  # M6 设定三态注入:always/detected/never(None=detected)
     priority: int | None = None        # M6 预算裁剪优先级(越大越先保)
+    source: str | None = None          # PR-4: proposition.source（codex_bridge/ingest/author/…）
 
 
 @dataclass

@@ -38,15 +38,50 @@ except Exception:
     pass  # core may be partially init during first import cycle
 
 
-def facts(chapter: int = Query(ge=1), work: str = "main", reveal_secret: bool = False):
-    """本章有效命题。批E-A1:加 reveal_secret(默认 False 仍屏蔽私密 value/leak_markers);
-    每条回全字段(valid_from/valid_to/leak_markers)供前端整行编辑。"""
-    return _facts(_store_for(work).facts_at(chapter), reveal_secret=reveal_secret)
+def facts(
+    chapter: int = Query(ge=1),
+    work: str = "main",
+    reveal_secret: bool = False,
+    entity: str | None = Query(default=None),
+    include_closed: bool = Query(default=False),
+    with_knowers: bool = Query(default=False),
+):
+    """本章有效命题（PR-4 扩展 entity / include_closed / with_knowers）。
+
+    兼容矩阵：
+    - 仅 chapter：同现网 facts_at + D4 + source/bucket 增量
+    - chapter + entity + include_closed=false：open ∩ entity（D4 后再滤 entity）
+    - chapter + entity + include_closed=true：list_entity_truth_history（**不**经 D4）
+    - include_closed=true 且无 entity → 422
+    - with_knowers：为 open 行附 knowers / reader_knows（禁止 graph ego）
+    """
+    st = _store_for(work)
+    ent = (entity or "").strip() or None
+    if include_closed and not ent:
+        raise HTTPException(
+            status_code=422,
+            detail="include_closed=true 必须带 entity（禁止全表历史扫描）",
+        )
+
+    if ent and include_closed:
+        rows = st.list_entity_truth_history(ent, chapter, include_closed=True)
+        items = [_fact_item(r, reveal_secret=reveal_secret) for r in rows]
+    elif ent:
+        # 当前态 + D4，再按 entity 过滤
+        fs = [f for f in st.facts_at(chapter) if (f.entity_id or "") == ent]
+        items = _facts(fs, reveal_secret=reveal_secret)
+    else:
+        items = _facts(st.facts_at(chapter), reveal_secret=reveal_secret)
+
+    if with_knowers:
+        st.attach_knowers_to_fact_items(items, chapter, fill_closed=False)
+    return items
+
 
 def get_fact(local: str, work: str = "main", reveal_secret: bool = False):
     """单条命题全字段读回(批E-A1②)。含 valid_from/valid_to/leak_markers/is_secret,
     让在库 leak_markers 等私密字段可安全编辑(reveal_secret=true 解锁真 value/leak_markers)。
-    不存在 → 404。"""
+    PR-4: source / bucket。不存在 → 404。"""
     st = _store_for(work)
     f = st.fact(f"fact:{local}")
     if f is None:
@@ -61,6 +96,24 @@ def get_fact(local: str, work: str = "main", reveal_secret: bool = False):
     except Exception:
         item["archived"] = False
     return item
+
+
+def get_fact_knowers(
+    local: str,
+    chapter: int = Query(ge=1),
+    work: str = "main",
+):
+    """单命题知情列表（PR-4）。不返回 value / leak_markers。"""
+    st = _store_for(work)
+    f = st.fact(f"fact:{local}")
+    if f is None:
+        raise HTTPException(status_code=404, detail=f"命题 fact:{local} 不存在")
+    return {
+        "fact_id": f"fact:{local}",
+        "chapter": int(chapter),
+        "knowers": st.list_knowers_for_proposition(local, chapter),
+        "reader_knows": st.reader_knows_at_chapter(local, chapter),
+    }
 
 def add_char(c: CharIn, work: str = "main"):
     # 掩码写哨兵:backstory 收到掩码占位符 → 视为未提供(不落库为字面掩码值)。
@@ -441,6 +494,15 @@ def _bind_and_register() -> None:
     setattr(core, 'get_fact', _re)
     g['get_fact'] = _re
     router.add_api_route('/facts/{local}', _re, methods=['GET'], name='get_fact')
+
+    _fn = g['get_fact_knowers']
+    _re = types.FunctionType(_fn.__code__, core.__dict__, 'get_fact_knowers', _fn.__defaults__, _fn.__closure__)
+    if _fn.__annotations__:
+        _re.__annotations__ = dict(_fn.__annotations__)
+    setattr(core, 'get_fact_knowers', _re)
+    g['get_fact_knowers'] = _re
+    # 必须在 /facts/{local} 之外单独注册；路径更具体，Starlette 按注册顺序匹配
+    router.add_api_route('/facts/{local}/knowers', _re, methods=['GET'], name='get_fact_knowers')
 
     _fn = g['add_char']
     _re = types.FunctionType(_fn.__code__, core.__dict__, 'add_char', _fn.__defaults__, _fn.__closure__)
