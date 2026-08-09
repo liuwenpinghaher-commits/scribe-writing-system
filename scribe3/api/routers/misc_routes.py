@@ -44,32 +44,38 @@ def get_progress(work: str = "main", window: str = "all"):
     return _store_for(work).progress(window=window)
 
 def chat_stream(msg: str, background: BackgroundTasks, work: str = "main",
-                seq: int | None = None, thread: str | None = None):
-    """主编对话(SSE 流式)。注入本书设定上下文,经 Hermes 逐字回流。
-    seq(时机C):当前讨论章号,注入脉搏速览——主编讨论时能主动带出超期伏笔等信号。
-    U-005:讨论也留痕(挂本 work 稳定主编线程,与写作时间线连续)——此前讨论从不落库。
-    U-009:留痕反哺为对话记忆(history 注入)——此前单遍无续接,主编每轮失忆。"""
+                seq: int | None = None, thread: str | None = None,
+                context_session_id: str | None = None,
+                context_revision: int | None = None,
+                context_hash: str | None = None):
+    """主编对话(SSE 流式)。B∪C：系统上下文经 discussion 单编译；可选 session 绑定落 TurnBind。
+    seq(时机C):当前讨论章号,注入脉搏速览。
+    U-005:讨论留痕；U-009:history 续接。"""
     from scribe3.llm import hermes_complete_stream
+    from scribe3.api.services.write_assemble import assemble_discussion_system
     st = _store_for(work)
     thread_id = _editor_turn_context(
         work, thread_row=_resolve_thread_or_raise(work, thread)).thread_id
-    # P0b:流结束后增量摘要(阈值内秒退零成本;失败 summary_error 前端红字)
     background.add_task(_maybe_summarize_thread, work, thread_id)
+    _ctx = {
+        "context_session_id": context_session_id,
+        "context_revision": context_revision,
+        "context_hash": context_hash,
+        "thread_id": thread_id,
+    }
 
     def gen():
-        # U-011:上下文组装(设定圣经/脉搏/历史)挪进流内——组装崩时 error 帧携带【异常原文】
-        # 到前端内联显示(作者能看见真实原因),而不是开流前 500 → 前端只见笼统"连接中断"。
         try:
-            # 限知/时间一致性:有章号则传入 chapter,设定注入走 facts_at(seq) 时间门
-            # (此前 _editor_system(st) 无章 → 全库 99999,早章讨论可灌未来命题)。
             import time as _time
             _t0 = _time.perf_counter()
-            sysmsg = (
-                _editor_system(st, chapter=seq)
-                + _pulse_digest(st, seq)
-                + _DISCUSSION_DIRECTIVE
+            pulse = _pulse_digest(st, seq)
+            sysmsg = assemble_discussion_system(
+                st, work=work, chapter=seq, user_msg=msg,
+                memory_trace_ctx=_ctx if _ctx.get("context_session_id") else None,
+                pulse_text=pulse,
+                directive_text=_DISCUSSION_DIRECTIVE,
             )
-            history = _thread_history_for_prompt(st, thread_id)   # 先于 _ChatTurnLog 落本轮 user
+            history = _thread_history_for_prompt(st, thread_id)
             try:
                 from scribe3.context_cache import record_discuss_assembly
                 record_discuss_assembly(
@@ -92,7 +98,7 @@ def chat_stream(msg: str, background: BackgroundTasks, work: str = "main",
                 for delta in hermes_complete_stream(msg, system=sysmsg, history=history):
                     clog.feed(delta)
                     yield f"data: {json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
-            except Exception as e:  # 失败如实回流,不静默
+            except Exception as e:
                 yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
         yield 'data: {"done": true}\n\n'
 
@@ -117,12 +123,33 @@ def chat_agentic_stream(msg: str, background: BackgroundTasks, work: str = "main
     background.add_task(_maybe_summarize_thread, work, turn.thread_id)   # P0b 增量摘要
 
     def _build_instructions() -> str:
-        # U-011:组装挪进流内(经 gen 的 try)——设定/脉搏取数崩时 error 帧带异常原文到前端,
-        # 而不是开流前 500 只显"连接中断"。
-        # 与 chat_stream 同口径:chapter=seq 走时间门设定注入。
+        # B∪C：与 chat_stream 同源 discussion 单编译；工具说明作 supplemental。
         import time as _time
+        from scribe3.api.services.write_assemble import assemble_discussion_system
         _t0 = _time.perf_counter()
-        ins = _editor_system(st, chapter=seq) + _pulse_digest(st, seq)
+        tools_hint = ""
+        if with_tools:
+            tools_hint = (
+                _s3_work_scope_block(work) + (
+                    "\n\n你能调用 s3_ 工具实时查询/操作这部书的 SurrealDB(知识帧 s3_project_frame、反讽 s3_dramatic_irony、"
+                    "伏笔 s3_list_promises、母题 s3_list_motifs、章节 s3_get_chapter、确定性QC s3_qc_chapter、纪律判官 "
+                    "s3_discipline_check、语义召回 s3_semantic_recall、因果 s3_causal_complete 等)。"
+                    "回答前先用只读工具核实真实数据,不臆测;引用数据时说明来自哪个工具。"
+                    "写操作(加角色/事实/伏笔等)会进入待批,不会立即生效。"
+                )
+            )
+            try:
+                from scribe3.craft_skills import skills_index_block
+                tools_hint += skills_index_block()
+            except Exception:
+                pass
+        ins = assemble_discussion_system(
+            st, work=work, chapter=seq, user_msg=msg,
+            memory_trace_ctx=None,
+            pulse_text=_pulse_digest(st, seq),
+            directive_text=_DISCUSSION_DIRECTIVE,
+            with_tools_hint=tools_hint,
+        )
         try:
             from scribe3.context_cache import record_discuss_assembly
             record_discuss_assembly(
@@ -135,16 +162,6 @@ def chat_agentic_stream(msg: str, background: BackgroundTasks, work: str = "main
             )
         except Exception:
             pass
-        if with_tools:
-            ins += _s3_work_scope_block(work) + (
-                "\n\n你能调用 s3_ 工具实时查询/操作这部书的 SurrealDB(知识帧 s3_project_frame、反讽 s3_dramatic_irony、"
-                "伏笔 s3_list_promises、母题 s3_list_motifs、章节 s3_get_chapter、确定性QC s3_qc_chapter、纪律判官 "
-                "s3_discipline_check、语义召回 s3_semantic_recall、因果 s3_causal_complete 等)。"
-                "回答前先用只读工具核实真实数据,不臆测;引用数据时说明来自哪个工具。"
-                "写操作(加角色/事实/伏笔等)会进入待批,不会立即生效。"
-            )
-            from scribe3.craft_skills import skills_index_block
-            ins += skills_index_block()   # P1 定案B:技法索引(渐进披露,全文靠 s3_skill_read)
         return ins
 
     def gen():

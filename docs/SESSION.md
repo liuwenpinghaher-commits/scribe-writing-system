@@ -17,57 +17,39 @@
 
 | 项 | 值 |
 |----|----|
-| **更新于** | 2026-08-08（磁盘卫生） |
+| **更新于** | 2026-08-09（上下文检查器 B∪C） |
 | **产品名（UI）** | 铜炉 / tonglu（仅品牌文案+logo，色板未改） |
 | **默认分支** | `main` |
+| **刚完成** | **上下文检查器 B∪C**：TurnView 读合同、TurnBind、写路径真 session 绑定、discussion 单编译、UI 诚实八块 |
+| **设计** | [`设计文档/2026-08-09-上下文检查器-B合C最优方案.md`](../设计文档/2026-08-09-上下文检查器-B合C最优方案.md) |
 | **进行中目标** | **v6.3** 约 2 万字新书 · chat 驱动 · **记忆可用性主轴**（见 docs/e2e-director-journey-2w-memory.md） |
-| **方案** | [`docs/e2e-director-journey-5w.md`](./e2e-director-journey-5w.md) **v6.2** |
-| **进度** | [`设计文档/2026-08-06-旅程5万字-进度.md`](../设计文档/2026-08-06-旅程5万字-进度.md) |
-| **主验收书** | **`book_7b918ca0`** · **58822 字** · 10/10 finalized |
-| **证据** | `artifacts/e2e-journey-5w-v6-20260807-book_7b918ca0/`（WCG/C′/D′/字数） |
+| **主验收书** | **`book_aa57f17e`**（2w 记忆）/ **`book_7b918ca0`**（5w 参考） |
 | **活跃分支** | `main` |
 
-### 旅程 5 万字
+### 上下文检查器 B∪C（2026-08-09）
 
-- **方案 v6.2**：继承 6.1 纪律；**全类型** 候选/Surreal apply/「待确认设定」已落地  
-- **v5 工程书** `book_052a2adb`：53856 字参考，**不作体验 PASS**  
-- **铁律**：WCG 先于正文；完整 pilot；L1 禁静默写；禁捷径；**新书验收**  
+- **根因**：检查器只读空 `memory_trace`；讨论不编译；写路径合成 snapshot 与 UI 脱节；六块假 0。  
+- **读模型**：`context_turn_view.py` · `GET .../trace/{rev}` 聚合 TurnBind（优先）+ memory_trace 明细。  
+- **写模型**：migration **111** `context_turn_bind`；每次成功 compile 且带 session+revision 即落库。  
+- **讨论**：`discussion.v1` Policy + `assemble_discussion_system`；禁写作围栏协议。  
+- **UI**：八块预算；`not_compiled_yet` 不画假 0；ChiefDock 凡 snapshot 即绑定。  
+- **测**：`scribe3/tests/test_context_turn_view.py`（8 passed）。  
+- **demo**：`./scripts/deploy_demo.sh hot` 后容器内 `DEMO_SMOKE_PASS`（discuss+write bind + handler）。  
 
-### 正典变更闭环 · 已部署
+### 旅程 5 万字 / 2 万字记忆
 
-- 内核 `canon_loop` · 抽取 `canon_extract` · 写库 `canon_apply_store`  
-- migration **106** · mixin · `/canon/*` · pilot finalize / from-discussion  
-- UI：Codex「待确认设定」  
-- 测：`test_canon_loop` + `test_canon_hooks`  
-- 残差：SPA 变更卡/定稿分节弹层美化；旅程债数字；纯 UI 5w 新书  
+- 方案 v6.2 / v6.3.2 见既有进度文档；A/B D7 硬门槛未达见 `设计文档/2026-08-08-旅程2万字-记忆验收-进度.md`。  
 
 ### 下一步
 
-1. **待确认设定收件箱完善**（详情+分类+噪声桶）：见 [`设计文档/2026-08-07-待确认设定收件箱-完善方案.md`](../设计文档/2026-08-07-待确认设定收件箱-完善方案.md) **P0→P1**  
-2. Phase E：九线结案文（规模线诚实标 PARTIAL / 超 55k 保留）  
-3. 可选：旅程债 UI；纯 SPA 路径补证据  
-
-### 字数快照（保留原稿）
-
-| ch | 字 | ch | 字 |
-|----|-----|----|-----|
-| 1 | 4793 | 6 | 5880 |
-| 2 | 5104 | 7 | 9189 |
-| 3 | 5949 | 8 | 6545 |
-| 4 | 4922 | 9 | 5098 |
-| 5 | 5229 | 10 | 6113 |
-| **合计** | | | **58822** |
+1. 前端 `deploy_demo.sh frontend`（若需公网 SPA 立刻见八块 UI）  
+2. 待确认设定收件箱完善（P0→P1）  
+3. Phase E 九线结案文（5w 规模线 PARTIAL）  
 
 ### 已知坑
 
 - Grok 机禁重活；验收打 demo  
+- 本机 Surreal **2.3.7** 与 demo **3.2.4** 的 `type::record` 参数序不兼容 → 全量 conftest store 测可能假红；B∪C 契约测用 MiniStore  
 - 启发式 extract 可能过召回 → 人批拒  
 - full_check AI 味 soft-pass ≠ 质量线自动绿  
-- `draft_loop` 超长压缩须带 `勿超过N` + `【强制重写】`  
-- **Demo 40G 盘**：`compose --build` 会堆悬空镜像；见 [`docs/ops/demo-disk-hygiene.md`](./ops/demo-disk-hygiene.md)。部署脚本已内置 prune / 清 `/tmp` / 构建后删 `node_modules`。应急：`./scripts/deploy_demo.sh prune`  
-
-### 运维（2026-08-08）
-
-- 已对 demo 做一轮安全清理（dangling image + builder + 已知 `/tmp` + web `node_modules`）  
-- 根因修复：`scripts/deploy_demo.sh`、`deploy/prod/scripts/deploy.sh`  
- 
+- **Demo 40G 盘**：`compose --build` 会堆悬空镜像；见 [`docs/ops/demo-disk-hygiene.md`](./ops/demo-disk-hygiene.md)  

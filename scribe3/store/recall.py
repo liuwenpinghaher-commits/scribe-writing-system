@@ -322,6 +322,88 @@ class RecallMixin:
             {"sid": session_id, "rev": int(revision)})
         return mask_memory_trace(rows[0]) if rows else None
 
+    def save_context_turn_bind(self, view: dict) -> str:
+        """B∪C：按 (session, revision) 幂等落检查器 TurnBind（不含 prompt 正文）。
+
+        selected/rejected 落库前 mask；同键先删后建。返回 bind_id。
+        """
+        from scribe3.store import mask_memory_trace
+        if not isinstance(view, dict):
+            raise ValueError("save_context_turn_bind: view 须为 dict")
+        sid = str(view.get("context_session_id") or view.get("session_id") or "")
+        if not sid:
+            raise ValueError("save_context_turn_bind: 需要 context_session_id")
+        rev = int(view.get("snapshot_revision") if view.get("snapshot_revision") is not None else 0)
+        # 复用 memory_trace 的 mask 形状（selected/rejected 字段同名）
+        masked = mask_memory_trace({
+            "selected": view.get("selected") or [],
+            "rejected": view.get("rejected") or [],
+        })
+        bind_id = f"ctb:{sid}:{rev}"
+        doc = {
+            "bind_id": bind_id,
+            "work": str(view.get("work") or ""),
+            "context_session_id": sid,
+            "snapshot_revision": rev,
+            "task_kind": str(view.get("task_kind") or "draft"),
+            "path": str(view.get("path") or "write"),
+            "availability": str(view.get("availability") or "ready"),
+            "manifest_id": view.get("manifest_id"),
+            "request_id": view.get("request_id"),
+            "actual_input_hash": view.get("actual_input_hash"),
+            "policy_version": view.get("policy_version"),
+            "envelope_hash": str(view.get("envelope_hash") or ""),
+            "query": str(view.get("query") or ""),
+            "synthetic_snapshot": bool(view.get("synthetic_snapshot")),
+            "block_tokens": view.get("block_tokens") or {},
+            "blocks": view.get("blocks") or [],
+            "selected": masked.get("selected") or [],
+            "rejected": masked.get("rejected") or [],
+            "usage_digest": view.get("usage_digest") or {},
+        }
+        self._execute_write(
+            "DELETE context_turn_bind WHERE context_session_id=$sid AND snapshot_revision=$rev",
+            {"sid": sid, "rev": rev},
+        )
+        self._execute_write(
+            "CREATE context_turn_bind SET bind_id=$bind_id, work=$work, "
+            "context_session_id=$context_session_id, snapshot_revision=$snapshot_revision, "
+            "task_kind=$task_kind, path=$path, availability=$availability, "
+            "manifest_id=$manifest_id, request_id=$request_id, "
+            "actual_input_hash=$actual_input_hash, policy_version=$policy_version, "
+            "envelope_hash=$envelope_hash, query=$query, "
+            "synthetic_snapshot=$synthetic_snapshot, block_tokens=$block_tokens, "
+            "blocks=$blocks, selected=$selected, rejected=$rejected, "
+            "usage_digest=$usage_digest",
+            doc,
+        )
+        return bind_id
+
+    def get_context_turn_bind(self, session_id: str, revision: int) -> dict | None:
+        """按 (会话, revision) 取最新 TurnBind；出参 mask selected/rejected。"""
+        from scribe3.store import mask_memory_trace
+        rows = self._query(
+            "SELECT bind_id, work, context_session_id, snapshot_revision, task_kind, path, "
+            "availability, manifest_id, request_id, actual_input_hash, policy_version, "
+            "envelope_hash, query, synthetic_snapshot, block_tokens, blocks, selected, "
+            "rejected, usage_digest, "
+            "(IF created_at IS NONE THEN NONE ELSE <string>created_at END) AS created_at "
+            "FROM context_turn_bind "
+            "WHERE context_session_id=$sid AND snapshot_revision=$rev "
+            "ORDER BY created_at DESC LIMIT 1",
+            {"sid": session_id, "rev": int(revision)},
+        )
+        if not rows:
+            return None
+        row = dict(rows[0])
+        masked = mask_memory_trace({
+            "selected": row.get("selected") or [],
+            "rejected": row.get("rejected") or [],
+        })
+        row["selected"] = masked.get("selected") or []
+        row["rejected"] = masked.get("rejected") or []
+        return row
+
     def add_memory_item(self, work: str, kind: str, text: str, *,
                         scope_type: str = "work", scope_id: str | None = None,
                         source_type: str = "", source_id: str = "",

@@ -400,6 +400,11 @@ def _editor_identity_block() -> str:
 def _write_protocol_block() -> str:
     """写作硬协议(讨论 vs 动稿)+ 文风基准(纯静态,零数据)。原 _editor_write_system 内联串
     原样抽出,供旧 _editor_write_system 与 v1 共用——不改一字,保旧路径字节一致。"""
+    try:
+        exemplar = _LUANSHI_EXEMPLAR  # type: ignore[name-defined]
+    except NameError:
+        from scribe3.api import app_impl as _core
+        exemplar = getattr(_core, "_LUANSHI_EXEMPLAR", "……")
     return (
         "\n\n你是这部小说的主编,以**作者视角**帮作者写/改这本书的手稿——作者在写一本书,"
         "不是从某个角色的受限视角做渲染。\n\n"
@@ -424,7 +429,7 @@ def _write_protocol_block() -> str:
         "2. **世界密度(乱世铜炉的命门)**:每章须织入与主线无关、却让世界活起来的市井风物侧笔——"
         "婚丧社戏的张罗、乡邻帮衬、打更人讨水酒、行当忌讳、节庆吃食。别一上来直奔情节;让村镇先有烟火气,"
         "妖异方有依附。范例语感(仅供体感,勿照抄字句):\n"
-        "  「" + _LUANSHI_EXEMPLAR + "」\n"
+        "  「" + exemplar + "」\n"
         "  ——注意它如何用一整段写婚宴的杀猪宰羊、姑嫂蒸糕、打更人讨酒,世界先活,事件才落地。"
     )
 
@@ -937,8 +942,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         f"work:{work or 'main'}:codex", "codex", codex_input,
     )
     # 统一上下文段(替代旧 avoid/voice/arc/motif/frame/recap/tail/outline/material 散点拼装)
+    # B∪C：memory_trace_ctx 真 session/revision 注入 snapshot，供 TurnBind 与检查器对齐。
     snap = _write_snapshot(st, chapter=chapter, focalizer=focalizer,
-                           phase=phase, work=work)
+                           phase=phase, work=work, memory_trace_ctx=memory_trace_ctx)
     mode = "write" if (phase or "").strip().lower() in ("draft", "final") else "plan"
     # I1(Task 16-C 核心修复):写作路径必须给 assemble 一个【有意义 query】,否则
     #   store.memory_bm25/vector 对空串硬返 [](graph 种子亦空)→ episodic/working 三条经验
@@ -1110,18 +1116,59 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             manifest_id=compiled.manifest.manifest_hash,
             briefs=reference_craft_briefs,
         )
-    # Task 16 最后一厘米:检索真发生(retriever 非 None)且前端带了会话绑定
-    # (memory_trace_ctx 有 session_id + revision)时,落 memory_trace 给 ContextInspector。
-    # 键用前端真实会话(前端 Inspector 查同一 session/revision,天然对齐);无绑定的调用方
-    # (loop / 存量)→ 不落(诚实 404)。best-effort:落库失败只告警,绝不阻断写作主链路
-    # (与 chat_message 同纪律);秘密屏蔽复用 _save_write_memory_trace 内 build/save 双重 mask。
+    # B∪C：前端带齐 session+revision 时，每次成功 compile 都落 TurnBind（与 fabric 无关）。
+    # 另：fabric 开且有 RetrievalResult 时继续落 memory_trace（检索明细层）。
+    # best-effort：落库失败只告警，绝不阻断写作主链路。
     _mtc = memory_trace_ctx or {}
-    if (_retrieval_out is not None and _mtc.get("context_session_id")
-            and _mtc.get("context_revision") is not None):
-        _result = _retrieval_out.get("result")
+    if _mtc.get("context_session_id") and _mtc.get("context_revision") is not None:
+        _result = (_retrieval_out or {}).get("result") if _retrieval_out is not None else None
+        _sel, _rej = [], []
         if _result is not None:
             try:
-                _save_write_memory_trace(
+                from scribe3.store import build_memory_trace
+                _tmp = build_memory_trace(
+                    trace_id="tmp", work=str(work or ""), thread_id="",
+                    context_session_id=str(_mtc.get("context_session_id")),
+                    snapshot_revision=int(_mtc.get("context_revision")),
+                    result=_result, store=st)
+                _sel = list(_tmp.get("selected") or [])
+                _rej = list(_tmp.get("rejected") or [])
+            except Exception:
+                logging.getLogger("scribe3").warning(
+                    "turn selected 映射失败(忽略)", exc_info=True)
+        _usage = {}
+        try:
+            _usage = (envelope_trace or {}).get("context", {}).get("usage_digest") or {}
+            if not _usage:
+                from scribe3.context_assembler import envelope_trace_manifest
+                _usage = envelope_trace_manifest(envelope).get("usage_digest") or {}
+        except Exception:
+            _usage = {}
+        _tk = "final" if (phase or "").strip().lower() == "final" else "draft"
+        try:
+            try:
+                _scb = _save_context_turn_bind  # type: ignore[name-defined]
+            except NameError:
+                from scribe3.api.services.write_stream import _save_context_turn_bind as _scb
+            _scb(
+                st, snap=snap, envelope=envelope, work=work, ctx=_mtc,
+                task_kind=_tk, path="write",
+                manifest_id=compiled.manifest.manifest_hash,
+                request_id=compiled.request.request_id,
+                actual_input_hash=compiled.manifest.actual_input_hash,
+                policy_version=compiled.manifest.policy_version,
+                selected=_sel, rejected=_rej, query=retrieval_query,
+                usage_digest=_usage)
+        except Exception:
+            logging.getLogger("scribe3").warning(
+                "context_turn_bind 落库失败(忽略,不阻断写作)", exc_info=True)
+        if _result is not None:
+            try:
+                try:
+                    _smt = _save_write_memory_trace  # type: ignore[name-defined]
+                except NameError:
+                    from scribe3.api.services.write_stream import _save_write_memory_trace as _smt
+                _smt(
                     st, snap=snap, envelope=envelope, result=_result,
                     query=retrieval_query, work=work, ctx=_mtc)
             except Exception:
@@ -1171,4 +1218,158 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
         memory_trace_ctx=memory_trace_ctx,
         extra_instructions=extra_instructions, request_text=request_text,
     )
+
+
+def assemble_discussion_system(
+    st,
+    *,
+    work: str | None = None,
+    chapter: int | None = None,
+    user_msg: str = "",
+    memory_trace_ctx: dict | None = None,
+    pulse_text: str = "",
+    directive_text: str = "",
+    with_tools_hint: str = "",
+) -> str:
+    """B∪C：讨论路径单编译（discussion.v1），禁止写作围栏协议。
+
+    产出与写作同源的 Envelope+Manifest；有 session 绑定时落 TurnBind。
+    不调用 _capture_turn_memory。for_generation 语义：讨论全知，不走生成秘密二次门。
+    """
+    import logging
+    import uuid
+    from scribe3.context_assembler import envelope_trace_manifest, render_envelope_text
+    from scribe3.context_engine import CreativeContextEngine
+    from scribe3.context_models import ContextRequest, ContextSource
+    from scribe3.context_assembler import estimate_tokens
+
+    if work in (None, ""):
+        work = getattr(st, "db_name", None) or "main"
+    try:
+        from scribe3.api.services.write_stream import (
+            _write_snapshot, _get_write_retriever, _save_context_turn_bind,
+        )
+    except Exception:
+        from scribe3.api.services import write_stream as _ws
+        _write_snapshot = _ws._write_snapshot
+        _get_write_retriever = _ws._get_write_retriever
+        _save_context_turn_bind = _ws._save_context_turn_bind
+
+    snap = _write_snapshot(
+        st, chapter=chapter, focalizer="", phase=None, work=work,
+        memory_trace_ctx=memory_trace_ctx)
+    retriever = _get_write_retriever(st)
+    _retrieval_out = {} if retriever is not None else None
+    query = (user_msg or "").strip()[:200]
+    supplemental: list[ContextSource] = []
+
+    def _render(envelope):
+        # 讨论身份 + 全知 banner（不入 generation 围栏协议）
+        parts = [
+            "你是这部长篇小说的资深主编(责编),与作者面对面讨论创作。\n"
+            "【模式·讨论全知】本轮是作者/主编讨论，不是限知正文生成；"
+            "可讨论设定与私密伏线，但不得输出 ⟦PROPOSAL⟧ 写作围栏或把讨论稿当作书稿定稿。\n"
+            "要求:用简体中文,像真正的资深文学编辑那样具体、犀利、可操作;"
+            "紧扣下方统一上下文中的世界观与北极星,不空泛;给建议时给 2-3 个选项与代价。\n"
+        ]
+        env_text = render_envelope_text(envelope)
+        if env_text:
+            parts.append(env_text)
+        # pulse / directive 作为可审计补充段
+        extra_bits = []
+        if (pulse_text or "").strip():
+            extra_bits.append(pulse_text.strip())
+        if (directive_text or "").strip():
+            extra_bits.append(directive_text.strip())
+        if (with_tools_hint or "").strip():
+            extra_bits.append(with_tools_hint.strip())
+        for i, bit in enumerate(extra_bits):
+            sid = f"discuss:extra:{i}"
+            digest = __import__("hashlib").sha256(bit.encode("utf-8")).hexdigest()
+            supplemental.append(ContextSource(
+                source_id=sid,
+                source_kind="procedural",
+                work=str(work or "main"),
+                reason="discussion_supplement",
+                content_digest=digest,
+            ))
+            parts.append(bit)
+        # 作者偏好
+        try:
+            pref = _author_prefs_block_safe()
+            if pref:
+                parts.append(pref)
+        except Exception:
+            pass
+        return "\n\n".join(p for p in parts if p), tuple(supplemental)
+
+    context_request = ContextRequest(
+        request_id=uuid.uuid4().hex,
+        task_kind="discussion",
+        target_ref=f"chapter:{chapter}" if chapter is not None else f"work:{work}",
+        navigation_snapshot_id=snap.navigation_id,
+        work=snap.work,
+        chapter=chapter,
+        phase=None,
+        actor_role="editor",
+        pov_character=None,
+        # focus 含用户本轮问句；空书 global 可能薄，不强制以免误杀讨论。
+        required_slots=("focus",),
+        forbidden_source_kinds=(),
+        policy_version="discussion.v1",
+    )
+    compiled = CreativeContextEngine(
+        st, retriever=retriever, retrieval_out=_retrieval_out,
+    ).compile(
+        context_request, snap, query, "discussion", _render,
+    )
+    rendered = compiled.rendered_input
+    # 合同：讨论系统提示不得含写作围栏协议（防误套 generation.v1 围栏段）
+    if "⟦PROPOSAL scope=" in rendered or "绝对禁止输出 ⟦PROPOSAL⟧" in rendered:
+        raise RuntimeError("discussion compile leaked write proposal protocol")
+
+    _mtc = memory_trace_ctx or {}
+    if _mtc.get("context_session_id") and _mtc.get("context_revision") is not None:
+        _sel, _rej = [], []
+        _result = (_retrieval_out or {}).get("result") if _retrieval_out is not None else None
+        if _result is not None:
+            try:
+                from scribe3.store import build_memory_trace
+                _tmp = build_memory_trace(
+                    trace_id="tmp-d", work=str(work or ""), thread_id="",
+                    context_session_id=str(_mtc.get("context_session_id")),
+                    snapshot_revision=int(_mtc.get("context_revision")),
+                    result=_result, store=st)
+                _sel = list(_tmp.get("selected") or [])
+                _rej = list(_tmp.get("rejected") or [])
+            except Exception:
+                pass
+        _usage = {}
+        try:
+            _usage = envelope_trace_manifest(compiled.envelope).get("usage_digest") or {}
+        except Exception:
+            pass
+        try:
+            _save_context_turn_bind(
+                st, snap=snap, envelope=compiled.envelope, work=work, ctx=_mtc,
+                task_kind="discussion", path="discuss",
+                manifest_id=compiled.manifest.manifest_hash,
+                request_id=compiled.request.request_id,
+                actual_input_hash=compiled.manifest.actual_input_hash,
+                policy_version=compiled.manifest.policy_version,
+                selected=_sel, rejected=_rej, query=query,
+                usage_digest=_usage)
+        except Exception:
+            logging.getLogger("scribe3").warning(
+                "discussion turn_bind 落库失败(忽略)", exc_info=True)
+        if _result is not None:
+            try:
+                from scribe3.api.services.write_stream import _save_write_memory_trace
+                _save_write_memory_trace(
+                    st, snap=snap, envelope=compiled.envelope, result=_result,
+                    query=query, work=work, ctx=_mtc)
+            except Exception:
+                logging.getLogger("scribe3").warning(
+                    "discussion memory_trace 落库失败(忽略)", exc_info=True)
+    return rendered
 

@@ -678,14 +678,20 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
     const finalMsg = ctx.prefix + q
     setInput('')
     if (taRef.current) taRef.current.style.height = 'auto'
-    // Task 6:线程模式捕获本轮 focusAtSend + context 绑定(随请求体带上,并标注气泡)。
-    const bind = threadMode ? {
-      thread_id: threadId,
-      context_session_id: snapshot?.session_id ?? null,
-      context_revision: snapshot?.revision ?? null,
-      context_hash: snapshot?.context_hash ?? null,
+    // B∪C：凡有 snapshot 即绑定（不依赖 threadMode），供 TurnBind / 检查器对齐。
+    const bind = snapshot?.session_id ? {
+      thread_id: threadMode ? threadId : null,
+      context_session_id: snapshot.session_id,
+      context_revision: snapshot.revision ?? null,
+      context_hash: snapshot.context_hash ?? null,
       focus: effectiveFocus || null,
-    } : null
+    } : (threadMode ? {
+      thread_id: threadId,
+      context_session_id: null,
+      context_revision: null,
+      context_hash: null,
+      focus: effectiveFocus || null,
+    } : null)
     setMsgs((m) => [...m,
       { role: 'user', content: q, focus: bind?.focus || null, context_revision: bind?.context_revision ?? null },
       { role: 'assistant', content: '', tools: [] }])
@@ -877,10 +883,15 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
       })
       return
     }
-    // 非章前置阶段(素材/视图等):走 /chat/stream(绑当前书 + 注入该书设定圣经),不走 MCP 网关(网关连固定库会串到别的书)
+    // 非章前置阶段(素材/视图等):走 /chat/stream + B∪C discussion 编译与会话绑定
     esRef.current = api.chatStream(finalMsg, {
       agentic: false, seq: seq ?? ctxSeq,   // 审查 P0-1:非章上下文用最近章记忆,时机C 不死线
       thread: threadMode ? threadId : undefined,   // P0a:消息落当前选中会话(非线程模式不传=旧行为)
+      context: bind && bind.context_session_id ? {
+        context_session_id: bind.context_session_id,
+        context_revision: bind.context_revision,
+        context_hash: bind.context_hash,
+      } : null,
       onDelta: (d) => mut((l) => ({ ...l, content: l.content + d })),
       onTool: (name) => {
         toolsThisTurn.push(name)

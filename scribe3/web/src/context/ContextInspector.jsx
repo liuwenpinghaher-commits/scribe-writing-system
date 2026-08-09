@@ -14,21 +14,17 @@ import { useContextSnapshot } from './ContextSnapshotContext'
 //   无溯源(GET trace 返 404)→ 第3层显"未检索到证据"(而非"没有相关事实"——
 //   没检索≠没有相关事实)。
 
-// 第2层六块(名称与 context_models.ContextBlock 枚举对齐)
+// 第2层八块(与 context_assembler.BLOCK_BUDGETS / ContextBlock 对齐)
 const BLOCK_DEFS = [
+  { key: 'focus', label: 'Focus' },
   { key: 'global', label: 'Global' },
   { key: 'canonical', label: 'Canonical' },
   { key: 'recent', label: 'Recent' },
   { key: 'procedural', label: 'Procedural' },
   { key: 'reference', label: 'Reference' },
   { key: 'uncertainty', label: 'Uncertainty' },
+  { key: 'provenance', label: 'Provenance' },
 ]
-
-// source_kind(Task 8 六类)→ 归属块(用于第2层来源计数)。canonical 特殊,其余经验类归 recent/自身。
-const KIND_TO_BLOCK = {
-  canonical: 'canonical', working: 'recent', episodic: 'recent',
-  procedural: 'procedural', reference: 'reference', uncertainty: 'uncertainty',
-}
 
 const STATUS_META = {
   current: { label: '主编知道你在看什么', tone: 'ok' },
@@ -193,12 +189,32 @@ export function ContextInspector() {
     }
   }
   const toneClass = { ok: 'text-ok', warn: 'text-warn', danger: 'text-danger', faint: 'text-faint' }[meta.tone]
+  // B∪C：ready = available 且非 not_compiled_yet
+  const availability = (trace && trace.availability) || (trace && trace.available === false ? 'not_compiled_yet' : null)
+  const isReady = !!(trace && trace.available !== false && availability !== 'not_compiled_yet'
+    && (trace.block_tokens || (trace.blocks && trace.blocks.length) || (trace.selected && trace.selected.length)))
   const selected = (trace && trace.selected) || []
   const rejected = (trace && trace.rejected) || []
   const hasEvidence = selected.length > 0 || rejected.length > 0
+  // 块级源数：优先 blocks[].source_count / source_ids，禁止仅靠 selected.kind 粗算
+  const blockMeta = {}
+  for (const b of (trace && trace.blocks) || []) {
+    if (b && b.name) {
+      blockMeta[b.name] = {
+        tokens: Number(b.token_estimate) || 0,
+        count: Number(b.source_count) || (Array.isArray(b.source_ids) ? b.source_ids.length : 0),
+      }
+    }
+  }
+  const persistedDigest = (trace && trace.usage_digest && (trace.usage_digest.summary || (trace.usage_digest.lines || []).length))
+    ? trace.usage_digest
+    : null
+  const showDigest = persistedDigest || usageDigest
 
   return (
-    <div data-testid="context-inspector" data-status={status} className="border-b border-line bg-surface/60">
+    <div data-testid="context-inspector" data-status={status}
+      data-availability={isReady ? 'ready' : (availability || 'unknown')}
+      className="border-b border-line bg-surface/60">
       {/* 第1层:常显条 —— focus / revision / 状态 */}
       <button
         type="button"
@@ -221,53 +237,70 @@ export function ContextInspector() {
 
       {open && (
         <div className="px-3 pb-2.5 space-y-2">
-          {/* D7：本轮记忆在扛什么（人话摘要，无秘密 value） */}
-          {usageDigest?.summary ? (
+          {/* 本轮持久化 usage_digest 优先；现算预览仅作补充 */}
+          {showDigest?.summary ? (
             <div
               data-testid="context-inspector-usage-digest"
               className="rounded-md border border-brand/30 bg-brand/5 px-2 py-1.5 text-meta text-ink leading-snug"
             >
-              <div className="font-medium text-brand mb-0.5">记忆在扛什么</div>
-              <div className="text-faint whitespace-pre-wrap">{usageDigest.summary}</div>
-              {Array.isArray(usageDigest.lines) && usageDigest.lines.length > 0 ? (
+              <div className="font-medium text-brand mb-0.5">
+                {persistedDigest ? '记忆在扛什么' : '记忆预览（非本轮实见）'}
+              </div>
+              <div className="text-faint whitespace-pre-wrap">{showDigest.summary}</div>
+              {Array.isArray(showDigest.lines) && showDigest.lines.length > 0 ? (
                 <ul className="mt-1 space-y-0.5 text-faint">
-                  {usageDigest.lines.slice(0, 8).map((line, i) => (
+                  {showDigest.lines.slice(0, 8).map((line, i) => (
                     <li key={i} className="truncate" title={line}>{line}</li>
                   ))}
                 </ul>
               ) : null}
             </div>
           ) : null}
-          {/* 第2层:六块 token + 来源数 */}
-          <div data-testid="context-inspector-blocks" className="grid grid-cols-2 gap-1">
-            {BLOCK_DEFS.map((b) => {
-              const tokens = (trace && trace.block_tokens && trace.block_tokens[b.key]) || 0
-              const count = selected.filter((s) => KIND_TO_BLOCK[s.source_kind] === b.key).length
-              return (
-                <div
-                  key={b.key}
-                  data-testid={`context-block-${b.key}`}
-                  className="flex items-center justify-between rounded-md border border-line bg-canvas px-2 py-1 text-meta"
-                >
-                  <span className="text-ink">{b.label}</span>
-                  <span className="text-faint tabular-nums">{tokens} tok · {count} 源</span>
-                </div>
-              )
-            })}
-          </div>
 
-          {/* 第3层:证据。无溯源 → "未检索到证据"(不显"没有相关事实") */}
-          {!hasEvidence ? (
+          {/* 诚实空态：未编译时不画假 0 网格 */}
+          {!isReady ? (
             <div data-testid="context-inspector-no-evidence" className="rounded-md border border-line bg-canvas px-2 py-2 text-meta text-faint leading-snug">
-              这里是【上下文检查器】:显示主编本轮看到了什么(六块预算)、哪些记忆被选入/弃用及理由。
-              当前版本暂无检索溯源{status === 'retrieval_degraded' ? '(检索降级)' : ''}——
-              发一条写作/讨论消息后再展开查看。
+              这里是【上下文检查器】：显示主编本轮统一编译后看到的八块预算、来源与弃用理由。
+              {status === 'retrieval_degraded'
+                ? '当前检索降级，证据可能不全。'
+                : '当前导航版本尚未完成带会话绑定的写作/讨论编译——发一条写作或讨论消息（需绑定上下文会话）后再展开。'}
+              未编译不等于「书没有设定或记忆」。
             </div>
           ) : (
-            <div data-testid="context-inspector-evidence" className="space-y-1">
-              {selected.map((s, i) => <EvidenceRow key={`sel-${i}`} item={s} kind="selected" />)}
-              {rejected.map((r, i) => <EvidenceRow key={`rej-${i}`} item={r} kind="rejected" />)}
-            </div>
+            <>
+              {/* 第2层:八块 token + 块级源数 */}
+              <div data-testid="context-inspector-blocks" className="grid grid-cols-2 gap-1">
+                {BLOCK_DEFS.map((b) => {
+                  const fromBlocks = blockMeta[b.key]
+                  const tokens = fromBlocks
+                    ? fromBlocks.tokens
+                    : ((trace && trace.block_tokens && trace.block_tokens[b.key]) || 0)
+                  const count = fromBlocks ? fromBlocks.count : 0
+                  return (
+                    <div
+                      key={b.key}
+                      data-testid={`context-block-${b.key}`}
+                      className="flex items-center justify-between rounded-md border border-line bg-canvas px-2 py-1 text-meta"
+                    >
+                      <span className="text-ink">{b.label}</span>
+                      <span className="text-faint tabular-nums">{tokens} tok · {count} 源</span>
+                    </div>
+                  )
+                })}
+              </div>
+              {hasEvidence ? (
+                <div data-testid="context-inspector-evidence" className="space-y-1">
+                  {selected.map((s, i) => <EvidenceRow key={`sel-${i}`} item={s} kind="selected" />)}
+                  {rejected.map((r, i) => <EvidenceRow key={`rej-${i}`} item={r} kind="rejected" />)}
+                </div>
+              ) : (
+                <div data-testid="context-inspector-no-evidence" className="rounded-md border border-line bg-canvas px-2 py-1.5 text-meta text-faint">
+                  本轮已编译（见上方块预算），但无检索选入/弃用明细。
+                  {trace?.task_kind ? ` · ${trace.task_kind}` : ''}
+                  {trace?.manifest_id ? ` · manifest ${String(trace.manifest_id).slice(0, 8)}…` : ''}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

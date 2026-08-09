@@ -186,9 +186,10 @@ class ConnectionMixin:
             # API 与 Hermes MCP 是独立进程，首次打开同一 work 时可能同时读到
             # 尚未应用。迁移正文已要求幂等，记录写入也必须幂等，不能由第二个
             # initializer 的唯一键冲突把整个 MCP 读取路径打断。
-            # SurrealDB 2.1.x: two-arg type::record() InternalError; type::record is reliable.
+            # Surreal 2.3/3.x: type::record('_migration', name) 会把表名/id 拧反；
+            # type::thing 在 2.3.7 与 3.x 均可用（本机/demo 验收过）。
             self._raw_query(
-                "UPSERT type::record('_migration', $name) SET applied_at = time::now()",
+                "UPSERT type::thing('_migration', $name) SET applied_at = time::now()",
                 {"name": f.stem},
             )
         if failures:

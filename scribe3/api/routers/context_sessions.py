@@ -70,39 +70,71 @@ def context_snapshot_get(session_id: str, revision: int, work: str = "main"):
         raise _context_http_error(e) from e
 
 def context_trace_get(session_id: str, revision: int, work: str = "main"):
-    """读某快照版本的记忆溯源 trace(Task 14 上下文检查器数据源):主编到底看到了
-    什么、为什么选这条记忆、为什么弃那条。
+    """读某快照版本的 ContextTurnView(B∪C 检查器数据源)。
 
-    限知红线:私密事实的 value 在服务端【权威屏蔽】后才返回(前端不可信,Task 7 教训)——
-    store.get_memory_trace_for_snapshot 落库时已屏蔽,此处再过一遍 mask_memory_trace 兜底。
+    优先 context_turn_bind；再用 memory_trace 补检索明细。无绑定时
+    available=false / availability=not_compiled_yet（不画假 0 块）。
 
-    诚实边界:新会话/新快照在首次检索前本来就没有 trace。这是可预期的资源状态，
-    不是网络错误：返回 ``available=false``，让自动加载的 ContextInspector 不制造
-    浏览器 404 噪声，也不把“尚未检索”伪装成“没有相关事实”。
-
-    但 session/revision 必须先由 ContextService 按 work 验证；不存在或跨书的快照
-    仍按既有安全语义返回 404/409，绝不因空 trace 放松隔离。"""
+    限知红线:secret value 服务端 mask 后才返回。
+    session/revision 不存在仍 404/409，不因空态放松隔离。
+    """
     from scribe3.store import mask_memory_trace
+    from scribe3.context_turn_view import (
+        not_compiled_view, view_from_bind_row, merge_memory_trace_into_view,
+    )
     store = _store_for(work)
+    bind = None
+    try:
+        bind = store.get_context_turn_bind(session_id, int(revision))
+    except Exception:
+        bind = None
     trace = store.get_memory_trace_for_snapshot(session_id, int(revision))
-    if not trace:
-        # 只有“没有 trace”时才需要确认它确实是一个现存快照的正常空态。
-        # 已持久化 trace 的回放/历史迁移数据可独立于 context_session 存在；先强制
-        # ContextService 会错误地让这些可审计证据变成 404，破坏既有 API 合同。
+    if not bind and not trace:
         try:
             ContextService(store).get(session_id, work, revision=int(revision))
         except (ContextServiceError, StaleContextError) as e:
             raise _context_http_error(e) from e
-        return {
-            "available": False,
-            "session_id": session_id,
-            "snapshot_revision": int(revision),
-            "reason": "not_retrieved_yet",
-        }
-    # Task 16-A:memory_trace 落库 work 与请求 ?work= 比对(空 work=旧数据→不判,走 mask)。
+        return not_compiled_view(session_id=session_id, revision=int(revision))
+    if bind:
+        _assert_work_binding(bind.get("work") or None, work,
+                             kind="context_turn_bind", ident=session_id)
+        view = view_from_bind_row(bind, session_id=session_id, revision=int(revision))
+        if trace:
+            _assert_work_binding(trace.get("work") or None, work,
+                                 kind="memory_trace", ident=session_id)
+            view = merge_memory_trace_into_view(view, mask_memory_trace(trace))
+        return view
+    # 仅有旧 memory_trace（无 TurnBind）：升格为兼容 View
     _assert_work_binding(trace.get("work") or None, work,
                          kind="memory_trace", ident=session_id)
-    return mask_memory_trace(trace)
+    t = mask_memory_trace(trace)
+    blocks = []
+    bt = t.get("block_tokens") or {}
+    for name, tok in (bt.items() if isinstance(bt, dict) else []):
+        blocks.append({
+            "name": name,
+            "token_estimate": int(tok or 0),
+            "source_ids": [],
+            "source_count": 0,
+        })
+    return {
+        "available": True,
+        "availability": "ready",
+        "view_version": "context-turn-view.v1",
+        "work": t.get("work") or "",
+        "context_session_id": t.get("context_session_id") or session_id,
+        "session_id": t.get("context_session_id") or session_id,
+        "snapshot_revision": int(t.get("snapshot_revision") or revision),
+        "task_kind": "draft",
+        "path": "write",
+        "block_tokens": bt,
+        "blocks": blocks,
+        "selected": t.get("selected") or [],
+        "rejected": t.get("rejected") or [],
+        "query": t.get("query") or "",
+        "envelope_hash": t.get("envelope_hash") or "",
+        "channels": t.get("channels") or {},
+    }
 
 
 

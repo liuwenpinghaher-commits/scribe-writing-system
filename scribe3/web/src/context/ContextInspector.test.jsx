@@ -35,9 +35,25 @@ const CAPS_ON = {
 }
 
 const TRACE = {
+  available: true,
+  availability: 'ready',
+  view_version: 'context-turn-view.v1',
   trace_id: 'trace-1', snapshot_revision: 7,
   channels: { structured: 2, bm25: 3 },
-  block_tokens: { global: 40, canonical: 120, recent: 80, procedural: 0, reference: 0, uncertainty: 0 },
+  block_tokens: {
+    focus: 20, global: 40, canonical: 120, recent: 80,
+    procedural: 0, reference: 0, uncertainty: 0, provenance: 50,
+  },
+  blocks: [
+    { name: 'focus', token_estimate: 20, source_ids: ['focus:q'], source_count: 1 },
+    { name: 'global', token_estimate: 40, source_ids: ['intent:north'], source_count: 1 },
+    { name: 'canonical', token_estimate: 120, source_ids: ['fact:origin'], source_count: 1 },
+    { name: 'recent', token_estimate: 80, source_ids: ['mem:12'], source_count: 1 },
+    { name: 'procedural', token_estimate: 0, source_ids: [], source_count: 0 },
+    { name: 'reference', token_estimate: 0, source_ids: [], source_count: 0 },
+    { name: 'uncertainty', token_estimate: 0, source_ids: [], source_count: 0 },
+    { name: 'provenance', token_estimate: 50, source_ids: ['prov:1'], source_count: 1 },
+  ],
   selected: [
     { source_id: 'fact:origin', source_kind: 'canonical', reason: 'canonical', confidence: 1.0, observed_at: null, secret: false, text: '柳怀玉是铜炉旁的孤儿' },
     { source_id: 'mem:12', source_kind: 'episodic', reason: 'relevance_rank', confidence: 0.72, observed_at: '2026-07-10T00:00:00+00:00', secret: false, text: '他在庙会见过那盏灯' },
@@ -102,17 +118,17 @@ describe('ContextInspector · 跨作品 trace 隔离', () => {
 })
 
 describe('ContextInspector · 第2层展开', () => {
-  it('展开后显示六块 token + 来源数', async () => {
+  it('展开后显示八块 token + 块级源数', async () => {
     render(<ContextInspector />)
     await screen.findByTestId('context-inspector-focus')
     fireEvent.click(screen.getByTestId('context-inspector-toggle'))
-    for (const k of ['global', 'canonical', 'recent', 'procedural', 'reference', 'uncertainty']) {
+    for (const k of ['focus', 'global', 'canonical', 'recent', 'procedural', 'reference', 'uncertainty', 'provenance']) {
       expect(screen.getByTestId(`context-block-${k}`)).toBeTruthy()
     }
-    // canonical 块:120 tok,1 源(fact:origin);recent 块:0 tok? 80 tok / 1 源(mem:12 归 recent)
     expect(screen.getByTestId('context-block-canonical').textContent).toContain('120 tok')
     expect(screen.getByTestId('context-block-canonical').textContent).toContain('1 源')
     expect(screen.getByTestId('context-block-recent').textContent).toContain('1 源')
+    expect(screen.getByTestId('context-block-focus').textContent).toContain('20 tok')
   })
 })
 
@@ -162,18 +178,19 @@ describe('ContextInspector · 第3层证据', () => {
     expect(screen.queryByText(/绝密身份明文/)).toBeNull()
   })
 
-  it('有效快照尚未检索时显示无证据引导，且不把正常空态当网络错误', async () => {
-    // 新会话自动查 trace 时，后端返回显式 unavailable 而非 404；这既避免浏览器
-    // console 误报，也保留“没检索不等于没有相关事实”的诚实语义。
+  it('有效快照尚未编译时诚实空态，不画假 0 块网格', async () => {
+    // B∪C：available=false / not_compiled_yet → 不渲染假 0 tok 网格
     apiMock.getMemoryTrace.mockResolvedValue({
-      available: false, session_id: 'sess-1', snapshot_revision: 7,
-      reason: 'not_retrieved_yet',
+      available: false, availability: 'not_compiled_yet',
+      session_id: 'sess-1', snapshot_revision: 7,
+      reason: 'not_retrieved_yet', view_version: 'context-turn-view.v1',
     })
     render(<ContextInspector />)
     await screen.findByTestId('context-inspector-focus')
     fireEvent.click(screen.getByTestId('context-inspector-toggle'))
     await waitFor(() => expect(screen.getByTestId('context-inspector-no-evidence')).toBeTruthy())
-    expect(screen.getByTestId('context-inspector-no-evidence').textContent).toContain('暂无检索溯源')
+    expect(screen.getByTestId('context-inspector-no-evidence').textContent).toMatch(/尚未完成|未编译/)
+    expect(screen.queryByTestId('context-inspector-blocks')).toBeNull()
     expect(screen.queryByText(/没有相关事实/)).toBeNull()
     expect(screen.getByTestId('context-inspector-status').getAttribute('data-status')).toBe('current')
   })

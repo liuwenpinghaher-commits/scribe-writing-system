@@ -24,7 +24,7 @@ class ContextPolicy(BaseModel):
     version: str
     task_kinds: tuple[
         Literal[
-            "draft", "final", "grounding", "quality_chapter",
+            "draft", "final", "discussion", "grounding", "quality_chapter",
             "reference_fingerprint", "reference_compare",
         ], ...
     ]
@@ -95,6 +95,21 @@ GENERATION_V1 = ContextPolicy(
     ),
 )
 
+# 讨论/速答：全知主编对话，禁止写作围栏协议与生成态秘密策略混用。
+DISCUSSION_V1 = ContextPolicy(
+    policy_key="discussion",
+    version="discussion.v1",
+    task_kinds=("discussion",),
+    forbidden_source_kinds=(
+        "reference_work_text", "raw_reference_text", "model_inference",
+    ),
+    protocol_versions=(
+        ("context_policy", "creative-context-policy.v2"),
+        ("system_instructions", "scribe3-discussion-system.v1"),
+        ("secret_guard", "scribe3-secret-guard.v1"),
+    ),
+)
+
 GROUNDING_V1 = ContextPolicy(
     policy_key="grounding",
     version="grounding.v1",
@@ -141,6 +156,7 @@ REFERENCE_COMPARE_V1 = ContextPolicy(
 
 _POLICY_VERSION_REGISTRY: dict[str, ContextPolicy] = {
     GENERATION_V1.version: GENERATION_V1,
+    DISCUSSION_V1.version: DISCUSSION_V1,
     GROUNDING_V1.version: GROUNDING_V1,
     QUALITY_CHAPTER_V1.version: QUALITY_CHAPTER_V1,
     REFERENCE_FINGERPRINT_V1.version: REFERENCE_FINGERPRINT_V1,

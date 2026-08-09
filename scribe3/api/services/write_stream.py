@@ -355,27 +355,55 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
             run_terminal_callbacks()
 
 
-def _write_snapshot(st, *, chapter, focalizer, phase, work):
-    """为写作组装合成一份最小 ContextSnapshot(v1 路径喂给 ContextAssembler)。
-    写作端点不像导航那样带完整快照,这里用确定性占位补齐 session/thread/nav——
-    它只作 assembler 的取数坐标(work/chapter/focalizer/phase),不入 CAS 存储。"""
+def _write_snapshot(st, *, chapter, focalizer, phase, work, memory_trace_ctx=None):
+    """为写作/讨论组装 ContextSnapshot。
+
+    B∪C：若请求带真实 context_session_id + revision，注入导航可查键，使
+    TurnBind/检查器与 UI 对齐；否则合成 write 占位（synthetic，仅取数坐标）。
+    """
     from datetime import datetime, timezone
     from scribe3.context_models import ContextFocus, ContextSnapshot
-    w = _normalize_work(work)
+    try:
+        w = _normalize_work(work)  # type: ignore[name-defined]
+        phases = _ASSEMBLER_PHASES  # type: ignore[name-defined]
+    except NameError:
+        from scribe3.api import app_impl as _core
+        w = _core._normalize_work(work)
+        phases = getattr(_core, "_ASSEMBLER_PHASES", frozenset({
+            "outline", "beats", "deduce", "draft", "final", "plan",
+        }))
     ph = (phase or "").strip().lower()
-    ph = ph if ph in _ASSEMBLER_PHASES else None
+    ph = ph if ph in phases else None
     has_ch = chapter is not None
+    ctx = memory_trace_ctx or {}
+    real_sid = str(ctx.get("context_session_id") or "").strip()
+    real_rev = ctx.get("context_revision")
+    real_hash = str(ctx.get("context_hash") or "").strip()
+    real_thread = str(ctx.get("thread_id") or "").strip()
+    synthetic = not (real_sid and real_rev is not None)
+    if synthetic:
+        session_id, revision, thread_id = "write", 0, f"write:{w}"
+        nav_id = f"write:{w}:{chapter}"
+        ctx_hash = ""
+    else:
+        session_id = real_sid
+        revision = int(real_rev)
+        thread_id = real_thread or f"write:{w}"
+        nav_id = f"nav:{real_sid}:{revision}"
+        ctx_hash = real_hash
     snap = ContextSnapshot(
-        session_id="write", work=w, revision=0, thread_id=f"write:{w}",
+        session_id=session_id, work=w, revision=revision, thread_id=thread_id,
         entry="chapter", directory_path=(),
         focus=ContextFocus(type="chapter" if has_ch else "view",
                            id=str(chapter) if has_ch else w,
                            label=focalizer or ""),
         detail_route=f"chapter:{chapter}" if has_ch else "view:book",
         chapter=chapter, phase=ph, focalizer=focalizer or None,
-        previous_revision=None, navigation_id=f"write:{w}:{chapter}",
-        captured_at=datetime.now(timezone.utc), context_hash="")
-    return snap.with_hash()
+        previous_revision=None, navigation_id=nav_id,
+        captured_at=datetime.now(timezone.utc), context_hash=ctx_hash)
+    snap = snap.with_hash()
+    # 标记供 TurnBind（ContextSnapshot 无该字段时挂到对象旁路 dict 由调用方读 ctx）
+    return snap
 
 
 def _get_write_retriever(st):
@@ -384,7 +412,12 @@ def _get_write_retriever(st):
     产品默认 MEMORY_FABRIC 开 → 恒挂 MemoryRetriever(四通道 / RRF / 限知门 / 正典压制)。
     仅显式关(测试隔离)→ None,assembler 降级 store 直查 canonical(非产品 fallback 叙事)。
     捕获侧 _capture_turn_memory 与本注入点同 flag 对称。"""
-    if not _flag_enabled("SCRIBE3_MEMORY_FABRIC_V1"):
+    try:
+        enabled = _flag_enabled("SCRIBE3_MEMORY_FABRIC_V1")  # type: ignore[name-defined]
+    except NameError:
+        from scribe3.api import app_impl as _core
+        enabled = _core._flag_enabled("SCRIBE3_MEMORY_FABRIC_V1")
+    if not enabled:
         return None
     from scribe3.memory_retrieval import MemoryRetriever
     return MemoryRetriever(st)
@@ -440,6 +473,42 @@ def _write_context_binding(req, headers=None) -> dict:
         "context_hash": context_hash,
         "thread_id": getattr(req, "thread_id", None),
     }
+
+
+def _save_context_turn_bind(st, *, snap, envelope, work, ctx,
+                            task_kind: str = "draft", path: str = "write",
+                            manifest_id=None, request_id=None,
+                            actual_input_hash=None, policy_version=None,
+                            selected=None, rejected=None, query: str = "",
+                            usage_digest=None) -> str:
+    """B∪C：编译成功后落 TurnBind（检查器主键），best-effort 由调用方 try。"""
+    from scribe3.context_turn_view import build_turn_view
+    from scribe3.store import build_memory_trace  # noqa: F401 — 仅文档对称
+
+    session_id = str(ctx.get("context_session_id") or "")
+    revision = int(ctx.get("context_revision"))
+    synthetic = str(getattr(snap, "session_id", "") or "") in ("", "write")
+    # selected/rejected：若传入检索结果则映射，否则空
+    sel, rej = list(selected or []), list(rejected or [])
+    view = build_turn_view(
+        session_id=session_id,
+        revision=revision,
+        work=str(work or ""),
+        task_kind=task_kind,
+        path=path,
+        envelope=envelope,
+        manifest_id=manifest_id,
+        request_id=request_id,
+        actual_input_hash=actual_input_hash,
+        policy_version=policy_version,
+        envelope_hash=str(getattr(envelope, "envelope_hash", "") or ""),
+        selected=sel,
+        rejected=rej,
+        usage_digest=usage_digest or {},
+        query=query or "",
+        synthetic_snapshot=synthetic,
+    )
+    return st.save_context_turn_bind(view)
 
 
 def _save_write_memory_trace(st, *, snap, envelope, result, query, work, ctx) -> str:

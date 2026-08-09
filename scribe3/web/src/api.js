@@ -647,12 +647,18 @@ export const api = {
     })
     return ctrl
   },
-  chatStream: (msg, { onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onDone, onError, agentic, seq, thread }) => {
+  chatStream: (msg, { onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onDone, onError, agentic, seq, thread, context = null }) => {
     // seq(时机C):讨论章号,后端据此注入脉搏速览,主编讨论时主动带出确定性信号
     // thread(P0a 多会话):显式会话线程;缺省=后端 active 默认线程(文档化默认,非降级)
-    const path = (agentic ? '/chat/agentic-stream' : '/chat/stream') + '?msg=' + enc(msg)
+    // context: B∪C 导航会话绑定 → TurnBind（EventSource 走 query）
+    let path = (agentic ? '/chat/agentic-stream' : '/chat/stream') + '?msg=' + enc(msg)
       + (seq != null ? `&seq=${seq}` : '')
       + (thread ? `&thread=${enc(thread)}` : '')
+    if (context?.context_session_id) {
+      path += `&context_session_id=${enc(context.context_session_id)}`
+      if (context.context_revision != null) path += `&context_revision=${enc(String(context.context_revision))}`
+      if (context.context_hash) path += `&context_hash=${enc(context.context_hash)}`
+    }
     const es = new EventSource(withTokenQuery(BASE + ww(path)))
     es.onmessage = (e) => {
       try {
