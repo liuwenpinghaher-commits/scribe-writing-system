@@ -127,11 +127,15 @@ def _bg_ingest(work: str, seq: int) -> None:
             logging.getLogger("scribe3").info(
                 "后台 ingest %s 第%s章: lease_busy owner=%s", work, seq, acq.owner)
             return
-        r = ingest_chapter(st, seq, hermes_complete, work=work)
+        r = ingest_chapter(
+            st, seq, hermes_complete, work=work,
+            lease_owner=owner, lease_backend=backend,
+        )
         if r.get("skipped"):
             # 终选 unified 已 apply+钉指纹:跳过 scorecard/distill 二次开销
+            # 或 lease_lost_before_purge
             logging.getLogger("scribe3").info(
-                "后台 ingest %s 第%s章: skip same_prose_fp", work, seq)
+                "后台 ingest %s 第%s章: skip %s", work, seq, r.get("reason") or "same_prose_fp")
         elif r.get("parse_failed"):
             logging.getLogger("scribe3").warning(
                 "后台 ingest %s 第%s章: LLM 回复解析失败,既有知识已保留(未 purge)", work, seq)

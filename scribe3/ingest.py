@@ -547,12 +547,16 @@ def _chapter_ingest_prose_fp(store, seq: int) -> str | None:
 
 
 def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3,
-                   work: str | None = None, *, force: bool = False) -> dict:
+                   work: str | None = None, *, force: bool = False,
+                   lease_owner: str | None = None,
+                   lease_backend=None) -> dict:
     """读某章正文 → Hermes 抽知识 delta → 应用到 store。
 
     默认优先「章后统一分析」(与设定收件箱同源一次 LLM)；缓存命中(定稿刚跑过)则零调用。
     若本章已对**同一正文指纹**成功 apply（终选 unified 或上次 ingest），默认 **跳过 purge+重写**
     （force=True 强制重放）。
+
+    lease_owner + lease_backend：purge/apply 前二次校验租约仍属本调用方（防 MCP∥HTTP 双 purge）。
     """
     ch = store.get_chapter(seq)
     if not ch or not ch.get("prose"):
@@ -647,6 +651,23 @@ def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3,
         logging.getLogger("scribe3.ingest").warning(
             "grep_back_verify 章 %s 有 %d 处断言原文未明确核实到: %s",
             seq, len(verify["annotated"]), verify["annotated"])
+    # purge 前硬校验租约（有 lease_owner 时强制）
+    if lease_owner:
+        try:
+            from scribe3.ingest_lease import (
+                assert_lease_or_raise, combined_backend,
+            )
+            be = lease_backend if lease_backend is not None else combined_backend(store)
+            assert_lease_or_raise(be, work, int(seq), str(lease_owner))
+        except RuntimeError as le:
+            import logging
+            logging.getLogger("scribe3.ingest").error(
+                "lease lost before purge work=%s seq=%s: %s", work, seq, le)
+            return {
+                "applied": 0, "error": "lease_lost", "skipped": True,
+                "reason": "lease_lost_before_purge", "prose_fp": fp,
+                "delta": None, "annotated": [],
+            }
     applied = apply_delta(store, delta, seq, open_promises=promise_items)
     # 成功落库后钉正文指纹，终选后再 ingest 同稿可跳过
     try:

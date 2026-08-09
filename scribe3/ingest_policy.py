@@ -341,6 +341,7 @@ def run_or_enqueue(
         r = ingest_chapter(
             st, int(seq), fn, work=work, force=bool(force),
             max_attempts=int(max_attempts),
+            lease_owner=owner, lease_backend=backend,
         )
         apply_ok = not r.get("parse_failed") and not r.get("error")
         if r.get("skipped"):
