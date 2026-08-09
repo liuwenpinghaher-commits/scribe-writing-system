@@ -495,7 +495,7 @@ describe('FourPaneShell 四栏钻取', () => {
     const mode = screen.getByTestId('four-col').getAttribute('data-layout-mode')
     expect(mode).toBe('collaboration')
     expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
-      id: `s3.fourPane.layout.v5:${mode}:book-sync`,
+      id: `s3.fourPane.layout.v6:${mode}:book-sync`,
     }))
     expect(screen.getByTestId('detail-panel').getAttribute('data-layout-mode')).toBe(mode)
     expect(screen.getByTestId('right-panel').getAttribute('data-layout-mode')).toBe(mode)
@@ -677,7 +677,7 @@ describe('FourPaneShell 四栏钻取', () => {
   it('scopes panel layout by work and mode (v5)', () => {
     render(<Harness work="book-a" />)
     expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
-      id: 's3.fourPane.layout.v5:collaboration:book-a',
+      id: 's3.fourPane.layout.v6:collaboration:book-a',
     }))
   })
 
@@ -721,7 +721,7 @@ describe('FourPaneShell 四栏钻取', () => {
     expect(detailW).toBe(34)
     expect(rightW).toBe(52)
     expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
-      id: 's3.fourPane.layout.v5:reading:demo',
+      id: 's3.fourPane.layout.v6:reading:demo',
     }))
   })
 
