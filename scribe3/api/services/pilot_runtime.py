@@ -205,6 +205,30 @@ def _pilot_executor(work: str) -> dict:
         st.update_chapter_meta(seq, {"synopsis": out})
         return {"synopsis": out}
 
+    def _pdc_gate_park_if_needed(st, seq) -> dict | None:
+        """SCRIBE3_PDC_GATE=1 时：仅 ok=False（完整非法合同）→ pilot_park；ok=None 不 park。"""
+        try:
+            from scribe3.pressure_drive import load_pdc, pdc_gate_enabled, validate_pdc
+            if not pdc_gate_enabled():
+                return None
+            ch = st.get_chapter(seq) or {}
+            contract = load_pdc(ch)
+            if contract is None:
+                return None  # ok=None
+            n_beats = len(ch.get("beats") or []) if isinstance(ch.get("beats"), list) else None
+            v = validate_pdc(contract, chapter_beats_count=n_beats)
+            if v.get("ok") is False:
+                errs = "；".join((v.get("errors") or [])[:3]) or "压力合同结构非法"
+                return {
+                    "pilot_park": f"压力合同未通过校验：{errs}。请修订 pressure_drive 后再推进。",
+                    "pdc": {"ok": False, "errors": v.get("errors")},
+                }
+            return None
+        except Exception as e:
+            logging.getLogger("scribe3").warning(
+                "pdc_gate check fail-soft work=%s seq=%s: %s", work, seq, e)
+            return None
+
     def _try_bootstrap_pdc(st, seq, synopsis: str, beats: list) -> dict:
         """确定性轻量 bootstrap：从大纲压力级/role 与节拍文生成合同。
 
@@ -304,6 +328,10 @@ def _pilot_executor(work: str) -> dict:
                     "grounding": review, "candidate_beats": beats}
         st.update_chapter_meta(seq, {"beats": beats})
         pdc_meta = _try_bootstrap_pdc(st, seq, ch.get("synopsis") or "", beats)
+        # SCRIBE3_PDC_GATE=1：仅完整落库且结构非法 → park；ok=None 永不 park
+        park = _pdc_gate_park_if_needed(st, seq)
+        if park:
+            return {**park, "beats": beats, "grounding": review, "pdc": pdc_meta}
         return {"beats": beats, "grounding": review, "pdc": pdc_meta}
 
     def deduce(st, seq):

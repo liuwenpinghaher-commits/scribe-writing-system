@@ -8,6 +8,7 @@ describe('issueLabel', () => {
   it('已知类别给中文标签', () => {
     expect(issueLabel('repetition')).toBe('复读')
     expect(issueLabel('leak')).toBe('穿帮泄露')
+    expect(issueLabel('pressure')).toBe('压力节奏')
   })
   it('未知类别兜底', () => {
     expect(issueLabel('unknown')).toBe('问题')

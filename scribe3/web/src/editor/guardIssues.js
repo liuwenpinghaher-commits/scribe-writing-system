@@ -10,6 +10,7 @@ export const ISSUE_LABEL = {
   leak: '穿帮泄露',
   discipline: '纪律违规',
   setting: '设定校验',
+  pressure: '压力节奏',
 }
 
 export function issueLabel(type) {
@@ -27,6 +28,7 @@ export const ISSUE_DOT = {
   leak: 'bg-danger',
   discipline: 'bg-danger',
   setting: 'bg-warn',
+  pressure: 'bg-brand',
 }
 
 export function issueDot(type) {

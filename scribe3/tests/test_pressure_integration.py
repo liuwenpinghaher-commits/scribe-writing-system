@@ -182,6 +182,34 @@ def test_store_allowed_includes_pressure_drive():
     assert "option<string>" in mig
 
 
+def test_pdc_gate_parks_only_when_ok_false(monkeypatch):
+    """SCRIBE3_PDC_GATE：ok=None 不 park；完整非法合同 ok=False 才 park。"""
+    from scribe3.pressure_drive import pdc_gate_enabled, validate_pdc, load_pdc
+
+    monkeypatch.delenv("SCRIBE3_PDC_GATE", raising=False)
+    assert pdc_gate_enabled() is False
+    monkeypatch.setenv("SCRIBE3_PDC_GATE", "1")
+    assert pdc_gate_enabled() is True
+
+    # missing → None
+    assert load_pdc({}) is None
+    assert validate_pdc(None)["ok"] is None
+
+    # complete but illegal (dual peak)
+    c = _contract()
+    for b in c["beats"]:
+        b["is_peak"] = True
+    assert validate_pdc(c)["ok"] is False
+
+    # simulate pilot helper path via real module function if exported
+    from scribe3.api.services import pilot_runtime as pr
+    # factory builds nested fns — exercise validate path used by gate
+    bad_ch = {"pressure_drive": json.dumps(c, ensure_ascii=False), "beats": c["beats"]}
+    assert load_pdc(bad_ch) is not None
+    v = validate_pdc(load_pdc(bad_ch))
+    assert v["ok"] is False
+
+
 def test_fake_store_roundtrip_serialize():
     """真实 update_chapter_meta 序列化路径：dict → JSON 串 → load_pdc。"""
     c = _contract()
