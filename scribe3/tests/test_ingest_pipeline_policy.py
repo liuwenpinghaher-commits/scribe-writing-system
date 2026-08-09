@@ -310,3 +310,337 @@ def test_build_ingest_status_row_held():
     assert row["ingest_status"] == "held"
     assert row["ok"] is False
     assert row["hold_reason"] == "advisory_gate"
+
+
+# ----- CAS table / chapter backends (fake store, no Surreal) -----
+
+class FakeCASStore:
+    """模拟 CREATE ONLY + UPDATE WHERE 语义，供 TableLeaseBackend / ChapterLeaseBackend。"""
+
+    def __init__(self) -> None:
+        self.table: dict[str, dict] = {}
+        self.chapters: dict[int, dict] = {}
+        self.create_calls = 0
+        self.update_calls = 0
+        self._lock = threading.Lock()
+
+    def _raw_query(self, *a, **k):
+        return None
+
+    def _execute_write(self, q: str, binds: dict | None = None):
+        binds = binds or {}
+        with self._lock:
+            return self._execute_write_unlocked(q, binds)
+
+    def _execute_write_unlocked(self, q: str, binds: dict):
+        is_table = "type::record('ingest_lease'" in q or 'type::record("ingest_lease"' in q
+        is_chapter = "type::record('chapter'" in q or 'type::record("chapter"' in q
+        # 清租约：仅识别 SET 子句（勿把 WHERE owner = NONE 当成 clear）
+        q_compact = q.replace(" ", "")
+        set_part = q_compact.split("WHERE")[0] if "WHERE" in q_compact else q_compact
+        set_clear = (
+            "SETowner=NONE" in set_part
+            or "SETingest_lease_owner=NONE" in set_part
+            or ",owner=NONE" in set_part
+            or ",ingest_lease_owner=NONE" in set_part
+        )
+
+        if "CREATE ONLY" in q and is_table:
+            self.create_calls += 1
+            rid = binds["id"]
+            if rid in self.table:
+                raise RuntimeError("record already exists")
+            self.table[rid] = {
+                "owner": binds["o"], "until": float(binds["u"]),
+                "work": binds.get("w"), "seq": binds.get("s"),
+            }
+            return
+
+        if is_table and "UPDATE" in q:
+            self.update_calls += 1
+            rid = binds.get("id")
+            if rid is None:
+                return
+            row = self.table.get(rid)
+            now = float(binds.get("now") or time.time())
+            o = binds.get("o")
+            u = float(binds.get("u") or 0)
+            if set_clear:
+                if row and (row.get("owner") or "") == o:
+                    row["owner"] = ""
+                    row["until"] = 0
+                return
+            if "WHERE" in q:
+                if row is None:
+                    return
+                owner = (row.get("owner") or "").strip()
+                until = float(row.get("until") or 0)
+                ok = (not owner) or until < now or until <= now or owner == o
+                if ok:
+                    row["owner"] = o
+                    row["until"] = u
+                return
+            self.table[rid] = {
+                "owner": o, "until": u,
+                "work": binds.get("w"), "seq": binds.get("s"),
+            }
+            return
+
+        if is_chapter and "ingest_lease_owner" in q:
+            seq = int(binds.get("seq") or 0)
+            row = self.chapters.setdefault(seq, {})
+            now = float(binds.get("now") or time.time())
+            o = binds.get("o")
+            u = binds.get("u")
+            if set_clear:
+                if (row.get("ingest_lease_owner") or "") == o:
+                    row["ingest_lease_owner"] = None
+                    row["ingest_lease_until"] = None
+                return
+            if "WHERE" in q:
+                owner = (row.get("ingest_lease_owner") or "").strip()
+                until = float(row.get("ingest_lease_until") or 0)
+                if (not owner) or until < now or until <= now or owner == o:
+                    if o is not None:
+                        row["ingest_lease_owner"] = o
+                    if u is not None:
+                        row["ingest_lease_until"] = float(u)
+                return
+            if o is not None:
+                row["ingest_lease_owner"] = o
+            if u is not None:
+                row["ingest_lease_until"] = float(u)
+
+    def _query(self, q: str, binds: dict | None = None):
+        binds = binds or {}
+        with self._lock:
+            if "type::record('ingest_lease'" in q or 'type::record("ingest_lease"' in q:
+                rid = binds.get("id")
+                row = self.table.get(rid)
+                if not row:
+                    return []
+                return [{"o": row.get("owner"), "u": row.get("until")}]
+            if "type::record('chapter'" in q or 'type::record("chapter"' in q:
+                seq = int(binds.get("seq") or 0)
+                row = self.chapters.get(seq, {})
+                return [{
+                    "o": row.get("ingest_lease_owner"),
+                    "u": row.get("ingest_lease_until"),
+                }]
+            return []
+
+
+def test_table_lease_cas_create_only_first_wins():
+    from scribe3.ingest_lease import TableLeaseBackend, try_acquire_ingest_lease, new_owner
+
+    st = FakeCASStore()
+    be = TableLeaseBackend(st)
+    o1, o2 = new_owner(), new_owner()
+    a1 = try_acquire_ingest_lease(be, "main", 1, o1, ttl=60)
+    assert a1.ok, a1
+    a2 = try_acquire_ingest_lease(be, "main", 1, o2, ttl=60)
+    assert not a2.ok and a2.reason == "held_by_other"
+    assert a2.owner == o1
+    # 过期后可抢：把 until 推到过去，模拟 TTL 到期
+    from scribe3.ingest_lease import lease_record_id
+    rid = lease_record_id("main", 1)
+    st.table[rid]["until"] = time.time() - 10
+    a3 = try_acquire_ingest_lease(be, "main", 1, o2, ttl=60)
+    assert a3.ok, a3
+
+
+def test_table_lease_cas_concurrent_single_winner():
+    from scribe3.ingest_lease import TableLeaseBackend, try_acquire_ingest_lease
+
+    st = FakeCASStore()
+    be = TableLeaseBackend(st)
+    wins = []
+    lock = threading.Lock()
+
+    def race(i: int):
+        r = try_acquire_ingest_lease(be, "w", 42, f"o{i:02d}", ttl=30)
+        if r.ok:
+            with lock:
+                wins.append(f"o{i:02d}")
+
+    threads = [threading.Thread(target=race, args=(i,)) for i in range(12)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    # CREATE ONLY 路径下只有一个成功（假 store 非完全线程安全时允许 ≥1 但我们加了 table 级检查）
+    # 以 assert_owner 为准：最多一个有效 owner
+    owners = set()
+    for i in range(12):
+        if be.assert_owner("w", 42, f"o{i:02d}", now=None):
+            owners.add(f"o{i:02d}")
+    assert len(owners) == 1, owners
+
+
+def test_chapter_lease_cas_where_not_toctou_double_set():
+    from scribe3.ingest_lease import ChapterLeaseBackend, try_acquire_ingest_lease, new_owner
+
+    st = FakeCASStore()
+    be = ChapterLeaseBackend(st)
+    o1, o2 = new_owner(), new_owner()
+    assert try_acquire_ingest_lease(be, "main", 3, o1, ttl=60).ok
+    r2 = try_acquire_ingest_lease(be, "main", 3, o2, ttl=60)
+    assert not r2.ok
+    assert be.assert_owner("main", 3, o1, now=None)
+    assert not be.assert_owner("main", 3, o2, now=None)
+
+
+def test_assert_lease_blocks_lost_owner():
+    from scribe3.ingest_lease import (
+        MemoryLeaseBackend, try_acquire_ingest_lease, assert_lease_owner,
+        assert_lease_or_raise, new_owner, release_ingest_lease,
+    )
+    b = MemoryLeaseBackend()
+    o1, o2 = new_owner(), new_owner()
+    assert try_acquire_ingest_lease(b, "w", 1, o1, ttl=60).ok
+    assert assert_lease_owner(b, "w", 1, o1)
+    assert not assert_lease_owner(b, "w", 1, o2)
+    release_ingest_lease(b, "w", 1, o1)
+    try:
+        assert_lease_or_raise(b, "w", 1, o1)
+        assert False, "should raise"
+    except RuntimeError as e:
+        assert "lease lost" in str(e).lower() or "refusing" in str(e).lower()
+
+
+def test_ingest_chapter_refuses_purge_when_lease_lost(monkeypatch):
+    """驱动真实 ingest_chapter：lease_owner 失效 → 不调 apply_delta。"""
+    from scribe3 import ingest as ing
+    from scribe3.ingest_lease import MemoryLeaseBackend, try_acquire_ingest_lease, new_owner
+
+    class MiniStore:
+        def get_chapter(self, seq):
+            return {"prose": "足够长的正文用于触发抽取路径。" * 5}
+        def list_motifs(self):
+            return []
+        def open_promises(self):
+            return []
+        def characters(self):
+            return []
+        def char_anchors(self, cid):
+            return {}
+
+    st = MiniStore()
+    be = MemoryLeaseBackend()
+    owner = new_owner()
+    try_acquire_ingest_lease(be, "main", 1, owner, ttl=60)
+    # 释放租约 → 模拟被他主抢走后丢失
+    be.clear("main", 1, owner)
+
+    called = {"apply": 0}
+
+    def fake_apply(*a, **k):
+        called["apply"] += 1
+        return 1
+
+    monkeypatch.setattr(ing, "apply_delta", fake_apply)
+    monkeypatch.setattr(ing, "grep_back_verify", lambda d, p: {"delta": d, "annotated": []})
+    monkeypatch.setattr(
+        ing, "parse_knowledge_delta",
+        lambda r: {"learned": [], "did": [], "events": [], "voice_shift": []},
+    )
+    # 关掉 unified 走 legacy
+    monkeypatch.setenv("SCRIBE3_UNIFIED_ANALYSIS", "0")
+
+    def complete(prompt: str) -> str:
+        return '{"learned":[],"did":[],"events":[],"voice_shift":[]}'
+
+    r = ing.ingest_chapter(
+        st, 1, complete, work="main", max_attempts=1,
+        lease_owner=owner, lease_backend=be,
+    )
+    assert r.get("reason") == "lease_lost_before_purge"
+    assert called["apply"] == 0
+
+
+def test_s3_save_chapter_craft_gate_blocks_persist(monkeypatch):
+    """驱动真实 s3_save_chapter：craft allowed=false → blocked 且 save_chapter 未调用。"""
+    from scribe3.mcp import tools_write as tw
+
+    st = FakeChapterStore()
+    st.save_chapter = lambda *a, **k: (_ for _ in ()).throw(  # noqa: E731
+        AssertionError("save_chapter must not be called")
+    )
+    # FakeChapterStore 无 save_chapter；用 MagicMock 风格
+    class ST(FakeChapterStore):
+        def __init__(self):
+            super().__init__()
+            self.saved = False
+        def save_chapter(self, *a, **k):
+            self.saved = True
+        def add_chapter_version(self, *a, **k):
+            return "v1"
+        def list_chapters(self):
+            return []
+
+    st = ST()
+    monkeypatch.setattr(tw, "_store_for", lambda work=None: st)
+
+    def fake_craft(st_, seq, prose, skip=False):
+        return {
+            "allowed": False,
+            "code": "craft_gate_b",
+            "detail": "scaffolding missing",
+            "blocking": ["beat_sheet"],
+            "root_causes": ["no_outline"],
+        }
+
+    monkeypatch.setattr(
+        "scribe3.verify_craft_compliance.evaluate_save_craft_gate",
+        fake_craft,
+    )
+    out = tw.s3_save_chapter(
+        1, "这是一段用于测试工艺门闩阻断落库的正文内容。" * 15,
+        work="main",
+    )
+    assert out["status"] == "blocked"
+    assert out["code"] == "craft_gate_b"
+    assert st.saved is False
+
+
+def test_s3_save_chapter_craft_pass_then_finalize_can_block(monkeypatch):
+    from scribe3.mcp import tools_write as tw
+
+    class ST(FakeChapterStore):
+        def __init__(self):
+            super().__init__()
+            self.saved = False
+        def save_chapter(self, *a, **k):
+            self.saved = True
+        def add_chapter_version(self, *a, **k):
+            return "v1"
+        def list_chapters(self):
+            return []
+
+    st = ST()
+    monkeypatch.setattr(tw, "_store_for", lambda work=None: st)
+    monkeypatch.setattr(
+        "scribe3.verify_craft_compliance.evaluate_save_craft_gate",
+        lambda *a, **k: {"allowed": True, "code": "ok", "reports": {}},
+    )
+    monkeypatch.setattr(
+        "scribe3.finalize_gate.check_finalize_for_save",
+        lambda *a, **k: {
+            "allowed": False, "code": "finalize_gate", "verdict": "blocking",
+            "detail": "blocked", "blocking": ["x"],
+        },
+    )
+    out = tw.s3_save_chapter(2, "正文" * 30, work="main")
+    assert out["status"] == "blocked"
+    assert out["code"] == "finalize_gate"
+    assert st.saved is False
+
+
+def test_combined_backend_has_atomic():
+    from scribe3.ingest_lease import combined_backend, try_acquire_ingest_lease, new_owner
+    st = FakeCASStore()
+    be = combined_backend(st)
+    assert callable(getattr(be, "atomic_try_acquire", None))
+    o1, o2 = new_owner(), new_owner()
+    assert try_acquire_ingest_lease(be, "main", 7, o1, ttl=30).ok
+    assert not try_acquire_ingest_lease(be, "main", 7, o2, ttl=30).ok
