@@ -240,58 +240,80 @@ def get_project_tree(work: str = "main"):
     return _store_for(work).project_tree()
 
 def issue_ledger(chapter: int | None = Query(default=None, ge=1), work: str = "main"):
-    """校验台账:把 QC/因果等现有确定性结果归一化为可钻取 issue。"""
+    """校验台账 Phase A/B：Track D 多源 + coverage；永不在本路径同步 LLM。
+
+    Phase A：qc（全可映射键含 god_view/degeneration）+ leaks + causal + secret_without_markers。
+    Phase B：若 chapter_review 旁表 prose_fp 匹配，合并 L 轨 findings。
+    """
+    from scribe3.review.ledger import build_phase_a_ledger
+    from scribe3.review.normalize import normalize_issues
+    from scribe3.review.snapshot import load_chapter_review
+
     st = _store_for(work)
     seqs = [chapter] if chapter is not None else [int(c["seq"]) for c in st.list_chapters()]
-    issues = []
-    degraded_sources = []
+    # 全书扫描限制在合理范围，避免超大响应
+    if chapter is None and len(seqs) > 80:
+        seqs = seqs[-80:]
+
+    all_issues = []
+    all_degraded = []
+    coverages = []
+
+    def _qc(seq: int):
+        return qc(seq, work)
+
+    def _causal(seq: int):
+        return causal(seq, work)
+
     for seq in seqs:
-      try:
-        q = qc(seq, work)
-      except Exception as e:
-        degraded_sources.append({"source": "qc", "chapter": seq, "reason": str(e)})
-        q = {}
-      for source_key, label in _QC_ISSUE_LABELS.items():
-        hits = q.get(source_key) or []
-        if isinstance(hits, int):
-            hits = [{} for _ in range(hits)]
-        if not isinstance(hits, list):
-            continue
-        for idx, hit in enumerate(hits):
-            reason = _issue_hit_text(hit)
-            severity = "error" if source_key in {"duplicate_lines", "cross_repetition"} else "warning"
-            issues.append({
-                "id": f"issue:qc:{seq}:{source_key}:{idx}",
-                "source": "qc",
-                "kind": source_key,
-                "severity": severity,
-                "title": label,
-                "reason": reason,
-                "chapter": seq,
-                "range": _issue_hit_range(hit),
-                "status": "open",
-                "suggested_action": "定位到正文后改写或删减重复表达。",
-                "target_node": {"id": f"ch:{seq}", "type": "chapter", "ref": seq, "label": f"第 {seq} 章"},
-            })
-      try:
-        causal_result = causal(seq, work)
-        for idx, v in enumerate(causal_result.get("violations") or []):
-            issues.append({
-                "id": f"issue:causal:{seq}:{idx}",
-                "source": "causal",
-                "kind": "causal",
-                "severity": "warning",
-                "title": "因果链缺口",
-                "reason": v.get("reason") or str(v),
-                "chapter": seq,
-                "range": [0, 0],
-                "status": "open",
-                "suggested_action": "补上前因、目标或结果承接。",
-                "target_node": {"id": f"ch:{seq}", "type": "chapter", "ref": seq, "label": f"第 {seq} 章"},
-            })
-      except Exception as e:
-        degraded_sources.append({"source": "causal", "chapter": seq, "reason": str(e)})
-    return {"issues": issues, "degraded_sources": degraded_sources}
+        led = build_phase_a_ledger(store=st, seq=seq, qc_fn=_qc, causal_fn=_causal)
+        issues = list(led.get("issues") or [])
+        degraded = list(led.get("degraded_sources") or [])
+        coverage = dict(led.get("coverage") or {})
+
+        # Phase B: merge L snapshot when fp matches
+        try:
+            ch = st.get_chapter(seq)
+            prose = (ch or {}).get("prose") or ""
+            snap = load_chapter_review(st, work=work, seq=seq, current_prose=prose)
+            if snap and snap.get("fp_match"):
+                l_issues = normalize_issues(snap.get("issues") or [], chapter=seq)
+                issues.extend(l_issues)
+                coverage["mode"] = (snap.get("mode") or "full")
+                coverage["tracks"] = ["D", "L"]
+                coverage["snapshot"] = {
+                    "prose_fp": snap.get("prose_fp"),
+                    "fp_match": True,
+                    "mode": snap.get("mode"),
+                }
+                coverage["note"] = "含深检快照（L 轨）；打开左栏不触发新 LLM"
+                for d in snap.get("degraded") or []:
+                    if isinstance(d, dict):
+                        degraded.append(d)
+            elif snap is None and coverage.get("mode") == "deterministic_only":
+                pass
+        except Exception as e:
+            degraded.append({"source": "snapshot", "chapter": seq, "reason": str(e)[:200]})
+
+        all_issues.extend(issues)
+        all_degraded.extend(degraded)
+        coverages.append({"chapter": seq, **coverage})
+
+    # Single-chapter response flattens coverage; multi keeps list
+    if chapter is not None and coverages:
+        coverage_out = coverages[0]
+    else:
+        coverage_out = {
+            "mode": "deterministic_only",
+            "chapters": coverages,
+            "note": "多章台账默认确定性；语义深检见各章 snapshot",
+        }
+
+    return {
+        "issues": all_issues,
+        "degraded_sources": all_degraded,
+        "coverage": coverage_out,
+    }
 
 def discipline(seq: int, brief: str = "", work: str = "main"):
     from scribe3.critique import discipline_truncate

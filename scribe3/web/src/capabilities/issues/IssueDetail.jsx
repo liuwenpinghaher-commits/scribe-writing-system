@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
 import { targetNodeToSelection } from '../../layout/targetNavigation'
+import { focusChiefWithSeed } from '../../lib/chiefSeed.js'
 
 // 范围有效 = [from, to) 两个有限数且 to > from。causal 等来源会给 [0,0] 占位,
 // 那不是真范围:不渲染(旧版把它显示成 "0-0" 假范围)、也不参与定位核对。
@@ -122,6 +123,40 @@ export function IssueDetail({ node, onLocate, onFix, onRecheck }) {
                   {busy ? '检查中…' : '重新检查'}
                 </button>
               )}
+              <button
+                type="button"
+                data-testid="issue-seed-chief"
+                onClick={() => {
+                  const title = issue.title || '校验命中'
+                  const reason = issue.reason || issue.message || ''
+                  const act = issue.suggested_action || '请按约束改写本章相关段落。'
+                  focusChiefWithSeed(
+                    `请根据校验命中修订第 ${issue.chapter ?? '?'} 章：\n`
+                    + `· ${title}\n· ${reason}\n· 建议：${act}\n`
+                    + '先只读核实正文，再提出可审批的改写；未获批准不得声称已落库。',
+                  )
+                }}
+                className="rounded-md border border-brand/40 px-3 py-1.5 text-f12 text-brand hover:bg-brand/10"
+              >
+                让主编处理
+              </button>
+            </div>
+          )}
+          {/* 无定位/重查时仍可种子主编 */}
+          {!(locatable || onFix || canRecheck) && (
+            <div className="mt-4">
+              <button
+                type="button"
+                data-testid="issue-seed-chief"
+                onClick={() => {
+                  focusChiefWithSeed(
+                    `请处理校验：${issue.title || ''}\n${issue.reason || ''}\n${issue.suggested_action || ''}`,
+                  )
+                }}
+                className="rounded-md border border-brand/40 px-3 py-1.5 text-f12 text-brand hover:bg-brand/10"
+              >
+                让主编处理
+              </button>
             </div>
           )}
         </section>

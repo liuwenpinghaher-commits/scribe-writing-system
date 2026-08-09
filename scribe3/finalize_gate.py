@@ -88,6 +88,22 @@ def evaluate_finalize_gate(
     blocking = list(triage.get("blocking") or [])
     advisory_items = list(triage.get("advisory_items") or [])
 
+    # KD-16: optional snapshot advisory when flag on (default off — does not block)
+    import os
+    if (os.environ.get("SCRIBE3_FINALIZE_USE_REVIEW_SNAPSHOT") or "0").strip().lower() in (
+        "1", "true", "yes", "on",
+    ):
+        snap_ok = bool((post or {}).get("review_snapshot_ok"))
+        if not snap_ok:
+            advisory_items = list(advisory_items) + [{
+                "type": "no_deep_review",
+                "message": "未做语义深检快照（SCRIBE3_FINALIZE_USE_REVIEW_SNAPSHOT）；≠语义干净",
+                "text": "",
+                "range": None,
+            }]
+            if verdict == "pass":
+                verdict = "advisory"
+
     if verdict == "blocking":
         return {
             "allowed": False, "code": "blocked", "verdict": "blocking",

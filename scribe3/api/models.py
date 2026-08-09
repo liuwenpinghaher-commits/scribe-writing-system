@@ -440,6 +440,15 @@ class PostCheckReq(BaseModel):
     chapter: int | None = None
 
 
+class ReviewChapterReq(BaseModel):
+    """POST /review/chapter — unified review runner (design M2+)."""
+    mode: str = "deterministic"  # deterministic | full
+    prose: str | None = None
+    focalizer: str | None = None
+    seq: int | None = None
+    chapter: int | None = None
+
+
 class DraftCheckReq(BaseModel):
     prose: str
     focalizer: str = ""

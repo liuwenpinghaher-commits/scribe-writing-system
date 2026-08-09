@@ -74,6 +74,15 @@ export const api = {
 
   entities: () => j('/entities'),
   // PR-4: entity / include_closed / with_knowers 可选；仅 chapter 与现网兼容
+  // M2: unified chapter review (deterministic | full); never used by GET /issues
+  reviewChapter: (seq, body = {}, work) =>
+    post(`/review/chapter?seq=${enc(seq)}`, {
+      mode: body.mode || 'deterministic',
+      prose: body.prose,
+      focalizer: body.focalizer,
+      seq,
+      chapter: seq,
+    }, work),
   facts: (ch, opts = {}) => {
     const q = new URLSearchParams({ chapter: String(ch) })
     if (opts.entity) q.set('entity', opts.entity)

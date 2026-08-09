@@ -14,7 +14,7 @@ function toNode(issue) {
 }
 
 export function IssueDirectory({ seq, onSelectItem }) {
-  const { loading, err, issues, degraded, reload } = useIssueLedger(seq)
+  const { loading, err, issues, degraded, coverage, reload } = useIssueLedger(seq)
 
   const groups = useMemo(() => {
     const map = new Map()
@@ -25,6 +25,10 @@ export function IssueDirectory({ seq, onSelectItem }) {
     }
     return [...map.entries()]
   }, [issues])
+
+  const covMode = coverage?.mode || 'deterministic_only'
+  const covNote = coverage?.note || ''
+  const isDetOnly = covMode === 'deterministic_only' || !coverage?.snapshot?.fp_match
 
   return (
     <div className={DIR_SHELL}>
@@ -47,6 +51,26 @@ export function IssueDirectory({ seq, onSelectItem }) {
         ]}
       />
       <div data-testid="issue-list" className="flex-1 min-h-0 overflow-auto px-2 py-2">
+        {/* coverage：防「空列表=全绿」假绿 */}
+        {!loading && (
+          <div
+            data-testid="issue-coverage"
+            className="mb-2 rounded-md border border-line/60 bg-soft/40 px-2 py-1.5 text-meta text-faint leading-snug"
+          >
+            <div>
+              覆盖：
+              <span className="text-ink/80">
+                {isDetOnly ? '确定性检查' : (covMode === 'full' ? '含语义深检快照' : covMode)}
+              </span>
+            </div>
+            {isDetOnly && (
+              <div className="mt-0.5">
+                未做语义深检（打开本栏不触发 LLM）。需要时用「全量体检」或 POST /review/chapter。
+              </div>
+            )}
+            {covNote && !isDetOnly && <div className="mt-0.5">{covNote}</div>}
+          </div>
+        )}
         {err && (
           <div role="alert" className="rounded-md border border-danger/30 bg-danger/5 px-2 py-1.5 text-f12 text-danger">
             <div>{err}</div>
@@ -66,7 +90,13 @@ export function IssueDirectory({ seq, onSelectItem }) {
             </ul>
           </div>
         )}
-        {!loading && !err && issues.length === 0 && <div className="py-6 text-center text-f12 text-faint">暂无校验命中。</div>}
+        {!loading && !err && issues.length === 0 && (
+          <div className="py-6 text-center text-f12 text-faint" data-testid="issue-empty-honest">
+            {isDetOnly
+              ? '确定性检查无命中 · 未做语义深检（≠全书干净）'
+              : '当前覆盖范围内无校验命中。'}
+          </div>
+        )}
         {groups.map(([severity, items]) => (
           <div key={severity} className="mb-2">
             <DirectorySectionLabel>{severity}</DirectorySectionLabel>

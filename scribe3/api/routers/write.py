@@ -476,15 +476,49 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
                 and (qc_breakdown.get("oversaturation") or 0) > 0)
         )
         _sev = "S1" if (_resonance and not _s1_circuit_open(work)) else "S2"
-        issues.append({
-            "type": "discipline",
-            "message": f"纪律违规:{'、'.join(discipline.get('violations', []))}",
-            "text": cut,
-            "range": rng,
-            "meta": {"violations": discipline.get("violations", []),
-                     "extra": discipline.get("extra") or [],   # LLM 自由文本观察(D-024,不参与升格)
-                     "severity": _sev, "resonance": _resonance},
-        })
+        # M5-L0: multi-finding per violation kind (keep aggregate for backward compat)
+        try:
+            from scribe3.review.m5_projection import discipline_multi_findings
+            for mf in discipline_multi_findings(
+                list(discipline.get("violations") or []),
+                chapter=int(seq),
+                cut_after=cut or "",
+                range_=rng,
+                severity=_sev,
+                resonance=_resonance,
+            ):
+                issues.append({
+                    "type": "discipline",
+                    "message": mf.get("reason") or mf.get("message"),
+                    "text": mf.get("text") or cut,
+                    "range": mf.get("range") or rng,
+                    "meta": {
+                        **(mf.get("meta") or {}),
+                        "extra": discipline.get("extra") or [],
+                        "severity": mf.get("severity") or _sev,
+                        "resonance": _resonance,
+                    },
+                })
+            if not discipline.get("violations"):
+                issues.append({
+                    "type": "discipline",
+                    "message": f"纪律违规:{'、'.join(discipline.get('violations', []) or ['(cut)'])}",
+                    "text": cut,
+                    "range": rng,
+                    "meta": {"violations": discipline.get("violations", []),
+                             "extra": discipline.get("extra") or [],
+                             "severity": _sev, "resonance": _resonance},
+                })
+        except Exception:
+            issues.append({
+                "type": "discipline",
+                "message": f"纪律违规:{'、'.join(discipline.get('violations', []))}",
+                "text": cut,
+                "range": rng,
+                "meta": {"violations": discipline.get("violations", []),
+                         "extra": discipline.get("extra") or [],
+                         "severity": _sev, "resonance": _resonance},
+            })
     # setting issues
     for hint in setting:
         evidence = hint.get("evidence") or ""
@@ -823,7 +857,71 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
     }
     if ai_grade is not None:
         resp["ai_grade"] = ai_grade
+    # coverage honesty for clients that only read post-check
+    import os as _os
+    _llm_on = (_os.environ.get("SCRIBE3_REVIEW_LLM") or "0").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+    resp.setdefault("coverage", {
+        "mode": "full" if discipline else "deterministic",
+        "reviewers_run": (["deterministic_d"] + (["discipline_l0"] if discipline else [])),
+        "reviewers_skipped": (["llm_review_l1"] if not _llm_on else []),
+        "note": "post-check; L1 见 POST /review/chapter mode=full + SCRIBE3_REVIEW_LLM",
+    })
     return resp
+
+
+def review_chapter(
+    req: "ReviewChapterReq",
+    seq: int | None = Query(default=None),
+    work: str = "main",
+):
+    """统一章审入口（M2）：mode=deterministic 无 LLM；mode=full 可跑 L0/L1。
+
+    GET /issues 永不调用本路径。旁表写入仅当 SCRIBE3_CHAPTER_REVIEW_PERSIST=1。
+    """
+    import os
+    from scribe3.review.runner import run_chapter_review
+
+    resolved = seq if seq is not None else (req.seq if req.seq is not None else req.chapter)
+    if resolved is None:
+        raise HTTPException(status_code=422, detail="需要章号：query ?seq= 或 body.seq / body.chapter")
+    resolved = int(resolved)
+    st = _store_for(work)
+    mode = (req.mode or "deterministic").strip().lower()
+    if mode not in ("deterministic", "full", "semantic"):
+        mode = "deterministic"
+    out = run_chapter_review(
+        store=st,
+        work=work,
+        seq=resolved,
+        prose=req.prose,
+        focalizer=req.focalizer,
+        mode=mode,
+    )
+    # Shape compatible with post-check consumers + coverage
+    post = out.get("post") or {}
+    resp = {
+        "ok": True,
+        "chapter": resolved,
+        "work": work,
+        "mode": mode,
+        "prose_fp": out.get("prose_fp"),
+        "issues": out.get("issues") or [],
+        "leaks": out.get("leaks") or post.get("leaks") or [],
+        "quality": out.get("quality") or post.get("quality"),
+        "ai_grade": out.get("ai_grade") or post.get("ai_grade"),
+        "degraded": bool(out.get("degraded_sources") or out.get("degraded_stages")),
+        "degraded_stages": out.get("degraded_stages") or [],
+        "degraded_sources": out.get("degraded_sources") or [],
+        "leaks_degraded": out.get("leaks_degraded") or post.get("leaks_degraded"),
+        "coverage": out.get("coverage"),
+        "discipline": post.get("discipline") or {},
+        "setting": post.get("setting") or [],
+        "punct_suggestions": post.get("punct_suggestions") or [],
+    }
+    return resp
+
 
 def checkpoint(req: CheckpointReq, seq: int, background: BackgroundTasks, work: str = "main"):
     st = _store_for(work)
@@ -909,6 +1007,14 @@ def _bind_and_register() -> None:
     setattr(core, 'post_check', _re)
     g['post_check'] = _re
     router.add_api_route('/post-check', _re, methods=['POST'], name='post_check')
+
+    _fn = g['review_chapter']
+    _re = types.FunctionType(_fn.__code__, core.__dict__, 'review_chapter', _fn.__defaults__, _fn.__closure__)
+    if _fn.__annotations__:
+        _re.__annotations__ = dict(_fn.__annotations__)
+    setattr(core, 'review_chapter', _re)
+    g['review_chapter'] = _re
+    router.add_api_route('/review/chapter', _re, methods=['POST'], name='review_chapter')
 
     _fn = g['checkpoint']
     _re = types.FunctionType(_fn.__code__, core.__dict__, 'checkpoint', _fn.__defaults__, _fn.__closure__)

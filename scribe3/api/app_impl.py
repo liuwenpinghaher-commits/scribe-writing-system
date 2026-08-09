@@ -1329,16 +1329,22 @@ _DEDUCTION_BLANK = "未能从场景真相确认。"
 
 
 
-_QC_ISSUE_LABELS = {
-    "repetition": "复读(章内)",
-    "cross_repetition": "跨章复读",
-    "duplicate_lines": "整句重复",
-    "structural": "排比句式",
-    "emotion_telling": "情感直说",
-    "purple": "辞藻升华",
-    "ai_tics": "AI 腔",
-    "oversaturation": "过饱和",
-}
+# Prefer review.schema.QC_ISSUE_LABELS (god_view/degeneration included)
+try:
+    from scribe3.review.schema import QC_ISSUE_LABELS as _QC_ISSUE_LABELS
+except Exception:  # pragma: no cover
+    _QC_ISSUE_LABELS = {
+        "repetition": "复读(章内)",
+        "cross_repetition": "跨章复读",
+        "duplicate_lines": "整句重复",
+        "structural": "排比句式",
+        "emotion_telling": "情感直说",
+        "purple": "辞藻升华",
+        "ai_tics": "AI 腔",
+        "oversaturation": "过饱和",
+        "god_view": "全知/解释口吻",
+        "degeneration": "模型退化指纹",
+    }
 
 
 def _issue_hit_text(hit) -> str:

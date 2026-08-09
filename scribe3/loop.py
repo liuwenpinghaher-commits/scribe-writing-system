@@ -49,6 +49,7 @@ def triage(post: dict) -> dict:
     pass 门(假绿防护):leaks_degraded 或关键检测 stage 降级 → 最高只能 advisory,
     绝不把"没查到"当"没病"。
     """
+    from scribe3.review.blocking import is_blocking_issue as _is_blocking_issue
     blocking: list[dict] = []
     leaks = post.get("leaks") or []
     for lk in leaks:
@@ -71,11 +72,8 @@ def triage(post: dict) -> dict:
                 "quote": str(iss.get("text") or "")[:60],
                 "note": str(iss.get("message") or "")[:120],
             })
-        elif sev.upper() == "S1" and iss.get("type") == "discipline":
-            # R3-1(D-7):按 type 白名单收口——合法 S1 恒为 type="discipline"(共振表升格+
-            # 熔断保护,app.py:3093-3102);ooc_signal.severity 可透传到 setting issue 伪成
-            # S1,若判据④只按值不按源,会绕过共振三刹车直达 blocking。未来 critique reviewers
-            # 若接线产 S1,须在此扩白名单(而非放开)。
+        elif _is_blocking_issue(iss) and iss.get("type") not in ("degeneration", "pressure"):
+            # S1 + whitelist type (discipline / llm_review / leak, …) via shared predicate
             blocking.append({"detector": "findings_schema", "kind": iss.get("type") or "S1",
                              "quote": str(iss.get("text") or "")[:60],
                              "note": str(iss.get("message") or "")[:120]})
@@ -140,13 +138,9 @@ def triage(post: dict) -> dict:
 
 
 def _is_blocking_issue(iss: dict) -> bool:
-    meta = iss.get("meta") or {}
-    sev = str(meta.get("severity") or "")
-    # PDC：仅 type=pressure 且 meta.severity=blocking（由 measure_pressure 在 env+压力≥4 时输出）
-    if iss.get("type") == "pressure" and sev == "blocking":
-        return True
-    return ((iss.get("type") == "degeneration" and sev == "blocking")
-            or sev.upper() == "S1")
+    """Backward-compatible alias → scribe3.review.blocking.is_blocking_issue (KD-14)."""
+    from scribe3.review.blocking import is_blocking_issue
+    return is_blocking_issue(iss)
 
 
 def build_regen_constraints(blocking: list[dict], next_attempt: int,
