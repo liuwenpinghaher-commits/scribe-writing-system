@@ -57,26 +57,26 @@ def triage(post: dict) -> dict:
                          "quote": str((lk or {}).get("marker") or lk)[:60],
                          "note": (f"帧外私密破绽词(fact="
                                   f"{((lk or {}).get('fact_id') or '?')})")[:120]})
+    # KD-14: ALL issue types go solely through is_blocking_issue (accepts S1|BLOCKING).
+    # Do not special-case degeneration/pressure then exclude them — normalize→S1 must still block.
+    _detector_by_type = {
+        "degeneration": "find_degeneration",
+        "pressure": "pressure_metrics",
+        "discipline": "findings_schema",
+        "llm_review": "findings_schema",
+        "leak": "find_leaks",
+    }
     for iss in post.get("issues") or []:
+        if not _is_blocking_issue(iss):
+            continue
         meta = iss.get("meta") or {}
-        sev = str(meta.get("severity") or "")
-        if iss.get("type") == "degeneration" and sev == "blocking":
-            blocking.append({"detector": "find_degeneration", "kind": meta.get("kind") or "degeneration",
-                             "quote": str(iss.get("text") or "")[:60],
-                             "note": str(iss.get("message") or "")[:120]})   # P2-7 note 截断
-        elif iss.get("type") == "pressure" and sev == "blocking":
-            # PDC：仅 measure_pressure 在 SCRIBE3_PDC_BLOCKING=1 且压力级≥4 时标 blocking
-            blocking.append({
-                "detector": "pressure_metrics",
-                "kind": meta.get("kind") or "pressure",
-                "quote": str(iss.get("text") or "")[:60],
-                "note": str(iss.get("message") or "")[:120],
-            })
-        elif _is_blocking_issue(iss) and iss.get("type") not in ("degeneration", "pressure"):
-            # S1 + whitelist type (discipline / llm_review / leak, …) via shared predicate
-            blocking.append({"detector": "findings_schema", "kind": iss.get("type") or "S1",
-                             "quote": str(iss.get("text") or "")[:60],
-                             "note": str(iss.get("message") or "")[:120]})
+        t = iss.get("type") or iss.get("kind") or "S1"
+        blocking.append({
+            "detector": _detector_by_type.get(t, "findings_schema"),
+            "kind": meta.get("kind") or t,
+            "quote": str(iss.get("text") or "")[:60],
+            "note": str(iss.get("message") or "")[:120],
+        })
     grade = (post.get("ai_grade") or {}).get("grade")
     _short_low_conf = None
     if grade == "heavy":

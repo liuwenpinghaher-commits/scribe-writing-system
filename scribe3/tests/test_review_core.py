@@ -85,6 +85,54 @@ def test_loop_triage_uses_shared_blocking():
     )
 
 
+def test_triage_normalized_degeneration_s1_blocks():
+    """After normalize (blocking→S1), degeneration must still block — not false-green."""
+    from scribe3.loop import triage
+    from scribe3.review.normalize import normalize_issue
+
+    raw = {
+        "type": "degeneration",
+        "message": "placeholder",
+        "text": "TODO",
+        "meta": {"severity": "blocking", "kind": "placeholder"},
+    }
+    # Ship path: ledger/review normalizes then triage consumes
+    norm = normalize_issue(raw, chapter=1)
+    assert norm["severity"] == "S1"
+    assert is_blocking_issue(norm) is True
+    post = {
+        "leaks": [],
+        "issues": [norm],  # severity S1 on issue + meta (normalize puts on both)
+        "degraded_stages": [],
+    }
+    # triage reads meta.severity primarily; ensure meta carries S1
+    assert (post["issues"][0].get("meta") or {}).get("severity") == "S1"
+    t = triage(post)
+    assert t["verdict"] == "blocking", t
+    assert len(t["blocking"]) >= 1
+    assert any(
+        b.get("detector") == "find_degeneration" or b.get("kind") in ("placeholder", "degeneration")
+        for b in t["blocking"]
+    )
+
+
+def test_triage_normalized_pressure_s1_blocks():
+    from scribe3.loop import triage
+    from scribe3.review.normalize import normalize_issue
+
+    raw = {
+        "type": "pressure",
+        "message": "pressure high",
+        "text": "x",
+        "meta": {"severity": "blocking", "kind": "progress_zero_advance"},
+    }
+    norm = normalize_issue(raw, chapter=2)
+    assert norm["severity"] == "S1"
+    t = triage({"leaks": [], "issues": [norm], "degraded_stages": []})
+    assert t["verdict"] == "blocking", t
+    assert any(b.get("detector") == "pressure_metrics" for b in t["blocking"])
+
+
 def test_prose_fp_parity():
     assert_parity_with_chapter_analysis()
     assert len(prose_fp("hello")) == 16
