@@ -1,15 +1,28 @@
-# Director 旅程 · 约 2 万字 · 记忆可用性验收 · v6.3
+# Director 旅程 · 约 2 万字 · 记忆可用性验收 · v6.3.1
 
 | 项 | 值 |
 |----|-----|
-| **版本** | **6.3（相对 6.2 的改进方案）** |
-| **日期** | 2026-08-08 |
-| **状态** | 方案就绪 · **待执行（必须新书）** |
+| **版本** | **6.3.2**（6.3.1 + **真 chat 强制路径**；废止「脚本 proposal 灌设定 = 主编线 PASS」） |
+| **日期** | 2026-08-09 |
+| **状态** | **必须按 §2.4 真 chat 路径执行** · 每轮新书 · 会话可核对 |
 | **产品** | 铜炉（tonglu）/ 代码目录 `scribe3` |
-| **环境** | **仅 demo 已部署栈**（`www.qing.blue`） |
+| **环境** | **仅 demo 已部署栈**（`www.qing.blue`）；禁止本机 Surreal / 全量 npm |
 | **继承** | v6.2 纪律全文：[`docs/e2e-director-journey-5w.md`](./e2e-director-journey-5w.md) |
 | **进度** | [`设计文档/2026-08-08-旅程2万字-记忆验收-进度.md`](../设计文档/2026-08-08-旅程2万字-记忆验收-进度.md) |
+| **质量根因方案** | [`docs/plans/2026-08-09-memory-quality-rootcause-plan.md`](./plans/2026-08-09-memory-quality-rootcause-plan.md) |
+| **驱动** | `scripts/v63_memory_journey.py`（工程等价路径；**≠** SPA 体验总 PASS） |
 | **融合** | [`docs/融合执行规程-真人验收×对话驱动改造.md`](./融合执行规程-真人验收×对话驱动改造.md) |
+
+### 6.3 → 6.3.1 变更摘要
+
+| 主题 | 6.3 原述 | **6.3.1 强制** |
+|------|----------|----------------|
+| 通/绿 vs 质量 | M0–M6 为主 | M0–M6 = **地板**；质量看 D1–D7 + 人评（alone 封顶约 6.0） |
+| 中程变更 A6 | 改设定即可 | **同 `state` 槽 supersede**；禁止另开 `condition` 导致双真；注入面 **不得** 同时出现「完整无缺」与「缺口」 |
+| 设定脚手架 | 关系/字数随意 | WCG：`total_word_goal`∈[40k,60k]；关系词表合法；梗概 ≥40 字×10 |
+| 连载 steer | 长指令可 | 质量对照可开 `SCRIBE3_MEMORY_STEER_MODE=minimal`；刷分粘贴圣经 → 该维作废 |
+| 主角色注入 | 全表前 14 | global 仅 **protagonist+major**；新建角色默认 `extra` |
+| 结案证据 | M 记分板 | 另须 `12-quality-d1-7.md` + 可选 `12-ablation-d5d7.md` |
 
 ---
 
@@ -81,8 +94,33 @@
 | WCG / 字数 / 记忆探针 **只读审计** | 证据 | 辅助 |
 | `/memory/prefetch` 对照抽检 | 证实组装非空/含锚 | 辅助，须注明 |
 | 串行 pilot / 灌库 | **禁止** 本验收 | 否 |
+| `v63_memory_journey.py` 批量 `proposal/apply` 拼 ops | **仅工程对照，主编线 FAIL** | 否 |
+
+### 2.4 真 chat 可执行路径（产品现实 · 6.3.2 强制）
+
+> 产品现状：讨论区默认 **非 agentic**（`/chat/stream`）；设定落地走 **讨论原文 → ChangePack(LLM) → 待确认点批**；章循环可 pilot，但 **开写指令必须先 chat**。
+
+| 步骤 | 作者可见动作（会话/UI） | 允许的自动化等价 | **禁止** |
+|------|-------------------------|------------------|----------|
+| 0 新建 | 作品库点「新建」 | `POST /works`（等同点新建） | 用旧书验收 |
+| 1 开书意图 | 主编 chat 口述主题/2 万字/红线 | `GET /chat/stream` 落线程 | 无 chat 直接 set_intent |
+| 2 设定 | chat 分多轮口述角色/物件/规则/关系 | 每轮后 `POST /canon/change-pack`（`use_llm=true`, `source=discussion`）+ **点批** candidates | 脚本手写 `s3_add_*` ops 批量 apply |
+| 3 结构 | chat 口述卷章梗概 | 同上 ChangePack/点批；或 chat 后点批提案 | 无 chat 直接 add_chapter |
+| 4 M1 | **同一线程** 植入 A5 → 闲聊 ≥3 轮 → 追问复述 | 仅 `/chat/stream` | 后台 seed 假记忆 |
+| 5 连载 | chat「开始写第 N 章…」→ 大纲/稿点批/终选 | 开写 **后** 允许 pilot 步进 + approve（点批） | 无 chat 直接 pilot 灌五章 |
+| 6 M3–M6 | 嵌在 chat/定稿后 | 只读审计 + 章后 post-finalize | 脚本伪造正文 |
+
+**会话验收铁律（你可一眼拆穿）：**
+
+1. `/api/chat/threads?work=` 有线程；消息数应 **远大于**「闲聊 5 条」。  
+2. 消息内容须覆盖：开书、设定、结构、开写、记忆探针。  
+3. 正典候选 `source=discussion` / change-pack 与 chat 原文可对上。  
+4. `00-author-path.md` 写 **真 chat**；若仍是「批量 proposal/apply 拼 ops」→ **主编线 FAIL**。
+
+**驱动脚本（6.3.2）：** `scripts/v632_true_chat_journey.py`（不得再用 `v63_memory_journey.py` 冒充主编线）。
 
 ---
+
 
 ## 3. 记忆系统：应起什么作用（验收定义）
 
@@ -196,14 +234,14 @@ API 绿但四问只有「存了」→ **PARTIAL**，不得总 PASS。
 | FAIL | 正文失忆；或靠作者本轮又把全文设定贴进聊天 |
 | 证据 | `12-memory-m3-cross-chapter.md`（引正文句 + 锚对照） |
 
-#### M4 · 中程变更传播（A6）
+#### M4 · 中程变更传播（A6）· **含 D4 注入单真**
 
 | 项 | 要求 |
 |----|------|
-| 动作 | 中程 chat：「把 A2/A3 改成…」→ ChangePack/候选 → **人批** → 再写下章 |
-| PASS | 变更后章正文或主编 brief **用新值**；旧值不再当真相（除非刻意回忆） |
-| FAIL | 批了但后文仍旧值；或未批就静默改了 L1 |
-| 证据 | `12-memory-m4-mutation.md` + `11-canon-loop-chat` 一条 |
+| 动作 | 中程：「把 A2 状态从完整改为缺口」→ ChangePack/候选 → **人批** → `s3_supersede_fact(entity, state, 新值)`（**禁止** 另开 `condition` 并存）→ 再写下章 |
+| PASS | ① 后文章正文 **用新值**；② **`prefetch`/must-link 不得同时含旧态短语与新态**（如「完整无缺」∧「缺口」） |
+| FAIL | 批了但后文仍旧值；或未批就静默改 L1；或 **注入面双真** |
+| 证据 | `12-memory-m4-mutation.md` + prefetch 摘录 + `11-canon-loop-chat` |
 
 #### M5 · 限知 / 不泄密（必须 PASS）
 
@@ -243,19 +281,57 @@ API 绿但四问只有「存了」→ **PARTIAL**，不得总 PASS。
 
 无此页 → 记忆线最多 PARTIAL。
 
+### 5.4 质量七维（D1–D7）· 6.3.1 强制对齐
+
+> 权威细则：[`docs/plans/2026-08-09-memory-quality-rootcause-plan.md`](./plans/2026-08-09-memory-quality-rootcause-plan.md)。  
+> **9.5 = 质量分**，不是 HTTP 200 / 文件存在。
+
+| 维 | 本旅程硬门槛（自动化） | 质量 ≥9 仍须 |
+|----|------------------------|--------------|
+| **D4 变更一致** | M4 后 `prefetch`：**无**旧态短语 ∧ **有**新态；must-link 无互斥双〔必需〕 | 人感「改过像改过」 |
+| **D2 铁律** | 注入含「作者铁律·写作宪法」；正文感官/禁忌可抽检 | minimal steer 下仍遵守 |
+| **D3 正典叙事** | must-link 置顶；跨章锚命中（M3） | 非清单腔人评 |
+| **D5 少喂** | 可选 `SCRIBE3_MEMORY_STEER_MODE=minimal`；`detect_author_restated_canon` 否决刷分 | A/B 消融人评 |
+| **D6 限知** | M5 + 帧外 secret 不进 must（工程） | 认知问卷 |
+| **D7 增益** | `usage_digest` /「记忆在扛什么」；`ablation_memory_d5d7.py` | `comparison_protocol` 人评 |
+| **D1 诚实** | 矛盾消解可记入 digest；不假装记得未写入 | 对抗测 |
+
+**工程产物（每轮新书证据根）：**
+
+| 文件 | 来源 |
+|------|------|
+| `12-memory-scorecard.md` | M0–M6 |
+| `12-quality-d1-7.md` | `scripts/quality_d17_report.py` |
+| `12-ablation-d5d7.md` | `scripts/ablation_memory_d5d7.py`（推荐） |
+| `00-author-path.md` | 路径诚实 |
+
+### 5.5 脚手架 / 驱动硬约束（防 WCG 与双真回归）
+
+| 项 | 要求 |
+|----|------|
+| intent.total_word_goal | **45000**（WCG 40–60k 带；≠ 1–5 章可见字 18–24k） |
+| 角色关系 | 仅 029 词表（师徒/盟友/仇敌/利益对立…）；**禁止**「债主/债权人」 |
+| 物件状态 | 身份 `artifact`（静态描述）与 **`state`（可变态）分槽**；A6 **只 supersede `state`** |
+| 章梗概 | 1–10 章 synopsis 去空白 **≥40** 字 |
+| 关系数 | ≥3 条合法边 |
+| 连载 | `/pilot/step`+`approve`；EMERGENCY=0；禁他书专名窜稿 |
+
+驱动：`python3 scripts/v63_memory_journey.py --phase {scaffold\|memory-probes\|serialize\|score\|fix-wcg}`  
+
 ---
 
 ## 6. 规模与结构（2 万字）
 
-| 项 | 6.2 | **6.3** |
+| 项 | 6.2 | **6.3.1** |
 |----|-----|---------|
-| 目标字数 | 45–55k | **18–24k**（心中 ~2 万） |
-| 建议章数 | 10 章 | **4～5 章**（足够跨章记忆，不必灌水） |
-| 卷结构 | 3 卷 10 章 | **1 卷 4～5 章** 即可 |
-| WCG | 原 gate 全量 | **同脚本**；结构项按本书 synopsis 对齐（章数 4～5 时 gate 配置/参数以脚本实际为准，**禁止**为绿而假造 10 章空壳） |
-| 单章 | 完整 pilot 链 | **同 6.2 章循环**（大纲→…→终选→PostFinalize），不得跳步 |
+| 目标字数（可见） | 45–55k | **18–24k**（心中 ~2 万） |
+| intent 规划字数 | — | **45k**（WCG 字段，≠定稿量） |
+| 建议连载章 | 10 | **5 章定稿**（结构可 10 章壳 + 只写 1–5） |
+| WCG | 原 gate | **同 `v4_world_complete_gate.py`**；当前 demo 仍要求 ≥10 章 synopsis 壳 |
+| 单章 | 完整 pilot | **同链**；质量跑可 `MEMORY_STEER=minimal` |
 
-**禁止** 为凑 2 万字 pad 公式尾；宁 18k 诚实可读，不 24k 注水。
+**禁止** 为凑 2 万字 pad 公式尾；宁 18k 诚实可读，不 24k 注水。  
+**禁止** 为 WCG 绿而用非法关系词 / 短梗概 / 双真状态槽。
 
 ---
 

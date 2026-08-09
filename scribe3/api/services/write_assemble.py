@@ -740,9 +740,9 @@ def _brief_must_sections_write_block(st, chapter: int, focalizer: str = "") -> s
         from scribe3.memory_must_link import collect_must_anchors
         anchors = collect_must_anchors(st, int(chapter), limit=8)
         if anchors:
-            lines = "\n".join(f"- {a.get('text')}" for a in anchors)
+            lines = "\n".join(f"- 〔压力〕{a.get('text')}" for a in anchors)
             must_prefix = (
-                "\n\n【本章戏剧必需·来自记忆/正典｜推动情节或感官，禁止设定清单腔】\n"
+                "\n\n【戏剧压力·来自记忆/正典｜写成可感冲突与触感，禁止设定表点名】\n"
                 + lines + "\n"
             )
     except Exception as e:

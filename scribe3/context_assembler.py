@@ -267,6 +267,81 @@ def _resolve_canonical_conflicts(candidates) -> tuple[list, list]:
 
 # ---------- 组装器主体 ----------
 
+def _char_importance(c) -> str:
+    """角色 importance 字符串（兼容 Entity.traits / dict）。"""
+    if c is None:
+        return ""
+    if isinstance(c, dict):
+        return str(c.get("importance") or "").strip().lower()
+    traits = getattr(c, "traits", None) or {}
+    if isinstance(traits, dict):
+        return str(traits.get("importance") or "").strip().lower()
+    return str(getattr(c, "importance", "") or "").strip().lower()
+
+
+def _main_cast_names(chars, *, limit: int = 10) -> list[str]:
+    """global 层主角色：protagonist + major（或中文 主角/主要）。"""
+    rank = {"protagonist": 0, "主角": 0, "major": 1, "主要": 1, "main": 1}
+    scored: list[tuple[int, str]] = []
+    for c in chars or []:
+        name = getattr(c, "name", None) or (c.get("name") if isinstance(c, dict) else "") or ""
+        if not name:
+            continue
+        imp = _char_importance(c)
+        if imp in rank:
+            scored.append((rank[imp], str(name)))
+    scored.sort(key=lambda x: (x[0], x[1]))
+    # 去重保序
+    seen: set[str] = set()
+    out: list[str] = []
+    for _, n in scored:
+        if n in seen:
+            continue
+        seen.add(n)
+        out.append(n)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _filter_must_anchors_for_frame(store, snapshot, anchors: list) -> list:
+    """限知章：剔除 must 锚中含帧外 secret 明文的条目（Wave-C：不进「已知/压力」钉锚）。"""
+    if not anchors or not getattr(snapshot, "focalizer", None):
+        return list(anchors or [])
+    try:
+        from scribe3.epistemic_guard import (
+            collect_secret_surface_strings, frame_known_fact_ids,
+        )
+        ch = snapshot.chapter if snapshot.chapter is not None else 1
+        known = frame_known_fact_ids(store, snapshot.focalizer, int(ch))
+        off_strings: list[str] = []
+        off_ids: set[str] = set()
+        for row in collect_secret_surface_strings(store, ch):
+            fid = row.get("fact_id") or ""
+            if fid and fid in known:
+                continue
+            if fid:
+                off_ids.add(str(fid))
+            for s in row.get("strings") or []:
+                if s and len(s) >= 2:
+                    off_strings.append(s)
+        if not off_strings and not off_ids:
+            return list(anchors)
+        kept = []
+        for a in anchors:
+            sid = str(a.get("source_id") or "")
+            if sid and sid in off_ids:
+                continue
+            t = str(a.get("text") or "")
+            if any(s in t for s in off_strings):
+                continue
+            kept.append(a)
+        return kept
+    except Exception as e:
+        _log.warning("must-link frame filter fail-soft: %s", e)
+        return list(anchors or [])
+
+
 class ContextAssembler:
     """把快照 + 记忆候选组装成 8 块定序、有预算、可溯源的 ContextEnvelope。
 
@@ -557,9 +632,18 @@ class ContextAssembler:
                 source_id="promises:open", source_kind="global", work=snapshot.work)))
         chars = self.store.characters() or []
         if chars:
-            names = "、".join(c.name for c in chars[:14])
-            out.append(_Item("- 主要角色:" + names, ContextSource(
-                source_id="characters:main", source_kind="global", work=snapshot.work)))
+            # D1/D3：global 主角色层只钉 protagonist+major，防章后群像污染北极星
+            main_names = _main_cast_names(chars, limit=10)
+            if main_names:
+                out.append(_Item("- 主要角色:" + "、".join(main_names), ContextSource(
+                    source_id="characters:main", source_kind="global", work=snapshot.work,
+                    reason="main_cast_only")))
+            # 群像仅在条数极少时兜底（旧书无 importance）
+            elif chars:
+                names = "、".join(c.name for c in chars[:6])
+                out.append(_Item("- 主要角色:" + names, ContextSource(
+                    source_id="characters:main", source_kind="global", work=snapshot.work,
+                    reason="fallback_no_importance")))
         return out
 
     def _canonical_items(
@@ -590,11 +674,26 @@ class ContextAssembler:
             from scribe3.memory_must_link import (
                 collect_must_anchors, format_must_link_items,
             )
+            must_stats: dict = {}
             anchors = collect_must_anchors(
                 self.store, snapshot.chapter, limit=10, query=user_query or "",
+                stats_out=must_stats,
             )
             if not anchors:
                 return base
+            # D6：限知章 must-link 不得把帧外 secret 明文钉成〔必需〕/〔压力〕
+            anchors = _filter_must_anchors_for_frame(
+                self.store, snapshot, anchors)
+            if not anchors:
+                return base
+            # Wave-A3：互斥裁掉条数挂到 snapshot 供 envelope usage_digest
+            try:
+                cd = int(must_stats.get("conflicts_dropped") or 0)
+                if cd:
+                    setattr(snapshot, "conflicts_dropped",
+                            int(getattr(snapshot, "conflicts_dropped", 0) or 0) + cd)
+            except Exception:
+                pass
             must_pairs = format_must_link_items(anchors, work=snapshot.work or "")
             must_items: list[_Item] = []
             for text, meta in must_pairs:
@@ -610,7 +709,7 @@ class ContextAssembler:
             # 去重：base 中与 must 高度重叠的行后置丢弃
             must_cores = []
             for it in must_items:
-                t = (it.text or "").replace("〔必需〕", "").strip()
+                t = (it.text or "").replace("〔必需〕", "").replace("〔压力〕", "").strip()
                 if len(t) >= 8:
                     must_cores.append(t[4:44] if t.startswith("- ") else t[:40])
             rest: list[_Item] = []
@@ -920,6 +1019,13 @@ def envelope_trace_manifest(envelope: ContextEnvelope) -> dict:
             for o in envelope.omitted
         ],
     }
+    # Wave-A3：注入互斥裁掉 → 作者可见「记忆在裁矛盾」
+    try:
+        cd = int(getattr(envelope.snapshot, "conflicts_dropped", 0) or 0)
+        if cd:
+            base["conflicts_dropped"] = cd
+    except Exception:
+        pass
     try:
         from scribe3.memory_gain import build_usage_digest_from_manifest
         base["usage_digest"] = build_usage_digest_from_manifest(base)

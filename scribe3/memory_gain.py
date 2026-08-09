@@ -81,9 +81,28 @@ def build_usage_digest_from_manifest(manifest: dict | None) -> dict[str, Any]:
         })
     omitted = m.get("omitted") or []
     omit_n = len(omitted) if isinstance(omitted, list) else 0
+    # Wave-A3：互斥裁掉条数（manifest.conflicts_dropped 或 omitted.reason 含 conflict）
+    conflicts_dropped = 0
+    try:
+        if m.get("conflicts_dropped") is not None:
+            conflicts_dropped = max(0, int(m.get("conflicts_dropped") or 0))
+    except (TypeError, ValueError):
+        conflicts_dropped = 0
+    if isinstance(omitted, list):
+        for o in omitted:
+            if not isinstance(o, dict):
+                continue
+            reason = str(o.get("reason") or "").lower()
+            if "conflict" in reason or "互斥" in reason or "injection_conflict" in reason:
+                conflicts_dropped += 1
+    conflict_note = ""
+    if conflicts_dropped:
+        conflict_note = f"，记忆已裁掉 {conflicts_dropped} 条互斥/冲突事实"
+        lines.append(f"· 冲突消解：裁掉 {conflicts_dropped} 条（单真注入，防双真毒化）")
     summary = (
         f"本轮写作上下文用到约 {total_sources} 条记忆/正典来源"
         + (f"，另有 {omit_n} 条因预算或冲突未注入" if omit_n else "")
+        + conflict_note
         + "。"
     )
     if not lines:
@@ -94,10 +113,10 @@ def build_usage_digest_from_manifest(manifest: dict | None) -> dict[str, Any]:
         "by_block": by_block,
         "total_sources": total_sources,
         "omitted_count": omit_n,
+        "conflicts_dropped": conflicts_dropped,
         "envelope_hash": m.get("envelope_hash"),
         "human_readable": summary + ("\n" + "\n".join(lines) if lines else ""),
     }
-
 
 def comparison_protocol() -> dict[str, Any]:
     """D7 有/无记忆对照实验协议（质量 9.5 用人评，脚本只固定流程）。"""

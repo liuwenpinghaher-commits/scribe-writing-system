@@ -5,35 +5,9 @@ from scribe3.store.core_preamble import *  # noqa: F403
 
 
 def collapse_facts_single_truth(facts: list) -> list:
-    """D4 质量：同一 (entity_id, attribute) 在当章只保留一条有效真值。
-
-    选取 valid_from 最大者；并列时保留列表中后者（通常为较新写入）。
-    纯函数，便于无 DB 单测；facts_at 读路径安全网。
-    多值同属性的「并存设计」若仍需要，写入时须 supersede_open=False 且
-    读路径调用方自行跳过折叠——产品默认写作正典为单真值。
-    """
-    best: dict[tuple[str, str], object] = {}
-    for f in facts or []:
-        eid = getattr(f, "entity_id", None) or (f.get("entity_id") if isinstance(f, dict) else "") or ""
-        attr = getattr(f, "attribute", None) or (f.get("attribute") if isinstance(f, dict) else "") or ""
-        if not eid or not attr:
-            # 无键的行无法折叠，原样挂到合成键上避免丢失
-            key = (str(id(f)), "")
-        else:
-            key = (str(eid), str(attr))
-        prev = best.get(key)
-        if prev is None:
-            best[key] = f
-            continue
-        prev_vf = getattr(prev, "valid_from", None)
-        if prev_vf is None and isinstance(prev, dict):
-            prev_vf = prev.get("valid_from")
-        cur_vf = getattr(f, "valid_from", None)
-        if cur_vf is None and isinstance(f, dict):
-            cur_vf = f.get("valid_from")
-        if (cur_vf or 0) >= (prev_vf or 0):
-            best[key] = f
-    return list(best.values())
+    """D4：同 (entity, attribute) 单真值。实现见 fact_surface（纯逻辑无 DB）。"""
+    from scribe3.fact_surface import collapse_facts_single_truth as _collapse
+    return _collapse(facts)
 
 
 class FactsKnowledgeMixin:
@@ -50,15 +24,20 @@ class FactsKnowledgeMixin:
         # D4：先关闭同键开区间先驱（不含本 id），再 UPSERT 本行。
         # valid_to 半开区间 [from,to)：先驱 valid_to=本行 valid_from → 自本章起只认新值。
         if supersede_open and f.entity_id and f.attribute:
-            # 与 supersede_fact 同口径：关闭同 entity+attribute 的开区间行。
-            # 先关全部开区间，再 UPSERT 本行（本行会以新 valid_from / 开区间写回）。
+            # 同键先驱 + D4 状态槽交叉关闭（condition/state/artifact 嵌旧态互斥）
             try:
-                self._execute_write(
-                    "UPDATE proposition SET valid_to=$vf "
-                    "WHERE entity_id=$e AND attribute=$a AND valid_to=NONE "
-                    "AND valid_from <= $vf",
-                    {"e": f.entity_id, "a": f.attribute, "vf": vf},
-                )
+                from scribe3.fact_surface import cross_supersede_attributes_for
+                attrs = cross_supersede_attributes_for(f.attribute, f.value or "")
+            except Exception:
+                attrs = [f.attribute]
+            try:
+                for a in attrs:
+                    self._execute_write(
+                        "UPDATE proposition SET valid_to=$vf "
+                        "WHERE entity_id=$e AND attribute=$a AND valid_to=NONE "
+                        "AND valid_from <= $vf",
+                        {"e": f.entity_id, "a": a, "vf": vf},
+                    )
             except Exception as _e:
                 logging.getLogger("scribe3.store").warning(
                     "add_fact supersede_open 关闭先驱失败(仍写入新命题): %s", _e)
@@ -111,17 +90,25 @@ class FactsKnowledgeMixin:
 
     def supersede_fact(self, entity_id: str, attribute: str, new_value: str,
                        since_chapter: int, secret: bool = False) -> str:
-        """显式超越:关闭同一 entity+attribute 的所有开区间先驱,写入新命题。
+        """显式超越:关闭状态相关开区间先驱,写入新命题。
+        状态类 attribute 规范为 state，并交叉关闭 condition/artifact 等互斥槽。
         返回新命题的 oid。写入走 add_fact(supersede_open=True)，双保险。"""
         import uuid
-        # 1. 关闭所有该 entity+attribute 的开区间先驱（含 valid_from==since 的并列旧行）
-        self._execute_write(
-            "UPDATE proposition SET valid_to=$since "
-            "WHERE entity_id=$e AND attribute=$a AND valid_to=NONE AND valid_from<=$since",
-            {"e": entity_id, "a": attribute, "since": since_chapter})
-        # 2. 写入新命题（add_fact 再扫一遍开区间，幂等）
+        from scribe3.fact_surface import (
+            cross_supersede_attributes_for, is_state_slot_attr, normalize_state_attribute,
+        )
+        attr = normalize_state_attribute(attribute, new_value)
+        if is_state_slot_attr(attribute):
+            attr = "state"
+        # 1. 交叉关闭同 entity 状态相关开区间
+        for a in cross_supersede_attributes_for(attr, new_value):
+            self._execute_write(
+                "UPDATE proposition SET valid_to=$since "
+                "WHERE entity_id=$e AND attribute=$a AND valid_to=NONE AND valid_from<=$since",
+                {"e": entity_id, "a": a, "since": since_chapter})
+        # 2. 写入新命题（add_fact 再扫一遍，幂等）
         new_oid = f"fact:{uuid.uuid4().hex[:8]}"
-        new_fact = Fact(new_oid, entity_id, attribute, new_value, valid_from=since_chapter, secret=secret)
+        new_fact = Fact(new_oid, entity_id, attr, new_value, valid_from=since_chapter, secret=secret)
         self.add_fact(new_fact, supersede_open=True)
         return new_oid
 
@@ -161,7 +148,8 @@ class FactsKnowledgeMixin:
             "AND (archived = NONE OR archived != true) "
             "ORDER BY valid_from DESC",
             {"ch": ch}) or []
-        return collapse_facts_single_truth(rows)
+        from scribe3.fact_surface import resolve_injection_facts
+        return resolve_injection_facts(rows)
 
     def facts_at(self, chapter: int) -> list[Fact]:
         rows = self._query(
@@ -175,8 +163,9 @@ class FactsKnowledgeMixin:
                       r.get("leak_markers", []),
                       injection_mode=r.get("injection_mode"), priority=r.get("priority"))
                  for r in rows]
-        # D4 读路径安全网：即使历史数据有多条开区间同键，当章只暴露一条真值
-        return collapse_facts_single_truth(facts)
+        # D4 读路径：同键折叠 + 同 entity 互斥 value 消解（注入面单真）
+        from scribe3.fact_surface import resolve_injection_facts
+        return resolve_injection_facts(facts)
 
     def _secret_proposition_values(self) -> set[str]:
         """本 work 权威 secret 命题的真值集(供 ai_run_trace redactor 抹工具回抛的秘密明文)。

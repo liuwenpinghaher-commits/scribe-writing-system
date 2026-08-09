@@ -71,11 +71,38 @@ def test_detect_not_restated_minimal_intent():
 def test_pin_must_first():
     out = pin_must_first(
         ["- world:x a=1", "- other"],
-        ["- 〔必需〕world:x a=1", "- 〔必需〕promise"],
+        ["- 〔压力〕world:x a=1", "- 〔压力〕promise"],
     )
-    assert out[0].startswith("- 〔必需〕")
+    assert out[0].startswith("- 〔压力〕") or out[0].startswith("- 〔必需〕")
     assert len([x for x in out if "world:x a=1" in x]) == 1
 
+
+def test_fact_anchor_is_narrative_not_checklist():
+    a = collect_must_anchors(_FakeStore(), 4, limit=10)
+    fact_texts = [x["text"] for x in a if x.get("kind") == "fact"]
+    assert fact_texts, "expected fact anchors"
+    joined = " ".join(fact_texts)
+    assert "·condition=" not in joined and "·state=" not in joined
+    assert "物件" in joined or "状态" in joined or "缺口" in joined
+
+
+def test_conflicts_dropped_stats():
+    class Dual(_FakeStore):
+        def facts_at(self, ch):
+            from scribe3.ontology import Fact
+            return [
+                Fact("fact:old", "world:三棱铜匙", "artifact",
+                     "三棱铜匙完整无缺", valid_from=1),
+                Fact("fact:new", "world:三棱铜匙", "condition",
+                     "齿边有缺口", valid_from=4),
+            ]
+
+    stats: dict = {}
+    a = collect_must_anchors(Dual(), 4, limit=10, stats_out=stats)
+    texts = " ".join(x["text"] for x in a)
+    assert "完整无缺" not in texts
+    assert "缺口" in texts
+    assert int(stats.get("conflicts_dropped") or 0) >= 1
 
 def test_minimal_steer_has_no_long_bible():
     s = minimal_chapter_steer(4, "缺口", "覃灰七", "匙坏了要查侧门")

@@ -1,8 +1,13 @@
-"""记忆质量 D4：同 (entity, attribute) 单真值折叠与 supersede 语义（无 DB 纯逻辑）。"""
+"""记忆质量 D4：同 (entity, attribute) 单真值折叠与注入面互斥消解（无 DB 纯逻辑）。"""
 from __future__ import annotations
 
+from scribe3.fact_surface import (
+    collapse_facts_single_truth,
+    resolve_injection_facts,
+    resolve_injection_facts_with_stats,
+    values_mutually_exclusive,
+)
 from scribe3.ontology import Fact
-from scribe3.store.facts_knowledge import collapse_facts_single_truth
 
 
 def test_collapse_keeps_latest_valid_from():
@@ -16,16 +21,45 @@ def test_collapse_keeps_latest_valid_from():
     assert out[0].value == "齿边有缺口"
 
 
-def test_collapse_different_attributes_both_kept():
+def test_collapse_different_attributes_both_kept_if_no_conflict():
     facts = [
-        Fact("fact:a", "world:匙", "artifact", "三棱铜匙", valid_from=1),
-        Fact("fact:b", "world:匙", "condition", "有缺口", valid_from=3),
+        Fact("fact:a", "world:匙", "artifact", "三棱铜匙·匙柄三点星", valid_from=1),
+        Fact("fact:b", "world:匙", "location", "旧库", valid_from=3),
     ]
     out = collapse_facts_single_truth(facts)
     assert len(out) == 2
-    vals = {f.attribute: f.value for f in out}
-    assert vals["artifact"] == "三棱铜匙"
-    assert vals["condition"] == "有缺口"
+
+
+def test_resolve_drops_exclusive_across_attributes():
+    """根因回归：artifact 含完整无缺 + condition 缺口 → 注入面只留较新。"""
+    facts = [
+        Fact("fact:old", "world:三棱铜匙", "artifact",
+             "匙柄内侧刻炉心印；三棱铜匙完整无缺", valid_from=1),
+        Fact("fact:new", "world:三棱铜匙", "condition",
+             "三棱铜匙齿边有一处新缺口，像被炉门咬过", valid_from=3),
+    ]
+    out = resolve_injection_facts(facts)
+    assert len(out) == 1
+    assert out[0].id == "fact:new"
+    assert "缺口" in out[0].value
+    assert "完整无缺" not in out[0].value
+
+
+def test_values_mutually_exclusive():
+    assert values_mutually_exclusive("完整无缺", "齿边有缺口")
+    assert not values_mutually_exclusive("匙柄三点星", "旧库侧门")
+
+
+def test_resolve_with_stats_counts_drops():
+    facts = [
+        Fact("fact:old", "world:三棱铜匙", "artifact",
+             "三棱铜匙完整无缺", valid_from=1),
+        Fact("fact:new", "world:三棱铜匙", "condition",
+             "齿边有缺口", valid_from=3),
+    ]
+    kept, n = resolve_injection_facts_with_stats(facts)
+    assert len(kept) == 1
+    assert n >= 1
 
 
 def test_collapse_dict_rows():

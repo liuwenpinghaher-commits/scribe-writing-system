@@ -88,6 +88,44 @@ def frame_known_fact_ids(store, focalizer: str, chapter: int) -> set[str]:
         return set()
 
 
+def partition_facts_for_focalizer(
+    store,
+    facts: list,
+    *,
+    focalizer: str,
+    chapter: int,
+) -> dict[str, list]:
+    """Wave-C1：按焦点者认知切分注入事实。
+
+    返回 {
+      known: 帧内可当作「已知」写入的 fact,
+      observable_only: secret/帧外 — 不得进「已知」块（仅可环境暗示，由调用方决定是否丢弃）,
+      known_ids: set[str],
+    }
+    无 focalizer 时全部进 known（作者/全知路径）。
+    """
+    rows = list(facts or [])
+    if not focalizer:
+        return {"known": rows, "observable_only": [], "known_ids": set()}
+    known_ids = frame_known_fact_ids(store, focalizer, int(chapter) or 1)
+    known, obs = [], []
+    for f in rows:
+        fid = getattr(f, "id", None) or (f.get("id") if isinstance(f, dict) else "") or ""
+        secret = bool(
+            getattr(f, "secret", None)
+            if not isinstance(f, dict)
+            else f.get("secret")
+        )
+        if secret and fid and fid not in known_ids:
+            obs.append(f)
+        elif secret and not known_ids:
+            # 有 secret 但帧投影失败：fail-closed 进 observable
+            obs.append(f)
+        else:
+            known.append(f)
+    return {"known": known, "observable_only": obs, "known_ids": known_ids}
+
+
 def scan_prompt_for_off_frame_secrets(
     prompt: str,
     store,

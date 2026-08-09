@@ -76,10 +76,17 @@ def _apply_character(st, bare, target, field, after, op) -> dict:
             traits = {k: v for k, v in after.items() if k != "name"}
         else:
             traits = {field: after} if field else {}
-        st.add_entity(Entity(oid, "character", str(name or local), traits=traits if isinstance(traits, dict) else {}))
+        if not isinstance(traits, dict):
+            traits = {}
+        # D1/D3：章后/提取新建角色默认 extra，不进 global 主要角色层
+        imp = str(traits.get("importance") or "").strip().lower()
+        if imp not in ("protagonist", "major", "主角", "主要", "main"):
+            traits["importance"] = "extra"
+        st.add_entity(Entity(oid, "character", str(name or local), traits=traits))
         if traits and hasattr(st, "update_record"):
-            st.update_record(oid, traits if isinstance(traits, dict) else {field or "note": after})
-        return {"status": "written", "module": "character", "oid": oid, "op": "add"}
+            st.update_record(oid, traits)
+        return {"status": "written", "module": "character", "oid": oid, "op": "add",
+                "importance": traits.get("importance")}
     fields = after if isinstance(after, dict) else ({field: after} if field else {"note": after})
     if hasattr(st, "update_record"):
         st.update_record(oid, fields)
@@ -162,20 +169,33 @@ def _apply_term(st, name, field, after, op) -> dict:
 
 def _apply_fact(st, target, field, after, op) -> dict:
     from scribe3.ontology import Fact
+    from scribe3.fact_surface import (
+        is_state_slot_attr, looks_like_state_value, should_cross_supersede_attr,
+    )
     # target may be fact:oid or entity; field=attribute; after=value
+    vf = 1
     if isinstance(after, dict):
         entity = after.get("entity") or target
         attr = after.get("attribute") or field or "note"
         value = after.get("value") or after.get("after") or ""
         secret = bool(after.get("secret"))
         oid = after.get("oid") or target if str(target).startswith("fact:") else f"fact:{uuid.uuid4().hex[:8]}"
+        try:
+            vf = int(after.get("valid_from") or after.get("since_chapter") or 1)
+        except (TypeError, ValueError):
+            vf = 1
     else:
         entity = target if ":" in str(target) else f"role:{target}"
         attr = field or "note"
         value = after
         secret = False
         oid = f"fact:{uuid.uuid4().hex[:8]}"
-    st.add_fact(Fact(oid, str(entity), str(attr), str(value), secret=secret))
+    # D4：状态变更走 supersede_fact，交叉关闭 condition/artifact 旧态
+    if hasattr(st, "supersede_fact") and should_cross_supersede_attr(str(attr), str(value)):
+        new_oid = st.supersede_fact(
+            str(entity), str(attr), str(value), since_chapter=vf, secret=secret)
+        return {"status": "written", "module": "fact", "oid": new_oid, "superseded": True}
+    st.add_fact(Fact(oid, str(entity), str(attr), str(value), valid_from=vf, secret=secret))
     return {"status": "written", "module": "fact", "oid": oid}
 
 
