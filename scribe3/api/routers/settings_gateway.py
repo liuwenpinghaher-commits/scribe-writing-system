@@ -50,7 +50,15 @@ def _request_is_admin(request: Request | None = None) -> bool:
 
 
 def _require_admin_api() -> None:
-    if not _request_is_admin():
+    # Call via module attribute so rebind to app_impl still works if both are bound
+    try:
+        from scribe3.api import app_impl as _core
+        _check = getattr(_core, '_request_is_admin', None)
+    except Exception:
+        _check = None
+    if _check is None:
+        _check = globals().get('_request_is_admin')
+    if _check is None or not _check():
         from fastapi import HTTPException
         raise HTTPException(403, "admin role required")
 
@@ -844,9 +852,18 @@ def admin_data_rows(table: str, work: str = "main", limit: int = Query(50, ge=1,
 
 
 def _bind_and_register() -> None:
-    """Rebind handlers onto app_impl globals so monkeypatch keeps working."""
+    """Rebind handlers onto app_impl globals so monkeypatch keeps working.
+
+    RBAC helpers (_request_is_admin / _require_admin_api) MUST live on core.__dict__
+    because FunctionType-rebound handlers resolve LOAD_GLOBAL from app_impl, not
+    this module — otherwise settings_put/gateway_*/admin_data_* NameError at runtime.
+    """
     from scribe3.api import app_impl as core
     g = globals()
+    for _hname in ('_request_is_admin', '_require_admin_api'):
+        _h = g[_hname]
+        setattr(core, _hname, _h)
+        core.__dict__[_hname] = _h
     _fn = g['ai_runtime_status']
     _re = types.FunctionType(_fn.__code__, core.__dict__, 'ai_runtime_status', _fn.__defaults__, _fn.__closure__)
     if _fn.__annotations__:
