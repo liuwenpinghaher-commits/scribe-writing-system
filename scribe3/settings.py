@@ -45,6 +45,22 @@ class Setting:
     min: float | None = None
     max: float | None = None
     danger: bool = False   # 前端二次确认
+    audience: str = "admin"  # author | admin · default admin (KD-6/r3)
+
+
+def _with_author_audience(s: Setting) -> Setting:
+    """KD-6: craft.* / memory.* / 三个 llm 非日帽键 → author；其余保持默认 admin。"""
+    if s.audience != "admin":
+        return s
+    if s.category == "craft":
+        return Setting(s.key, s.category, s.type, s.default, s.effect, s.label,
+                       s.desc, s.min, s.max, s.danger, "author")
+    if s.key in ("llm.model", "llm.timeout_seconds", "llm.max_retries"):
+        return Setting(s.key, s.category, s.type, s.default, s.effect, s.label,
+                       s.desc, s.min, s.max, s.danger, "author")
+    return s
+
+
 
 
 REGISTRY: tuple[Setting, ...] = (
@@ -218,6 +234,7 @@ REGISTRY: tuple[Setting, ...] = (
     Setting("gateway.hermes_bin", "gateway", "str", "~/.local/bin/hermes", "restart", "hermes CLI 路径", "一键重启用"),
     Setting("gateway.dashboard_url", "gateway", "str", "http://127.0.0.1:9119", "hot", "Dashboard 地址", "官方管理台,hermes dashboard 默认端口"),
 )
+REGISTRY = tuple(_with_author_audience(s) for s in REGISTRY)
 _BY_KEY: dict[str, Setting] = {s.key: s for s in REGISTRY}
 
 _cache_lock = threading.Lock()
@@ -314,6 +331,22 @@ def get_public_setting(key: str):
     return setting.default
 
 
+def setting_audience(key: str) -> str:
+    """Effective audience for key; unknown → KeyError."""
+    return _BY_KEY[key].audience
+
+
+def assert_setting_writable(key: str, *, is_admin_user: bool) -> None:
+    """Raise PermissionError if non-admin cannot write key (KD-11)."""
+    s = _BY_KEY[key]
+    if s.audience == "admin" and not is_admin_user:
+        raise PermissionError(f"设置项 {key} 仅管理员可改")
+
+
+def author_may_write_setting(key: str) -> bool:
+    return _BY_KEY[key].audience == "author"
+
+
 def put_setting(key: str, value) -> dict:
     s = _BY_KEY[key]   # 未登记 → KeyError,调用方转 404
     coerced = _coerce(s, value)
@@ -360,12 +393,31 @@ def settings_snapshot() -> list[dict]:
         out.append({
             "key": s.key, "category": s.category, "type": s.type,
             "label": s.label, "desc": s.desc, "effect": s.effect, "danger": s.danger,
+            "audience": s.audience,
             "default": None if secret else s.default,
             "value": None if secret else val,
             "is_set": (_source(s) != "default") if secret else None,
             "source": _source(s), "min": s.min, "max": s.max,
             "pending_restart": _pending_restart(s),
         })
+    return out
+
+
+def settings_snapshot_for(*, is_admin_user: bool) -> list[dict]:
+    """Author sees audience on all keys; admin-only keys mask value (and secret always masked)."""
+    rows = settings_snapshot()
+    if is_admin_user:
+        return rows
+    out = []
+    for r in rows:
+        row = dict(r)
+        if row.get("audience") == "admin" or row.get("type") == "secret":
+            row["value"] = None
+            if row.get("type") == "secret":
+                row["is_set"] = r.get("is_set")
+            else:
+                row["value_hidden"] = True
+        out.append(row)
     return out
 
 

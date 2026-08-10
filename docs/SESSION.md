@@ -15,9 +15,20 @@
 
 ## 当前状态
 
+### 系统中心 System Hub（2026-08-10）
+
+- **App 全页** `SystemHub`（`viewKey=system`）；无书可开；DetailPane 设置已迁出  
+- **RBAC**：`Setting.audience` 默认 admin；connection/flags/gateway 全 admin；craft + 3 llm 键 author；`assert_setting_writable` + gateway 写/重启 403  
+- **API**：`/craft-skills` · `/mcp/catalog` · `/data/health` · `/admin/data/tables|rows`  
+- **三平面**：写作 / 运行时·数据 / 运维·危险  
+- **设计**：`设计文档/2026-08-10-系统中心-管理设置与Hermes-Surreal统一改造.md`
+
+
+
 | 项 | 值 |
 |----|----|
-| **更新于** | 2026-08-10（**卷/章信息架构改造 PR-1…5** 实现 + demo 冒烟） |
+| **更新于** | 2026-08-10（**系统中心 System Hub** PR-0…5） |
+| **旧更新** | 2026-08-10（**卷/章信息架构改造 PR-1…5** 实现 + demo 冒烟） |
 | **产品名（UI）** | 铜炉 / tonglu（仅品牌文案+logo，色板未改） |
 | **默认分支** | `main` |
 | **刚完成** | 卷/章 IA：章前契约页、outline write 注入、volume_intro、final soft banner、focus 去重 |

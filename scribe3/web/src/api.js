@@ -712,6 +712,14 @@ export const api = {
   },
   // ── 统一设置中心 ──(全局端点,不按书隔离,一律走 raw 变体,不挂 ?work=)
   settings: () => jraw('/settings'),
+  craftSkills: () => jraw('/craft-skills'),
+  craftSkill: (slug) => jraw('/craft-skills/' + enc(slug)),
+  mcpCatalog: () => jraw('/mcp/catalog'),
+  dataHealth: (work) => jraw('/data/health?work=' + enc(work || 'main')),
+  adminDataTables: (work) => jraw('/admin/data/tables?work=' + enc(work || 'main')),
+  adminDataRows: (table, work, limit = 50) => jraw('/admin/data/rows?table=' + enc(table) + '&work=' + enc(work || 'main') + '&limit=' + limit),
+  promotableLessons: (work) => jraw('/lessons/promotable?work=' + enc(work || 'main')).catch(() => jraw('/lessons?work=' + enc(work || 'main')).catch(() => ({ lessons: [] }))),
+
   putSetting: (key, value) => putRaw('/settings/' + enc(key), { value }),
   resetSetting: (key) => postRaw('/settings/' + enc(key) + '/reset'),
   settingsAudit: (offset = 0) => jraw('/settings/audit?offset=' + offset),

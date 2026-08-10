@@ -11,6 +11,7 @@ const ACTIVE_WORK_STORAGE_KEY = 's3-active-work'
 const Library = lazy(() => import('./Library').then((mod) => ({ default: mod.Library })))
 const BinderLayout = lazy(() => import('./BinderLayout').then((mod) => ({ default: mod.BinderLayout })))
 const AdminConsole = lazy(() => import('./admin/AdminConsole').then((mod) => ({ default: mod.AdminConsole })))
+const SystemHub = lazy(() => import('./system/SystemHub').then((mod) => ({ default: mod.SystemHub })))
 
 function readActiveWorkSlug() {
   try { return localStorage.getItem(ACTIVE_WORK_STORAGE_KEY) || '' } catch { return '' }
@@ -129,14 +130,24 @@ export default function App() {
   const onView = useCallback((viewKey) => setSel({ mode: 'view', viewKey }), [])
 
   const exitAdmin = useCallback(() => {
-    // 清掉 view=admin，回到作品库或当前书写作区
+    // 清掉 view=admin/system，回到作品库或当前书写作区
     setSel({ mode: 'node', node: null })
   }, [])
 
   const handleView = useCallback((viewKey) => {
-    // 盾牌：已在管理台再点一次 = 退出
-    if (viewKey === 'admin' && sel.mode === 'view' && sel.viewKey === 'admin') {
+    // 盾牌/齿轮：已在系统中心再点同一入口 = 退出
+    const curView = sel.mode === 'view' ? sel.viewKey : null
+    if (viewKey === 'admin' && (curView === 'admin' || curView === 'system')) {
       exitAdmin()
+      return
+    }
+    if (viewKey === 'settings' && (curView === 'settings' || curView === 'system')) {
+      exitAdmin()
+      return
+    }
+    // 统一进 SystemHub
+    if (viewKey === 'settings') {
+      onView('system')
       return
     }
     onView(viewKey)
@@ -230,9 +241,34 @@ export default function App() {
   const activeView = sel.mode === 'view' ? sel.viewKey : null
   const isAdmin = !!(me?.is_admin)
 
+  const hubViews = new Set(['system', 'settings', 'admin'])
+  const showHub = hubViews.has(activeView) && (activeView !== 'admin' || isAdmin)
+
   let body
-  if (activeView === 'admin' && isAdmin) {
-    body = <AdminConsole onExit={exitAdmin} hasWork={!!cur} />
+  if (showHub) {
+    body = (
+      <SystemHub
+        work={cur?.slug || null}
+        works={works}
+        isAdmin={isAdmin}
+        initialSection={activeView === 'admin' ? 'accounts' : null}
+        onExit={exitAdmin}
+        onSelectWork={(slug) => {
+          if (!slug) {
+            writeActiveWorkSlug('')
+            setCur(null)
+            return
+          }
+          const w = (works || []).find((x) => x.slug === slug)
+          if (w) open(w)
+          else {
+            api.setWork(slug)
+            writeActiveWorkSlug(slug)
+            setCur({ slug, title: slug })
+          }
+        }}
+      />
+    )
   } else if (!cur) {
     body = <Library works={works} reload={reload} onSelect={open} />
   } else {
@@ -261,7 +297,7 @@ export default function App() {
           isAdmin={isAdmin}
           username={me?.username || me?.display_name || ''}
           onLogout={handleLogout}
-          capsule={cur && activeView !== 'admin' ? (
+          capsule={cur && activeView !== 'admin' && activeView !== 'system' && activeView !== 'settings' ? (
             <WorkflowCapsule
               work={cur.slug}
               onOpenJourney={() => onView('journey')}

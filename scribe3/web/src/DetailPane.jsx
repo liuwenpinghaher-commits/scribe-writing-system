@@ -2,7 +2,6 @@ import { lazy, Suspense } from 'react'
 import { CodexNew } from './CodexNew'
 import { MaterialDetail, MaterialImportPane, MaterialNetworkPane, MaterialNew } from './Materials'
 import { ErrorBoundary } from './ErrorBoundary'
-import { SettingsView } from './settings/SettingsView'
 import { ContainerOutline } from './ContainerOutline'
 import { NorthStarPanel } from './NorthStarPanel'
 import { VolumeDetailPane } from './layout/VolumeDetailPane'
@@ -112,7 +111,7 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
         />
       )
     }
-    if (k === 'settings') return <SettingsView key="settings" work={work} />
+    if (k === 'settings') return <div className="p-8 text-f13 text-faint" data-testid="settings-moved">设置已迁至顶栏「系统中心」（全页）。请点齿轮打开。</div>
     if (k === 'progress') return <InsightView key={`${work}-progress`} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} focus="progress" />  // 仪表盘聚焦码字进度面板
     return <div className="p-8 text-faint">未实现的视图:{k}</div>
   }

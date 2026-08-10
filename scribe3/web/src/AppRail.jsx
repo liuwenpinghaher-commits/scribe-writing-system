@@ -74,8 +74,8 @@ export function AppRail({
       {/* 主题:保留为右簇锚点(ml-auto)。设置中心入口(Task 12)紧贴主题按钮前,同属右簇。 */}
       <div className="ml-auto flex items-center gap-1" data-testid="topbar-theme">
         {isAdmin && (
-          <button onClick={() => onView('admin')} aria-current={view === 'admin' ? 'page' : undefined}
-            title={view === 'admin' ? '退出管理台' : '管理台'}
+          <button onClick={() => onView('admin')} aria-current={(view === 'admin' || (view === 'system')) ? 'page' : undefined}
+            title={(view === 'admin' || view === 'system') ? '退出系统中心' : '管理台'}
             aria-label={view === 'admin' ? '退出管理台' : '管理台'}
             data-testid="topbar-admin"
             className={`h-7 w-7 rounded-md inline-flex items-center justify-center cursor-pointer ${
@@ -83,10 +83,10 @@ export function AppRail({
             <Shield size={15} />
           </button>
         )}
-        <button onClick={() => onView('settings')} aria-current={view === 'settings' ? 'page' : undefined}
+        <button onClick={() => onView('settings')} aria-current={(view === 'settings' || view === 'system') ? 'page' : undefined}
           title="设置" aria-label="设置"
           className={`h-7 w-7 rounded-md inline-flex items-center justify-center cursor-pointer ${
-            view === 'settings' ? 'bg-soft text-brand' : 'text-faint hover:text-ink hover:bg-soft'}`}>
+            (view === 'settings' || view === 'system') ? 'bg-soft text-brand' : 'text-faint hover:text-ink hover:bg-soft'}`}>
           <Settings size={15} />
         </button>
         <button onClick={() => onTheme(theme === 'dark' ? 'light' : 'dark')}

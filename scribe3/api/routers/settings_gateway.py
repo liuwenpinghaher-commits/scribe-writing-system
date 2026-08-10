@@ -23,7 +23,37 @@ from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 router = APIRouter(tags=['settings_gateway'])
 
 
-# Import app_impl constants/models used as signature defaults (late-safe for helpers).
+# Import app_impl constants/models used as signature defaults (late-safe for 
+
+def _request_is_admin(request: Request | None = None) -> bool:
+    """True if current request user is admin; auth disabled → treat as admin for local dev."""
+    try:
+        from scribe3.settings import get_setting
+        auth_on = bool(get_setting("SCRIBE3_AUTH_ENABLED"))
+    except Exception:
+        auth_on = False
+    if not auth_on:
+        return True  # 未开鉴权：本地/测试全权限(与现网单用户一致)
+    try:
+        from scribe3.auth.admin_routes import resolve_username
+        from scribe3.auth.users import is_admin
+        # resolve_username may need request
+    except Exception:
+        pass
+    try:
+        from scribe3.auth.context import current_user_id
+        from scribe3.auth.users import is_admin
+        uid = current_user_id.get()
+        return bool(uid and is_admin(uid))
+    except Exception:
+        return False
+
+
+def _require_admin_api() -> None:
+    if not _request_is_admin():
+        from fastapi import HTTPException
+        raise HTTPException(403, "admin role required")
+
 def _import_core_defaults():
     from scribe3.api import app_impl as core
     g = globals()
@@ -77,10 +107,12 @@ def capabilities():
     }
 
 def settings_all():
-    """全量设置:值(secret 掩码)+来源+默认+元数据+pending_restart。只读。"""
+    """全量设置:值(secret 掩码)+来源+默认+元数据+pending_restart+audience。只读。"""
     from scribe3 import settings as S
-    return {"settings": S.settings_snapshot(),
-            "categories": ["connection", "llm", "craft", "flags", "gateway"]}
+    admin = _request_is_admin()
+    return {"settings": S.settings_snapshot_for(is_admin_user=admin),
+            "categories": ["connection", "llm", "craft", "flags", "gateway"],
+            "is_admin": admin}
 
 def settings_audit(limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
     # 双侧夹紧在校验层:SQLite 里 LIMIT -1 = 不限量(全表),负数必须 422 而非透传
@@ -90,6 +122,12 @@ def settings_audit(limit: int = Query(50, ge=1, le=200), offset: int = Query(0, 
 def settings_put(key: str, req: SettingPutReq):
     from scribe3 import settings as S
     try:
+        S.assert_setting_writable(key, is_admin_user=_request_is_admin())
+    except KeyError:
+        raise HTTPException(404, f"未登记的设置项: {key}")
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    try:
         return S.put_setting(key, req.value)
     except KeyError:
         raise HTTPException(404, f"未登记的设置项: {key}")
@@ -98,6 +136,12 @@ def settings_put(key: str, req: SettingPutReq):
 
 def settings_reset(key: str):
     from scribe3 import settings as S
+    try:
+        S.assert_setting_writable(key, is_admin_user=_request_is_admin())
+    except KeyError:
+        raise HTTPException(404, f"未登记的设置项: {key}")
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
     try:
         S.reset_setting(key)
     except KeyError:
@@ -129,11 +173,21 @@ def gateway_status():
     return {"gateways": out}
 
 def gateway_files_list():
-    """白名单内 Hermes profile 文件(config.yaml/SOUL.md/.env);.env 密钥行掩码。只读。"""
+    """白名单内 Hermes profile 文件;author 仅元数据, content 仅 admin。"""
     from scribe3 import gateway_files as gf
-    return {"files": gf.list_files()}
+    files = gf.list_files()
+    if not _request_is_admin():
+        slim = []
+        for f in files or []:
+            row = {k: f.get(k) for k in ("id", "exists", "path", "error") if k in f or True}
+            row = {"id": f.get("id"), "exists": f.get("exists"), "path": f.get("path"),
+                   "error": f.get("error"), "content": None, "content_hidden": True}
+            slim.append(row)
+        return {"files": slim, "content_hidden": True}
+    return {"files": files, "content_hidden": False}
 
 def gateway_files_put(req: GatewayFilePutReq):
+    _require_admin_api()
     from scribe3 import gateway_files as gf
     try:
         return gf.write_file(req.id, req.content, base_sha256=req.base_sha256)
@@ -149,6 +203,7 @@ def gateway_restart(req: GatewayRestartReq):
     拒绝，但旧进程仍在线，若只轮询端口便会产生“已重启”的假成功。因此必须调用官方
     ``gateway restart`` 子命令，并将其退出状态与后续探活分别返回。
     """
+    _require_admin_api()
     import subprocess
     import time
     import httpx
@@ -206,6 +261,7 @@ def dashboard_status():
     return {"online": online, "url": url}
 
 def dashboard_start():
+    _require_admin_api()
     """一键拉起本机 Hermes 官方 Dashboard。铁律同 /gateway/restart:nohup 后台 +
     轮询探活,绝不前台阻塞;轮询超时如实报失败,不假成功。无请求参数,无注入面。
 
@@ -652,6 +708,141 @@ def ai_run_stop(run_id: str, work: str = "main"):
 
 
 
+def craft_skills_list():
+    """技法库索引(craft_skills.list_skills 薄封装)。"""
+    from scribe3.craft_skills import list_skills
+    return {"skills": list_skills()}
+
+
+def craft_skills_read(slug: str):
+    """技法全文。"""
+    from scribe3.craft_skills import read_skill
+    try:
+        return {"slug": slug, "content": read_skill(slug)}
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+def mcp_catalog():
+    """s3_* 工具能力地图(只读清单,非 /capabilities flags)。"""
+    import re
+    from pathlib import Path
+    try:
+        from scribe3.mcp._common import WRITE_GATED
+    except Exception:
+        WRITE_GATED = set()
+    tools = []
+    mcp_dir = Path(__file__).resolve().parents[2] / "mcp"
+    seen = set()
+    for py in sorted(mcp_dir.glob("tools*.py")):
+        text = py.read_text(encoding="utf-8", errors="ignore")
+        for m in re.finditer(r"^def (s3_[a-z0-9_]+)\(", text, re.M):
+            name = m.group(1)
+            if name in seen:
+                continue
+            seen.add(name)
+            # docstring first line
+            rest = text[m.end():]
+            doc = ""
+            dm = re.match(r"\s*:\s*(?:\n\s*)?\"\"\"(.*?)\"\"\"", rest, re.S)
+            if dm:
+                doc = dm.group(1).strip().split("\n")[0][:160]
+            gated = name in WRITE_GATED or name in getattr(WRITE_GATED, "__iter__", lambda: []) and name in set(WRITE_GATED)
+            try:
+                gated = name in set(WRITE_GATED)
+            except Exception:
+                gated = False
+            tools.append({
+                "name": name,
+                "write_gated": gated,
+                "group": "write" if gated else "read",
+                "doc": doc,
+                "module": py.name,
+            })
+    return {"tools": tools, "count": len(tools)}
+
+
+def data_health(work: str = "main"):
+    """Surreal A: work-scoped 健康(非固定 main 的 /ready)。"""
+    from scribe3.store import SurrealStore
+    ok = False
+    detail = ""
+    try:
+        st = SurrealStore(db=work or "main")
+        # light touch
+        try:
+            st.list_volumes()
+            ok = True
+            detail = "list_volumes ok"
+        except Exception as e1:
+            try:
+                ch = st.get_chapter(1)
+                ok = True
+                detail = f"get_chapter(1) reachable ({'hit' if ch else 'empty'})"
+            except Exception as e2:
+                detail = f"{e1}; {e2}"
+    except Exception as e:
+        detail = str(e)
+    return {"work": work or "main", "ok": ok, "detail": detail}
+
+
+def admin_data_tables(work: str = "main"):
+    """Surreal B: admin 表白名单。"""
+    _require_admin_api()
+    # fixed product whitelist labels → not raw Surreal table dump
+    tables = [
+        {"id": "chapter", "label": "章节", "store": "get_chapter/list"},
+        {"id": "volume", "label": "分卷", "store": "list_volumes"},
+        {"id": "lesson", "label": "教训 lesson", "store": "list_lessons"},
+        {"id": "craft_rule", "label": "工艺规则", "store": "list_craft_rules"},
+        {"id": "entity", "label": "设定实体", "store": "characters/entities"},
+    ]
+    return {"work": work, "tables": tables}
+
+
+def admin_data_rows(table: str, work: str = "main", limit: int = Query(50, ge=1, le=200)):
+    """Surreal B: admin 白名单表只读预览。"""
+    _require_admin_api()
+    from scribe3.store import SurrealStore
+    st = SurrealStore(db=work or "main")
+    limit = min(int(limit or 50), 200)
+    rows = []
+    try:
+        if table == "volume":
+            rows = (st.list_volumes() or [])[:limit]
+        elif table == "lesson":
+            rows = (st.list_lessons() if hasattr(st, "list_lessons") else [])[:limit]
+        elif table == "craft_rule":
+            rows = (st.list_craft_rules() if hasattr(st, "list_craft_rules") else [])[:limit]
+        elif table == "chapter":
+            try:
+                outline = st.outline() or {}
+                rows = (outline.get("chapters") or [])[:limit]
+            except Exception:
+                for i in range(1, limit + 1):
+                    ch = st.get_chapter(i)
+                    if ch:
+                        rows.append({k: ch.get(k) for k in ("seq", "title", "label", "volume", "synopsis") if k in ch or True})
+                        rows[-1] = {"seq": ch.get("seq"), "title": ch.get("title"), "label": ch.get("label"),
+                                    "volume": ch.get("volume"),
+                                    "synopsis": ((ch.get("synopsis") or "")[:120])}
+        elif table == "entity":
+            try:
+                rows = (st.characters() or [])[:limit]
+                rows = [{"id": getattr(c, "id", None) or (c.get("id") if isinstance(c, dict) else None),
+                         "name": getattr(c, "name", None) or (c.get("name") if isinstance(c, dict) else str(c))}
+                        for c in rows]
+            except Exception as e:
+                raise HTTPException(500, str(e))
+        else:
+            raise HTTPException(404, f"未在白名单: {table}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"读取失败: {e}")
+    return {"work": work, "table": table, "rows": rows, "count": len(rows)}
+
+
 def _bind_and_register() -> None:
     """Rebind handlers onto app_impl globals so monkeypatch keeps working."""
     from scribe3.api import app_impl as core
@@ -679,6 +870,8 @@ def _bind_and_register() -> None:
     setattr(core, 'settings_all', _re)
     g['settings_all'] = _re
     router.add_api_route('/settings', _re, methods=['GET'], name='settings_all')
+    
+
 
     _fn = g['settings_audit']
     _re = types.FunctionType(_fn.__code__, core.__dict__, 'settings_audit', _fn.__defaults__, _fn.__closure__)
@@ -703,6 +896,23 @@ def _bind_and_register() -> None:
     setattr(core, 'settings_reset', _re)
     g['settings_reset'] = _re
     router.add_api_route('/settings/{key}/reset', _re, methods=['POST'], name='settings_reset')
+
+    # System Hub: craft skills / mcp catalog / data plane
+    for _path, _fn, _methods, _name in [
+        ('/craft-skills', craft_skills_list, ['GET'], 'craft_skills_list'),
+        ('/craft-skills/{slug}', craft_skills_read, ['GET'], 'craft_skills_read'),
+        ('/mcp/catalog', mcp_catalog, ['GET'], 'mcp_catalog'),
+        ('/data/health', data_health, ['GET'], 'data_health'),
+        ('/admin/data/tables', admin_data_tables, ['GET'], 'admin_data_tables'),
+        ('/admin/data/rows', admin_data_rows, ['GET'], 'admin_data_rows'),
+    ]:
+        _re = types.FunctionType(_fn.__code__, core.__dict__, _fn.__name__, _fn.__defaults__, _fn.__closure__)
+        if getattr(_fn, '__kwdefaults__', None):
+            _re.__kwdefaults__ = dict(_fn.__kwdefaults__)
+        setattr(core, _fn.__name__, _re)
+        g[_fn.__name__] = _re
+        router.add_api_route(_path, _re, methods=_methods, name=_name)
+
 
     _fn = g['gateway_status']
     _re = types.FunctionType(_fn.__code__, core.__dict__, 'gateway_status', _fn.__defaults__, _fn.__closure__)
