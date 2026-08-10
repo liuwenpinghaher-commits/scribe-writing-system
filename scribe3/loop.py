@@ -36,7 +36,8 @@ _NON_DENSITY_GATES = {"B", "D", "F", "G"}    # 句式套路/节奏结构/升华/
 _NON_DENSITY_INDICATORS = ("parallel_run", "rhythm_uniform")   # 计数/verdict 类指标
 
 
-# Story / Style / Redline 分桶骨架（PR-6a · KD-NQ-7；UI 消费可延 PR-6c）
+# Story / Style / Redline 分桶骨架（PR-6a · KD-NQ-7；PR-6c deliver 卡消费计数）
+_BUCKET_NAMES = ("redline", "story", "style")
 _STORY_KINDS = frozenset({
     "park_stroll",
     "spatial_inventory",
@@ -54,6 +55,38 @@ _STORY_KINDS = frozenset({
 })
 _REDLINE_TYPES = frozenset({"leak", "degeneration", "discipline"})
 _STYLE_TYPES = frozenset({"punct", "ai_grade", "short_text_low_confidence", "setting"})
+
+
+def normalize_bucket_counts(buckets: dict | None) -> dict[str, int]:
+    """将 triage.buckets（list 或已是 int）规范为三项计数。
+
+    PR-6c · deliver pilot_card.buckets 契约：
+      ``{"redline": int, "story": int, "style": int}``
+    缺键 / 非法值 → 0；不抛。
+    """
+    out = {k: 0 for k in _BUCKET_NAMES}
+    if not isinstance(buckets, dict):
+        return out
+    for k in _BUCKET_NAMES:
+        v = buckets.get(k)
+        if isinstance(v, list):
+            out[k] = len(v)
+        elif isinstance(v, bool):
+            out[k] = 0
+        elif isinstance(v, (int, float)):
+            out[k] = max(0, int(v))
+        elif isinstance(v, dict):
+            c = v.get("count", v.get("n"))
+            if isinstance(c, (int, float)) and not isinstance(c, bool):
+                out[k] = max(0, int(c))
+    return out
+
+
+def bucket_counts_from_triage(triage_out: dict | None) -> dict[str, int] | None:
+    """若 triage 返回含 buckets，产出三项计数；否则 None（调用方可不写卡字段）。"""
+    if not isinstance(triage_out, dict) or "buckets" not in triage_out:
+        return None
+    return normalize_bucket_counts(triage_out.get("buckets"))
 
 
 def _triage_bucket_for(iss: dict | None, *, is_block: bool = False) -> str:

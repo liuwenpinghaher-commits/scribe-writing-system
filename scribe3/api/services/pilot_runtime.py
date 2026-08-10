@@ -980,8 +980,26 @@ def _pilot_executor(work: str) -> dict:
         resp = post_check(PostCheckReq(prose=prose, focalizer=ch.get("focalizer") or ""),
                           seq=seq, work=work)
         # 审查 P1-7:体检结果必须被消费——blocking 停靠,不再"烧一遍然后扔"
-        from scribe3.loop import triage
+        from scribe3.loop import bucket_counts_from_triage, triage
         t = triage(resp)
+        # PR-6c: triage buckets 计数随 full_check 产物暂存，deliver 写进 pilot_card
+        _bcounts = bucket_counts_from_triage(t)
+        if _bcounts is not None:
+            resp["_triage_bucket_counts"] = _bcounts
+
+        def _stage_bucket_counts(counts: dict | None) -> None:
+            """把 redline/story/style 计数暂存进 pilot_card（deliver 会覆写完整卡）。"""
+            if not counts:
+                return
+            try:
+                st._execute_write(
+                    "UPDATE type::record('chapter',$seq) SET pilot_card=$c",
+                    {"seq": seq, "c": json.dumps({"buckets": counts}, ensure_ascii=False)},
+                )
+            except Exception as e:
+                logging.getLogger("scribe3").warning(
+                    "pilot full_check stage buckets 失败(忽略): %s", e)
+
         if t["verdict"] == "blocking":
             blocking = t.get("blocking") or []
             dets = sorted({b.get("detector") or "?" for b in blocking})
@@ -1021,10 +1039,12 @@ def _pilot_executor(work: str) -> dict:
                     work, seq, dets,
                     cats[LOG_FIELD_SOFT_P], cats[LOG_FIELD_SOFT_AI],
                 )
+                _stage_bucket_counts(_bcounts)
                 return resp
             return {"pilot_park": f"全量体检 blocking({'、'.join(dets)}),请处理后继续",
                     "post_check": resp}
         resp["_triage_verdict"] = t["verdict"]
+        _stage_bucket_counts(_bcounts)
         return resp
 
     def deliver(st, seq):
@@ -1046,8 +1066,11 @@ def _pilot_executor(work: str) -> dict:
                                    stage="final", stats=_prose_stats(prose))
         except Exception as e:
             logging.getLogger("scribe3").warning("pilot 交付留版失败(忽略): %s", e)
-        _qrows = st._query("SELECT qc_issues FROM type::record('chapter',$seq)", {"seq": seq})
-        _qc = (_qrows[0] if _qrows else {}).get("qc_issues")
+        _qrows = st._query(
+            "SELECT qc_issues, pilot_card FROM type::record('chapter',$seq)",
+            {"seq": seq})
+        _row0 = _qrows[0] if _qrows else {}
+        _qc = _row0.get("qc_issues")
         _qn = len(_qc) if isinstance(_qc, list) else (_qc or 0)
         _prom = []
         try:
@@ -1060,6 +1083,31 @@ def _pilot_executor(work: str) -> dict:
             pass
         card = {"seq": seq, "words": len("".join(prose.split())),
                 "qc": _qn, "promises": _prom, "low_confidence": low_conf}
+        # PR-6c · KD-NQ-7：deliver 卡带 redline/story/style 三项计数
+        # 优先 full_check 暂存；否则 fail-soft 再跑 post_check+triage（不阻断交付）
+        from scribe3.loop import (
+            bucket_counts_from_triage,
+            normalize_bucket_counts,
+            triage as _triage_for_card,
+        )
+        _buckets = None
+        try:
+            _prev = json.loads(_row0.get("pilot_card") or "{}")
+            if isinstance(_prev, dict) and isinstance(_prev.get("buckets"), dict):
+                _buckets = normalize_bucket_counts(_prev["buckets"])
+        except Exception:
+            pass
+        if _buckets is None:
+            try:
+                _pc = post_check(
+                    PostCheckReq(prose=prose, focalizer=ch.get("focalizer") or ""),
+                    seq=seq, work=work)
+                _buckets = bucket_counts_from_triage(_triage_for_card(_pc))
+            except Exception as e:
+                logging.getLogger("scribe3").warning(
+                    "pilot deliver triage buckets 失败(忽略): %s", e)
+        if _buckets is not None:
+            card["buckets"] = _buckets
         st._execute_write("UPDATE type::record('chapter',$seq) SET pilot_card=$c",
                           {"seq": seq, "c": json.dumps(card, ensure_ascii=False)})
         return {"card": card}

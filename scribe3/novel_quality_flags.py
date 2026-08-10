@@ -14,7 +14,8 @@
   PR-4 已接草稿 ``_drama_block`` / brief 戏剧段 / ``length_steer`` soft；
   PR-5 已接 ``CRAFT_NOVEL``（``craft.build_craft_block`` 选择表）；
   PR-6a 已接 ``PARK_STROLL_BLOCKING``（``pressure_metrics`` severity + ``park_stroll`` + triage buckets）；
-  PR-6b 已接 ``PILOT_SOFT_PRESSURE`` / ``PILOT_SOFT_AI_GRADE``（``full_check`` 动态 soft 集合）。
+  PR-6b 已接 ``PILOT_SOFT_PRESSURE`` / ``PILOT_SOFT_AI_GRADE``（``full_check`` 动态 soft 集合）；
+  PR-6c 已接 deliver ``pilot_card.buckets``（redline/story/style 计数；full_check 暂存 + UI 交付卡）。
 - 设置 UI：已接线旗改值立即影响对应路径；未接线旗改值暂无运行时效果。
 
 读取路径：``settings.get_setting``（DB 覆盖 → env → REGISTRY 默认）。
