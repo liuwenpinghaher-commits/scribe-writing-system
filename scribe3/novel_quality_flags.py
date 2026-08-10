@@ -10,7 +10,8 @@
 - **质量模式** = demo ``.env`` 显式翻转；不在此模块 silent break 主路径。
 - **本模块提供读点与字段名**；行为接线按 PR 推进：
   PR-2 已接 ``BEATS_V2`` / ``BEATS_SYNOPSIS_FALLBACK``（``expand_beats``）；
-  其余（DRAMA_GATE / craft / soft-pass / park_stroll）仍在 PR-3/5/6a/6b。
+  PR-3 已接 ``DRAMA_GATE`` / ``DRAMA_GATE_COMPAT``（写前 advisory park + gaps）；
+  其余（craft / soft-pass / park_stroll）仍在 PR-5/6a/6b。
 - 设置 UI：已接线旗改值立即影响对应路径；未接线旗改值暂无运行时效果。
 
 读取路径：``settings.get_setting``（DB 覆盖 → env → REGISTRY 默认）。
@@ -137,12 +138,12 @@ def beats_v2_enabled() -> bool:
 
 
 def drama_gate_enabled() -> bool:
-    """写前戏剧门。代码默认 False（不 park）。"""
+    """写前戏剧门（expand_beats advisory park）。代码默认 False（不 park）。"""
     return _bool(FLAG_DRAMA_GATE)
 
 
 def drama_gate_compat_enabled() -> bool:
-    """v1 仅 text → drama_weak 弱通过。代码默认 True。"""
+    """v1 仅 text → drama_weak 弱通过（validate 内）。代码默认 True。"""
     return _bool(FLAG_DRAMA_GATE_COMPAT)
 
 

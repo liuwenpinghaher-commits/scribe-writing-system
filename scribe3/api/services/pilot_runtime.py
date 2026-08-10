@@ -339,8 +339,15 @@ def _compose_beats_meta(
     chapter_pressure: int = 4,
     role: str = "推进",
 ) -> dict:
-    """组装 ``beats_meta``（含 advisory ``drama_validation``；本 PR 不 park 戏剧门）。"""
-    from scribe3.drama_beats import drama_score, validate_drama_beats
+    """组装 ``beats_meta``（含 ``drama_validation`` + 结构化 ``gaps``）。
+
+    戏剧门 park 由 ``expand_beats`` 在 ``SCRIBE3_DRAMA_GATE=1`` 时另判；本函数只落元数据。
+    """
+    from scribe3.drama_beats import (
+        drama_score,
+        extract_drama_gaps,
+        validate_drama_beats,
+    )
 
     dv = validate_drama_beats(
         beats,
@@ -350,6 +357,7 @@ def _compose_beats_meta(
         chapter_hook=chapter_hook or "",
     )
     score = drama_score(beats, chapter_hook=chapter_hook or "")
+    gaps = extract_drama_gaps(beats, validation=dv)
     return {
         "schema": schema,
         "chapter_hook": chapter_hook or "",
@@ -361,6 +369,39 @@ def _compose_beats_meta(
             "warnings": list(dv.get("warnings") or []),
             "drama_weak": bool(dv.get("drama_weak")),
             "metrics": dv.get("metrics") or {},
+            "gaps": gaps,
+        },
+    }
+
+
+def _drama_gate_park_if_needed(bmeta: dict) -> dict | None:
+    """``SCRIBE3_DRAMA_GATE=1`` 且高压 + ``drama_validation.ok=False`` → advisory park。
+
+    **不**擦除已写 beats；文案含「可补字段继续」与缺口清单。
+    低压/非高压章不 park（仅 meta 记 gaps）。
+    """
+    try:
+        from scribe3.novel_quality_flags import drama_gate_enabled
+        gate_on = bool(drama_gate_enabled())
+    except Exception:
+        gate_on = False
+    dv = (bmeta or {}).get("drama_validation") or {}
+    from scribe3.drama_beats import (
+        format_drama_gate_park_reason,
+        should_drama_gate_park,
+    )
+    if not should_drama_gate_park(dv, gate_enabled=gate_on):
+        return None
+    gaps = dv.get("gaps") or {}
+    reason = format_drama_gate_park_reason(gaps, advisory=True)
+    return {
+        "pilot_park": reason,
+        "drama_gate": {
+            "mode": "advisory",
+            "ok": False,
+            "parked": True,
+            "gaps": gaps,
+            "errors": list(dv.get("errors") or []),
         },
     }
 
@@ -471,8 +512,9 @@ def _pilot_executor(work: str) -> dict:
         - 接地候选 = 全 GCD 字段拼接（非仅 text）
         - 接地失败：``SCRIBE3_BEATS_SYNOPSIS_FALLBACK``（默认开）→ 大纲切句；
           否则 park，不写 beats
-        - ``validate_drama_beats`` 仅 advisory 写入 ``beats_meta.drama_validation``；
-          **本 PR 不**启用 ``DRAMA_GATE`` park（PR-3）
+        - ``validate_drama_beats`` → ``beats_meta.drama_validation``（含 ``gaps``）
+        - ``SCRIBE3_DRAMA_GATE=1``（默认关）：高压章且 ok=False → ``pilot_park``
+          ``drama_incomplete`` advisory（可补字段继续；**不**擦 beats）
         """
         ch = st.get_chapter(seq) or {}
         if ch.get("beats"):
@@ -597,26 +639,36 @@ def _pilot_executor(work: str) -> dict:
                         chapter_pressure=chapter_pressure,
                         role=role,
                     )
+                    # 先落库再门检：advisory drama gate **不**擦 beats
                     st.update_chapter_meta(seq, {"beats": fb, "beats_meta": bmeta})
                     log.info(
                         "expand_beats synopsis-segment fallback work=%s seq=%s n=%s "
-                        "beats_source=synopsis_segments",
+                        "beats_source=synopsis_segments drama_ok=%s",
                         work, seq, len(fb),
+                        (bmeta.get("drama_validation") or {}).get("ok"),
                     )
-                    return {
+                    out_fb = {
                         "beats": fb,
                         "beats_meta": bmeta,
                         "grounding": {"ok": True, "fallback": "synopsis_segments"},
                         "llm_rejected": review,
                         "pdc": {"ok": None, "note": "pdc_missing_after_fallback"},
                     }
+                    dpark = _drama_gate_park_if_needed(bmeta)
+                    if dpark:
+                        log.info(
+                            "expand_beats drama_gate park(fallback) work=%s seq=%s",
+                            work, seq,
+                        )
+                        return {**out_fb, **dpark}
+                    return out_fb
             return {
                 "pilot_park": "事实对齐失败:节拍含无来源主张，请修订后再推进",
                 "grounding": review,
                 "candidate_beats": beats,
             }
 
-        # 接地通过：写 beats + beats_meta（戏剧校验仅 advisory）
+        # 接地通过：写 beats + beats_meta；可选 DRAMA_GATE advisory park
         if schema_tag == "v2":
             beats_source = "llm_v2"
             schema = "v2"
@@ -643,15 +695,24 @@ def _pilot_executor(work: str) -> dict:
         )
 
         pdc_meta = _try_bootstrap_pdc(st, seq, synopsis, beats)
-        park = _pdc_gate_park_if_needed(st, seq)
         out = {
             "beats": beats,
             "beats_meta": bmeta,
             "grounding": review,
             "pdc": pdc_meta,
         }
+        # 戏剧门优先于 PDC 门：缺口清单对人补节拍更直接
+        dpark = _drama_gate_park_if_needed(bmeta)
+        if dpark:
+            logging.getLogger("scribe3").info(
+                "expand_beats drama_gate park work=%s seq=%s gaps=%s",
+                work, seq,
+                ((bmeta.get("drama_validation") or {}).get("gaps") or {}).get("lines"),
+            )
+            return {**out, **dpark}
+        park = _pdc_gate_park_if_needed(st, seq)
         if park:
-            return {**park, **out}
+            return {**out, **park}
         return out
 
     def deduce(st, seq):

@@ -5,7 +5,9 @@
 （Issue 5 · ``validate_drama_beats`` / beats.v2）
 
 本模块 **无** LLM / 网络 / Surreal；仅对 ``list[dict]`` 节拍做确定性门检。
-写前门接线与 park 属后续 PR（3）；此处只产出 ``{ok, errors, warnings, drama_weak, metrics}``。
+PR-1：``validate_drama_beats`` / ``drama_score``。
+PR-3：``extract_drama_gaps`` / ``format_drama_gate_park_reason`` / ``should_drama_gate_park``
+（写前 park 接线在 ``pilot_runtime.expand_beats``，本模块仍纯函数）。
 """
 from __future__ import annotations
 
@@ -513,3 +515,126 @@ def drama_score(beats: list[dict] | None, *, chapter_hook: str = "") -> dict:
         "has_hook": has_hook,
         "gcd_scene_count": gcd_n,
     }
+
+
+def extract_drama_gaps(
+    beats: list[dict] | None,
+    *,
+    validation: dict | None = None,
+) -> dict:
+    """结构化戏剧缺口清单（goal/conflict/turn/cost）· PR-3 API-first。
+
+    - 非 bridge 拍：goal/conflict/turn 低于 ``MIN_FIELD`` → 缺字段
+    - cost：拍级无 meaningful cost 记入 ``missing_cost``；若全章代价义务已满足
+      （meaningful cost 或 turn/cost 词表）则清空拍级 cost 缺口（避免误杀）
+    - 返回 ``per_beat`` / 字段 id 列表 / 可读 ``lines`` / 透传 ``errors``
+    """
+    norm = _normalize_beats(beats)
+    missing_goal: list[str] = []
+    missing_conflict: list[str] = []
+    missing_turn: list[str] = []
+    missing_cost: list[str] = []
+    per_beat: list[dict] = []
+
+    for b in norm:
+        if _kind_of(b) == "bridge":
+            continue
+        bid = str(b.get("id") or "?")
+        miss: list[str] = []
+        if len(_field(b.get("goal"))) < MIN_FIELD:
+            miss.append("goal")
+            missing_goal.append(bid)
+        if len(_field(b.get("conflict"))) < MIN_FIELD:
+            miss.append("conflict")
+            missing_conflict.append(bid)
+        if len(_field(b.get("turn"))) < MIN_FIELD:
+            miss.append("turn")
+            missing_turn.append(bid)
+        if not _cost_meaningful(_field(b.get("cost"))):
+            miss.append("cost")
+            missing_cost.append(bid)
+        if miss:
+            per_beat.append({"id": bid, "missing": list(miss)})
+
+    obl = _cost_obligation(norm)
+    if obl["cost_or_lex"]:
+        # 全章代价义务已满足：去掉拍级 cost 缺口标记
+        missing_cost = []
+        for pb in per_beat:
+            if "cost" in pb["missing"]:
+                pb["missing"] = [m for m in pb["missing"] if m != "cost"]
+        per_beat = [pb for pb in per_beat if pb["missing"]]
+    else:
+        # 全章仍无代价/词表：确保至少有一处 chapter 级 cost 提示
+        if not missing_cost:
+            missing_cost = ["*"]
+
+    lines: list[str] = []
+    for pb in per_beat:
+        lines.append(f"{pb['id']}缺{'/'.join(pb['missing'])}")
+    if not obl["cost_or_lex"] and not any("cost" in (pb.get("missing") or []) for pb in per_beat):
+        lines.append("全章缺cost或turn代价词")
+
+    errors = list((validation or {}).get("errors") or [])
+    if not lines and errors:
+        lines = [str(e) for e in errors[:8]]
+
+    return {
+        "missing_goal": missing_goal,
+        "missing_conflict": missing_conflict,
+        "missing_turn": missing_turn,
+        "missing_cost": missing_cost,
+        "per_beat": per_beat,
+        "lines": lines,
+        "errors": errors,
+        "cost_or_lex": bool(obl["cost_or_lex"]),
+    }
+
+
+def format_drama_gate_park_reason(
+    gaps: dict | None,
+    *,
+    advisory: bool = True,
+) -> str:
+    """拼 ``pilot_park`` 文案：``drama_incomplete`` + 可读缺口 + 紧凑 JSON。
+
+    advisory=True 时附「可补字段继续」（PR-3 默认 advisory 模式）。
+    """
+    g = gaps or {}
+    head = "drama_incomplete:高压章戏剧门未过"
+    if advisory:
+        head += "（可补字段继续）"
+    lines = [str(x) for x in (g.get("lines") or []) if str(x).strip()]
+    errs = [str(x) for x in (g.get("errors") or []) if str(x).strip()]
+    body = "；".join(lines[:8]) if lines else ("；".join(errs[:6]) if errs else "GCD字段不完整")
+    compact = {
+        "missing_goal": list(g.get("missing_goal") or []),
+        "missing_conflict": list(g.get("missing_conflict") or []),
+        "missing_turn": list(g.get("missing_turn") or []),
+        "missing_cost": list(g.get("missing_cost") or []),
+    }
+    try:
+        j = json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        j = "{}"
+    # 指引：节拍已落库，人补 PATCH / s3_patch_chapter_plan 后重推
+    return (
+        f"{head}。缺口：{body}。"
+        f"清单:{j}。"
+        f"节拍已保留，可用 PATCH beats 或 s3_patch_chapter_plan 补 goal/conflict/turn/cost 后继续。"
+    )
+
+
+def should_drama_gate_park(
+    validation: dict | None,
+    *,
+    gate_enabled: bool,
+) -> bool:
+    """是否因戏剧门 park：旗开 + ok=False + 高压章（metrics.is_high）。"""
+    if not gate_enabled:
+        return False
+    dv = validation or {}
+    if dv.get("ok"):
+        return False
+    metrics = dv.get("metrics") or {}
+    return bool(metrics.get("is_high"))

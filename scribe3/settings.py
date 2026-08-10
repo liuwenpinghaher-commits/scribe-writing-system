@@ -164,11 +164,14 @@ REGISTRY: tuple[Setting, ...] = (
             danger=False),
     Setting("SCRIBE3_DRAMA_GATE", "flags", "bool", False, "hot",
             "写前戏剧门",
-            "未接线·改值暂无运行时效果。关=不因戏剧弱 park(代码默认)；开=先 advisory 再考虑 blocking(PR-3)；质量模式 demo 开",
+            "开=expand_beats 后高压章 validate_drama_beats 失败 → pilot_park drama_incomplete"
+            "（advisory：可补字段继续，不擦 beats；缺口在 beats_meta.drama_validation.gaps）；"
+            "关=不因戏剧弱 park（代码默认）。质量模式 demo 开。",
             danger=True),
     Setting("SCRIBE3_DRAMA_GATE_COMPAT", "flags", "bool", True, "hot",
             "戏剧门 v1 弱通过兼容",
-            "未接线·改值暂无运行时效果。开=仅 text 节拍 drama_weak 警告不 park；与 DRAMA_GATE=0 同效关写前门；质量模式关",
+            "开=仅 text 节拍 drama_weak 警告且 ok 弱通过（代码默认，配合 DRAMA_GATE 时不因 v1 硬 park）；"
+            "关=v1 高压可进 errors。质量模式关。",
             danger=False),
     Setting("SCRIBE3_BEATS_SYNOPSIS_FALLBACK", "flags", "bool", True, "hot",
             "节拍大纲切句充数",
