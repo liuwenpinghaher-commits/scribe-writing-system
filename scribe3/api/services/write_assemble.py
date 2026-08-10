@@ -661,7 +661,7 @@ def _volume_intro_block(st, chapter: int, focalizer: str = "") -> str:
                 break
         if not intro:
             return ""
-        body = _clip(intro, _VOLUME_INTRO_BUDGET)
+        body = _clip(intro, 400)  # volume intro budget; keep literal for rebind safety
         parts = [
             "## 本卷卷纲摘要(作者备忘·氛围与卷级冲突;不得覆盖本章大纲/场景真相)",
             body,

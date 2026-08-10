@@ -1187,6 +1187,7 @@ def _soak_block(seed_words: list[str]) -> str:
 
 
 _OUTLINE_BUDGET = 1200   # 大纲/节拍注入字符上限(与 M6 事实注入 1200 预算同量级)
+_VOLUME_INTRO_BUDGET = 400  # 卷纲摘要注入字符上限(write_assemble rebind 需在 app_impl 可见)
 
 
 def _clip(s: str, n: int) -> str:
