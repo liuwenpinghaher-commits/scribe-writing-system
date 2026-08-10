@@ -529,10 +529,37 @@ def _pilot_executor(work: str) -> dict:
         - ``validate_drama_beats`` → ``beats_meta.drama_validation``（含 ``gaps``）
         - ``SCRIBE3_DRAMA_GATE=1``（默认关）：高压章且 ok=False → ``pilot_park``
           ``drama_incomplete`` advisory（可补字段继续；**不**擦 beats）
+        - ``SCRIBE3_NARRATIVE_ENGINE=1``：无论是否 skip 都 ensure narrative_drive（引导优先，默认不硬 park）
         """
+        # 叙事引擎：skip 分支也须 ensure（设计 KD-NE-2 / expand 含 skip）
+        _nd_drive = None
+        try:
+            from scribe3.novel_quality_flags import narrative_engine_enabled
+            if narrative_engine_enabled():
+                from scribe3.narrative_drive import ensure_narrative_drive
+                _steer_nd = _pilot_steer(st, seq) or ""
+                _nd_drive = ensure_narrative_drive(st, seq, steer=_steer_nd)
+        except Exception as e:
+            logging.getLogger("scribe3").warning(
+                "expand_beats ensure_narrative_drive fail-soft: %s", e)
+            _nd_drive = None
+
         ch = st.get_chapter(seq) or {}
         if ch.get("beats"):
-            return {"skipped": "节拍已有内容,按既有推进(不覆盖)"}
+            out = {"skipped": "节拍已有内容,按既有推进(不覆盖)"}
+            if _nd_drive is not None:
+                out["narrative_drive"] = _nd_drive
+            # 可选 GATE：默认关；仅作者显式开时高压 invalid 才 park
+            try:
+                from scribe3.novel_quality_flags import event_drive_gate_enabled
+                if event_drive_gate_enabled() and _nd_drive:
+                    val = (_nd_drive.get("validation") or {})
+                    if val.get("ok") is False:
+                        from scribe3.narrative_drive import format_narrative_park
+                        out["pilot_park"] = format_narrative_park(_nd_drive)
+            except Exception:
+                pass
+            return out
 
         try:
             from scribe3.novel_quality_flags import (
@@ -904,6 +931,27 @@ def _pilot_executor(work: str) -> dict:
         import re as _re_dl
         ch = st.get_chapter(seq) or {}
         steer = _pilot_steer(st, seq) or ""
+        # 叙事引擎：draft 入口二次 ensure（引导优先；GATE 默认关）
+        try:
+            from scribe3.novel_quality_flags import (
+                narrative_engine_enabled,
+                event_drive_gate_enabled,
+            )
+            if narrative_engine_enabled():
+                from scribe3.narrative_drive import (
+                    ensure_narrative_drive,
+                    format_narrative_park,
+                )
+                _d_drive = ensure_narrative_drive(st, seq, steer=steer)
+                if (
+                    event_drive_gate_enabled()
+                    and _d_drive
+                    and (_d_drive.get("validation") or {}).get("ok") is False
+                ):
+                    return {"pilot_park": format_narrative_park(_d_drive)}
+        except Exception as e:
+            logging.getLogger("scribe3").warning(
+                "draft_loop ensure_narrative_drive fail-soft: %s", e)
         prose_now = (ch.get("prose") or "").strip()
         prose_cn = len(_re_dl.sub(r"\s+", "", prose_now))
         # 清正文再生成的条件（真路径扩写，禁止离线灌库凑字）:

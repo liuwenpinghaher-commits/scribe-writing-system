@@ -16,6 +16,8 @@
   PR-6a 已接 ``PARK_STROLL_BLOCKING``（``pressure_metrics`` severity + ``park_stroll`` + triage buckets）；
   PR-6b 已接 ``PILOT_SOFT_PRESSURE`` / ``PILOT_SOFT_AI_GRADE``（``full_check`` 动态 soft 集合）；
   PR-6c 已接 deliver ``pilot_card.buckets``（redline/story/style 计数；full_check 暂存 + UI 交付卡）。
+  叙事引擎（rev.2.3 引导优先）：``NARRATIVE_ENGINE`` ensure+注入；
+  ``EVENT_DRIVE_GATE`` / ``EVENT_LED_DETECT`` 可选硬拦，代码默认关。
 - 设置 UI：已接线旗改值立即影响对应路径；未接线旗改值暂无运行时效果。
 
 读取路径：``settings.get_setting``（DB 覆盖 → env → REGISTRY 默认）。
@@ -39,6 +41,10 @@ FLAG_PILOT_SOFT_PRESSURE = "SCRIBE3_PILOT_SOFT_PRESSURE"
 FLAG_PILOT_SOFT_AI_GRADE = "SCRIBE3_PILOT_SOFT_AI_GRADE"
 FLAG_PARK_STROLL_BLOCKING = "SCRIBE3_PARK_STROLL_BLOCKING"
 FLAG_DRAMA_HARD_PRESSURE = "SCRIBE3_DRAMA_HARD_PRESSURE"
+# 叙事引擎 · 冲突/事件驱动（引导优先；代码默认全关）
+FLAG_NARRATIVE_ENGINE = "SCRIBE3_NARRATIVE_ENGINE"
+FLAG_EVENT_DRIVE_GATE = "SCRIBE3_EVENT_DRIVE_GATE"
+FLAG_EVENT_LED_DETECT = "SCRIBE3_EVENT_LED_DETECT"
 
 # REGISTRY 内 novel-quality 旗键序（派生 CODE_DEFAULTS / 对齐检查用）
 NQ_FLAG_KEYS: tuple[str, ...] = (
@@ -51,6 +57,9 @@ NQ_FLAG_KEYS: tuple[str, ...] = (
     FLAG_PILOT_SOFT_AI_GRADE,
     FLAG_PARK_STROLL_BLOCKING,
     FLAG_DRAMA_HARD_PRESSURE,
+    FLAG_NARRATIVE_ENGINE,
+    FLAG_EVENT_DRIVE_GATE,
+    FLAG_EVENT_LED_DETECT,
 )
 
 
@@ -74,6 +83,10 @@ QUALITY_MODE_TARGETS: dict[str, object] = {
     FLAG_PILOT_SOFT_AI_GRADE: True,
     FLAG_PARK_STROLL_BLOCKING: True,
     FLAG_DRAMA_HARD_PRESSURE: 4,
+    # 引导优先：质量模式开 ENGINE 注入；GATE/DETECT 硬拦仍可选（rev.2.3 默认不跟刑典）
+    FLAG_NARRATIVE_ENGINE: True,
+    FLAG_EVENT_DRIVE_GATE: False,
+    FLAG_EVENT_LED_DETECT: False,
 }
 
 # 质量模式完整 env 另需的 PDC 半边（未进本 REGISTRY；os.environ 直读，见 pressure_drive）
@@ -237,6 +250,21 @@ def drama_hard_pressure() -> int:
     return int(get_setting(FLAG_DRAMA_HARD_PRESSURE))
 
 
+def narrative_engine_enabled() -> bool:
+    """冲突/事件驱动引导（ensure + 注入）。代码默认 False。"""
+    return _bool(FLAG_NARRATIVE_ENGINE)
+
+
+def event_drive_gate_enabled() -> bool:
+    """高压 drive/align 硬 park。代码默认 False（引导优先）。"""
+    return _bool(FLAG_EVENT_DRIVE_GATE)
+
+
+def event_led_detect_enabled() -> bool:
+    """写后 event_drive 检测。代码默认 False。"""
+    return _bool(FLAG_EVENT_LED_DETECT)
+
+
 def quality_enforcement_on() -> bool:
     """质量执法复合条件（设计真值表）。
 
@@ -271,5 +299,8 @@ def novel_quality_flags_snapshot() -> dict[str, Any]:
         FLAG_PILOT_SOFT_AI_GRADE: pilot_soft_ai_grade_enabled(),
         FLAG_PARK_STROLL_BLOCKING: park_stroll_blocking_enabled(),
         FLAG_DRAMA_HARD_PRESSURE: drama_hard_pressure(),
+        FLAG_NARRATIVE_ENGINE: narrative_engine_enabled(),
+        FLAG_EVENT_DRIVE_GATE: event_drive_gate_enabled(),
+        FLAG_EVENT_LED_DETECT: event_led_detect_enabled(),
         LOG_FIELD_QUALITY_ENFORCEMENT: quality_enforcement_on(),
     }

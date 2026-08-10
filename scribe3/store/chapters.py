@@ -303,7 +303,7 @@ class ChaptersMixin:
             "SELECT seq,title,label,(IF volume THEN meta::id(volume) ELSE NONE END) AS volume,"
             "focalizer,prose,synopsis,beats,draft,"
             "scene_truth,scene_truth_revision,involved_characters,deductions,purpose_text,deltas,"
-            "pressure_drive,beats_meta,"
+            "pressure_drive,beats_meta,narrative_drive,"
             "archived,"
             "(IF archived_at IS NONE THEN NONE ELSE <string>archived_at END) AS archived_at,"
             "archive_reason,"
@@ -341,6 +341,20 @@ class ChaptersMixin:
                 r["beats_meta"] = {}
         else:
             r["beats_meta"] = {}
+        # narrative_drive：章级冲突/事件驱动合同 JSON 串 → dict（镜像 beats_meta）
+        nd = r.get("narrative_drive")
+        if nd is None or nd == "":
+            r["narrative_drive"] = {}
+        elif isinstance(nd, dict):
+            r["narrative_drive"] = nd
+        elif isinstance(nd, str):
+            try:
+                parsed_nd = json.loads(nd)
+                r["narrative_drive"] = parsed_nd if isinstance(parsed_nd, dict) else {}
+            except (ValueError, TypeError):
+                r["narrative_drive"] = {}
+        else:
+            r["narrative_drive"] = {}
         r["scene_truth"] = r.get("scene_truth") or ""
         try:
             r["scene_truth_revision"] = max(0, int(r.get("scene_truth_revision") or 0))
@@ -943,7 +957,8 @@ class ChaptersMixin:
                    "scene_truth", "involved_characters", "deductions",
                    "purpose_text", "deltas",
                    "pressure_drive",   # PDC 压力驱动合同 JSON 串
-                   "beats_meta"}      # 节拍 v2 元数据 JSON 串（schema/source/drama_validation）
+                   "beats_meta",       # 节拍 v2 元数据 JSON 串（schema/source/drama_validation）
+                   "narrative_drive"}  # 章级冲突/事件驱动合同 JSON 串
         # volume 需单独处理(record link 不能传字符串参数)
         volume_id = _UNSET  # 哨兵:区分"未传 volume"与"传了 None(清空)"
         plain: dict = {}
@@ -971,7 +986,7 @@ class ChaptersMixin:
             elif k in ("beats", "deltas"):
                 # list 字段存为 JSON 串(绕 SCHEMAFULL 嵌套校验,同 scene_meta);读时还原。
                 plain[k] = json.dumps(v if v is not None else [], ensure_ascii=False)
-            elif k in ("pressure_drive", "beats_meta"):
+            elif k in ("pressure_drive", "beats_meta", "narrative_drive"):
                 # JSON 合同：dict → JSON 串；已是 str 则原样；None → 清字段
                 if v is None:
                     plain[k] = None

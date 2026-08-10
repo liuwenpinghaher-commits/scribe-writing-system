@@ -678,6 +678,40 @@ def _volume_intro_block(st, chapter: int, focalizer: str = "") -> str:
             "写路径 volume_intro 注入失败(fail-soft): %s", e)
         return ""
 
+def _event_drive_block(st, chapter: int, focalizer: str = "") -> str:
+    """叙事引擎：本章冲突/事件驱动引导块（≤220 字），置顶于 ``_drama_block`` 前。
+
+    ``SCRIBE3_NARRATIVE_ENGINE=1`` 且章上有实质 drive 字段时注入；
+    引导优先：强调冲突/事件推动，允许服务戏的跟主角。fail-soft。
+    """
+    if chapter is None:
+        return ""
+    try:
+        from scribe3.novel_quality_flags import narrative_engine_enabled
+        if not narrative_engine_enabled():
+            return ""
+    except Exception:
+        return ""
+    try:
+        ch = st.get_chapter(int(chapter)) or {}
+    except Exception as e:
+        logging.getLogger("scribe3").warning(
+            "写路径 _event_drive_block 读章失败(fail-soft): %s", e)
+        return ""
+    drive = ch.get("narrative_drive") or {}
+    if not isinstance(drive, dict) or not drive:
+        return ""
+    try:
+        from scribe3.narrative_drive import format_event_drive_block
+        return format_event_drive_block(
+            drive, focalizer=focalizer or "",
+        ) or ""
+    except Exception as e:
+        logging.getLogger("scribe3").warning(
+            "写路径 _event_drive_block 格式化失败(fail-soft): %s", e)
+        return ""
+
+
 def _drama_block(st, chapter: int, focalizer: str = "") -> str:
     """PR-4：本章戏剧合同（GCD 压缩 + MRU 三行，≤400 字）。
 
@@ -711,8 +745,6 @@ def _drama_block(st, chapter: int, focalizer: str = "") -> str:
     except Exception as e:
         logging.getLogger("scribe3").warning(
             "写路径 _drama_block 格式化失败(fail-soft): %s", e)
-        return ""
-
         return ""
 
 
@@ -1090,9 +1122,14 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         # 因此 envelope 后的工艺块、强制协议和演绎终检也在 renderer 内
         # 完成，编译返回后不再追加任何 instructions。
         rendered = prefix
+        # 叙事引擎：事件驱动引导块在戏剧 GCD 之前（冲突/事件主时钟）。
         # PR-4：戏剧合同置顶、先于 envelope 重记忆；冲突时裁记忆不裁戏剧（见 must-link cap）。
         # 限知/泄露红线仍由 focalizer banner、revelation_discipline、出口 epistemic_guard 与
         # find_leaks 保障——本块附限知免责，不覆盖硬红线优先级。
+        rendered += _domain_input(
+            f"chapter:{chapter}:event-drive", "event_drive",
+            _event_drive_block(st, chapter, focalizer=focalizer or ""),
+        )
         rendered += _domain_input(
             f"chapter:{chapter}:drama-contract", "drama_contract",
             _drama_block(st, chapter, focalizer=focalizer or ""),

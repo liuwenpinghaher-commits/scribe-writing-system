@@ -218,6 +218,22 @@ REGISTRY: tuple[Setting, ...] = (
             "高压章压力门槛",
             "chapter_pressure>=本值或 role 高压/推进视为高压（drama 门 + park_stroll）；默认 4(KD-NQ-15)；可 env 试 3",
             min=1, max=5, danger=False),
+    # ── 叙事引擎 · 冲突/事件驱动（引导优先 · rev.2.3）──
+    # 真源：docs/plans/2026-08-10-narrative-event-engine.md
+    # 代码默认全关=现网 NQ 不变；仅 NARRATIVE_ENGINE=1 时 ensure+注入，不默认硬 park。
+    Setting("SCRIBE3_NARRATIVE_ENGINE", "flags", "bool", False, "hot",
+            "叙事引擎引导（冲突/事件驱动）",
+            "开=ensure_narrative_drive + 写路径注入事件驱动引导块；"
+            "关=不合成/不注入（代码默认）。跟主角可以，只要服务冲突/事件。",
+            danger=False),
+    Setting("SCRIBE3_EVENT_DRIVE_GATE", "flags", "bool", False, "hot",
+            "事件驱动硬门（可选）",
+            "开=高压且 drive/align 失败可 pilot_park；代码默认关=仅引导不硬拦。",
+            danger=True),
+    Setting("SCRIBE3_EVENT_LED_DETECT", "flags", "bool", False, "hot",
+            "写后事件驱动检测（可选）",
+            "开=写后 event_drive findings（默认 advisory）；代码默认关。",
+            danger=True),
     # ── gateway(Hermes 网关;地址类 restart)──
     Setting("HERMES_API", "gateway", "str", "http://127.0.0.1:8642/v1", "restart", "速答网关(default)"),
     Setting("HERMES_RESPONSES_API", "gateway", "str", "http://127.0.0.1:8643/v1", "restart", "agentic 读网关"),
