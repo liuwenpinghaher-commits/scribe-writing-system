@@ -14,7 +14,7 @@
   PR-4 已接草稿 ``_drama_block`` / brief 戏剧段 / ``length_steer`` soft；
   PR-5 已接 ``CRAFT_NOVEL``（``craft.build_craft_block`` 选择表）；
   PR-6a 已接 ``PARK_STROLL_BLOCKING``（``pressure_metrics`` severity + ``park_stroll`` + triage buckets）；
-  soft-pass 双旗仍 **PR-6b**（``full_check`` 动态 soft 集合）。
+  PR-6b 已接 ``PILOT_SOFT_PRESSURE`` / ``PILOT_SOFT_AI_GRADE``（``full_check`` 动态 soft 集合）。
 - 设置 UI：已接线旗改值立即影响对应路径；未接线旗改值暂无运行时效果。
 
 读取路径：``settings.get_setting``（DB 覆盖 → env → REGISTRY 默认）。
@@ -96,11 +96,11 @@ def assert_code_defaults_aligned() -> None:
 # ── 观测 / 日志字段名（稳定合同；后续 PR 写 journal/warning 时复用）──────
 # 设计 Observability 节 + soft-pass 扩展 soft_p / soft_ai。
 #
-# soft-pass 三套标识（PR-6b 接线时统一）：
+# soft-pass 三套标识（PR-6b 已接）：
 # - LOG_FIELD_SOFT_PASS：structured / journal 推荐键（本模块合同）
 # - LEGACY_SOFT_PASS_KIND：现网 full_check `_pilot_quality_warn.kind`
 # - LEGACY_SOFT_PASS_LOG_MSG：现网 warning 自然语言文案前缀（非 structured key）
-# PR-6b：structured 字段用 LOG_FIELD_*；kind 可保留 LEGACY 作别名兼容；message 可继续自然语言。
+# structured 字段用 LOG_FIELD_*；kind 可保留 LEGACY 作别名兼容；message 可继续自然语言。
 
 LOG_FIELD_DRAMA_VALIDATION_OK = "drama_validation.ok"
 LOG_FIELD_DRAMA_WEAK = "drama_weak"
@@ -168,6 +168,58 @@ def pilot_soft_pressure_enabled() -> bool:
 def pilot_soft_ai_grade_enabled() -> bool:
     """full_check 对 aggregate_ai_grade soft-pass。代码默认 True。"""
     return _bool(FLAG_PILOT_SOFT_AI_GRADE)
+
+
+# full_check soft-pass 检测器名（与 loop.triage 投影一致；park_stroll 预留）
+SOFT_DETS_PRESSURE: frozenset[str] = frozenset({"pressure_metrics", "park_stroll"})
+SOFT_DETS_AI_GRADE: frozenset[str] = frozenset({"aggregate_ai_grade"})
+
+
+def soft_pass_detectors_for(
+    soft_pressure: bool,
+    soft_ai: bool,
+) -> frozenset[str]:
+    """按双旗构建 full_check soft 集合（纯函数 · PR-6b / KD-NQ-11）。
+
+    - ``soft_pressure`` → ``pressure_metrics`` / ``park_stroll``
+    - ``soft_ai`` → ``aggregate_ai_grade``
+    - 禁止单旗绑死 AI+pressure
+    """
+    soft: set[str] = set()
+    if soft_pressure:
+        soft |= SOFT_DETS_PRESSURE
+    if soft_ai:
+        soft |= SOFT_DETS_AI_GRADE
+    return frozenset(soft)
+
+
+def full_check_soft_detectors() -> frozenset[str]:
+    """当前生效旗下的 soft-pass 检测器集合（读 settings）。"""
+    return soft_pass_detectors_for(
+        pilot_soft_pressure_enabled(),
+        pilot_soft_ai_grade_enabled(),
+    )
+
+
+def full_check_blocking_is_only_soft(
+    blocking: list[dict] | list,
+    soft_dets: frozenset[str] | set[str],
+) -> bool:
+    """blocking 列表是否全部属于 soft 集合（非空且仅 soft → soft-pass）。"""
+    if not blocking:
+        return False
+    if not soft_dets:
+        return False
+    return all((b.get("detector") or "") in soft_dets for b in blocking)
+
+
+def soft_pass_category_flags(blocking: list[dict] | list) -> dict[str, bool]:
+    """当次 soft-pass 涉及的类别（扩展字段 soft_p / soft_ai）。"""
+    dets = {(b.get("detector") or "") for b in blocking}
+    return {
+        LOG_FIELD_SOFT_P: bool(dets & SOFT_DETS_PRESSURE),
+        LOG_FIELD_SOFT_AI: bool(dets & SOFT_DETS_AI_GRADE),
+    }
 
 
 def park_stroll_blocking_enabled() -> bool:

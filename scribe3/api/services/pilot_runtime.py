@@ -985,28 +985,41 @@ def _pilot_executor(work: str) -> dict:
         if t["verdict"] == "blocking":
             blocking = t.get("blocking") or []
             dets = sorted({b.get("detector") or "?" for b in blocking})
-            # pilot 连载软通过集合：仅这些检测器时不硬停——
-            # 限知泄露/退化 S1 等仍硬拦；软项记入 quality_warn 供账本，作者可继续交付。
-            # 否则真链会在 full_check 空转（同稿反复 step），5 万字/记忆旅程验收不可达。
-            # pressure_metrics 属进度/兑锚启发式，loop 回炉已消费；full_check 再硬拦会锁死
-            # 已 restore 的合格长稿（与 aggregate_ai_grade soft-pass 同型）。
-            _soft_dets = frozenset({"aggregate_ai_grade", "pressure_metrics"})
-            only_soft = bool(blocking) and all(
-                (b.get("detector") or "") in _soft_dets for b in blocking
+            # pilot 连载软通过集合（PR-6b · KD-NQ-11）：按双旗动态构建——
+            # SOFT_PRESSURE → pressure_metrics/park_stroll；SOFT_AI_GRADE → aggregate_ai_grade。
+            # 代码默认双开=现网可达；质量模式关 SOFT_PRESSURE 后压力类可硬停。
+            # 限知泄露/退化 S1 等永不 soft；软项记入 quality_warn 供账本。
+            from scribe3.novel_quality_flags import (
+                LEGACY_SOFT_PASS_KIND,
+                LEGACY_SOFT_PASS_LOG_MSG,
+                LOG_FIELD_SOFT_AI,
+                LOG_FIELD_SOFT_P,
+                LOG_FIELD_SOFT_PASS,
+                full_check_blocking_is_only_soft,
+                full_check_soft_detectors,
+                soft_pass_category_flags,
             )
+            _soft_dets = full_check_soft_detectors()
+            only_soft = full_check_blocking_is_only_soft(blocking, _soft_dets)
             if only_soft:
+                cats = soft_pass_category_flags(blocking)
                 resp["_triage_verdict"] = "advisory"
                 resp["_pilot_quality_warn"] = {
-                    "kind": "pilot_full_check_soft_nonblocking",
+                    "kind": LEGACY_SOFT_PASS_KIND,
+                    LOG_FIELD_SOFT_PASS: True,
                     "detectors": dets,
+                    LOG_FIELD_SOFT_P: cats[LOG_FIELD_SOFT_P],
+                    LOG_FIELD_SOFT_AI: cats[LOG_FIELD_SOFT_AI],
                     "note": (
-                        "pilot full_check: 仅 AI 味/pressure 不硬停，"
+                        "pilot full_check: 当前 soft 旗下 detector 不硬停，"
                         "仍须交付后读感/质量线把关"
                     ),
                 }
                 logging.getLogger("scribe3").warning(
-                    "pilot full_check soft-pass work=%s seq=%s dets=%s",
+                    "%s work=%s seq=%s dets=%s soft_p=%s soft_ai=%s",
+                    LEGACY_SOFT_PASS_LOG_MSG,
                     work, seq, dets,
+                    cats[LOG_FIELD_SOFT_P], cats[LOG_FIELD_SOFT_AI],
                 )
                 return resp
             return {"pilot_park": f"全量体检 blocking({'、'.join(dets)}),请处理后继续",

@@ -156,7 +156,7 @@ REGISTRY: tuple[Setting, ...] = (
             danger=False),
     # ── novel-quality 戏剧/节拍/压力旗(PR-0 登记;代码默认=现网可达;质量模式见 demo env)──
     # 读点：scribe3.novel_quality_flags；已接线：BEATS_* / DRAMA_GATE* / CRAFT_NOVEL /
-    # PARK_STROLL_BLOCKING(PR-6a severity)。soft-pass 双旗仍「未接线」→ PR-6b。
+    # PARK_STROLL_BLOCKING(PR-6a severity) / PILOT_SOFT_*(PR-6b full_check 动态 soft)。
     # 真源：docs/plans/2026-08-10-novel-quality-first-pipeline-optimization.md
     Setting("SCRIBE3_BEATS_V2", "flags", "bool", True, "hot",
             "节拍 v2 生成(GCD 字段)",
@@ -185,16 +185,18 @@ REGISTRY: tuple[Setting, ...] = (
             danger=False),
     Setting("SCRIBE3_PILOT_SOFT_PRESSURE", "flags", "bool", True, "hot",
             "pilot full_check 压力 soft-pass",
-            "未接线·改值暂无运行时效果。开=pressure_metrics/park_stroll 不硬停(代码默认可达)；质量模式关；接线 PR-6b",
+            "已接线·full_check。开=pressure_metrics/park_stroll 不硬停(代码默认可达)；"
+            "关=压力类可硬停(质量模式)；与 SOFT_AI_GRADE 双旗拆分 KD-NQ-11",
             danger=True),
     Setting("SCRIBE3_PILOT_SOFT_AI_GRADE", "flags", "bool", True, "hot",
             "pilot full_check AI 味 soft-pass",
-            "未接线·改值暂无运行时效果。开=aggregate_ai_grade 不硬停(代码/质量模式均默认可达)；与 pressure 双旗拆分 KD-NQ-11；接线 PR-6b",
+            "已接线·full_check。开=aggregate_ai_grade 不硬停(代码/质量模式均默认可达)；"
+            "关=AI 味可硬停；与 SOFT_PRESSURE 双旗拆分 KD-NQ-11",
             danger=True),
     Setting("SCRIBE3_PARK_STROLL_BLOCKING", "flags", "bool", False, "hot",
             "公园散步检测升 blocking",
             "开=高压章 spatial_inventory/park_stroll 可 meta.severity=blocking，loop.triage 进 blocking 桶；"
-            "代码默认关=一律 advisory。full_check soft-pass 仍由 SOFT_PRESSURE 控制(PR-6b)。",
+            "代码默认关=一律 advisory。full_check soft-pass 由 SOFT_PRESSURE 控制(已接线 PR-6b)。",
             danger=True),
     Setting("SCRIBE3_DRAMA_HARD_PRESSURE", "flags", "int", 4, "hot",
             "高压章压力门槛",
