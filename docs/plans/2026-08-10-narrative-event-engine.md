@@ -5,7 +5,7 @@
 | **文档标题** | 用户期望「叙事引擎」：小说由冲突/事件推动，统合现有资源成控制面 |
 | **作者** | Grok Design（待人审签） |
 | **日期** | 2026-08-10 |
-| **状态** | Draft · **rev.2.1**（复审：event_drive 接入 is_blocking_issue） |
+| **状态** | Draft · **rev.2.2**（用户裁决：插入点 A；LLM 开篇检测；智能重算 drive） |
 | **产品** | scribe-writing-system / scribe3（铜炉） |
 | **文档真源** | 仓库 `docs/plans/2026-08-10-narrative-event-engine.md`；`/tmp/grok-1000/grok-design-doc-5a3d3922.md` 为会话 scratch，改设计须同步 commit 耐久路径 |
 | **验收环境** | demo 已部署栈 `https://www.qing.blue`；**禁止**默认再起第二 Surreal；Grok 运行机不做全量 npm/测试 |
@@ -18,8 +18,8 @@
 
 1. **## Overview + 强制闭环表 + ## Key Decisions** — 引擎定义与「何时真成主时钟」。  
 2. **资源统合表 + rev.1 inventory 白名单 + `narrative_drive` schema** — 谁喂入、谁绑定。  
-3. **ensure 路径 + 反逛可操作规则 + soft/triage 接线合同**。  
-4. **## PR Plan**（已拆 2a/2b、钉 118、get_chapter/rebind）— 增量开工。  
+3. **ensure 路径（智能重算）+ 反逛 LLM 主路径 + soft/triage/blocking 接线**。  
+4. **## Open Questions（已全部裁决）+ ## PR Plan** — 增量开工。  
 
 ---
 
@@ -348,8 +348,12 @@ flowchart LR
 | `anti_stroll` | 是 | 禁开篇 + 中段前外力 |
 | `multi_scene_pov` | 否 · phase 2 | |
 | `validation` | 系统写 | 嵌套，不另开列 |
+| `locked` | 否 · 默认 false | `true` = 作者锁定，禁止智能重算覆盖 |
+| `source` | 系统写 | `assembled` \| `author` \| `llm_fill`；`author` 视同保护（同 locked 语义，除非强制重算） |
+| `synopsis_fp` | 系统写 | 合成时 synopsis 内容指纹（规范化后 hash）；供智能重算比对 |
+| `version` | 系统写 | 重算时 `version++`；初合成 = 1 |
 
-### 4. 反逛开篇分类学（可操作规则）
+### 4. 反逛开篇分类学（可操作规则 · LLM 主路径）
 
 | `opener_class` | 定义 | 引擎态度 |
 |----------------|------|----------|
@@ -365,35 +369,71 @@ flowchart LR
 | `status_inventory` | 人物/器物清单式亮相 | **禁止**作主导；见「一句」定义 |
 | `interior_monologue_essay` | 长段「他知道/想起」议事 | **禁止**作开篇主导 |
 
-#### 切分与「一句」操作定义（写死）
+#### 检测路径（KD-NE-8 · 用户裁决：尽量 LLM / 全 LLM）
+
+| 层 | 角色 | 何时 |
+|----|------|------|
+| **Primary · LLM** | `classify_opener_llm` / `measure_event_led_llm`：结构化 JSON `{class, confidence, evidence_span, force_before_mid?, notes?}` | `EVENT_LED_DETECT=1` **且** 既有审查 LLM 旗开（`SCRIBE3_REVIEW_LLM=1` 或项目等价 review-LLM 门） |
+| **Deterministic anchors** | 高精短接（可选）：极明显 pure_spatial 开篇词表 / EXT_FORCE 共现 | 可与 LLM **并行 shadow** 记日志；**默认不单独 blocking**，除非 LLM 路径关闭 |
+| **Fallback · 确定性** | `classify_opener_rules` / 词表中段外力 | LLM **off** 或 **degraded**（超时/坏 JSON/无 complete_fn） |
+
+**LLM 调用合同**：
+
+```text
+输入：head = head_span_text(prose)  # 仍用 max(ceil(0.15*n), first_two_paras) 截断控成本
+      + 可选 drive.inciting/end_hook 一行（帮助 continuation vs spatial）
+输出 JSON（严格）:
+  {
+    "class": "<opener_class 枚举>",
+    "confidence": 0.0-1.0,
+    "evidence_span": "原文摘录 ≤80 字",
+    "force_before_mid": true|false|null,   # 中段前外力是否落地
+    "follow_pov_stroll": true|false         # 综合逛感
+  }
+max_tokens：低（建议 ≤256）；temperature 低
+缓存：key = prose_fp（去空白正文 hash）+ model_id；命中跳过 LLM
+mock：单测注入 mock_complete_fn（同 l1_epistemic / review 模式）
+```
+
+**降级纪律（高压 · 禁止静默假绿）**：
+
+```text
+if EVENT_LED_DETECT and is_high:
+  if LLM on and ok → 用 LLM 结果定 severity
+  if LLM off or degraded:
+    → 跑 deterministic fallback
+    → meta.degraded = true, meta.degraded_reason = ...
+    → **不得**因「没跑成 LLM」而省略 finding / 当 pass
+    → 若 fallback 亦不确定：至少发 advisory missing_external_force 或
+      event_drive_degraded（高压可升 blocking，由旗 SCRIBE3_EVENT_LED_DEGRADED_BLOCK 默认 1 质量模式）
+if low pressure:
+  degraded → advisory only
+```
+
+#### 切分与规则 fallback 操作定义（保留 · 非主路径）
 
 ```text
 n = 去空白后正文字数
-para_break = 按 \n\n 或单 \n 分段；取前 2 段拼接为 first_two_paras
-head_span = prose 的字符前缀，长度为:
-  max( ceil(0.15 * n), len(first_two_paras) )
-  # 即「15% 与前两段取更长者」，避免短开篇段被漏检、也避免只盯两段忽略长巡礼
-head = prose 中对应 head_span 的原文切片（保留标点）
+head_span = max( ceil(0.15 * n), len(first_two_paras) )
+head = prose 前缀
 
-classify_opener(prose) -> (class, confidence, evidence_span)
-  evidence_span = head 内命中子串或首 40 字
+classify_opener_rules(prose) -> (class, confidence, evidence_span)
+  # 供 fallback / shadow；金样与 LLM 输出对齐用同一枚举
 
 status_inventory「一句后立即外力」:
-  允许 head 内前 ≤40 字（或第一个句号/问号/叹号前）为清单/亮相，
-  其后至 head 末尾必须命中 EXT_FORCE 痕迹；否则仍判 status_inventory 主导。
+  前 ≤40 字或首句号前可为清单，其后须外力痕迹。
 
 continuation_hook vs pure_spatial_walk:
-  - 若 head 命中上章 end_hook 实体/威胁词（或 drive.inciting 词）→ continuation_hook
-  - 若仅地点移动词（走/巷/街/拐）+ 感官且无威胁/外力 → pure_spatial_walk
+  命中上章威胁/drive.inciting → continuation；仅地点+感官 → spatial
 ```
 
-#### 硬规则（分层）
+#### 硬规则（分层 · 结果侧）
 
-1. **高压 + DETECT**：`forbidden_opener` ∈ head → finding severity **blocking**。  
-2. **低压 + DETECT**：同 finding **advisory**（不 park 全章，交付卡可见）。  
-3. **中段前外力（硬门）**：前 `ceil(0.50 * n)` 字内须有 **external force 痕迹**（对白要求 / 物证胁迫 / 时限句 / EXT_FORCE_LEX 命中）。  
-4. **`binary_forced_choice`（rev.1 soft feature）**：不作为 blocking 唯一依据；正则「要么…要么」仅 advisory 加分。隐性二选一靠 scene_turn/合同层保证，不靠正文正则。  
-5. 金样必须含 **「有禁令/债词但无代价落地」** 负例（词表绿、戏仍弱）→ 应触发 `missing_external_force` 或 alignment 失败，**不能**仅靠冲突词密度放行。
+1. **高压 + DETECT**：LLM 或 fallback 判 `class ∈ FORBIDDEN_OPENERS` → finding **blocking**。  
+2. **低压 + DETECT**：同 finding **advisory**。  
+3. **中段前外力**：优先信 LLM `force_before_mid=false`；fallback 用前 50% 字 EXT_FORCE 共现。  
+4. **`binary_forced_choice`**：不作为唯一 blocking 依据（LLM 可标 class，硬门仍抓外力/逛感）。  
+5. 金样含 **「有禁令词但无代价」** 负例；LLM prompt 须明示「题材词复述 ≠ 外力落地」。  
 
 ### 5. 合成流水线 + ensure
 
@@ -421,7 +461,7 @@ sequenceDiagram
   Dr->>FC: type=event_drive findings
 ```
 
-#### `ensure_narrative_drive(st, seq, *, force=False)`（KD-NE-12）
+#### `ensure_narrative_drive(st, seq, *, force=False)`（KD-NE-12 + KD-NE-15 智能重算）
 
 ```text
 if not narrative_engine_enabled():
@@ -429,24 +469,75 @@ if not narrative_engine_enabled():
 
 ch = get_chapter(seq)  # 必须已 SELECT+parse narrative_drive
 drive = ch.get("narrative_drive") or {}
+synopsis = ch.get("synopsis") or ""
+fp_now = synopsis_content_fp(synopsis)  # 规范化空白后 hash
 
-need = force or not drive or drive.get("validation", {}).get("ok") is False
-# 可选：steer 含「重算驱动」「【重算叙事驱动】」→ force
+# ── force 语义 ──────────────────────────────────────────
+# force=True 或 steer 含「强制重算驱动」「【强制重算驱动】」
+#   → 覆盖 locked / author（唯一覆盖作者锁路径）
+# steer 仅「重算驱动」（无「强制」）且 locked/author → 不覆盖，记 warning
+
+author_protected = bool(drive.get("locked")) or drive.get("source") == "author"
+steer_force = steer_has_force_recompute(st, seq)   # 强制*
+steer_soft  = steer_has_recompute(st, seq)         # 重算驱动（非强制）
+
+if author_protected and not (force or steer_force):
+    # 可校验 validation；不重写字段
+    if not drive:
+        pass  # 空则下方仍合成
+    else:
+        return drive  # 作者锁：大纲变更也不自动重算
+
+need = (
+    force or steer_force
+    or not drive
+    or drive.get("validation", {}).get("ok") is False
+    or (
+        # 智能重算：大纲内容变了 + 非作者锁 + 非 author 源
+        fp_now
+        and drive.get("synopsis_fp")
+        and fp_now != drive.get("synopsis_fp")
+        and not author_protected
+        and drive.get("source") != "author"
+    )
+    or (steer_soft and not author_protected)
+)
 
 if not need:
     return drive
 
-inv = assemble_narrative_inventory(st, seq)  # pilot 侧 I/O
-meta = parse_chapter_meta(ch.get("synopsis") or "")
+inv = assemble_narrative_inventory(st, seq)
+meta = parse_chapter_meta(synopsis)
 prev_hook = inv["prev_end_hook"]
+prev_refs = list((drive or {}).get("inciting_force", {}).get("source_refs") or [])
+prev_ver = int((drive or {}).get("version") or 0)
 
-drive = compose_narrative_drive_dict(meta, inv, prev_hook, focalizer=ch.get("focalizer"))
-# 纯函数；无 Surreal
-st.update_chapter_meta(seq, {"narrative_drive": drive})
-return drive
+new_drive = compose_narrative_drive_dict(
+    meta, inv, prev_hook, focalizer=ch.get("focalizer") or "",
+    preserve_source_refs=prev_refs,  # 能对齐则保留
+)
+new_drive["source"] = "assembled"
+new_drive["locked"] = False
+new_drive["synopsis_fp"] = fp_now
+new_drive["version"] = prev_ver + 1 if drive else 1
+# validation 由 compose 内嵌
+
+st.update_chapter_meta(seq, {"narrative_drive": new_drive})
+return new_drive
 ```
 
-**重算触发**：`force=True`；steer 含「重算驱动」；作者清空 `narrative_drive` 字段；PATCH 新大纲后显式要求（rev.1 不自动因改 synopsis 清 drive，避免误伤——runbook 说明）。
+**智能重算规则（用户裁决 · OQ-7）**：
+
+| 条件 | 行为 |
+|------|------|
+| drive 空 | 合成 |
+| `validation.ok=False` | 重算（非 author 锁） |
+| `synopsis_fp` 变化 **且** `locked≠true` **且** `source≠author` | **自动** recompose |
+| `locked=true` 或 `source=author` | **不**自动覆盖；除非 steer/参数 **强制重算驱动** |
+| 重算成功 | `source=assembled`，`version++`，尽量 **preserve `source_refs`**，写新 `synopsis_fp` |
+| 作者 PATCH drive 手写 | 写端应标 `source=author`（或 UI 锁 `locked=true`） |
+
+**与 runbook**：改大纲后 ensure 会智能跟上（非锁）；作者精修过的合同须「强制重算驱动」才冲掉。
 
 **expand_beats 接线（含 skip）**：
 
@@ -517,8 +608,14 @@ compose_narrative_drive_dict(meta, inventory, prev_hook, *, focalizer="") -> dic
 
 ### 6. Pilot 步骤顺序
 
-**定案（KD-NE-2）——插入点 A**：`ensure` 在 `expand_beats`（含 skip）+ `draft_loop` 入口。  
-**插入点 B**：独立状态 `drive_ready` —— phase 2；见 §PR-NE-8 与 authz。
+**用户裁决 · OQ-1（最优方案）**：
+
+| 阶段 | 最优 | 含义 |
+|------|------|------|
+| **rev.1** | **插入点 A** | `ensure` 挂在 `expand_beats`（含 skip）+ `draft_loop` 入口；**不改** `STATES`/`NEXT`；最低成本使 Event Drive 真成主时钟输入 |
+| **phase 2 最优增强** | **插入点 B** | 独立 `compose_drive` → `drive_ready`；`DEFAULT_AUTHZ["compose_drive"]="propose"`；作者要 **显式审合同** 时启用（`SCRIBE3_NARRATIVE_DRIVE_STEP=1` + executor 注册） |
+
+**定案（KD-NE-2）**：rev.1 **固定 A**；B 仅 phase 2，未注册则 no-op + 启动 warning。
 
 **GATE 与 drama_gate 合并 park 伪码（PR-NE-5）**：
 
@@ -640,7 +737,8 @@ drama_incomplete:…（既有 format_drama_gate_park_reason）
 |------|----------|--------------|------|
 | `SCRIBE3_NARRATIVE_ENGINE` | **0** | **1** | ensure + 注入 + length_steer |
 | `SCRIBE3_EVENT_DRIVE_GATE` | **0** | **1** | 高压 drive/align 失败 park |
-| `SCRIBE3_EVENT_LED_DETECT` | **0** | **1** | 写后 event_drive findings |
+| `SCRIBE3_EVENT_LED_DETECT` | **0** | **1** | 写后 event_drive findings；**LLM 主路径**需 `SCRIBE3_REVIEW_LLM=1`（或等价），否则确定性 fallback |
+| `SCRIBE3_EVENT_LED_DEGRADED_BLOCK` | **0** | **1** | 高压 + LLM degrade 且 fallback 不确定时是否 blocking（防静默绿） |
 | `SCRIBE3_PILOT_SOFT_EVENT_DRIVE` | **0** | **0** | 仅当 1 时 soft 事件 finding |
 | `SCRIBE3_NARRATIVE_DRIVE_STEP` | **0** | **0** | phase 2 独立步；rev.1 **executor 未注册 → no-op + 启动 warning** |
 
@@ -1000,24 +1098,26 @@ LOG_FIELD_MISSING_EXTERNAL_FORCE = "missing_external_force"
 | soft 吞 event finding | 高 | type=event_drive + soft 隔离单测 |
 | event_drive 未进 is_blocking | **高** | PR-NE-4 必改 blocking/schema/normalize/triage；单测 A–D |
 | 双 park 噪音 | 中 | 合并伪码 |
-| 词表误伤 / 假绿 | 中 | 共现规则 + 负例金样 + opener 标注 |
+| 词表误伤 / 假绿 | 中 | **LLM 主路径** + 负例金样；fallback 共现；degrade 不静默绿 |
+| LLM 成本 / 延迟 | 中 | head 截断；max_tokens≤256；prose_fp 缓存 |
+| 智能重算冲掉作者合同 | 中 | locked / source=author；仅强制重算覆盖 |
 | 仅 ENGINE 无 GATE 被当成完成 | 中 | 强制闭环表 + 验收口径三旗 |
 | 漏 get_chapter SELECT / rebind | 高 | PR 验收清单钉死 |
 | thrash 运维不知所措 | 中 | runbook |
 
 ---
 
-## Open Questions
+## Open Questions（已全部裁决 · rev.2.2）
 
-| # | 问题 | 建议默认 |
-|---|------|----------|
-| OQ-1 | 插入点 A vs B | **A**；B phase 2 |
-| OQ-2 | 低压是否强制 deadline | 微对立；禁 pure walk；DETECT advisory |
-| OQ-3 | opener 规则 vs LLM | **规则**；LLM shadow |
-| OQ-4 | drive 进 brief | 是，≤120 字 |
-| OQ-5 | 角色死后 opposition | 手改 drive |
-| OQ-6 | HARD_PRESSURE 共用 | **共用** `SCRIBE3_DRAMA_HARD_PRESSURE` |
-| OQ-7 | 改 synopsis 是否自动重算 drive | rev.1 **否**；steer「重算驱动」 |
+| # | 问题 | **裁决（最终）** | 落点 |
+|---|------|------------------|------|
+| OQ-1 | 插入点 A vs B | **rev.1 最优 = A**（expand+draft ensure，不改 STATES）；**phase 2 最优增强 = B**（独立 compose_drive HITL） | KD-NE-2 · §6 |
+| OQ-2 | 低压是否强制 deadline | 微对立即可；禁 pure walk；DETECT **advisory** | §4 硬规则 |
+| OQ-3 | opener 规则 vs LLM | **Primary = LLM** 结构化分类；确定性 = fallback / 可选 shadow；高压 degrade **禁止静默绿** | KD-NE-8 · §4 · PR-NE-4 |
+| OQ-4 | drive 进 brief | **是**，≤120 字摘要 | brief 接线 PR-NE-3 可附 |
+| OQ-5 | 角色死后 opposition | **手改 drive**（`source=author` / locked） | runbook |
+| OQ-6 | HARD_PRESSURE 共用 | **共用** `SCRIBE3_DRAMA_HARD_PRESSURE`（默认 4） | drama_beats 既有 |
+| OQ-7 | 改 synopsis 是否自动重算 drive | **智能重算**：fp 变且非锁/非 author → 自动；作者锁须「强制重算驱动」 | KD-NE-15 · ensure |
 
 ---
 
@@ -1026,19 +1126,20 @@ LOG_FIELD_MISSING_EXTERNAL_FORCE = "missing_external_force"
 | ID | 决策 | 理由 |
 |----|------|------|
 | **KD-NE-1** | 章级戏剧 SSOT = `chapter.narrative_drive` | 防合法逛 GCD |
-| **KD-NE-2** | 插入点 A：expand_beats + draft ensure；不改 STATES | 最小拓扑 |
+| **KD-NE-2** | **rev.1 最优 = 插入点 A**（expand_beats+draft ensure，不改 STATES）；**phase 2 最优增强 = B**（独立 compose_drive HITL） | 用户裁决 OQ-1；最低成本真成主时钟 |
 | **KD-NE-3** | deduce 永不驱动 | 认知边界 |
 | **KD-NE-4** | focalizer = 相机 | 用户结论 |
 | **KD-NE-5** | 代码默认旗关；质量模式三旗同开最低集 | 不 silent break；真时钟需闭环 |
 | **KD-NE-6** | 事件 finding：`type=event_drive`；**须**接入 `review.blocking.is_blocking_issue`（镜像 pressure）+ `S1_BLOCKING_TYPES` + `normalize_issue`；triage detector=`meta.kind`；**默认不**进 soft 集合 | 否则 DETECT 进不了 blocking 桶；且防 pressure soft 吞没 |
 | **KD-NE-7** | 存储 `118` + option\<string\> JSON；独立列非 beats_meta | 先例 + 生命周期 |
-| **KD-NE-8** | 开篇可操作切分 + 中段外力硬门；binary 为 soft feature | 可实施 + 防脆正则 |
+| **KD-NE-8** | **开篇/逛感 Primary = LLM** 结构化 JSON；确定性 = fallback（及可选 shadow）；`SCRIBE3_REVIEW_LLM`（或等价）开则走 LLM；degrade 高压 **禁止静默绿**；binary 非唯一硬门 | 用户裁决 OQ-3：尽量/全 LLM |
 | **KD-NE-9** | rev.1 库存白名单；命题 phase 2；**大纲 stakes 一等种子** | 防空表误杀 |
-| **KD-NE-10** | multi_scene_pov / 独立步 = phase 2 | 先稳 |
+| **KD-NE-10** | multi_scene_pov / 独立步 B = phase 2 | 先稳 A |
 | **KD-NE-11** | GATE 时 drive 优先于「仅 GCD 过门」 | SSOT 名实 |
 | **KD-NE-12** | `ensure_narrative_drive`：skip beats 仍合成 | 防可选字段退化 |
 | **KD-NE-13** | PDC：有 drive 优先种子；不覆盖人工 PDC；PDC 关则 no-op | 派生可落地 |
 | **KD-NE-14** | `ALIGN_JACCARD_MIN=0.08` + source_refs 绕过 + 金样锁定 | 防阈值漂 |
+| **KD-NE-15** | **智能重算 drive**：空/invalid/synopsis_fp 变且非锁 → 自动；`locked` 或 `source=author` 仅「强制重算驱动」可覆盖；重算 `version++`、`source=assembled`、尽量保留 source_refs | 用户裁决 OQ-7 |
 
 ---
 
@@ -1047,12 +1148,12 @@ LOG_FIELD_MISSING_EXTERNAL_FORCE = "missing_external_force"
 | PR | 标题 | 范围 | 验收 | 依赖 |
 |----|------|------|------|------|
 | **PR-NE-0** | 旗 / LOG / 质量目标 | `REGISTRY`；`NQ_FLAG_KEYS` 扩键；`QUALITY_MODE_TARGETS`；`LOG_FIELD_*`；snapshot；`soft_pass_detectors_for` 预留 event 分支 | 默认值单测；snapshot 含新键 | — |
-| **PR-NE-1** | migration **118** + 读写 + 纯函数 | `118_narrative_drive.surql`；chapters **allowed + get_chapter SELECT/loads**；`narrative_drive.py`：validate / compose_dict（**无 I/O**）/ format block / align（阈值+金样）/ classify_opener / measure_event_led | pytest 无 Surreal；fixtures 香债正/逛旧库反/禁令无代价负例 | PR-0 |
-| **PR-NE-2a** | ensure + 大纲种子 + expand/draft | `ensure_narrative_drive`；`assemble` 可先只喂 meta+prev_hook；**expand_beats skip 路径 ensure**；draft 二次 ensure；prompt 前置；GATE 可选 | **已有 beats 的章 step 后 narrative_drive 非空**；高压无 stakes 且无库存 → park 文案 | PR-1 |
+| **PR-NE-1** | migration **118** + 读写 + 纯函数 | `118_narrative_drive.surql`；chapters **allowed + get_chapter SELECT/loads**；`narrative_drive.py`：validate / compose_dict（**无 I/O**）/ format block / align / **`classify_opener_rules` + `synopsis_content_fp`** / measure 确定性侧 | pytest 无 Surreal；fixtures 香债正/逛旧库反/禁令无代价负例 | PR-0 |
+| **PR-NE-2a** | ensure + 大纲种子 + expand/draft | `ensure_narrative_drive`（**智能重算 KD-NE-15**）；skip 路径 ensure；draft 二次；prompt 前置；GATE 可选 | 已有 beats → drive 非空；改 synopsis fp → 自动重算（非锁）；locked+改大纲 → 不覆盖；强制重算 → 覆盖 | PR-1 |
 | **PR-NE-2b** | inventory 装配 | `assemble_narrative_inventory`：`open_promises` / overdue / `parse_deltas` / `events_at`；rank tier A–C | 单元 mock st；不强制 proposition | PR-2a |
 | **PR-NE-2c** | PDC bootstrap 吃 drive | `bootstrap_pdc_from_texts(..., narrative_drive=)`；不覆盖人工 PDC | 有 drive 时 stair 文案含 if_fail；PDC 关 no-op | PR-2a |
 | **PR-NE-3** | 写路径注入 | `_event_drive_block`；**app_impl rebind**；length_steer | 组装单测；rebind 列表断言 | PR-2a |
-| **PR-NE-4** | 写后 detectors + **blocking 谓词** + triage 合同 | ① `review/blocking.py` 镜像 pressure 特判 `event_drive`；② `schema.S1_BLOCKING_TYPES` 加键；③ `normalize_issue` blocking→S1；④ `loop.triage` detector=`meta.kind` + story 桶；⑤ post_check 产出 event_drive issues；⑥ soft 隔离 | **单测 A–D**：`is_blocking_issue` True（blocking/S1）/ advisory False；triage detector=kind 且 verdict=blocking；`SOFT_P=1`+`SOFT_EVENT=0` → not only_soft → full_check 仍 park；pressure 回归 | PR-1,0 |
+| **PR-NE-4** | 写后 detectors + **blocking 谓词** + triage + **LLM 分类** | ①–④ blocking/schema/normalize/triage 同 rev.2.1；⑤ post_check event_drive issues；⑥ soft 隔离；⑦ **`classify_opener_llm` / event_led LLM**（`SCRIBE3_REVIEW_LLM` 门）；⑧ 确定性 fallback；⑨ `prose_fp` 缓存；⑩ degrade 高压不假绿 | **单测 A–D**（blocking+soft）+ **E**：`mock_complete_fn` 返回 forbidden_opener → blocking finding；**F**：LLM degraded/off → fallback 仍产出 finding（高压非 pass）；**G**：缓存命中不二次调用 | PR-1,0 |
 | **PR-NE-5** | GATE 合并 park | `park_after_beats` 伪码落地；drive 优先文案 | 旗矩阵单测 | PR-2a, drama_gate 既有 |
 | **PR-NE-6** | demo env + thrash runbook | 质量片段三旗；evidence 差分；**park→作者动作** 文档 | 已部署 demo 冒烟 ch1–2 | PR-4/5 |
 | **PR-NE-7** | UI 三行驱动 | 交付卡 / 节拍旁 | 前端轻测 | PR-2a |
@@ -1099,22 +1200,46 @@ def align_beats_to_drive(beats: list, drive: dict) -> dict:
 def format_event_drive_block(drive: dict | None, *, focalizer: str = "", max_chars: int = 220) -> str:
     ...
 
-def classify_opener(prose: str) -> tuple[str, float, str]:
-    """(class, confidence, evidence_span)；head 切分见 §4。"""
-    ...
-
-def measure_event_led(prose: str, drive: dict | None, *, chapter_pressure: int, role: str) -> dict:
-    """findings 每项 type=event_drive, detector=meta.kind。"""
-    ...
-
 def head_span_text(prose: str) -> str:
     """max(ceil(0.15*n), first_two_paras)。"""
+    ...
+
+def synopsis_content_fp(synopsis: str) -> str:
+    """规范化空白后稳定 hash（智能重算）。"""
+    ...
+
+def classify_opener_rules(prose: str) -> tuple[str, float, str]:
+    """确定性 fallback / 可选 shadow。"""
+    ...
+
+def classify_opener_llm(
+    prose: str,
+    *,
+    complete_fn,
+    drive: dict | None = None,
+    cache: dict | None = None,
+) -> dict:
+    """Primary：JSON {class, confidence, evidence_span, force_before_mid, follow_pov_stroll}。
+    max_tokens 低；cache key=prose_fp。"""
+    ...
+
+def measure_event_led(
+    prose: str,
+    drive: dict | None,
+    *,
+    chapter_pressure: int,
+    role: str,
+    complete_fn=None,
+    review_llm_on: bool = False,
+) -> dict:
+    """findings type=event_drive；LLM 主路径 + fallback；degraded 标记。"""
     ...
 ```
 
 ```python
 # pilot_runtime（概念）
 def ensure_narrative_drive(st, seq, *, force: bool = False) -> dict | None:
+    """智能重算 KD-NE-15；author/locked 保护。"""
     ...
 
 def assemble_narrative_inventory(st, seq) -> dict:
@@ -1183,3 +1308,4 @@ def is_blocking_issue(iss: dict | None) -> bool:
 | Draft rev.1 | 2026-08-10 | 初稿 |
 | Draft **rev.2** | 2026-08-10 | 评审修订：大纲 stakes 一等种子；ensure-on-skip；event_drive soft 合同；强制闭环表；inventory 白名单；对齐阈值与金样；opener 可操作切分；PR 拆 2a/2b/2c 钉 118/get_chapter/rebind；PDC 派生；thrash runbook；LOG_FIELD；Alt-5；phase2 authz |
 | Draft **rev.2.1** | 2026-08-10 | 复审 critical：`type=event_drive` 接入 `review.blocking.is_blocking_issue` / `S1_BLOCKING_TYPES` / `normalize_issue` / `loop.triage` detector 投影；KD-NE-6 与 PR-NE-4 验收单测 A–D（blocking 入桶 + soft 隔离 + full_check park） |
+| Draft **rev.2.2** | 2026-08-10 | **用户裁决**：OQ-1 rev.1 最优插入点 A、phase2 增强 B；OQ-3 开篇/逛感 **LLM primary** + 确定性 fallback（高压 degrade 不假绿，`SCRIBE3_REVIEW_LLM` 门，prose_fp 缓存）；OQ-7 **智能重算** drive（synopsis_fp + locked/author 保护 + 强制重算）；Open Questions 表全部 resolved；KD-NE-8/15；PR-NE-4 单测 E–G |
