@@ -11,7 +11,8 @@
 - **本模块提供读点与字段名**；行为接线按 PR 推进：
   PR-2 已接 ``BEATS_V2`` / ``BEATS_SYNOPSIS_FALLBACK``（``expand_beats``）；
   PR-3 已接 ``DRAMA_GATE`` / ``DRAMA_GATE_COMPAT``（写前 advisory park + gaps）；
-  其余（craft / soft-pass / park_stroll）仍在 PR-5/6a/6b。
+  PR-5 已接 ``CRAFT_NOVEL``（``craft.build_craft_block`` 选择表）；
+  其余（soft-pass / park_stroll）仍在 PR-6a/6b。
 - 设置 UI：已接线旗改值立即影响对应路径；未接线旗改值暂无运行时效果。
 
 读取路径：``settings.get_setting``（DB 覆盖 → env → REGISTRY 默认）。

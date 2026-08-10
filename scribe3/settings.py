@@ -154,10 +154,10 @@ REGISTRY: tuple[Setting, ...] = (
             "张力盲评结果写章后缓存",
             "开=/tension-check 同正文指纹可复用 rubric，免重复调模型",
             danger=False),
-    # ── novel-quality 戏剧/节拍/压力旗(PR-0 接线;代码默认=现网可达;质量模式见 demo env)──
-    # 读点：scribe3.novel_quality_flags；后续 PR 再消费，本批不翻转 full_check/craft 行为。
+    # ── novel-quality 戏剧/节拍/压力旗(PR-0 登记;代码默认=现网可达;质量模式见 demo env)──
+    # 读点：scribe3.novel_quality_flags；已接线：BEATS_* / DRAMA_GATE* / CRAFT_NOVEL(PR-5)。
+    # soft-pass / park_stroll 等 desc 仍标「未接线」直至 PR-6。
     # 真源：docs/plans/2026-08-10-novel-quality-first-pipeline-optimization.md
-    # 全部 desc 首句标明「未接线」：设置 UI/DB 改值在消费者 PR 前无运行时效果，勿当质量模式验收。
     Setting("SCRIBE3_BEATS_V2", "flags", "bool", True, "hot",
             "节拍 v2 生成(GCD 字段)",
             "开=expand_beats 写 goal/conflict/turn/cost/hook 等 GCD；关=仅 text 行(v1)。代码默认开。",
@@ -180,7 +180,8 @@ REGISTRY: tuple[Setting, ...] = (
             danger=True),
     Setting("SCRIBE3_CRAFT_NOVEL", "flags", "bool", False, "hot",
             "小说优先 craft 包",
-            "未接线·改值暂无运行时效果。开=比喻降权/闲笔偏科选择表(PR-5)；代码默认关以免 silent 改声口",
+            "开=build_craft_block 小说优先选择表(比喻无「2-4」、闲笔/感官偏科、留白 anti_essay；"
+            "与 PDC 同开不双注入)；代码默认关以免 silent 改声口",
             danger=False),
     Setting("SCRIBE3_PILOT_SOFT_PRESSURE", "flags", "bool", True, "hot",
             "pilot full_check 压力 soft-pass",
