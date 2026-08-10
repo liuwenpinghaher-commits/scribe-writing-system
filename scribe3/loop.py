@@ -36,29 +36,76 @@ _NON_DENSITY_GATES = {"B", "D", "F", "G"}    # 句式套路/节奏结构/升华/
 _NON_DENSITY_INDICATORS = ("parallel_run", "rhythm_uniform")   # 计数/verdict 类指标
 
 
+# Story / Style / Redline 分桶骨架（PR-6a · KD-NQ-7；UI 消费可延 PR-6c）
+_STORY_KINDS = frozenset({
+    "park_stroll",
+    "spatial_inventory",
+    "time_linear_flag",
+    "progress_zero_advance",
+    "progress_stairs_anchored",
+    "location_grind_run",
+    "retreat_no_cost",
+    "irreversible_anchored",
+    "fork_signal",
+    "ritual_overuse",
+    "drama_beats_incomplete",
+    "main_channel_idle_ratio",
+    "event_pace_cv",
+})
+_REDLINE_TYPES = frozenset({"leak", "degeneration", "discipline"})
+_STYLE_TYPES = frozenset({"punct", "ai_grade", "short_text_low_confidence", "setting"})
+
+
+def _triage_bucket_for(iss: dict | None, *, is_block: bool = False) -> str:
+    """将 issue / blocking 条目归入 redline | story | style。"""
+    if not iss:
+        return "style"
+    t = str(iss.get("type") or iss.get("detector") or "")
+    meta = iss.get("meta") if isinstance(iss.get("meta"), dict) else {}
+    kind = str(meta.get("kind") or iss.get("kind") or "")
+    if t in ("leak", "find_leaks") or kind == "leak" or t == "degeneration" or t == "find_degeneration":
+        return "redline"
+    if t in ("discipline", "findings_schema") and is_block:
+        return "redline"
+    if t == "pressure" or t == "pressure_metrics" or kind in _STORY_KINDS:
+        return "story"
+    if t in _STYLE_TYPES or t == "aggregate_ai_grade" or kind in ("ai_grade_heavy", "ai_grade"):
+        return "style"
+    if is_block and t in _REDLINE_TYPES:
+        return "redline"
+    # 默认：blocking 偏 story（含 park_stroll 等 pressure 投影），advisory 偏 style
+    return "story" if is_block else "style"
+
+
 def triage(post: dict) -> dict:
     """把 /post-check 响应按 severity 三分流。返回
     {"verdict": "blocking"|"advisory"|"pass", "blocking": [...], "advisory_count": int,
-     "degraded_stages": [...], "leaks": [...]}。
+     "degraded_stages": [...], "leaks": [...], "buckets": {redline, story, style}}。
 
-    blocking 判据(蓝图 §3-① 四项):
+    blocking 判据(蓝图 §3-① 四项 + PR-6a park_stroll):
       ① find_leaks 非空(限知泄露,本体公证处判定)
       ② issues 里 type=="degeneration" 且 meta.severity=="blocking"(模型退化指纹)
       ③ ai_grade.grade=="heavy"(整章 AI 味定档,确定性文本统计聚合)
       ④ issues 里 meta.severity=="S1"(FindingsSchema 阻断档,悲观合流产物)
+      ⑤ type=="pressure" 且 meta.severity=="blocking"（含 park_stroll / spatial 升档；
+         默认 PARK_STROLL_BLOCKING=0 时 measure 产出 advisory，不进本桶）
     pass 门(假绿防护):leaks_degraded 或关键检测 stage 降级 → 最高只能 advisory,
     绝不把"没查到"当"没病"。
     """
     from scribe3.review.blocking import is_blocking_issue as _is_blocking_issue
     blocking: list[dict] = []
+    buckets: dict[str, list] = {"redline": [], "story": [], "style": []}
     leaks = post.get("leaks") or []
     for lk in leaks:
-        blocking.append({"detector": "find_leaks", "kind": "leak",
-                         "quote": str((lk or {}).get("marker") or lk)[:60],
-                         "note": (f"帧外私密破绽词(fact="
-                                  f"{((lk or {}).get('fact_id') or '?')})")[:120]})
+        item = {"detector": "find_leaks", "kind": "leak",
+                "quote": str((lk or {}).get("marker") or lk)[:60],
+                "note": (f"帧外私密破绽词(fact="
+                         f"{((lk or {}).get('fact_id') or '?')})")[:120]}
+        blocking.append(item)
+        buckets["redline"].append(item)
     # KD-14: ALL issue types go solely through is_blocking_issue (accepts S1|BLOCKING).
     # Do not special-case degeneration/pressure then exclude them — normalize→S1 must still block.
+    # PR-6a: pressure + meta.severity=blocking（含 park_stroll）已由 is_blocking_issue 覆盖。
     _detector_by_type = {
         "degeneration": "find_degeneration",
         "pressure": "pressure_metrics",
@@ -71,12 +118,20 @@ def triage(post: dict) -> dict:
             continue
         meta = iss.get("meta") or {}
         t = iss.get("type") or iss.get("kind") or "S1"
-        blocking.append({
+        kind = meta.get("kind") or t
+        item = {
             "detector": _detector_by_type.get(t, "findings_schema"),
-            "kind": meta.get("kind") or t,
+            "kind": kind,
             "quote": str(iss.get("text") or "")[:60],
             "note": str(iss.get("message") or "")[:120],
-        })
+        }
+        blocking.append(item)
+        # pressure（含 park_stroll）→ story；泄露/退化 → redline
+        if t == "pressure" or kind == "park_stroll":
+            bname = "story"
+        else:
+            bname = _triage_bucket_for(iss, is_block=True)
+        buckets[bname].append(item)
     grade = (post.get("ai_grade") or {}).get("grade")
     _short_low_conf = None
     if grade == "heavy":
@@ -96,8 +151,10 @@ def triage(post: dict) -> dict:
                                f"heavy 仅由密度类信号构成(Gate {'/'.join(gates) or '无'}),"
                                f"降为待批——阈值为自定口径,待真实短章数据标定")
         else:
-            blocking.append({"detector": "aggregate_ai_grade", "kind": "ai_grade_heavy",
-                             "quote": "", "note": f"整章 AI 味定档 heavy(命中 Gate {'/'.join(gates)})"})
+            item = {"detector": "aggregate_ai_grade", "kind": "ai_grade_heavy",
+                    "quote": "", "note": f"整章 AI 味定档 heavy(命中 Gate {'/'.join(gates)})"}
+            blocking.append(item)
+            buckets["style"].append(item)
 
     degraded_stages = list(post.get("degraded_stages") or [])
     leaks_degraded = bool(post.get("leaks_degraded"))
@@ -106,7 +163,8 @@ def triage(post: dict) -> dict:
     # 注:type=="leak" 的 issue 是顶层 leaks 的同事另一投影(post-check F-05 兼容层),
     # 已作 blocking 承载,不再进待批清单——防同一处泄密双重计数(P0 门真机发现)。
     advisory_items = ([{"type": i.get("type"), "message": i.get("message"),
-                        "text": (str(i.get("text") or ""))[:60], "range": i.get("range")}
+                        "text": (str(i.get("text") or ""))[:60], "range": i.get("range"),
+                        "meta": i.get("meta")}
                        for i in (post.get("issues") or [])
                        if not _is_blocking_issue(i) and i.get("type") != "leak"]
                       + [{"type": "punct", "message": str(s.get("message") or "标点建议"),
@@ -116,6 +174,10 @@ def triage(post: dict) -> dict:
         # 2-B:降档必须显式可见——作者要知道"没拦"是因为置信度不足,不是稿子没问题
         advisory_items.append({"type": "short_text_low_confidence",
                                "message": _short_low_conf, "text": "", "range": None})
+
+    # advisory → buckets（不改 verdict 逻辑）
+    for a in advisory_items:
+        buckets[_triage_bucket_for(a, is_block=False)].append(a)
 
     if blocking:
         verdict = "blocking"
@@ -127,6 +189,7 @@ def triage(post: dict) -> dict:
             advisory_items.append({"type": "degraded", "range": None, "text": "",
                                    "message": f"关键检测降级({','.join(degraded_names)}):"
                                               f"没查≠没病,须人工过目"})
+            buckets["style"].append(advisory_items[-1])
         # setting(实体登记提醒)不拦截 pass(D-013,P0 门真机发现):它指向"去登记
         # 实体"而非"改稿",且 pass 后的 ingest 本就做实体抽取入待批,拦截只会让
         # 几乎每章卡人;提示仍随 advisory_items 返回,不丢信息。
@@ -134,7 +197,8 @@ def triage(post: dict) -> dict:
         verdict = "advisory" if gating else "pass"
     return {"verdict": verdict, "blocking": blocking,
             "advisory_count": len(advisory_items), "advisory_items": advisory_items,
-            "degraded_stages": degraded_stages, "leaks": leaks}
+            "degraded_stages": degraded_stages, "leaks": leaks,
+            "buckets": buckets}
 
 
 def _is_blocking_issue(iss: dict) -> bool:
@@ -178,6 +242,16 @@ def build_regen_constraints(blocking: list[dict], next_attempt: int,
         "motif_overheat_local": "压缩同意象连刷，改峰段或换场",
         "ritual_quota_exceeded": "仪式再写须变形，禁止同一记门完整复读",
         "time_linear_flag": "压时间刻度，允许弯曲/悬置，禁止匀速流水账",
+        # PR-6a：公园散步组合
+        "park_stroll": (
+            "砍巷志流水与匀速日夜铺陈；须落地代价/决策/不可逆或明确转折，禁止公园散步式巡礼"
+        ),
+        "spatial_inventory": (
+            "压缩连续地点/巷志铺陈；插入推力动作或换场推进，禁止无主戏巡礼"
+        ),
+        "drama_beats_incomplete": (
+            "补全场景节拍的目标/冲突/转折；高压章禁止空转闲笔充节拍"
+        ),
     }
     lines = [f"## 上稿被确定性检测打回(即将进行第 {next_attempt} 轮重写)",
              "以下约束优先级高于本轮用户指令与大纲中与之冲突的部分;"

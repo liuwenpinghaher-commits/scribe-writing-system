@@ -155,8 +155,8 @@ REGISTRY: tuple[Setting, ...] = (
             "开=/tension-check 同正文指纹可复用 rubric，免重复调模型",
             danger=False),
     # ── novel-quality 戏剧/节拍/压力旗(PR-0 登记;代码默认=现网可达;质量模式见 demo env)──
-    # 读点：scribe3.novel_quality_flags；已接线：BEATS_* / DRAMA_GATE* / CRAFT_NOVEL(PR-5)。
-    # soft-pass / park_stroll 等 desc 仍标「未接线」直至 PR-6。
+    # 读点：scribe3.novel_quality_flags；已接线：BEATS_* / DRAMA_GATE* / CRAFT_NOVEL /
+    # PARK_STROLL_BLOCKING(PR-6a severity)。soft-pass 双旗仍「未接线」→ PR-6b。
     # 真源：docs/plans/2026-08-10-novel-quality-first-pipeline-optimization.md
     Setting("SCRIBE3_BEATS_V2", "flags", "bool", True, "hot",
             "节拍 v2 生成(GCD 字段)",
@@ -193,11 +193,12 @@ REGISTRY: tuple[Setting, ...] = (
             danger=True),
     Setting("SCRIBE3_PARK_STROLL_BLOCKING", "flags", "bool", False, "hot",
             "公园散步检测升 blocking",
-            "未接线·改值暂无运行时效果。开=park_stroll 在质量执法下可 blocking(PR-6a)；代码默认关=advisory",
+            "开=高压章 spatial_inventory/park_stroll 可 meta.severity=blocking，loop.triage 进 blocking 桶；"
+            "代码默认关=一律 advisory。full_check soft-pass 仍由 SOFT_PRESSURE 控制(PR-6b)。",
             danger=True),
     Setting("SCRIBE3_DRAMA_HARD_PRESSURE", "flags", "int", 4, "hot",
             "高压章压力门槛",
-            "未接线·改值暂无运行时效果。chapter_pressure>=本值或 role 高压/推进视为高压；默认 4(KD-NQ-15)；可 env 试 3；消费在 PR-1+",
+            "chapter_pressure>=本值或 role 高压/推进视为高压（drama 门 + park_stroll）；默认 4(KD-NQ-15)；可 env 试 3",
             min=1, max=5, danger=False),
     # ── gateway(Hermes 网关;地址类 restart)──
     Setting("HERMES_API", "gateway", "str", "http://127.0.0.1:8642/v1", "restart", "速答网关(default)"),

@@ -13,7 +13,8 @@
   PR-3 已接 ``DRAMA_GATE`` / ``DRAMA_GATE_COMPAT``（写前 advisory park + gaps）；
   PR-4 已接草稿 ``_drama_block`` / brief 戏剧段 / ``length_steer`` soft；
   PR-5 已接 ``CRAFT_NOVEL``（``craft.build_craft_block`` 选择表）；
-  其余（soft-pass / park_stroll）仍在 PR-6a/6b。
+  PR-6a 已接 ``PARK_STROLL_BLOCKING``（``pressure_metrics`` severity + ``park_stroll`` + triage buckets）；
+  soft-pass 双旗仍 **PR-6b**（``full_check`` 动态 soft 集合）。
 - 设置 UI：已接线旗改值立即影响对应路径；未接线旗改值暂无运行时效果。
 
 读取路径：``settings.get_setting``（DB 覆盖 → env → REGISTRY 默认）。
@@ -170,7 +171,7 @@ def pilot_soft_ai_grade_enabled() -> bool:
 
 
 def park_stroll_blocking_enabled() -> bool:
-    """park_stroll 在质量执法下可升 blocking。代码默认 False。"""
+    """park_stroll / spatial 在高压章可升 blocking（PR-6a）。代码默认 False。"""
     return _bool(FLAG_PARK_STROLL_BLOCKING)
 
 
@@ -189,7 +190,8 @@ def quality_enforcement_on() -> bool:
     ``SOFT_PRESSURE=0`` **且**（``PDC_BLOCKING=1`` **或** ``PARK_STROLL_BLOCKING=1``）。
 
     注意：``SCRIBE3_PDC_BLOCKING`` 仍走既有 ``pressure_drive.pdc_blocking_env_enabled``
-    （尚未迁入本 REGISTRY）；本函数仅供后续 PR 读取，PR-0 无调用方。
+    （尚未迁入本 REGISTRY）。finding severity 升档看 ``park_stroll_blocking_enabled`` /
+    ``pdc_blocking``；本复合条件供质量模式观测与 PR-6b soft-pass 对齐。
     """
     if pilot_soft_pressure_enabled():
         return False
