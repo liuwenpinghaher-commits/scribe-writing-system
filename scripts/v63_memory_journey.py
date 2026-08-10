@@ -807,7 +807,42 @@ def drive_chapter(work: str, evid: Path, seq: int) -> int:
             break
 
         if parked and "事实对齐" in str(parked):
-            # 尝试：收紧 involved 到 POV 后回归（最小修，不 safe_beats）
+            # 节拍接地失败（质量模式 BEATS_SYNOPSIS_FALLBACK=0 时常见）：
+            # 用大纲切句作 text-only 节拍落库，让 expand_beats skip，避免空转。
+            if "节拍" in str(parked) or "expand_beats" in str(parked):
+                import re as _re_fb
+                parts = [
+                    p.strip() for p in _re_fb.split(r"[；;。！？!?\n]+", syn or "")
+                    if p and len(p.strip()) >= 4
+                ][:7]
+                if len(parts) < 2 and (syn or "").strip():
+                    s = syn.strip()
+                    mid = max(8, len(s) // 2)
+                    parts = [s[:mid].strip(), (s[mid:].strip() or s[:mid].strip())]
+                beats_fb = [{"text": t, "kind": "scene"} for t in parts if t]
+                print(
+                    f"  GROUNDING beats fallback → synopsis segments n={len(beats_fb)}",
+                    flush=True,
+                )
+                approve(work, [{
+                    "tool": "s3_patch_chapter_plan",
+                    "args": {
+                        "seq": seq,
+                        "involved_characters": [pov],
+                        "synopsis": syn,
+                        "beats": beats_fb,
+                    },
+                }], f"beats fallback ch{seq}")
+                curl("POST", "/api/pilot/reset-step", {"seq": seq}, work=work, timeout=60)
+                # expand 见 beats 已有 → skip → beats_ready→deduce
+                code, res = curl("POST", "/api/pilot/step", {
+                    "seq": seq, "mode": "manual",
+                    "steer": "节拍已按大纲落库，继续推进演绎与草稿。",
+                }, work=work, timeout=STEP_TIMEOUT)
+                print(f"  after beats fallback step http={code} {str(res)[:100]}", flush=True)
+                time.sleep(1)
+                continue
+            # 其他接地：收紧 involved 到 POV 后回归
             print(f"  GROUNDING try tighten involved → {pov}", flush=True)
             approve(work, [{
                 "tool": "s3_patch_chapter_plan",
