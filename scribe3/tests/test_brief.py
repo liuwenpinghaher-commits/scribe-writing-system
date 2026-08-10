@@ -274,7 +274,9 @@ class TestParseChapterMeta:
     def test_parses_role_and_pressure(self):
         text = "本章大纲……压力级:4\nchapter_role:高压\n后续文本"
         meta = parse_chapter_meta(text)
-        assert meta == {"role": "高压", "pressure": 4}
+        # PR-2b: 高压缺 stakes → advisory warnings（不改变 role/pressure 契约）
+        assert meta["role"] == "高压" and meta["pressure"] == 4
+        assert meta.get("warnings") == ["missing_stakes_high_pressure"]
 
     def test_parses_from_beats_list(self):
         beats = [{"text": "开场铺垫"}, {"text": "压力级:2 chapter_role:低压"}]

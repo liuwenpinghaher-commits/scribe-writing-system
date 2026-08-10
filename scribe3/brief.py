@@ -474,17 +474,40 @@ def validate_beat_budgets(beats: list[dict], target_words: int) -> dict:
 
 _CHAPTER_ROLE_RE = re.compile(r"chapter_role[:：]\s*(高压|推进|修炼|关系回收|低压|信息整理)")
 _PRESSURE_RE = re.compile(r"压力级[:：]\s*([1-5])")
+# PR-2b · 大纲合同增量：stakes / 章末钩子
+# - 冒号后仅吃行内空白（不用 \s，避免跨行吞掉下一标签）
+# - 值截断到同行下一已知标签或行尾（支持「stakes:… 章末钩子:…」同排）
+_OUTLINE_NEXT_TAG = (
+    r"(?=\s+(?:压力级|chapter_role|stakes|赌注|章末钩子|章钩子|hook)\s*[:：]|\s*$)"
+)
+_STAKES_RE = re.compile(
+    rf"(?:stakes|赌注)[:：][ \t]*([^\n]+?){_OUTLINE_NEXT_TAG}",
+    re.IGNORECASE | re.MULTILINE,
+)
+_HOOK_RE = re.compile(
+    rf"(?:章末钩子|章钩子|hook)[:：][ \t]*([^\n]+?){_OUTLINE_NEXT_TAG}",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 _TENSION_WINDOW = 6   # 滑窗:6章内 pressure 全高/全低视为张弛失衡
+# 与 drama HARD_PRESSURE 默认同口径；缺 stakes 且 pressure≥此值 → warnings（不 park）
+_STAKES_HARD_PRESSURE = 4
 
 
 def parse_chapter_meta(outline_text_or_beats) -> dict | None:
-    """从大纲文本或节拍(beats)里解析章级定位标注:压力级(1-5)、chapter_role(六型之一)。
+    """从大纲文本或节拍(beats)里解析章级定位标注。
+
+    字段（有则写入）:
+      - pressure: 1–5（「压力级:N」）
+      - role: 六型之一（「chapter_role:X」）
+      - stakes: 若失败失去什么（「stakes:…」/「赌注:…」）
+      - hook: 章末钩子（「章末钩子:…」/「章钩子:…」/「hook:…」）
+      - warnings: 仅当非空；高压缺 stakes 时含 ``missing_stakes_high_pressure``
+        （advisory；质量模式升 park 留给后续 PR，本函数不 park）
 
     入参可以是纯文本(如 synopsis 或 chapter_draft_text 的拼接结果),也可以是
     beats list[dict]/list[str](逐条 text 拼接后再解析,与其余检测器同口径)。
-    正则:「压力级:N」「chapter_role:X」(全/半角冒号皆可)。
-    两者都抓不到 → 返回 None(旧数据无标注,向后兼容;调用方据 None 跳过该章)。"""
+    全/半角冒号皆可。任一字段都抓不到 → 返回 None(旧数据无标注,向后兼容)。"""
     if isinstance(outline_text_or_beats, list):
         text = "\n".join(
             (b.get("text") if isinstance(b, dict) else str(b)) or ""
@@ -493,13 +516,33 @@ def parse_chapter_meta(outline_text_or_beats) -> dict | None:
         text = outline_text_or_beats or ""
     role_m = _CHAPTER_ROLE_RE.search(text)
     pressure_m = _PRESSURE_RE.search(text)
-    if not role_m and not pressure_m:
+    stakes_m = _STAKES_RE.search(text)
+    hook_m = _HOOK_RE.search(text)
+    if not role_m and not pressure_m and not stakes_m and not hook_m:
         return None
     out: dict = {}
     if role_m:
         out["role"] = role_m.group(1)
     if pressure_m:
         out["pressure"] = int(pressure_m.group(1))
+    if stakes_m:
+        stakes = (stakes_m.group(1) or "").strip()
+        if stakes:
+            out["stakes"] = stakes
+    if hook_m:
+        hook = (hook_m.group(1) or "").strip()
+        if hook:
+            out["hook"] = hook
+    # 高压章缺 stakes → warning only（KD 后续可升 park；本 PR 只解析+标注）
+    try:
+        cp = int(out["pressure"]) if "pressure" in out else None
+    except (TypeError, ValueError):
+        cp = None
+    if cp is not None and cp >= _STAKES_HARD_PRESSURE and not out.get("stakes"):
+        out["warnings"] = ["missing_stakes_high_pressure"]
+    # 若只命中了空 stakes/hook 标签且无 role/pressure，等同未标注
+    if not out:
+        return None
     return out
 
 
