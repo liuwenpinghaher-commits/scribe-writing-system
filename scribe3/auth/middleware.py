@@ -45,6 +45,9 @@ _GLOBAL_PREFIXES = (
     "/settings",
     "/gateway",
     "/health",
+    # System Hub catalogs (not work-scoped store access)
+    "/craft-skills",
+    "/mcp/",
 )
 
 _WORKS_SLUG_RE = re.compile(
