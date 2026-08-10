@@ -110,7 +110,7 @@ export function SystemHub({
   const workMissing = needsWork && !work
   const onChanged = () => reloadSettings()
 
-  const goSection = (id, planeHint) => {
+  const goSection = (id, planeHint, opts = {}) => {
     if (planeHint) setPlaneId(planeHint)
     else {
       for (const p of visiblePlanes) {
@@ -121,30 +121,23 @@ export function SystemHub({
       }
     }
     setSectionId(id)
-    setModuleId(null)
+    // Map clicks pass keepModule so the config page still shows the module banner.
+    if (!opts.keepModule) setModuleId(null)
   }
 
+  /** Map/module clicks stay in Hub config — never onExit to writing app. */
   const onNodeActivate = (node) => {
-    if (node.exit) {
-      onExit?.()
-      return
-    }
-    if (node.section) goSection(node.section)
-    if (node.id === 'registry') goSection('mcp')
-    if (node.id === 'policy') goSection('tasks')
-    if (node.id === 'assemble') goSection('craft')
-    if (node.id === 'story') goSection('surreal', 'runtime')
+    const mod = MODULES.find((m) => m.id === node.id)
+    const section = node.configSection || mod?.configSection
+    const plane = node.configPlane || mod?.configPlane
     setModuleId(node.id)
+    if (section) goSection(section, plane, { keepModule: true })
   }
 
   const onStepActivate = (step) => {
-    if (step.action === 'exit') onExit?.()
-    else if (step.action === 'section') {
-      goSection(step.section)
+    if (step.action === 'section' && step.section) {
+      goSection(step.section, step.plane)
       if (step.filter) setMcpFilter(step.filter)
-    } else if (step.action === 'module') {
-      setModuleId(step.module)
-      goSection('map')
     }
   }
 
@@ -190,7 +183,7 @@ export function SystemHub({
       <div>
         <h3 className="text-f14 font-medium text-ink mb-1">铜炉运转图</h3>
         <p className="text-f12 text-faint mb-3">
-          点模块看「是什么 / 怎么运转 / 你能控什么」。配置在任务旋钮与工艺区；能力注册表是 AI 工具说明书（不可在此执行写工具）。
+          点模块进入该模块在系统中心内的配置/说明（不跳进写作应用）。顶栏「返回」才回到写作台。
         </p>
         <div className="rounded-lg border border-line bg-canvas p-4 overflow-x-auto" data-testid="system-hub-arch-map">
           <svg viewBox="0 0 480 280" className="w-full max-w-xl h-auto" role="img" aria-label="系统模块架构图">
@@ -243,7 +236,10 @@ export function SystemHub({
           <button key={m.id} type="button"
             className="text-left rounded-lg border border-line p-3 hover:bg-soft cursor-pointer"
             data-testid={`module-card-${m.id}`}
-            onClick={() => { setModuleId(m.id); if (m.exit) {/* keep on map */} }}
+            onClick={() => {
+              setModuleId(m.id)
+              if (m.configSection) goSection(m.configSection, m.configPlane, { keepModule: true })
+            }}
           >
             <div className="text-f13 font-medium text-ink">{m.label}</div>
             <div className="text-f12 text-faint mt-1 line-clamp-2">{m.purpose}</div>
@@ -261,32 +257,36 @@ export function SystemHub({
 
       {moduleId && (
         <ModulePane id={moduleId} health={dataHealth} work={work} onClose={() => setModuleId(null)}
-          onGoSection={goSection} onExit={onExit} />
+          onGoSection={goSection} />
       )}
     </div>
   )
 
-  function ModulePane({ id, health, work: w, onClose, onGoSection, onExit: exit }) {
+  function ModulePane({ id, health, work: w, onClose, onGoSection }) {
     const m = MODULES.find((x) => x.id === id)
     if (!m) return null
     return (
-      <div className="rounded-lg border border-line p-4 bg-surface space-y-2" data-testid="system-hub-module-pane">
-        <div className="flex items-center justify-between">
-          <h4 className="text-f14 font-medium">{m.label}</h4>
-          <button type="button" className="text-f12 text-faint cursor-pointer" onClick={onClose}>关闭</button>
+      <div className="rounded-lg border border-brand/30 bg-brand/5 p-4 space-y-2 mb-4" data-testid="system-hub-module-pane">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="text-meta text-brand">模块配置</div>
+            <h4 className="text-f14 font-medium text-ink">{m.configTitle || m.label}</h4>
+          </div>
+          <button type="button" className="text-f12 text-faint cursor-pointer shrink-0" onClick={onClose}>收起说明</button>
         </div>
         <p className="text-f13"><strong>作用：</strong>{m.purpose}</p>
         <p className="text-f13"><strong>怎么运转：</strong>{m.flow}</p>
-        <p className="text-f13 text-ok"><strong>你能：</strong>{m.can}</p>
-        <p className="text-f13 text-faint"><strong>你不能：</strong>{m.cannot}</p>
+        <p className="text-f13"><strong>在此可配：</strong>{m.can}</p>
+        <p className="text-f13 text-faint"><strong>不会：</strong>{m.cannot} 点地图只进控制面配置，不进写作应用。</p>
         {id === 'story' && (
           <p className="text-f12">健康：{!w ? '请先选书' : health?.ok ? 'OK' : health?.detail || '—'}</p>
         )}
-        <p className="text-meta text-warn">Hub 内不提供执行写工具按钮；世界写须经主编审批。</p>
-        <div className="flex gap-2 pt-1">
-          {m.section && <Btn size="sm" variant="soft" onClick={() => onGoSection(m.section)}>打开相关分区</Btn>}
-          {m.exit && <Btn size="sm" variant="ghost" onClick={exit}>返回写作台</Btn>}
-        </div>
+        <p className="text-meta text-warn">无「执行写工具」；世界写须经主编审批。返回写作台请用顶栏「返回」。</p>
+        {m.configSection && (
+          <Btn size="sm" variant="soft" onClick={() => onGoSection(m.configSection, m.configPlane)}>
+            已在下方显示：{m.configTitle || m.label}
+          </Btn>
+        )}
       </div>
     )
   }
@@ -559,6 +559,17 @@ export function SystemHub({
         </nav>
         <div className="flex-1 min-h-0 overflow-y-auto">
           {err && <div className="m-4 text-f13 text-danger" role="alert">{err}</div>}
+          {moduleId && section?.id !== 'map' && (
+            <div className="px-5 pt-4">
+              <ModulePane
+                id={moduleId}
+                health={dataHealth}
+                work={work}
+                onClose={() => setModuleId(null)}
+                onGoSection={goSection}
+              />
+            </div>
+          )}
           {main}
         </div>
       </div>
