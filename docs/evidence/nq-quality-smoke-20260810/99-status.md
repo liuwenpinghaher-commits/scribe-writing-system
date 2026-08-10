@@ -1,18 +1,45 @@
-# PR-10 证据总状态
+# nq quality smoke · 2026-08-10
+
+## 已完成（工程）
 
 | 项 | 状态 |
 |----|------|
-| 文档/env/runbook | **交付**（本 PR） |
-| demo health 抽样 | **OK** · 见 `06-health.txt`（2026-08-10 · 公网 `/api/health`+`/ready`） |
-| migration 117 | **待操作员在 demo 确认**（热更含 117 后打开作品） |
-| 质量 env 上线 | **待操作员合并 fragment 并重启** |
-| 2 章连载 | **未跑**（避免默认重路径；按 `docs/ops/nq-quality-mode-demo-runbook.md`） |
-| 人读/人盲 | **待真人** |
+| main 合入 nq 栈 + 卷章 IA | `9e39755` |
+| demo hot 部署 | HEALTH 200 / ready true |
+| 质量模式 env | 容器内已生效（见下） |
+| migration `117_beats_meta.surql` | 已装入 backend 容器 |
+| 新书 | `book_7d98d3b9`（炉灰记·质量模式冒烟） |
 
-## 下一步
+### 质量 env（demo 容器 printenv）
 
-1. `./scripts/deploy_demo.sh hot`（含 PR-0…8 + 117）  
-2. 合并 `deploy/prod/env.quality-mode.fragment` → 重启 backend  
-3. 确认 migration 117  
-4. 铜炉新卷 2 章 pilot + 人读  
-5. 更新本文件为 PASS/FAIL  
+```
+SCRIBE3_DRAMA_GATE=1
+SCRIBE3_BEATS_SYNOPSIS_FALLBACK=0
+SCRIBE3_CRAFT_NOVEL=1
+SCRIBE3_PILOT_SOFT_PRESSURE=0
+SCRIBE3_PILOT_SOFT_AI_GRADE=1
+SCRIBE3_PARK_STROLL_BLOCKING=1
+SCRIBE3_DRAMA_HARD_PRESSURE=4
+SCRIBE3_BEATS_V2=1
+SCRIBE3_DRAMA_GATE_COMPAT=0
+SCRIBE3_PDC=1
+SCRIBE3_PDC_BLOCKING=1
+```
+
+## 部分完成（连载）
+
+| 项 | 状态 |
+|----|------|
+| ch1 草稿 | 版本库有 ~6597 字稿；pilot 在 draft_loop 因 advisory/422/502 未稳定 finalized |
+| ch2 | 未完成 |
+| 人读对照 book_013bcb3b | 待 ch1–2 finalized 后做 |
+
+## 观察
+
+1. 质量模式打开后 draft_loop 更「严/慢」；`SOFT_PRESSURE=0` + LLM 偶发 502 使 restore 链路易 thrash。
+2. 一次样本 beat0 仍为 `{text}` 摘要形（兼容路径）；GCD v2 需在 expand 成功且 `BEATS_V2=1` 时复查。
+3. `save-chapter` 曾 409（可能 lease/并发）；需人路径或脚本加强。
+
+## 回滚质量 env
+
+见 `deploy/prod/env.quality-mode-rollback.fragment` + 重启 backend。
