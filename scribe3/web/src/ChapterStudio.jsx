@@ -21,6 +21,13 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { SelectionQuoteActions } from './ui/SelectionQuoteActions.jsx'
 import { openChiefForEmptyField } from './lib/selAction.js'
 import { softGateIssues, softGateSummary } from './lib/deduceGate.js'
+import {
+  evaluateChapterContract,
+  contractNeedsAttention,
+  contractSoftSummary,
+  isContractBannerDismissed,
+  dismissContractBanner,
+} from './lib/chapterContractGate.js'
 
 // 章五阶段(Task 7):大纲(synopsis)→ 节拍(beats)→ 演绎(deduce)→ 草稿(draft)→ 正文(prose/WriteLayout)。
 // 大纲/节拍 patchChapter;演绎就地渲 DeduceStage(不再改道左栏能力);草稿 saveDraft/latestDraft;
@@ -45,8 +52,49 @@ const AUX_ENTRIES = [
   { key: 'pressure', label: '压力', icon: Gauge },
 ]
 const PHASE_KEYS = new Set(PHASES.map((p) => p.key))
-const META_PHASES = new Set(['outline', 'beats', 'deduce', 'draft'])
+/** 阶段编辑器仍可 loading 占位的 phase；final 也拉契约 meta，但不挡 WriteLayout */
+const META_EDITOR_PHASES = new Set(['outline', 'beats', 'deduce', 'draft'])
 const normalizePhase = (phase) => PHASE_KEYS.has(phase) ? phase : 'final'
+
+/** 正文顶栏：章前契约 soft banner（不阻断生成；存实质正文仍可能 GATE-B 硬拦） */
+function ContractSoftBanner({ work, seq, meta, onGoFix, onDismiss }) {
+  if (!meta) return null
+  if (!contractNeedsAttention(meta)) return null
+  if (isContractBannerDismissed(work, seq)) return null
+  const summary = contractSoftSummary(meta)
+  return (
+    <div
+      role="status"
+      data-testid="contract-soft-banner"
+      className="shrink-0 border-b border-warn/40 bg-warn/10 px-3 py-2 text-f12 text-ink flex items-start gap-2 flex-wrap"
+    >
+      <span className="font-medium text-warn shrink-0">章前契约未齐</span>
+      <span className="flex-1 min-w-[12rem] text-faint leading-relaxed">
+        {summary || '大纲/节拍/场景真相有缺口'}。
+        <strong className="text-ink font-medium">不建议开写</strong>
+        （本提示不阻断对话生成；存实质正文时工艺门仍可能硬拦缺项）。
+      </span>
+      {typeof onGoFix === 'function' && (
+        <button
+          type="button"
+          data-testid="contract-soft-banner-fix"
+          onClick={onGoFix}
+          className="h-7 px-2 rounded-lg border border-warn/50 bg-canvas text-f12 text-warn hover:bg-warn/10 cursor-pointer"
+        >
+          去补
+        </button>
+      )}
+      <button
+        type="button"
+        data-testid="contract-soft-banner-dismiss"
+        onClick={onDismiss}
+        className="h-7 px-2 rounded-lg text-f12 text-faint hover:bg-canvas cursor-pointer"
+      >
+        本次关闭
+      </button>
+    </div>
+  )
+}
 // 正文阶段会令 FourPaneShell 切到阅读布局，DetailPane 因布局重排可能重挂载。
 // 章节阶段因此必须按作品+章持久化；不能让目录节点携带的默认 outline 覆盖作者刚点开的正文。
 const phaseStorageKey = (work, seq) => `s3.chapter.phase:${work}:${seq}`
@@ -533,6 +581,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
   const [chapterMetaOpen, setChapterMetaOpen] = useState(false)
 
   // 草稿软门:切到草稿时若 missing/stale/空真相 → toast + 草稿页常驻 banner(不阻断)。
+  // 正文 soft:切到 final 且契约 B1/B2/B3 缺口 → toast；banner 另见 ContractSoftBanner。
   // Task 7:演绎已是章内真阶段,删除派发 s3-open-capability 的 deduce 特例,直接就地切换。
   const setPhaseP = useCallback((p) => {
     const nextPhase = normalizePhase(p)
@@ -546,13 +595,28 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
         })
       }
     }
+    if (nextPhase === 'final' && meta && contractNeedsAttention(meta)) {
+      const summary = contractSoftSummary(meta)
+      toast(`章前契约未齐：${summary || '有缺口'}。不建议开写；存实质正文仍可能被工艺门拦截。`, {
+        tone: 'warn',
+        action: {
+          label: '去补',
+          onClick: () => {
+            const c = evaluateChapterContract(meta)
+            if (!c.synopsisOk) setPhaseP('outline')
+            else if (!c.beatsOk) setPhaseP('beats')
+            else setPhaseP('deduce')
+          },
+        },
+      })
+    }
     setPhase(nextPhase)
     localStorage.setItem(phaseStorageKey(work, seq), nextPhase)
     // 保留旧键给未迁移的相邻界面/测试读取；当前 ChapterStudio 以作品+章键为准。
     localStorage.setItem('s3.chapter.phase', nextPhase)
     setAuxView(null)
     setChapterMetaOpen(false)
-  }, [meta, toast])
+  }, [meta, toast, work, seq])
 
   // L1 轻选 pick 等右坞动作派发 s3-chapter-phase → 切到草稿,作者立刻看到种子。
   useEffect(() => {
@@ -608,22 +672,55 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sceneIdx])
 
-  // 大纲/节拍 tab 用:拉章 synopsis/beats/title(正文 tab 由 WriteLayout 自己拉,互不干扰)
-  // 仅在切章/切阶段时显"加载中"占位;refresh(失焦落库后回读)静默刷新,不卸载中区编辑器
-  // ——否则演绎生成落库触发 refresh→loading→DeduceStage 卸载重挂,竞态把刚生成的 scene_truth 冲掉。
+  // 契约字段与 phase 解耦：任意 phase（含 final）在 seq/refresh 变化时拉取。
+  // final 不 setLoading 挡 WriteLayout；阶段编辑器切章时可用 loading 占位。
+  // refresh 静默刷新,不卸载中区编辑器——否则演绎落库 refresh→loading 竞态冲掉 scene_truth。
   const metaKey = useRef('')
+  const [bannerTick, setBannerTick] = useState(0) // dismiss 后强制重渲 banner
   useEffect(() => {
-    if (phase === 'final' || !META_PHASES.has(phase)) { setLoading(false); return }
     let alive = true
-    const key = `${seq}|${phase}`
-    if (metaKey.current !== key) { metaKey.current = key; setLoading(true) }
+    const key = String(seq)
+    const seqChanged = metaKey.current !== key
+    if (seqChanged) {
+      metaKey.current = key
+      if (META_EDITOR_PHASES.has(phase)) setLoading(true)
+      else setLoading(false)
+    }
     api.chapter(seq)
-      .then((ch) => { if (alive) setMeta((m) => ({ ...(m || {}), title: ch?.title || '', synopsis: ch?.synopsis || '', beats: ch?.beats || [], focalizer: ch?.focalizer || '', scene_truth: ch?.scene_truth || '', scene_truth_revision: ch?.scene_truth_revision ?? 0, deductions: ch?.deductions || [], involved_characters: ch?.involved_characters || [], proseWords: (ch?.prose || '').replace(/\s/g, '').length })) })
-      .catch(() => { if (alive) setMeta((m) => ({ ...(m || {}), title: '', synopsis: '', beats: [], focalizer: '', scene_truth: '', scene_truth_revision: 0, deductions: [], involved_characters: [], proseWords: 0 })) })
+      .then((ch) => {
+        if (!alive) return
+        setMeta((m) => ({
+          ...(m || {}),
+          title: ch?.title || '',
+          synopsis: ch?.synopsis || '',
+          beats: ch?.beats || [],
+          label: ch?.label || '',
+          volume: ch?.volume || '',
+          focalizer: ch?.focalizer || '',
+          scene_truth: ch?.scene_truth || '',
+          scene_truth_revision: ch?.scene_truth_revision ?? 0,
+          deductions: ch?.deductions || [],
+          involved_characters: ch?.involved_characters || [],
+          proseWords: (ch?.prose || '').replace(/\s/g, '').length,
+        }))
+      })
+      .catch(() => {
+        if (!alive) return
+        setMeta((m) => ({
+          ...(m || {}),
+          title: '', synopsis: '', beats: [], label: '', volume: '',
+          focalizer: '', scene_truth: '', scene_truth_revision: 0,
+          deductions: [], involved_characters: [], proseWords: 0,
+        }))
+      })
       .finally(() => { if (alive) setLoading(false) })
-    api.entities().then((es) => { if (alive) setMeta((m) => ({ ...(m || {}), chars: es.filter((e) => e.kind === 'character') })) }).catch(() => {})
+    api.entities().then((es) => {
+      if (alive) setMeta((m) => ({ ...(m || {}), chars: es.filter((e) => e.kind === 'character') }))
+    }).catch(() => {})
     return () => { alive = false }
-  }, [seq, phase, refresh])
+    // phase 变化不重拉；final/冷启动也依赖本 effect 填 meta 以驱动 soft banner
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seq, refresh])
 
   const archiveChapter = async () => {
     try {
@@ -685,7 +782,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
           </div>
           <span className="w-px h-4 bg-line mx-0.5" aria-hidden="true" />
           <Btn variant="ghost" size="sm" onClick={() => { setAuxView(null); setChapterMetaOpen(true) }}
-            title="编辑章节标题、标签和所属卷" aria-label="章节信息"><Settings2 size={14} />章节信息</Btn>
+            title="章前契约：元数据、大纲/节拍/真相摘要与齐套" aria-label="章节信息"><Settings2 size={14} />章节信息</Btn>
           <span className="w-px h-4 bg-line mx-0.5" aria-hidden="true" />
         </>
       )}
@@ -733,13 +830,16 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
     >
       {showChapterMeta ? (
         <div className="h-full min-h-0 overflow-y-auto bg-canvas">
-          <ChapterMetaPane seq={seq} work={work}
+          <ChapterMetaPane
+            seq={seq}
+            work={work}
             onClose={() => setChapterMetaOpen(false)}
-            onSaved={(next) => {
-              setMeta((current) => ({ ...(current || {}), title: next.title }))
-              setRefresh((r) => r + 1)
+            onNavigatePhase={(p) => setPhaseP(p)}
+            onOpenAux={(key) => {
               setChapterMetaOpen(false)
-            }} />
+              setAuxView(key)
+            }}
+          />
         </div>
       ) : showAux ? (
         <div className="h-full min-h-0" data-testid="chapter-aux-view">
@@ -751,6 +851,22 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
         </div>
       ) : phase === 'final' ? (
         <div className="h-full flex flex-col min-h-0">
+          <span className="hidden" aria-hidden data-banner-tick={bannerTick} />
+          <ContractSoftBanner
+            work={work}
+            seq={seq}
+            meta={meta}
+            onGoFix={() => {
+              const c = evaluateChapterContract(meta)
+              if (!c.synopsisOk) setPhaseP('outline')
+              else if (!c.beatsOk) setPhaseP('beats')
+              else setPhaseP('deduce')
+            }}
+            onDismiss={() => {
+              dismissContractBanner(work, seq)
+              setBannerTick((t) => t + 1)
+            }}
+          />
           <ChapterMaterialRefs seq={seq} onSelectMaterial={onSelectNode} />
           <div className="flex-1 min-h-0">
             {/* I4:不再传 onSeqChange——WriteLayout 内部步进器已删,换章单向走外部 seq prop */}

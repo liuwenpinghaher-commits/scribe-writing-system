@@ -598,11 +598,12 @@ class ContextAssembler:
         if detail and f.type != "chapter":
             lines.append(f"- {detail}")
         out = [_Item("\n".join(lines), src)]
+        # 章焦点:长大纲/节拍只走 outline domain;focus 仅一行指针 + source_id :focus
         if detail and f.type == "chapter" and snapshot.chapter is not None:
             out.append(_Item(
                 detail,
                 ContextSource(
-                    source_id=f"chapter:{snapshot.chapter}:outline",
+                    source_id=f"chapter:{snapshot.chapter}:focus",
                     source_kind="focus",
                     work=snapshot.work,
                     revision=f.source_revision,
@@ -614,25 +615,20 @@ class ContextAssembler:
         f = snapshot.focus
         try:
             if f.type == "chapter" and snapshot.chapter is not None:
+                # 去重:不再展开 synopsis/beats 全文(旧 [:220]);指针指向 outline 域
                 ch = self.store.get_chapter(snapshot.chapter) or {}
                 syn = (ch.get("synopsis") or "").strip()
-                beats = []
+                has_beats = False
                 for beat in ch.get("beats") or []:
                     text = (
                         beat.get("text") if isinstance(beat, dict) else str(beat)
                     )
-                    text = (text or "").strip()
-                    if text:
-                        beats.append(text)
-                parts = []
-                if syn:
-                    parts.append("- 本章大纲:" + syn[:220])
-                if beats:
-                    numbered = "；".join(
-                        f"{index}.{text}" for index, text in enumerate(beats, 1)
-                    )
-                    parts.append("- 本章节拍:" + numbered[:220])
-                return "\n".join(parts)
+                    if (text or "").strip():
+                        has_beats = True
+                        break
+                if not syn and not has_beats:
+                    return ""
+                return "- 本章大纲/节拍:见 outline 域（勿重复展开）"
             if f.type == "character":
                 for c in (self.store.characters() or []):
                     if c.id == f.id or c.name == f.label:

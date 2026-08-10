@@ -4659,18 +4659,45 @@ def test_outline_block_injects_synopsis_and_beats(store):
     store.save_chapter(2, "", title="第2章")
     store.update_chapter_meta(2, {"synopsis": "柳怀玉赴义庄验尸",
                                   "beats": [{"text": "抵达义庄"}, {"text": "发现异样"}]})
-    blk = _outline_block(store, 2)
+    blk = _outline_block(store, 2, mode="write")
     assert "柳怀玉赴义庄验尸" in blk
     assert "抵达义庄" in blk and "发现异样" in blk
+    assert "〔大纲〕" in blk
     store.save_chapter(3, "", title="第3章")
-    assert _outline_block(store, 3) == ""   # 空 synopsis/beats → 空串
+    assert _outline_block(store, 3, mode="write") == ""   # 空 synopsis/beats → 空串
+
+
+def test_outline_block_write_vs_plan_modes(store):
+    """write 模式含契约正文、不含 plan 协议尾;plan 模式含生成/调整与 reversal_type。"""
+    from scribe3.app import _outline_block
+    store.save_chapter(2, "", title="第2章")
+    store.update_chapter_meta(2, {
+        "synopsis": "柳怀玉赴义庄验尸",
+        "beats": [{"text": "抵达义庄"}, {"text": "发现异样"}],
+    })
+    write_blk = _outline_block(store, 2, mode="write")
+    plan_blk = _outline_block(store, 2, mode="plan")
+    assert "〔大纲〕" in write_blk and "〔节拍〕" in write_blk
+    assert "生成/调整节拍时" not in write_blk
+    assert "reversal_type" not in write_blk
+    assert "生成/调整节拍时" in plan_blk
+    assert "reversal_type" in plan_blk and "setup_clues" in plan_blk
 
 
 def test_outline_block_wired_into_chat_write(store, monkeypatch):
-    """B-3 根治:GET 与 POST /chat/write 组装路径都注入本章大纲/节拍(此前从不注入)。"""
+    """PR-2:长 synopsis(>220)经 outline domain 注入;防 focus 假绿。
+
+    断言:全文/第221字后缀、〔大纲〕、source_kind=outline 可观测面之一;
+    draft/final 组装不含 plan 独有串。
+    """
     store.save_chapter(2, "", title="第2章")
-    store.update_chapter_meta(2, {"synopsis": "柳怀玉赴义庄验尸",
-                                  "beats": [{"text": "抵达义庄"}]})
+    # 构造明确长于 focus 旧裁剪 220 的 synopsis;后缀唯一标记
+    long_syn = ("甲" * 220) + "【OUTLINE_TAIL_MARKER_XYZ】验尸铜钱异样"
+    assert len(long_syn) > 220
+    store.update_chapter_meta(2, {
+        "synopsis": long_syn,
+        "beats": [{"text": "抵达义庄"}, {"text": "发现异样"}, {"text": "收束"}],
+    })
     captured = {}
 
     def cap(message, instructions, **_kw):
@@ -4680,10 +4707,24 @@ def test_outline_block_wired_into_chat_write(store, monkeypatch):
     monkeypatch.setattr(A, "_responses_events", cap)
     c = _client(store)
     c.get("/chat/write", params={"msg": "写本章", "chapter": 2})
-    assert "柳怀玉赴义庄验尸" in captured["ins"] and "抵达义庄" in captured["ins"]
+    ins = captured["ins"]
+    assert "【OUTLINE_TAIL_MARKER_XYZ】" in ins, "长 synopsis 后缀必须进 instructions(outline domain)"
+    assert "〔大纲〕" in ins
+    assert "抵达义庄" in ins
+    # write 模式不得带 plan 协议
+    assert "生成/调整节拍时" not in ins
+    assert "reversal_type" not in ins
+    # 不得双份粘贴长文(指针行可存在;全文只应因 outline 出现一次量级)
+    assert ins.count("【OUTLINE_TAIL_MARKER_XYZ】") == 1
+    # Manifest / supplemental 观测:若 envelope_trace 可用则检查 outline kind
+    # 最低:instructions 含 outline 标题即证明 domain 挂接
+    assert "本章大纲/节拍" in ins
+
     captured.clear()
     c.post("/chat/write", json={"msg": "写本章", "chapter": 2})
-    assert "柳怀玉赴义庄验尸" in captured["ins"] and "抵达义庄" in captured["ins"]
+    ins2 = captured["ins"]
+    assert "【OUTLINE_TAIL_MARKER_XYZ】" in ins2 and "〔大纲〕" in ins2
+    assert "生成/调整节拍时" not in ins2
 
 
 def test_outline_block_focalizer_guardrail(store):
@@ -4691,26 +4732,43 @@ def test_outline_block_focalizer_guardrail(store):
     from scribe3.app import _outline_block
     store.save_chapter(2, "", title="第2章")
     store.update_chapter_meta(2, {"synopsis": "柳怀玉赴义庄验尸"})
-    foc = _outline_block(store, 2, focalizer="role:柳怀玉")
+    foc = _outline_block(store, 2, focalizer="role:柳怀玉", mode="write")
     assert "柳怀玉赴义庄验尸" in foc          # 大纲仍在(仍引导情节)
     assert "帧外私密留作伏笔" in foc          # 限知免责句
-    omni = _outline_block(store, 2, focalizer="")
+    omni = _outline_block(store, 2, focalizer="", mode="write")
     assert "柳怀玉赴义庄验尸" in omni
     assert "帧外私密留作伏笔" not in omni      # 全知章无免责句
+
+
+def test_volume_intro_block_injects_and_empty(store, monkeypatch):
+    """PR-3:有卷 intro → 注入摘要;无卷/空 intro → 空;flag 关 → 空。"""
+    from scribe3.app import _volume_intro_block
+    store.save_chapter(2, "", title="第2章")
+    vid = store.add_volume(
+        title="试卷二", intro="卷级主冲突是铜钱与义庄。" * 5, sort_order=1,
+    )
+    store.update_chapter_meta(2, {"volume": vid, "synopsis": "短纲"})
+    blk = _volume_intro_block(store, 2)
+    assert "本卷卷纲摘要" in blk
+    assert "卷级主冲突" in blk
+    store.save_chapter(3, "", title="第3章")
+    assert _volume_intro_block(store, 3) == ""
+    monkeypatch.setenv("SCRIBE3_VOLUME_INTRO_INJECT", "0")
+    assert _volume_intro_block(store, 2) == ""
 
 
 # ===== 方案B任务13b:反转标注规范 + 叙述者真诚视角硬约束 =====
 
 def test_reversal_annotation_and_focalizer_sincerity_wired(store, monkeypatch):
-    """B13b:①_outline_block 节拍标注规范追加反转字段(reversal_type/setup_clues/
-    reveal_position_pct);②写作 instructions 含叙述者真诚视角硬约束("真诚相信"),
-    GET/POST 两条组装链均命中(防知情POV倒灌的又一道文字层约束)。"""
+    """B13b:①_outline_block plan 模式含 reversal_type;②写作 instructions 含「真诚相信」。"""
     from scribe3.app import _outline_block
     store.save_chapter(2, "", title="第2章")
     store.update_chapter_meta(2, {"synopsis": "柳怀玉赴义庄验尸",
                                   "beats": [{"text": "抵达义庄"}]})
-    blk = _outline_block(store, 2)
+    blk = _outline_block(store, 2, mode="plan")
     assert "reversal_type" in blk and "setup_clues" in blk and "reveal_position_pct" in blk
+    write_blk = _outline_block(store, 2, mode="write")
+    assert "reversal_type" not in write_blk
 
     captured = {}
 

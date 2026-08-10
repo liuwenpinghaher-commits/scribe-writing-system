@@ -159,6 +159,29 @@ export function seedChiefNarrativeWrite(scope, target, hint = '') {
   return focusChiefWithSeed(lines.join('\n'))
 }
 
+/**
+ * 章大纲 synopsis 主编种子（与 OutlineTab / ChapterCard scope='outline' 同源）。
+ */
+export function seedChapterOutline(seq, synopsis = '', extraHint = '') {
+  const hint = extraHint
+    || `请更新第 ${seq} 章大纲(synopsis)。当前内容:\n${synopsis || '（空）'}`
+  return seedChiefNarrativeWrite('outline', `第 ${seq} 章大纲`, hint)
+}
+
+/**
+ * 章节拍 beats 主编种子（与 BeatsTab scope='beats' 同源）。
+ */
+export function seedChapterBeats(seq, beats = [], extraHint = '') {
+  const list = Array.isArray(beats) ? beats : []
+  const serialized = list.map((b, i) => {
+    if (typeof b === 'string') return `${i + 1}. ${b}`
+    return `${i + 1}. ${b?.text || ''}${b?.done ? ' [已完成]' : ''}`
+  }).join('\n')
+  const hint = extraHint
+    || `请更新第 ${seq} 章节拍列表(beats)。当前 ${list.length} 条:\n${serialized || '（空）'}`
+  return seedChiefNarrativeWrite('beats', `第 ${seq} 章节拍`, hint)
+}
+
 /** 章节重排 → s3_reorder_chapters */
 export function seedChiefReorderChapters(volumeId, order) {
   const seqs = Array.isArray(order) ? order : []

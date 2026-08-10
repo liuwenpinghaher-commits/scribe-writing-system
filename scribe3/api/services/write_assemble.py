@@ -571,20 +571,29 @@ def _voice_anchor_block(st, focalizer: str = "") -> str:
     return "".join(parts)
 
 
-def _outline_block(st, chapter: int, focalizer: str = "") -> str:
-    """B-3 根治:把本章五阶段的「大纲(synopsis)+ 节拍(beats)」注入写作 prompt。
-    此前 synopsis/beats 从不注入 → 模型被指令"据大纲/节拍写"却从未收到内容。
-    仿 _deduction_block:空(无 synopsis 且无 beats)→ 返回空串(默认行为不变)。
-    Task8审查必修2:限知章(focalizer 非空)补一句限知免责——大纲是作者视角,
-      帧外私密不得由焦点者知晓或道破(对齐 _deduction_block 的全知/限知分离)。
-    方案B任务10:情节点字数预算契约(oh-story artifact-protocols.md 移植)——
-      本函数是 chat_write(GET/POST)唯一共用的组装点,前端"大纲/节拍" tab 与
-      "草稿" tab 都映射到同一 phase 经此函数注入(节拍无独立生成端点,由
-      前端/主编对话驱动),故契约段落点选在此处而非另开端点:
-      · 生成/调整节拍时的密度+预算标注规范(始终附带,覆盖节拍生成时刻);
-      · 写草稿时"按预算分配笔墨"的执行要求(仅当已有节拍内容时附带)。
-      确定性校验见 brief.validate_beat_budgets(后续可接进节拍保存端点)。
-    自带前导 \\n\\n(与 _motif_block/_recap_block 同约定,caller 直接 += 即可)。"""
+_VOLUME_INTRO_BUDGET = 400  # 卷纲摘要注入字符上限
+
+
+def _volume_intro_inject_enabled() -> bool:
+    """SCRIBE3_VOLUME_INTRO_INJECT 默认开；显式 0/false/no/off 关闭。"""
+    v = (os.environ.get("SCRIBE3_VOLUME_INTRO_INJECT") or "1").strip().lower()
+    return v not in ("0", "false", "no", "off", "")
+
+
+def _outline_block(st, chapter: int, focalizer: str = "", *, mode: str = "write") -> str:
+    """本章大纲(synopsis)+节拍(beats)契约注入。
+
+    mode:
+      - ``write`` (draft/final 写栈默认): 〔大纲〕/〔节拍〕clip + 有 beats 时笔墨句
+        + 限知免责。**不含**「生成/调整大纲或节拍」协议三尾段。
+      - ``plan`` (outline/beats 讨论): write 内容 + 情节点字数预算契约 + 章节定位
+        + 反转标注规范(reversal_type 等)。
+
+    空(无 synopsis 且无 beats)→ 空串。限知章(focalizer 非空)附作者视角免责。
+    历史: 早期生产写栈未挂接本函数,仅 focus [:220] 旁路;现由
+    ``_assemble_write_instructions_v1`` domain fail-soft 挂 write 模式。
+    自带前导 \\n\\n(与 _motif_block/_recap_block 同约定,caller 直接 += 即可)。
+    """
     if chapter is None:
         return ""
     try:
@@ -609,30 +618,64 @@ def _outline_block(st, chapter: int, focalizer: str = "") -> str:
     if focalizer:
         parts.append("(以上为作者视角大纲,写限知视角时只呈现焦点者可感知的部分;"
                      "帧外私密留作伏笔,不得由焦点者知晓或道破。)")
-    parts.append(
-        "情节点字数预算契约:生成/调整节拍时,每个情节点须标注「密度:密|疏」与"
-        "「字数预算:N字」(密≥250字,慢镜头爽点400-600字,疏≈40字过场);"
-        "全部情节点预算求和必须落在[章目标字数, ×1.1]区间;"
-        "节拍列表末尾输出一行「预算合计:X字」。"
-    )
-    # 方案B任务11:章节定位六型 + 卷级张弛基线(oh-story outline-structure-theory.md:282-289 移植)——
-    # 大纲/节拍标注补充"这一章在全书张弛节奏里的定位",供 brief.find_tension_monotony 卷级检测消费。
-    parts.append(
-        "章节定位标注:生成/调整大纲或节拍时,每章须标注「压力级:1-5」与"
-        "「chapter_role:高压|推进|修炼|关系回收|低压|信息整理」;"
-        "低压/关系回收章允许无显性爽点,但须保留追读拉力(未解悬念或未了结的关系张力仍须推进);"
-        "均衡基线非硬配额,严肃志怪基调整体取克制档,但同一 chapter_role 不得连排超过 2-3 章。"
-    )
-    # 方案B任务13b:反转标注规范(oh-story reversal-toolkit.md 7类反转)——
-    # 若本章含反转,节拍须显式标注 reversal_type/setup_clues/reveal_position_pct 三字段,
-    # 供 critique.build_reversal_rubric_prompt 机检(铺垫是否≥3处/揭示是否<300字/
-    # 有无凭空新信息/揭示位置是否落在50-85%最佳区间)。
-    parts.append(
-        "反转标注规范:若本章含反转,节拍须标注「reversal_type:七类之一(身份反转/"
-        "动机反转/因果反转/立场反转/信息差反转/时间线反转/道德反转)」+「setup_clues」"
-        "(≥3 处铺垫,须引用前文对应片段)+「reveal_position_pct」(建议落在 50-85 区间)。"
-    )
+    plan_mode = (mode or "write").strip().lower() == "plan"
+    if plan_mode:
+        parts.append(
+            "情节点字数预算契约:生成/调整节拍时,每个情节点须标注「密度:密|疏」与"
+            "「字数预算:N字」(密≥250字,慢镜头爽点400-600字,疏≈40字过场);"
+            "全部情节点预算求和必须落在[章目标字数, ×1.1]区间;"
+            "节拍列表末尾输出一行「预算合计:X字」。"
+        )
+        # 方案B任务11:章节定位六型 + 卷级张弛基线
+        parts.append(
+            "章节定位标注:生成/调整大纲或节拍时,每章须标注「压力级:1-5」与"
+            "「chapter_role:高压|推进|修炼|关系回收|低压|信息整理」;"
+            "低压/关系回收章允许无显性爽点,但须保留追读拉力(未解悬念或未了结的关系张力仍须推进);"
+            "均衡基线非硬配额,严肃志怪基调整体取克制档,但同一 chapter_role 不得连排超过 2-3 章。"
+        )
+        # 方案B任务13b:反转标注规范
+        parts.append(
+            "反转标注规范:若本章含反转,节拍须标注「reversal_type:七类之一(身份反转/"
+            "动机反转/因果反转/立场反转/信息差反转/时间线反转/道德反转)」+「setup_clues」"
+            "(≥3 处铺垫,须引用前文对应片段)+「reveal_position_pct」(建议落在 50-85 区间)。"
+        )
     return "\n\n" + "\n".join(parts)
+
+
+def _volume_intro_block(st, chapter: int, focalizer: str = "") -> str:
+    """当前卷 intro 摘要注入写路径(作者备忘;不经 epistemic SQL 门)。
+
+    无卷 / 空 intro / flag 关 → 空串。clip ≤ _VOLUME_INTRO_BUDGET。fail-soft。
+    """
+    if chapter is None or not _volume_intro_inject_enabled():
+        return ""
+    try:
+        ch = st.get_chapter(chapter) or {}
+        vid = ch.get("volume")
+        if vid in (None, ""):
+            return ""
+        intro = ""
+        for v in (st.list_volumes() or []):
+            if str(v.get("id")) == str(vid):
+                intro = (v.get("intro") or "").strip()
+                break
+        if not intro:
+            return ""
+        body = _clip(intro, _VOLUME_INTRO_BUDGET)
+        parts = [
+            "## 本卷卷纲摘要(作者备忘·氛围与卷级冲突;不得覆盖本章大纲/场景真相)",
+            body,
+        ]
+        if focalizer:
+            parts.append(
+                "(以上为作者卷纲备忘,写限知视角时只呈现焦点者可感知的部分;"
+                "帧外私密留作伏笔,不得由焦点者知晓或道破。)"
+            )
+        return "\n\n" + "\n".join(parts)
+    except Exception as e:
+        logging.getLogger("scribe3").warning(
+            "写路径 volume_intro 注入失败(fail-soft): %s", e)
+        return ""
 
 
 def _deduction_context_segments(st, seq: int) -> list[tuple[str, str, str]]:
@@ -1035,6 +1078,32 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         rendered += _domain_input(
             f"chapter:{chapter}:purpose", "purpose",
             _purpose_workflow_block(st, chapter, with_tools, work),
+        )
+        # 大纲/节拍契约正文(mode=write,剥离 plan 协议尾段);domain fail-soft
+        def _outline_write_domain():
+            try:
+                return _outline_block(
+                    st, chapter, focalizer=focalizer or "", mode="write",
+                )
+            except Exception as e:
+                logging.getLogger("scribe3").warning(
+                    "写路径 outline 注入失败(fail-soft): %s", e)
+                return ""
+
+        rendered += _domain_input(
+            f"chapter:{chapter}:outline", "outline",
+            _outline_write_domain(),
+        )
+        # 当前卷 intro 摘要(flag 默开;空 intro/无卷 → 空串)
+        _vol_intro = _volume_intro_block(st, chapter, focalizer=focalizer or "")
+        _vid = "none"
+        if _vol_intro:
+            try:
+                _vid = str((st.get_chapter(chapter) or {}).get("volume") or "none")
+            except Exception:
+                _vid = "none"
+        rendered += _domain_input(
+            f"volume:{_vid}:intro", "volume_intro", _vol_intro,
         )
         # 章前简报操作必达段(伏笔/开环/心跳/弧光/因果)——与 discussion 旧链
         # _editor_write_system 同源 assemble_chapter_brief,v1 此前漏挂。

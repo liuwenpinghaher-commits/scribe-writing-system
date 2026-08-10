@@ -175,8 +175,8 @@ def test_degrades_to_store_when_retriever_none(store, snapshot):
     assert "村口" in block(env, "canonical").text
 
 
-def test_chapter_focus_includes_synopsis_and_beats(store):
-    """章焦点必须把大纲和节拍一起纳入有预算、有溯源的 focus 块。"""
+def test_chapter_focus_points_to_outline_domain(store):
+    """章焦点去重:不再展开 synopsis/beats 全文;source_id 为 chapter:N:focus。"""
     store.save_chapter(3, "", title="第三章")
     store.update_chapter_meta(3, {
         "synopsis": "柳怀玉赴义庄验尸",
@@ -189,9 +189,11 @@ def test_chapter_focus_includes_synopsis_and_beats(store):
     env = ContextAssembler(store, None).assemble(snap, "写本章", "write")
 
     focus = block(env, "focus")
-    assert "柳怀玉赴义庄验尸" in focus.text
-    assert "抵达义庄" in focus.text and "发现异样" in focus.text
-    assert any(source.source_id == "chapter:3:outline" for source in focus.sources)
+    assert "见 outline 域" in focus.text
+    # 长文不应再经 focus 展开
+    assert "柳怀玉赴义庄验尸" not in focus.text
+    assert any(source.source_id == "chapter:3:focus" for source in focus.sources)
+    assert not any(source.source_id == "chapter:3:outline" for source in focus.sources)
 
 
 def test_recent_prioritizes_current_chapter_tail_with_memory_candidates(store):

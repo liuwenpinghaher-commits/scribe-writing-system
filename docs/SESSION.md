@@ -17,14 +17,23 @@
 
 | 项 | 值 |
 |----|----|
-| **更新于** | 2026-08-10（**图谱节点抽屉戏剧操作台 PR-A** + demo frontend 冒烟） |
+| **更新于** | 2026-08-10（**卷/章信息架构改造 PR-1…5** 实现 + demo 冒烟） |
 | **产品名（UI）** | 铜炉 / tonglu（仅品牌文案+logo，色板未改） |
-| **默认分支** | `main`（待 push 图谱抽屉） |
-| **刚完成** | ① 图谱 NodeDetail 三层操作台 ② hop 升跳保留 pick ③ hop-boost 诚实 UX ④ discuss 问主编 ⑤ demo frontend 部署 |
-| **设计** | [`设计文档/2026-08-09-图谱节点抽屉-戏剧操作台.md`](../设计文档/2026-08-09-图谱节点抽屉-戏剧操作台.md)（Accepted R2） |
-| **进行中目标** | 记忆质量 / 人盲；PR-B frame×2 可选 |
-| **主验收书** | **`book_aa57f17e`**（图谱邻域冒烟）/ **`book_7b918ca0`**（5w 参考） |
+| **默认分支** | `main` |
+| **刚完成** | 卷/章 IA：章前契约页、outline write 注入、volume_intro、final soft banner、focus 去重 |
+| **设计** | [`设计文档/2026-08-10-卷章信息架构改造.md`](../设计文档/2026-08-10-卷章信息架构改造.md)（r2 Accepted · 实现中/已实现） |
+| **进行中目标** | demo 部署验收；记忆质量 / 人盲 |
+| **主验收书** | **`book_aa57f17e`** / **`book_7b918ca0`** |
 | **活跃分支** | `main` |
+
+### 卷/章信息架构改造（2026-08-10）
+
+- **UI**：`ChapterMetaPane` 章前契约合成页 + `lib/chapterContractGate.js`（B1/B2/B3 soft）  
+- **写栈**：`_outline_block(mode=write|plan)` 挂 draft/final；focus 指针 + `source_id=chapter:N:focus`；`_volume_intro_block` ~400  
+- **soft**：`ChapterStudio` final 亦拉 meta；`ContractSoftBanner` + 切 final toast（不拦 chat-write）  
+- **卷页**：intro 注入说明 + 缺大纲角标  
+- **测**：`chapterContractGate` node pure 6 pass；pytest outline/focus/volume_intro 已改写（demo 跑）  
+- **部署**：`./scripts/deploy_demo.sh`（hot + frontend）
 
 ### 图谱节点抽屉 · 戏剧操作台（2026-08-10 PR-A）
 

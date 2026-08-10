@@ -234,11 +234,15 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
                 让主编写入
               </Btn>
             </div>
+            <p className="mb-2 text-f12 text-faint leading-relaxed" data-testid="volume-intro-hint">
+              卷纲为作者备忘：有内容时写作本章可注入约 400 字摘要作氛围/卷级冲突参考；
+              空则跳过。不经限知 SQL 门，勿写入未揭示剧透。表单仅为 UI 缓冲，落库仍走主编审批。
+            </p>
             <div className="grid gap-1">
               <ReadOnlyText label="卷名" value={form.title} entityLabel={form.title || volume.title || node.label || '卷'} fieldKey="title" emptyHint="（空 · 由主编审批写入）" />
               <ReadOnlyText label="标识色" value={form.color} emptyHint="—" entityLabel={form.title || volume.title || node.label || '卷'} fieldKey="color" />
               <ReadOnlyText label="卷排序" value={form.sort_order} entityLabel={form.title || volume.title || node.label || '卷'} fieldKey="sort_order" emptyHint="—" />
-              <ReadOnlyText label="卷纲" value={form.intro} emptyHint="（空 · 由主编审批写入）" entityLabel={form.title || volume.title || node.label || '卷'} fieldKey="intro" />
+              <ReadOnlyText label="卷纲" value={form.intro} emptyHint="（空 · 由主编审批写入；空则不注入写路径）" entityLabel={form.title || volume.title || node.label || '卷'} fieldKey="intro" />
             </div>
           </section>
 
@@ -257,10 +261,15 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
                   key={chapter.seq}
                   type="button"
                   onClick={() => onSelectNode?.(chapterNode(chapter))}
-                  className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 py-2 text-left text-f13 hover:bg-soft/50 cursor-pointer"
+                  className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-3 py-2 text-left text-f13 hover:bg-soft/50 cursor-pointer"
                 >
                   <span className="min-w-0 truncate font-medium text-ink">{`${chapter.seq} ${chapter.title || ''}`.trim()}</span>
                   <span className="text-meta text-faint">{chapter.label || '未设'}</span>
+                  {!String(chapter.synopsis || '').trim() ? (
+                    <span className="text-meta text-warn" title="缺大纲 synopsis">缺大纲</span>
+                  ) : (
+                    <span className="text-meta text-faint" aria-hidden>·</span>
+                  )}
                   <span className="text-meta text-faint">{wcLabel(chapter.word_count)} 字</span>
                 </button>
               ))}
