@@ -5,7 +5,7 @@
 | **文档标题** | 用户期望「叙事引擎」：小说由冲突/事件推动，统合现有资源成控制面 |
 | **作者** | Grok Design（待人审签） |
 | **日期** | 2026-08-10 |
-| **状态** | Draft · **rev.2.2**（用户裁决：插入点 A；LLM 开篇检测；智能重算 drive） |
+| **状态** | Draft · **rev.2.3**（产品纠偏：**引导优先、少硬拦**；冲突/事件驱动为主，允许服务戏的 POV 跟随） |
 | **产品** | scribe-writing-system / scribe3（铜炉） |
 | **文档真源** | 仓库 `docs/plans/2026-08-10-narrative-event-engine.md`；`/tmp/grok-1000/grok-design-doc-5a3d3922.md` 为会话 scratch，改设计须同步 commit 耐久路径 |
 | **验收环境** | demo 已部署栈 `https://www.qing.blue`；**禁止**默认再起第二 Surreal；Grok 运行机不做全量 npm/测试 |
@@ -16,10 +16,10 @@
 
 ### 读法（工程师 · 第一周）
 
-1. **## Overview + 强制闭环表 + ## Key Decisions** — 引擎定义与「何时真成主时钟」。  
-2. **资源统合表 + rev.1 inventory 白名单 + `narrative_drive` schema** — 谁喂入、谁绑定。  
-3. **ensure 路径（智能重算）+ 反逛 LLM 主路径 + soft/triage/blocking 接线**。  
-4. **## Open Questions（已全部裁决）+ ## PR Plan** — 增量开工。  
+1. **## Overview + 产品原则（引导优先）+ ## Key Decisions** — 引擎要什么、**不要**什么硬拦。  
+2. **资源统合表 + `narrative_drive` schema** — 谁喂入、怎么引导生成。  
+3. **ensure 路径（智能重算）+ 注入引导 + 可选 DETECT**。  
+4. **## Open Questions + ## PR Plan** — 增量开工。  
 
 ---
 
@@ -27,58 +27,68 @@
 
 ### 一句话
 
-> **叙事引擎 = 章级「事件驱动合同」控制面**：用**外力/对立选择/债/禁令/第三者**等可检验的戏剧局势，绑定 `outline → beats → draft → full_check`；Pilot 仍是编排时钟，**不是**戏剧真源；focalizer 只是相机。  
-> 在 **质量模式全旗** 下它必须成为强制主时钟输入（compose + ensure + GATE + DETECT + soft 隔离五者齐套）；代码默认旗关时它是可选增强，**有意不是**时钟。
+> **叙事引擎 = 引导面，不是刑具。**  
+> 章级 `narrative_drive` 把「本章由什么冲突/事件推」写清楚，**注入** outline→beats→draft，让模型优先写戏；  
+> **跟着主角走一段可以**，只要这段是在逼近/兑现冲突或事件，而不是空洞巡礼。  
+> 默认 **多引导、少 park**；硬红线仍只留给限知泄露/串书/作者红线等系统安全项。
 
-### 用户读感（必须纳入）
+### 产品原则（rev.2.3 用户纠偏 · 最高优先级）
+
+| # | 原则 | 工程含义 |
+|---|------|----------|
+| **P1** | **只强调一件事**：冲突/事件推动小说 | 文档、旗、PR、验收文案以「有没有戏」为中心；**不要**把反比喻、反 POV、反氛围写成同等硬目标 |
+| **P2** | **引导 > 限制** | 主路径 = 合成 drive + 写路径/steer 注入；**默认 advisory**，不默认整章卡死 |
+| **P3** | **允许服务戏的「跟主角」** | 纯空间/感官漫游若 **不服务** 当前 conflict/event → 引导改；若已是追债路上的走、等门前的等 → **允许** |
+| **P4** | **少规则、少门闩** | 不堆「禁止开篇类型」长黑名单；不把二选一/中段外力/对齐 Jaccard 等做成默认硬停 |
+| **P5** | **硬拦极少** | 默认 **不** 开 `EVENT_DRIVE_GATE` / `EVENT_LED_DETECT` 的 blocking；需要时再显式开（实验/高压作者自选） |
+
+### 用户读感（纳入 · 已更新）
 
 | 反馈 | 工程含义 |
 |------|----------|
-| 仍像跟随主角视角**逛** | 主时钟落在 POV 空间序列，而非局势变化序列 |
-| 「能不能切换视角」 | 按章 `chapter.focalizer` **可切**；但 **换滤镜 ≠ 换引擎** |
-| 质量模式后 ch1 香债戏较好，ch2 又回氛围漫游 | 门检与注入在 ch1 题材高冲突词命中；**无稳定「章事件驱动合同」时 ch2 回退** |
-| 代理读感 3.4→5.7 | novel-quality-first **有效但不充分**；缺一层「主驱动对象」 |
+| 要冲突/事件推小说 | **唯一主目标**：`narrative_drive` 引导生成与可选验收 |
+| 跟着主角逛偶尔可以 | **不要**把 POV 跟随当缺陷；只纠「无戏的逛」 |
+| 不要那么多限制，要引导 | **GATE/DETECT 默认关**；注入与 prompt 默认开（`NARRATIVE_ENGINE=1` 时） |
+| 换视角不够 | focalizer 仍是相机；**不**把切 POV 当引擎交付 |
 
-证据锚（非人盲定级）：`docs/evidence/nq-quality-smoke-20260810/12-llm-quality-delta-analysis.md` —— 新 ch1 香债对质抬升冲突/对白；新 ch2 禁令有但**对立选择/代价落地弱**，逛词/千字仍 ~10。
+证据锚仍可用：ch1 香债戏好、ch2 氛围回潮——引擎要做的是 **让更多章像 ch1 那样被戏带着走**，不是给 ch2 加刑。
 
 ### 与 novel-quality-first 的分层关系
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│  本设计 · Narrative Engine（引擎层 / 控制面）                  │
-│  单一戏剧局势真源 narrative_drive / Event Drive Contract     │
-│  绑定 outline→beats→draft→check；反逛开篇；事件时钟           │
+│  本设计 · Narrative Engine（引导层 / 控制面）                  │
+│  narrative_drive = 本章冲突/事件合同 → 注入 beats/draft       │
+│  默认：引导与提示；可选：GATE/DETECT 硬拦（作者自选）           │
 └────────────────────────────┬────────────────────────────────┘
-                             │ 消费 / 约束 / 验收
+                             │ 引导 / 可选验收
 ┌────────────────────────────▼────────────────────────────────┐
-│  已落地 · novel-quality-first（执行与执法层）                  │
-│  beats.v2 GCD · drama_gate · _drama_block · CRAFT_NOVEL      │
-│  park_stroll · PILOT_SOFT_* · pressure_drive stairs          │
+│  novel-quality-first（执行层）                                │
+│  beats · drama_block · craft · pressure · soft 双旗          │
 └────────────────────────────┬────────────────────────────────┘
                              │ 编排
 ┌────────────────────────────▼────────────────────────────────┐
-│  Pilot 状态机 · 认知 deduce · 记忆/brief 注入 · 硬红线        │
+│  Pilot · deduce（认知）· 记忆注入 · 系统硬红线                │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**策略一句话：** 不新堆平行「故事 OS」；把已有 outline stakes、open promises/purpose/events、beats GCD、PDC、pressure **收成一个章级 `narrative_drive` 对象**，作为生成与验收的**主时钟输入**。
+**策略一句话：** 统合 outline stakes、债/事件库存、beats、PDC 成 **`narrative_drive`**，**写进 prompt 当导航**；不新堆故事 OS；**不以「反逛刑典」当产品卖点**。
 
-### 强制闭环表（质量模式 · 何时真成主时钟）
+### 引导闭环表（默认 · 何时算「引擎在工作」）
 
-质量模式 demo 片段 **三旗同开为最低集**：`NARRATIVE_ENGINE` + `EVENT_DRIVE_GATE` + `EVENT_LED_DETECT`（均 =1）。`QUALITY_MODE_TARGETS` / `NQ_FLAG_KEYS` / snapshot 必须一并登记（见 PR-NE-0）。
+推荐最低集（**引导模式**）：**仅** `NARRATIVE_ENGINE=1`。
 
 | 条件 | 行为 |
 |------|------|
-| `NARRATIVE_ENGINE=1` | **必须** `ensure_narrative_drive`（合成或校验已有）+ 写路径注入 `_event_drive_block` + length_steer 增句 |
-| `EVENT_DRIVE_GATE=1` 且高压 | `validation.ok=False` 或 `align_beats_to_drive` 失败 → **park**；**优先于**「仅 GCD 过 drama_gate」——即 drive 缺失/不对齐时 **不得** 因 GCD 完整而放行 |
-| `EVENT_LED_DETECT=1` | 写后 event finding 可 blocking；**须**经 `is_blocking_issue` 入桶后 full_check 才能 park；**不受** `PILOT_SOFT_PRESSURE` 吞没（见 soft + blocking 接线合同） |
-| `ENGINE=1` 且 draft 时 drive 空 | draft 入口 **二次 ensure**；仍空且 GATE=1 高压 → park `missing_narrative_drive` |
-| `ENGINE=1` 且 `engine_type != "event"` | 质量模式 **park**（`engine_type_forbidden`）；兼容模式 warning |
-| 仅 ENGINE、无 GATE | 注入合同，**不** park（模型可忽略——**非**质量模式完整时钟） |
-| 仅 DETECT、无 ENGINE | 启发式词表 alone；**不推荐**；质量模式禁止此组合作验收口径 |
-| 代码默认三旗关 | 行为 = NQ-only；字段可存不读 |
+| `NARRATIVE_ENGINE=1` | `ensure_narrative_drive`（尽量合成）+ 写路径 **注入** `_event_drive_block`（「本章外力/对立/代价」短段）+ draft steer 提示优先写戏 |
+| drive 弱/缺字段 | **advisory** 文案进收件箱/park 旁注；**默认不**停写 |
+| 对齐 beats 差 | **advisory**「节拍可更贴 drive」；**默认不** park |
+| 开篇偏逛但后文兑现冲突 | **允许**；DETECT 若开，仅 advisory 提示「外力可更早」 |
+| 写后完全无局势变化且纯巡礼 | DETECT 若开 → **默认 advisory**；仅 `EVENT_LED_DETECT_HARD=1` 时才 blocking |
+| `EVENT_DRIVE_GATE=1`（可选） | 作者自选：高压且 drive 空 → park；**非**质量默认 |
+| 代码默认 `NARRATIVE_ENGINE=0` | 行为 = 现状 NQ；字段可写不读 |
 
-**与 drama_gate 关系（KD-NE-11）**：`EVENT_DRIVE_GATE=1` 时，高压章的「能否进入 deduce/draft」先看 drive+alignment，再看 `validate_drama_beats`。合并 park 时 **外力/drive 缺口列前，GCD 缺口列后**（见 §6 伪码）。
+**与 drama_gate：** 不抢戏；drive 注入与 GCD 注入 **并存、引导叠加**。合并 park **仅当作者显式开 GATE 族**。
 
 ---
 
@@ -106,9 +116,10 @@ novel-quality-first 把杠杆前移到节拍 GCD 与后验 park_stroll，但：
 
 ### 产品第一性（不可妥协）
 
-- **驱动 = 冲突/事件**：「对方要什么 / 禁令被触 / 债到期 / 门被开 / 第三者逼问」等 **外力或对立选择**。  
-- **不是** 单靠换 focalizer。  
-- **不是** 再堆一套平行系统；优先 **统合**。
+- **驱动 = 冲突/事件**（引导模型写「戏在推」）。  
+- **引导优先**：合同进 prompt；**少黑名单、少硬停**。  
+- **跟主角可以**：只要局势在变或在逼近变。  
+- **不是** 单靠换 focalizer；**不是** 再堆平行系统。
 
 ---
 
@@ -116,27 +127,27 @@ novel-quality-first 把杠杆前移到节拍 GCD 与后验 park_stroll，但：
 
 ### Goals
 
-1. 定义 **Narrative Engine 控制面**：输入 / 状态 / 输出（Event Drive Contract）清晰。  
-2. 每章 **单一戏剧真源** `narrative_drive`（JSON 字段，镜像 `beats_meta` / `pressure_drive` 的 `option<string>` 模式）。  
-3. 用合同 **绑定** outline → beats → draft → full_check（质量模式：缺驱动则 park；**大纲 stakes 是一等种子**，禁止仅因 events 表空 fail）。  
-4. **反逛开篇分类学**（可操作切分）+ 中段前外力硬要求（rev.1 二选一为 soft feature）。  
-5. **验收检测器** + **triage/soft 接线合同**（事件 finding 永不被 `pressure_metrics` soft 吞没）。  
-6. **POV 政策**：相机 vs 事件归属 vs 知情人极性；多场景 POV 标 phase 2。  
-7. **迁移路径**：代码默认不 silent break；质量模式三旗最低集。  
-8. 保持 **deduce 纯认知**；硬红线优先级不变。  
-9. **ensure 路径**：已有 beats / skip expand 时仍合成 drive，避免「可选字段」退化。
+1. 定义 **Narrative Engine 引导面**：输入 / 状态 / 输出（Event Drive Contract）清晰。  
+2. 每章 **戏剧导航对象** `narrative_drive`（合成 + **注入 prompt**）。  
+3. 用合同 **引导** outline → beats → draft（缺字段 → **提示**；**默认不 park**；大纲 stakes 一等种子）。  
+4. 开篇/正文：**引导写戏**；服务戏的跟主角 **允许**；空洞巡礼 → **建议** 改。  
+5. DETECT/GATE：**可选**；默认 advisory；接线完整但默认不启用硬停。  
+6. POV = 相机；多场景 POV phase 2。  
+7. 代码默认不 silent break；**引导模式只开 ENGINE**。  
+8. deduce 纯认知；系统硬红线不变。  
+9. ensure：尽量有 drive 可注入（skip expand 也合成）。
 
 ### Non-Goals
 
 | 非目标 | 理由 |
 |--------|------|
-| 重写 Pilot 状态机拓扑为事件网 | 编排时钟够用；只加 ensure/绑约 |
-| 把 deduce / scene_truth 改成情节设计 | 限知接地会碎 |
+| 用刑典消灭一切「跟着走」 | 用户明确：偶尔可以 |
+| 大量默认硬 park / 长黑名单 | 引导优先 |
+| 重写 Pilot 拓扑 | 够用 |
+| deduce 写戏 | 认知边界 |
 | 自动文学 ≥9.5 | 人盲未跑 |
-| 全书级自动 plot graph 求解器 | 爆炸半径 |
-| 强制网文打脸模板 | 题材可选 |
-| rev.1 依赖 proposition 表 rank | 无现成接口；phase 2 |
-| Grok 机全量测 / 第二套 Surreal | 主机规则 |
+| 全书 plot graph 求解器 | 爆炸半径 |
+| 强制网文模板 | 题材可选 |
 
 ---
 
@@ -309,7 +320,7 @@ flowchart LR
   "end_hook": "炉册上父名未干，禁念真名的戒被灰狸点破",
   "stakes_line": "若失败，灰七失侧门钥且香债滚入父名",
   "anti_stroll": {
-    "forbidden_opener": ["pure_spatial_walk", "pure_sensory_tour", "status_inventory"],
+    "guidance_opener_hint": ["prefer_event_or_confrontation", "pov_follow_ok_if_serves_conflict"],
     "required_force_before_mid": true
   },
   "beats_binding": {
@@ -1037,15 +1048,14 @@ assert is_blocking_issue({"type": "pressure", "meta": {"severity": "blocking", "
 | 空编新债 | 中 | 无种子 park；接地 |
 | 假绿 soft | 高 | type=event_drive 隔离 |
 
-原则栈：
+原则栈（rev.2.3）：
 
 ```text
-1. 硬红线
-2. 事件驱动合同（质量模式强制闭环）
-3. 节拍 GCD
+1. 系统硬红线（限知泄露 / 串书 / 作者红线）
+2. 冲突/事件引导（narrative_drive 注入）—— 主产品目标
+3. 节拍 GCD / 其它 NQ 工具 —— 协助，默认不刑
 4. 认知 deduce
-5. 声口 CRAFT_NOVEL
-6. 工程闭环（不得为 finalized soft 掉事件门）
+5. 可选 GATE/DETECT —— 作者自选，非默认
 ```
 
 ---
@@ -1125,23 +1135,23 @@ LOG_FIELD_MISSING_EXTERNAL_FORCE = "missing_external_force"
 
 | ID | 决策 | 理由 |
 |----|------|------|
-| **KD-NE-1** | 章级戏剧 SSOT = `chapter.narrative_drive` | 防合法逛 GCD |
-| **KD-NE-2** | **rev.1 最优 = 插入点 A**（expand_beats+draft ensure，不改 STATES）；**phase 2 最优增强 = B**（独立 compose_drive HITL） | 用户裁决 OQ-1；最低成本真成主时钟 |
+| **KD-NE-1** | 章级戏剧 **导航对象** = `chapter.narrative_drive` | 让生成知道「戏是什么」 |
+| **KD-NE-2** | 插入点 A：expand_beats + draft ensure；不改 STATES | 最小拓扑 |
 | **KD-NE-3** | deduce 永不驱动 | 认知边界 |
-| **KD-NE-4** | focalizer = 相机 | 用户结论 |
-| **KD-NE-5** | 代码默认旗关；质量模式三旗同开最低集 | 不 silent break；真时钟需闭环 |
-| **KD-NE-6** | 事件 finding：`type=event_drive`；**须**接入 `review.blocking.is_blocking_issue`（镜像 pressure）+ `S1_BLOCKING_TYPES` + `normalize_issue`；triage detector=`meta.kind`；**默认不**进 soft 集合 | 否则 DETECT 进不了 blocking 桶；且防 pressure soft 吞没 |
-| **KD-NE-7** | 存储 `118` + option\<string\> JSON；独立列非 beats_meta | 先例 + 生命周期 |
-| **KD-NE-8** | **开篇/逛感 Primary = LLM** 结构化 JSON；确定性 = fallback（及可选 shadow）；`SCRIBE3_REVIEW_LLM`（或等价）开则走 LLM；degrade 高压 **禁止静默绿**；binary 非唯一硬门 | 用户裁决 OQ-3：尽量/全 LLM |
-| **KD-NE-9** | rev.1 库存白名单；命题 phase 2；**大纲 stakes 一等种子** | 防空表误杀 |
-| **KD-NE-10** | multi_scene_pov / 独立步 B = phase 2 | 先稳 A |
-| **KD-NE-11** | GATE 时 drive 优先于「仅 GCD 过门」 | SSOT 名实 |
-| **KD-NE-12** | `ensure_narrative_drive`：skip beats 仍合成 | 防可选字段退化 |
-| **KD-NE-13** | PDC：有 drive 优先种子；不覆盖人工 PDC；PDC 关则 no-op | 派生可落地 |
-| **KD-NE-14** | `ALIGN_JACCARD_MIN=0.08` + source_refs 绕过 + 金样锁定 | 防阈值漂 |
-| **KD-NE-15** | **智能重算 drive**：空/invalid/synopsis_fp 变且非锁 → 自动；`locked` 或 `source=author` 仅「强制重算驱动」可覆盖；重算 `version++`、`source=assembled`、尽量保留 source_refs | 用户裁决 OQ-7 |
+| **KD-NE-4** | focalizer = 相机；**允许跟主角**只要服务戏 | 用户纠偏 |
+| **KD-NE-5** | **默认引导模式**：仅 `NARRATIVE_ENGINE=1`；**GATE/DETECT 默认关** | 引导优先、少硬拦 |
+| **KD-NE-6** | DETECT 若开：`type=event_drive` 须进 `is_blocking_issue` 才可能 hard；**默认 DETECT 只 advisory** | 接线完整但默认不刑 |
+| **KD-NE-7** | 存储 `118` + option&lt;string&gt; JSON | 先例 |
+| **KD-NE-8** | 开篇/逛感：**LLM 提示为主**；服务戏的跟随 **不判失败** | 用户：尽量 LLM、少限制 |
+| **KD-NE-9** | 大纲 stakes **一等种子**；库存白名单 | 有戏可合成就合成 |
+| **KD-NE-10** | multi_scene_pov / 独立步 = phase 2 | 先稳引导 |
+| **KD-NE-11** | 显式开 GATE 时 drive 优先文案；**默认不 GATE** | 可选硬拦 |
+| **KD-NE-12** | `ensure_narrative_drive`：尽量有 drive 可注入 | 引导有原料 |
+| **KD-NE-13** | PDC：有 drive 优先种子；不覆盖人工 | 派生 |
+| **KD-NE-14** | 对齐阈值 **仅 advisory**（默认） | 少硬拦 |
+| **KD-NE-15** | 智能重算 drive（锁/作者源不覆盖） | 已裁决 |
+| **KD-NE-16** | **产品唯一主目标 = 冲突/事件驱动**；其它质量项不与引擎同级硬推 | rev.2.3 用户纠偏 |
 
----
 
 ## PR Plan（增量 · rev.2 重排）
 
@@ -1309,3 +1319,4 @@ def is_blocking_issue(iss: dict | None) -> bool:
 | Draft **rev.2** | 2026-08-10 | 评审修订：大纲 stakes 一等种子；ensure-on-skip；event_drive soft 合同；强制闭环表；inventory 白名单；对齐阈值与金样；opener 可操作切分；PR 拆 2a/2b/2c 钉 118/get_chapter/rebind；PDC 派生；thrash runbook；LOG_FIELD；Alt-5；phase2 authz |
 | Draft **rev.2.1** | 2026-08-10 | 复审 critical：`type=event_drive` 接入 `review.blocking.is_blocking_issue` / `S1_BLOCKING_TYPES` / `normalize_issue` / `loop.triage` detector 投影；KD-NE-6 与 PR-NE-4 验收单测 A–D（blocking 入桶 + soft 隔离 + full_check park） |
 | Draft **rev.2.2** | 2026-08-10 | **用户裁决**：OQ-1 rev.1 最优插入点 A、phase2 增强 B；OQ-3 开篇/逛感 **LLM primary** + 确定性 fallback（高压 degrade 不假绿，`SCRIBE3_REVIEW_LLM` 门，prose_fp 缓存）；OQ-7 **智能重算** drive（synopsis_fp + locked/author 保护 + 强制重算）；Open Questions 表全部 resolved；KD-NE-8/15；PR-NE-4 单测 E–G |
+| Draft **rev.2.3** | 2026-08-10 | **引导优先、少硬拦**：主目标仅冲突/事件；允许服务戏的 POV 跟随；GATE/DETECT 默认关 |
