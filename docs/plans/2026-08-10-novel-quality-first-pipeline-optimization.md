@@ -926,14 +926,24 @@ evidence = first_ok(
 | `beats_source` | 节拍来源（llm / synopsis_segments / …） | `beats_meta`、审计 |
 | `pilot_park` | 停靠原因字符串 | step 返回 / journal `*_parked` |
 | `park_stroll` | 公园散步组合检测 | findings detector / 计数 |
-| `pilot_full_check_soft_pass` | soft-pass 事件锚（既有 warning 文案） | `scribe3` warning 日志 |
+| `pilot_full_check_soft_pass` | soft-pass **structured / journal 推荐键**（`LOG_FIELD_SOFT_PASS`） | journal note / 扩展日志字段 |
 | `soft_p` | 当次是否因 pressure 旗 soft | soft-pass 扩展字段 / journal note |
 | `soft_ai` | 当次是否因 AI 味旗 soft | soft-pass 扩展字段 / journal note |
 | `purple_density` | 紫散文/比喻密度代理 | critique 计数 |
 | `quality_enforcement` | `quality_enforcement_on()` 快照 | 调试 / flag 快照 |
 
+**soft-pass 三套标识（PR-6b 接线前勿混用）：**
+
+| 标识 | 值 | 用途 |
+|------|-----|------|
+| structured 键 | `pilot_full_check_soft_pass`（`LOG_FIELD_SOFT_PASS`） | journal / 扩展字段 |
+| 现网 `kind` | `pilot_full_check_soft_nonblocking`（`LEGACY_SOFT_PASS_KIND`） | `_pilot_quality_warn.kind`；PR-6b 可保留别名 |
+| warning message | `pilot full_check soft-pass …`（`LEGACY_SOFT_PASS_LOG_MSG`） | 自然语言日志，非 structured key |
+
 读辅助：`scribe3.novel_quality_flags`（`*_enabled` / `drama_hard_pressure` / `novel_quality_flags_snapshot`）。  
-**PR-0 仅接线与文档；不翻转 full_check / craft / expand 行为。**
+设置 UI 可见旗 **改值暂无运行时效果**（desc 首句「未接线」）；**勿**在 PR-6b/3/5 前当质量模式验收。  
+**PR-0 仅接线与文档；不翻转 full_check / craft / expand 行为。**  
+质量模式完整 env 另含未登记 REGISTRY 的 `SCRIBE3_PDC=1` / `SCRIBE3_PDC_BLOCKING=1`（见 `QUALITY_MODE_EXTERNAL_ENV`）。
 
 ---
 

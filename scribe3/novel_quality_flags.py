@@ -10,12 +10,17 @@
 - **质量模式** = demo ``.env`` 显式翻转；不在此模块 silent break 主路径。
 - **本模块只提供读点与字段名**；full_check / expand_beats / craft 的行为翻转在
   后续 PR（2/3/5/6a/6b）接线。PR-0 **无行为翻转**。
+- 设置 UI 可见的旗 **改值暂无运行时效果**（见各 Setting.desc）；勿提前当质量模式验收。
 
 读取路径：``settings.get_setting``（DB 覆盖 → env → REGISTRY 默认）。
+代码默认真源：``settings.REGISTRY``（``CODE_DEFAULTS`` 由其派生，禁止手抄第二份）。
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+_log = logging.getLogger("scribe3.novel_quality_flags")
 
 # ── 旗名常量（与 settings.REGISTRY / 设计真值表逐字一致）────────────────
 
@@ -29,20 +34,30 @@ FLAG_PILOT_SOFT_AI_GRADE = "SCRIBE3_PILOT_SOFT_AI_GRADE"
 FLAG_PARK_STROLL_BLOCKING = "SCRIBE3_PARK_STROLL_BLOCKING"
 FLAG_DRAMA_HARD_PRESSURE = "SCRIBE3_DRAMA_HARD_PRESSURE"
 
-# 代码默认（合并后可达）对照表 · 与 REGISTRY.default 对齐
-CODE_DEFAULTS: dict[str, object] = {
-    FLAG_BEATS_V2: True,
-    FLAG_DRAMA_GATE: False,
-    FLAG_DRAMA_GATE_COMPAT: True,
-    FLAG_BEATS_SYNOPSIS_FALLBACK: True,
-    FLAG_CRAFT_NOVEL: False,
-    FLAG_PILOT_SOFT_PRESSURE: True,
-    FLAG_PILOT_SOFT_AI_GRADE: True,
-    FLAG_PARK_STROLL_BLOCKING: False,
-    FLAG_DRAMA_HARD_PRESSURE: 4,
-}
+# REGISTRY 内 novel-quality 旗键序（派生 CODE_DEFAULTS / 对齐检查用）
+NQ_FLAG_KEYS: tuple[str, ...] = (
+    FLAG_BEATS_V2,
+    FLAG_DRAMA_GATE,
+    FLAG_DRAMA_GATE_COMPAT,
+    FLAG_BEATS_SYNOPSIS_FALLBACK,
+    FLAG_CRAFT_NOVEL,
+    FLAG_PILOT_SOFT_PRESSURE,
+    FLAG_PILOT_SOFT_AI_GRADE,
+    FLAG_PARK_STROLL_BLOCKING,
+    FLAG_DRAMA_HARD_PRESSURE,
+)
 
-# 产品目标 · 质量模式（demo env 推荐；非代码默认）
+
+def _code_defaults_from_registry() -> dict[str, object]:
+    """从 settings.REGISTRY 派生代码默认；单一真源，避免与 Setting.default 双份漂移。"""
+    from scribe3.settings import _BY_KEY
+    return {k: _BY_KEY[k].default for k in NQ_FLAG_KEYS}
+
+
+# 导入时绑定一次；测试若 monkeypatch REGISTRY.default 可再调 _code_defaults_from_registry()
+CODE_DEFAULTS: dict[str, object] = _code_defaults_from_registry()
+
+# 产品目标 · 质量模式（demo env 推荐；非代码默认；手维与设计 Rollout 表对齐）
 QUALITY_MODE_TARGETS: dict[str, object] = {
     FLAG_BEATS_V2: True,
     FLAG_DRAMA_GATE: True,
@@ -55,15 +70,41 @@ QUALITY_MODE_TARGETS: dict[str, object] = {
     FLAG_DRAMA_HARD_PRESSURE: 4,
 }
 
+# 质量模式完整 env 另需的 PDC 半边（未进本 REGISTRY；os.environ 直读，见 pressure_drive）
+# 仅对照 QUALITY_MODE_TARGETS 会漏这些键；demo 片段见设计文档 Rollout。
+QUALITY_MODE_EXTERNAL_ENV: dict[str, object] = {
+    "SCRIBE3_PDC": True,           # 压力驱动合同注入
+    "SCRIBE3_PDC_BLOCKING": True,  # 后验 progress 可 blocking（与 PARK_STROLL 二选一即可执法）
+    # SCRIBE3_PDC_GATE 可选；质量模式 demo 片段未强制
+}
+
+
+def assert_code_defaults_aligned() -> None:
+    """轻量不变量：CODE_DEFAULTS 与当前 REGISTRY.default 一致（供单测/启动自检）。"""
+    live = _code_defaults_from_registry()
+    if live != CODE_DEFAULTS:
+        raise AssertionError(
+            f"CODE_DEFAULTS 与 REGISTRY 漂移: {CODE_DEFAULTS!r} vs {live!r}"
+        )
+
+
 # ── 观测 / 日志字段名（稳定合同；后续 PR 写 journal/warning 时复用）──────
 # 设计 Observability 节 + soft-pass 扩展 soft_p / soft_ai。
+#
+# soft-pass 三套标识（PR-6b 接线时统一）：
+# - LOG_FIELD_SOFT_PASS：structured / journal 推荐键（本模块合同）
+# - LEGACY_SOFT_PASS_KIND：现网 full_check `_pilot_quality_warn.kind`
+# - LEGACY_SOFT_PASS_LOG_MSG：现网 warning 自然语言文案前缀（非 structured key）
+# PR-6b：structured 字段用 LOG_FIELD_*；kind 可保留 LEGACY 作别名兼容；message 可继续自然语言。
 
 LOG_FIELD_DRAMA_VALIDATION_OK = "drama_validation.ok"
 LOG_FIELD_DRAMA_WEAK = "drama_weak"
 LOG_FIELD_BEATS_SOURCE = "beats_source"
 LOG_FIELD_PILOT_PARK = "pilot_park"
 LOG_FIELD_PARK_STROLL = "park_stroll"
-LOG_FIELD_SOFT_PASS = "pilot_full_check_soft_pass"  # 既有 warning 文案锚
+LOG_FIELD_SOFT_PASS = "pilot_full_check_soft_pass"
+LEGACY_SOFT_PASS_KIND = "pilot_full_check_soft_nonblocking"
+LEGACY_SOFT_PASS_LOG_MSG = "pilot full_check soft-pass"
 LOG_FIELD_SOFT_P = "soft_p"  # pressure soft 是否生效（扩展字段）
 LOG_FIELD_SOFT_AI = "soft_ai"  # AI-grade soft 是否生效（扩展字段）
 LOG_FIELD_PURPLE_DENSITY = "purple_density"
@@ -130,13 +171,12 @@ def park_stroll_blocking_enabled() -> bool:
 
 
 def drama_hard_pressure() -> int:
-    """高压门槛（默认 4；可用 env 覆盖试 3）。"""
+    """高压门槛（默认 4；可用 env 覆盖试 3）。
+
+    信任 ``get_setting``：int 型经 ``_coerce`` 后为 int；坏 env fail-soft 已回落 REGISTRY.default。
+    """
     from scribe3.settings import get_setting
-    v = get_setting(FLAG_DRAMA_HARD_PRESSURE)
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return int(CODE_DEFAULTS[FLAG_DRAMA_HARD_PRESSURE])  # type: ignore[arg-type]
+    return int(get_setting(FLAG_DRAMA_HARD_PRESSURE))
 
 
 def quality_enforcement_on() -> bool:
@@ -153,7 +193,9 @@ def quality_enforcement_on() -> bool:
     try:
         from scribe3.pressure_drive import pdc_blocking_env_enabled
         pdc_blocking = bool(pdc_blocking_env_enabled())
-    except Exception:
+    except (ImportError, AttributeError) as e:
+        # 收窄：仅导入/符号缺失回落 False；其它异常上抛以免执法静默变弱
+        _log.warning("pdc_blocking_env_enabled 不可用，按 False 回落: %s", e)
         pdc_blocking = False
     return pdc_blocking or park_stroll_blocking_enabled()
 
