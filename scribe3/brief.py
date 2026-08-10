@@ -632,6 +632,10 @@ def motif_directives(
 
 def render_brief(sections: dict) -> str:
     parts = ["## 本章创作简报(章前组装,遵守但不复述)"]
+    # PR-4：戏剧合同置顶短硬（≤400）；先于目的/弧光/伏笔，防后段稀释
+    dc = sections.get("drama_contract") or {}
+    if dc.get("text"):
+        parts.append(dc["text"])
     pu = sections.get("purpose") or {}
     if pu.get("text"):   # 北极星任务6:目的合同必达清单+滚入(空 delta 章不渲染)
         parts.append(pu["text"])
@@ -826,6 +830,31 @@ def assemble_chapter_brief(st, seq: int, focalizer: str = "", target_emotion: st
         "heartbeat": heartbeat_list(chars_hb, next_ch),
         "stale": stale_entity_directives(stale_rows, next_ch),
     }
+    # PR-4：戏剧合同段（GCD+MRU ≤400；render_brief 置顶；无 GCD → 空）
+    try:
+        from scribe3.drama_beats import format_drama_block
+        _ch_drama = st.get_chapter(seq) or {}
+        _beats = _ch_drama.get("beats") or []
+        _hook = ""
+        _bm = _ch_drama.get("beats_meta") or {}
+        if isinstance(_bm, dict):
+            _hook = str(_bm.get("chapter_hook") or "").strip()
+        if not _hook:
+            for _b in reversed(list(_beats)):
+                if isinstance(_b, dict) and str(_b.get("hook") or "").strip():
+                    _hook = str(_b.get("hook") or "").strip()
+                    break
+        _dtext = format_drama_block(
+            _beats, chapter_hook=_hook, focalizer=focalizer or "",
+        )
+        # format 自带前导 \n\n；简报段用 strip 后正文
+        sections["drama_contract"] = {
+            "text": (_dtext or "").strip(),
+            "chars": len((_dtext or "").strip()),
+        }
+    except Exception as e:
+        _log.warning("assemble_chapter_brief drama_contract 失败(fail-soft): %s", e)
+        sections["drama_contract"] = {"text": "", "chars": 0}
     # 北极星任务6:目的合同注入——本章必达清单 + 上章未达成滚入(与因果催收同渠道
     # 语气);fail-soft:目的数据故障不拖垮简报其余部分。
     try:

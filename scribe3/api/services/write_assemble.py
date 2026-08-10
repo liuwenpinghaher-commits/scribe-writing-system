@@ -584,7 +584,8 @@ def _outline_block(st, chapter: int, focalizer: str = "") -> str:
       · 生成/调整节拍时的密度+预算标注规范(始终附带,覆盖节拍生成时刻);
       · 写草稿时"按预算分配笔墨"的执行要求(仅当已有节拍内容时附带)。
       确定性校验见 brief.validate_beat_budgets(后续可接进节拍保存端点)。
-    自带前导 \\n\\n(与 _motif_block/_recap_block 同约定,caller 直接 += 即可)。"""
+    自带前导 \\n\\n(与 _motif_block/_recap_block 同约定,caller 直接 += 即可)。
+    PR-4:戏剧 GCD 执行块见 ``_drama_block``(置顶,先于记忆);本块仍拼 synopsis/text。"""
     if chapter is None:
         return ""
     try:
@@ -633,6 +634,42 @@ def _outline_block(st, chapter: int, focalizer: str = "") -> str:
         "(≥3 处铺垫,须引用前文对应片段)+「reveal_position_pct」(建议落在 50-85 区间)。"
     )
     return "\n\n" + "\n".join(parts)
+
+
+def _drama_block(st, chapter: int, focalizer: str = "") -> str:
+    """PR-4：本章戏剧合同（GCD 压缩 + MRU 三行，≤400 字）。
+
+    置顶注入点：``_assemble_write_instructions_v1`` 在 envelope（重记忆）之前。
+    无 GCD/钩子 → 空串。限知免责与 ``_outline_block`` 同口径（Issue 14）。
+    fail-soft：取数异常只 warning，不阻断写作。
+    """
+    if chapter is None:
+        return ""
+    try:
+        ch = st.get_chapter(int(chapter)) or {}
+    except Exception as e:
+        logging.getLogger("scribe3").warning(
+            "写路径 _drama_block 读章失败(fail-soft): %s", e)
+        return ""
+    beats = ch.get("beats") or []
+    hook = ""
+    meta = ch.get("beats_meta") or {}
+    if isinstance(meta, dict):
+        hook = str(meta.get("chapter_hook") or "").strip()
+    if not hook:
+        for b in reversed(list(beats)):
+            if isinstance(b, dict) and str(b.get("hook") or "").strip():
+                hook = str(b.get("hook") or "").strip()
+                break
+    try:
+        from scribe3.drama_beats import format_drama_block
+        return format_drama_block(
+            beats, chapter_hook=hook, focalizer=focalizer or "",
+        ) or ""
+    except Exception as e:
+        logging.getLogger("scribe3").warning(
+            "写路径 _drama_block 格式化失败(fail-soft): %s", e)
+        return ""
 
 
 def _deduction_context_segments(st, seq: int) -> list[tuple[str, str, str]]:
@@ -800,6 +837,8 @@ def _brief_must_sections_write_block(st, chapter: int, focalizer: str = "") -> s
         sec.pop("purpose", None)
         sec.pop("lessons", None)
         sec.pop("injection", None)
+        # 戏剧合同已在 envelope 前由 _drama_block 置顶注入；此处去重避免双份稀释。
+        sec.pop("drama_contract", None)
         pd = sec.get("promises") or {}
         has_ops = bool(
             sec.get("arcs")
@@ -1007,6 +1046,13 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         # 因此 envelope 后的工艺块、强制协议和演绎终检也在 renderer 内
         # 完成，编译返回后不再追加任何 instructions。
         rendered = prefix
+        # PR-4：戏剧合同置顶、先于 envelope 重记忆；冲突时裁记忆不裁戏剧（见 must-link cap）。
+        # 限知/泄露红线仍由 focalizer banner、revelation_discipline、出口 epistemic_guard 与
+        # find_leaks 保障——本块附限知免责，不覆盖硬红线优先级。
+        rendered += _domain_input(
+            f"chapter:{chapter}:drama-contract", "drama_contract",
+            _drama_block(st, chapter, focalizer=focalizer or ""),
+        )
         env_text = render_envelope_text(envelope)
         if env_text:
             rendered += "\n\n" + env_text

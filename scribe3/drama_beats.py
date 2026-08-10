@@ -8,6 +8,7 @@
 PR-1：``validate_drama_beats`` / ``drama_score``。
 PR-3：``extract_drama_gaps`` / ``format_drama_gate_park_reason`` / ``should_drama_gate_park``
 （写前 park 接线在 ``pilot_runtime.expand_beats``，本模块仍纯函数）。
+PR-4：``format_drama_block`` / ``beats_have_drama_gcd``（草稿/简报戏剧合同注入）。
 """
 from __future__ import annotations
 
@@ -638,3 +639,160 @@ def should_drama_gate_park(
         return False
     metrics = dv.get("metrics") or {}
     return bool(metrics.get("is_high"))
+
+
+# ── PR-4：草稿注入戏剧合同块（≤400 字）────────────────────────────────
+
+# 硬顶：与 PDC 注入同口径（Python len 字符）；冲突时裁字段不裁标题/限知免责
+MAX_DRAMA_BLOCK = 400
+
+# 固定 MRU 三行（短；动机-反应-行动微观节奏）
+_MRU_LINES = (
+    "1. 外在刺激→身体反应→言语/决定，分段写（动机-反应-行动）。",
+    "2. 每场至少一次外在阻力动作（拦/拒/误/迟），禁只逛地点。",
+    "3. 保留信息差；章末可未揭。",
+)
+_MRU_BAN = "禁：无目标地点句；比喻凑字；章末「他明白了/正是因为」点题。"
+_LIMITED_KNOWLEDGE = (
+    "（限知）以上为作者视角合同；只呈现焦点者可感知部分，帧外私密不得道破。"
+)
+
+
+def beats_have_drama_gcd(
+    beats: list | None,
+    *,
+    chapter_hook: str = "",
+) -> bool:
+    """节拍是否含任何 GCD/钩子字段（供 length_steer / 勿仅因字数清稿）。"""
+    if _field(chapter_hook):
+        return True
+    for b in beats or []:
+        if not isinstance(b, dict):
+            continue
+        if any(_field(b.get(k)) for k in ("goal", "conflict", "turn", "cost", "hook")):
+            return True
+    return False
+
+
+def _clip_field(s: Any, n: int) -> str:
+    t = _field(s)
+    return t if len(t) <= n else t[:n]
+
+
+def format_drama_block(
+    beats: list | None,
+    *,
+    chapter_hook: str = "",
+    focalizer: str = "",
+    max_chars: int = MAX_DRAMA_BLOCK,
+) -> str:
+    """压缩「本章戏剧合同」+ MRU 三行，≤``max_chars``（默认 400）。
+
+    - 无 GCD/钩子 → 空串（v1 纯 text 不注入假合同）。
+    - 限知章（``focalizer`` 非空）附限知免责；**免责与标题优先于拍明细**（裁字段不裁红线）。
+    - 自带前导 ``\\n\\n``，caller 可直接 ``+=``。
+    """
+    if not beats_have_drama_gcd(beats, chapter_hook=chapter_hook):
+        return ""
+
+    norm = _normalize_beats(beats) if beats else []
+    # 每字段短截，先拼后按预算收
+    field_cap = 28
+    beat_lines: list[str] = []
+    for i, b in enumerate(norm, 1):
+        kind = _kind_of(b)
+        g = _clip_field(b.get("goal"), field_cap)
+        c = _clip_field(b.get("conflict"), field_cap)
+        t = _clip_field(b.get("turn"), field_cap)
+        cost = _clip_field(b.get("cost"), field_cap)
+        if not (g or c or t or cost or _field(b.get("hook"))):
+            continue
+        bits = [f"拍{i}[{kind}]"]
+        if g:
+            bits.append(f"目标：{g}")
+        if c:
+            bits.append(f"阻力：{c}")
+        if t:
+            bits.append(f"结果：{t}")
+        if cost:
+            bits.append(f"代价：{cost}")
+        beat_lines.append(" ".join(bits))
+
+    hook = _field(chapter_hook)
+    if not hook and norm:
+        hook = _field(norm[-1].get("hook"))
+    hook = _clip_field(hook, 36)
+
+    header = "## 本章戏剧合同（必须执行，禁止风景巡礼）"
+    mru_header = "## 微观节奏（MRU · 三行）"
+    limited = _LIMITED_KNOWLEDGE if _field(focalizer) else ""
+
+    def _assemble(lines: list[str], *, with_hook: bool, n_mru: int) -> str:
+        parts = [header]
+        parts.extend(f"- {ln}" for ln in lines)
+        if with_hook and hook:
+            parts.append(f"- 章末钩子：{hook}")
+        parts.append(mru_header)
+        parts.extend(_MRU_LINES[:n_mru])
+        parts.append(_MRU_BAN)
+        if limited:
+            parts.append(limited)
+        return "\n".join(parts)
+
+    # 优先完整；超预算逐步裁：先减拍明细字段宽、再减拍数、最后保 MRU+标题+限知
+    text = _assemble(beat_lines, with_hook=True, n_mru=3)
+    if len(text) <= max_chars:
+        return "\n\n" + text
+
+    # 收紧字段
+    field_cap = 16
+    beat_lines = []
+    for i, b in enumerate(norm, 1):
+        kind = _kind_of(b)
+        g = _clip_field(b.get("goal"), field_cap)
+        c = _clip_field(b.get("conflict"), field_cap)
+        t = _clip_field(b.get("turn"), field_cap)
+        cost = _clip_field(b.get("cost"), 12)
+        if not (g or c or t or cost):
+            continue
+        bits = [f"拍{i}[{kind}]"]
+        if g:
+            bits.append(f"目标：{g}")
+        if c:
+            bits.append(f"阻力：{c}")
+        if t:
+            bits.append(f"结果：{t}")
+        if cost:
+            bits.append(f"代价：{cost}")
+        beat_lines.append(" ".join(bits))
+    text = _assemble(beat_lines, with_hook=True, n_mru=3)
+    if len(text) <= max_chars:
+        return "\n\n" + text
+
+    # 逐拍删到能塞进预算（至少保留 0 拍 + 钩子/MRU）
+    for n in range(len(beat_lines), -1, -1):
+        text = _assemble(beat_lines[:n], with_hook=True, n_mru=3)
+        if len(text) <= max_chars:
+            return "\n\n" + text
+    for n_mru in (2, 1):
+        text = _assemble([], with_hook=True, n_mru=n_mru)
+        if len(text) <= max_chars:
+            return "\n\n" + text
+
+    # 最后硬截断（仍尽量保住限知句在尾部）
+    core = _assemble([], with_hook=bool(hook), n_mru=1)
+    if limited and limited not in core:
+        core = core + "\n" + limited
+    if len(core) <= max_chars:
+        return "\n\n" + core
+    # 标题 + 限知优先
+    emergency = header
+    if limited:
+        room = max_chars - len(header) - 1
+        if room > 8:
+            emergency = header + "\n" + limited[:room]
+        else:
+            emergency = (header + "\n" + limited)[:max_chars]
+    else:
+        emergency = header[:max_chars]
+    return "\n\n" + emergency

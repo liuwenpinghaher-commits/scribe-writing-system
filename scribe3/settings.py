@@ -180,7 +180,8 @@ REGISTRY: tuple[Setting, ...] = (
             danger=True),
     Setting("SCRIBE3_CRAFT_NOVEL", "flags", "bool", False, "hot",
             "小说优先 craft 包",
-            "未接线·改值暂无运行时效果。开=比喻降权/闲笔偏科选择表(PR-5)；代码默认关以免 silent 改声口",
+            "部分接线(PR-4)：开=draft_loop length_steer 强化「冲突/行动优先、禁风景巡礼注水」。"
+            "craft 引擎选择表(比喻降权/闲笔偏科)仍待 PR-5；代码默认关以免 silent 改声口",
             danger=False),
     Setting("SCRIBE3_PILOT_SOFT_PRESSURE", "flags", "bool", True, "hot",
             "pilot full_check 压力 soft-pass",

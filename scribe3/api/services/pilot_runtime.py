@@ -892,6 +892,18 @@ def _pilot_executor(work: str) -> dict:
         # 1) 显式「【强制重写】」
         # 2) 作者意图要求长章(可见汉字≥N) 且当前 prose 明显偏短 → 视为扩写意图
         force_clear = False
+        # PR-4：有 GCD 戏剧合同时，禁止「仅因字数不足」清稿（宁短勿巷志）；
+        # 显式【强制重写】/超长压缩仍可清。限知红线不由此路径放宽。
+        _has_drama = False
+        try:
+            from scribe3.drama_beats import beats_have_drama_gcd
+            _bm = ch.get("beats_meta") or {}
+            _hook = ""
+            if isinstance(_bm, dict):
+                _hook = str(_bm.get("chapter_hook") or "").strip()
+            _has_drama = beats_have_drama_gcd(ch.get("beats") or [], chapter_hook=_hook)
+        except Exception:
+            _has_drama = False
         if prose_now and steer:
             m = _re_dl.search(r"可见汉字\s*≥\s*(\d{3,5})", steer)
             target = int(m.group(1)) if m else 0
@@ -900,7 +912,13 @@ def _pilot_executor(work: str) -> dict:
             # 显式强制重写 或 意图要求长章：仅当当前仍短于目标才清稿。
             # 若已够长仍见「【强制重写】」残留在 pilot_steer，不得再清（否则无限 advisory 环）。
             if target and prose_cn < target:
-                force_clear = True
+                if "【强制重写】" in steer or not _has_drama:
+                    force_clear = True
+                else:
+                    logging.getLogger("scribe3").info(
+                        "draft_loop skip length-only clear (drama present) "
+                        "work=%s seq=%s was_cn=%s target=%s",
+                        work, seq, prose_cn, target)
             elif "【强制重写】" in steer and (not target) and prose_cn < 4500:
                 force_clear = True
             # 真路径压缩：作者意图写明上限且当前超长 → 清稿重写（避免 restore 最长旧稿锁死）
@@ -927,11 +945,23 @@ def _pilot_executor(work: str) -> dict:
             # 正文已在(pass 落库/作者手动采纳 advisory 稿)→ 跳过生成直接体检
             return {"skipped": "正文已在,跳过生成(advisory 稿手动采纳后走此路)"}
         # 连载验收默认章长 ~5k 可见汉字；max_tokens 由 loop_chapter 拉高，避免默认截断成 ~1.5k 短稿
+        # PR-4 length_steer：字数次于戏；始终 soft 宁短勿巷志；CRAFT_NOVEL 再强调冲突/行动。
+        # 限知/泄露硬红线优先级不变（find_leaks 仍 blocking；本舵不覆盖）。
         length_steer = (
             "本章交完整文学正文：可见汉字目标约 4800–5500 字（去空白后），"
             "连续场景与对话，气味/触感锚，禁止公式注水尾（条N存档/换位完成/观察条/勒紧半指）。"
             "用 ⟦PROPOSAL scope=chapter⟧ 围栏交整章。"
+            "宁短勿巷志凑字；密拍预算优先于凑满 4800；欠戏禁止用气味/街景注水。"
+            "限知与硬红线优先于戏剧合同与字数目标。"
         )
+        try:
+            from scribe3.novel_quality_flags import craft_novel_enabled
+            if craft_novel_enabled():
+                length_steer += (
+                    "优先冲突与行动推进，禁止风景巡礼式注水；戏剧合同优先于字数目标。"
+                )
+        except Exception:
+            pass
         req = LoopChapterReq(
             chapter=seq,
             focalizer=ch.get("focalizer") or "",
