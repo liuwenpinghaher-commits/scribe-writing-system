@@ -1,0 +1,18 @@
+{
+  "schema": "v1",
+  "label": "v1_text_only",
+  "chapter_pressure": 4,
+  "role": "推进",
+  "synopsis": "本章讲述主角在城南巷中行走，观察店铺与行人，最后回到客栈休息。",
+  "chapter_hook": "",
+  "beats": [
+    {"id": "b1", "text": "清晨出客栈，沿长巷向南走。"},
+    {"id": "b2", "text": "经过铜铺与茶摊，听见闲话。"},
+    {"id": "b3", "text": "在桥头停步看河，再折回客栈睡下。"}
+  ],
+  "expect": {
+    "ok_with_compat": true,
+    "drama_weak": true,
+    "ok_without_compat": false
+  }
+}
