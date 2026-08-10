@@ -732,7 +732,8 @@ def mcp_catalog():
     except Exception:
         WRITE_GATED = set()
     tools = []
-    mcp_dir = Path(__file__).resolve().parents[2] / "mcp"
+    import scribe3 as _s3pkg
+    mcp_dir = Path(_s3pkg.__file__).resolve().parent / "mcp"
     seen = set()
     for py in sorted(mcp_dir.glob("tools*.py")):
         text = py.read_text(encoding="utf-8", errors="ignore")
