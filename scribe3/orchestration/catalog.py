@@ -23,8 +23,9 @@ CATALOG: list[dict[str, Any]] = [
         "read_tools": ("s3_get_intent",),
         "write_tools": ("s3_set_intent",),
         "required_outcome": "write_proposal",
+        # panel 必须是 northstar：前端 uiDirective 映射只有 northstar→capability
         "ui": {"entry": "manuscript", "phase": None, "node": None, "right_tab": "chief",
-               "layout_mode": "collaboration", "panel": "intent"},
+               "layout_mode": "collaboration", "panel": "northstar"},
         "channel": "world_write",
         "instruction_duty": (
             "域纪律(作品意图):用 s3_set_intent；**不是**评分卡 scorecard。"
@@ -266,9 +267,10 @@ CATALOG: list[dict[str, Any]] = [
     {
         "domain": "chapter.outline",
         "label": "章大纲",
+        # 勿把 s3_patch_chapter_plan 放 keywords（与 force 双计分会压过 beats）
         "match_keywords": (
             "大纲", "章纲", "synopsis", "起草大纲", "写大纲", "本章大纲",
-            "s3_patch_chapter_plan", "压力级", "chapter_role", "stakes", "赌注",
+            "压力级", "chapter_role", "stakes", "赌注", "field=synopsis",
         ),
         "match_force": (
             "s3_patch_chapter_plan",
@@ -290,10 +292,13 @@ CATALOG: list[dict[str, Any]] = [
     {
         "domain": "chapter.beats",
         "label": "章节拍",
-        "match_keywords": ("节拍", "情节点", "beats", "字数预算", "展开节拍", "GCD"),
+        "match_keywords": (
+            "节拍", "章节拍", "情节点", "beats", "字数预算", "展开节拍", "GCD",
+            "更新节拍", "补节拍", "写节拍", "field=beats",
+        ),
         "match_force": (
             "s3_patch_chapter_plan",
-            "写节拍", "更新节拍", "展开节拍", "补节拍",
+            "写节拍", "更新节拍", "展开节拍", "补节拍", "章节拍",
         ),
         "read_tools": ("s3_get_chapter",),
         "write_tools": ("s3_patch_chapter_plan",),
@@ -311,7 +316,10 @@ CATALOG: list[dict[str, Any]] = [
     {
         "domain": "chapter.deduce",
         "label": "章演绎",
-        "match_keywords": ("演绎", "场景真相", "限知投影", "deduce", "scene_truth"),
+        "match_keywords": (
+            "演绎", "场景真相", "限知投影", "deduce", "scene_truth",
+            "field=scene_truth", "更新演绎",
+        ),
         "match_force": (
             "s3_patch_chapter_plan",
             "写场景真相", "补场景真相", "更新演绎", "场景真相",

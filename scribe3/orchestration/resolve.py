@@ -24,14 +24,44 @@ def _score_entry(text: str, entry: dict[str, Any]) -> int:
     """累加命中分：更长短语优先，避免「主角」单字抢走「埋一个承诺」。"""
     t = text or ""
     score = 0
+    domain = entry.get("domain") or ""
+    # 共享 plan 工具只 force 计一次（勿再塞进 keywords 双计）
+    plan_tool = "s3_patch_chapter_plan" in t
     for kw in entry.get("match_force") or ():
-        if kw and kw in t:
+        if not kw or kw not in t:
+            continue
+        # 三脚手架域共享同一 force 工具名时，字段/阶段词再定胜负（下方加权）
+        if kw == "s3_patch_chapter_plan" and domain.startswith("chapter."):
             score += 100
+            continue
+        score += 100
     for kw in entry.get("match_keywords") or ():
         if kw and kw in t:
             # 基础 10 + 长度加成（封顶 24），多关键词累加
             score += 10 + min(len(kw), 14)
-    domain = entry.get("domain") or ""
+    # plan 工具 + 字段/中文域词 → 明确偏 outline / beats / deduce
+    if plan_tool or re.search(r"s3_patch_chapter_plan", t):
+        if domain == "chapter.beats" and re.search(
+            r"节拍|章节拍|beats|field\s*=\s*beats", t, re.I
+        ):
+            score += 90
+        if domain == "chapter.outline" and re.search(
+            r"大纲|章纲|synopsis|field\s*=\s*synopsis", t, re.I
+        ):
+            score += 90
+        if domain == "chapter.deduce" and re.search(
+            r"演绎|场景真相|scene_truth|deduce|field\s*=\s*scene_truth", t, re.I
+        ):
+            score += 90
+        # 有明确 beats 词时，抑制 outline 仅靠共享 tool 胜出
+        if domain == "chapter.outline" and re.search(
+            r"节拍|章节拍|beats|field\s*=\s*beats", t, re.I
+        ) and not re.search(r"大纲|synopsis|field\s*=\s*synopsis", t, re.I):
+            score -= 80
+        if domain == "chapter.beats" and re.search(
+            r"大纲|synopsis|field\s*=\s*synopsis", t, re.I
+        ) and not re.search(r"节拍|beats|field\s*=\s*beats", t, re.I):
+            score -= 80
     # 埋设动词 + 承诺/伏笔 → 明确偏向 plant（口语「埋一个承诺」）
     if domain == "promise.plant" and re.search(r"埋|种下|plant", t) and re.search(
         r"承诺|伏笔|promise", t

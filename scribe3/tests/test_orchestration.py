@@ -140,7 +140,7 @@ def test_resolve_outline_intent():
 
 
 def test_resolve_plan_tool_force_outline_world_write():
-    """种子点名 s3_patch_chapter_plan → world_write + outline/beats/deduce 域。"""
+    """大纲文案 + plan 工具 → domain 必须是 chapter.outline（不是 beats）。"""
     pkg = resolve_work_package(
         "请更新第1章大纲并使用工具 s3_patch_chapter_plan 提交写入提案",
         work="w1",
@@ -150,10 +150,43 @@ def test_resolve_plan_tool_force_outline_world_write():
     assert pkg["domain"] == "chapter.outline"
     assert pkg["use_world_write_run"] is True
     assert "s3_patch_chapter_plan" in pkg["write_tools"]
-    assert "域纪律" in (pkg.get("instruction_suffix") or "") or "s3_patch_chapter_plan" in (
-        pkg.get("instruction_suffix") or ""
-    )
+    suf = pkg.get("instruction_suffix") or ""
+    assert "synopsis" in suf or "大纲" in suf
+    assert "beats 结构" not in suf
     assert isinstance(pkg.get("context_pack"), list)
+
+
+def test_resolve_plan_tool_beats_not_outline():
+    """节拍文案 + plan 工具 → domain==chapter.beats；suffix 含 beats/节拍（AC2 诚实）。"""
+    pkg = resolve_work_package(
+        "使用工具 s3_patch_chapter_plan 更新第2章节拍",
+        work="w1",
+        chapter=2,
+        phase="beats",
+    )
+    assert pkg["domain"] == "chapter.beats", pkg["domain"]
+    assert pkg["use_world_write_run"] is True
+    assert "s3_patch_chapter_plan" in pkg["write_tools"]
+    suf = pkg.get("instruction_suffix") or ""
+    assert "beats" in suf or "节拍" in suf
+    assert "synopsis" not in suf or "章节拍" in suf
+
+
+def test_resolve_plan_tool_field_beats():
+    pkg = resolve_work_package(
+        "s3_patch_chapter_plan(seq=2, field=beats) 提交写入提案",
+        work="w1",
+        chapter=2,
+    )
+    assert pkg["domain"] == "chapter.beats"
+    assert pkg["use_world_write_run"] is True
+
+
+def test_intent_northstar_panel_is_northstar():
+    """前端 uiDirective 只映射 northstar panel，禁止改成 intent。"""
+    from scribe3.orchestration.catalog import get_domain
+    e = get_domain("intent.northstar")
+    assert (e.get("ui") or {}).get("panel") == "northstar"
 
 
 def test_resolve_scorecard_not_intent_write():

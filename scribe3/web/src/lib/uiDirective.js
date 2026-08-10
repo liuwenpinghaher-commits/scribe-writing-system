@@ -80,6 +80,8 @@ export function applyUiEvents(events, opts = {}) {
           // 与后端 panel_to_cap 对齐的轻量回退（后端已发 open-capability 时幂等）
           const map = {
             promise: 'promise', motif: 'motif', northstar: 'northstar',
+            // 兼容误写 panel=intent（真源仍为 northstar）
+            intent: 'northstar',
             codex_character: 'codex', outline: 'manuscript', beats: 'manuscript',
             deduce: 'deduce', qc: 'review',
           }
