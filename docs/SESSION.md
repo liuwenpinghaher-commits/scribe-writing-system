@@ -15,6 +15,13 @@
 
 ## 当前状态
 
+### 控制面活地图（2026-08-10）
+
+- **P0a**：`mcp_catalog_build` 扫描 async def；gate 分档 world_write=48 / manuscript / ingest / read  
+- **P0b–P3**：SystemHub 默认「总览地图」；六模块说明；任务旋钮精确 keys；中文能力注册表（无执行按钮）  
+- **设计**：`设计文档/2026-08-10-控制面活地图-模块说明与任务旋钮.md`
+
+
 ### 系统中心 System Hub（2026-08-10）
 
 - **App 全页** `SystemHub`（`viewKey=system`）；无书可开；DetailPane 设置已迁出  

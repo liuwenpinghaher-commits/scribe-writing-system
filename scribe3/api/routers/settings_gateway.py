@@ -732,42 +732,9 @@ def craft_skills_read(slug: str):
 
 
 def mcp_catalog():
-    """s3_* 工具能力地图(只读清单,非 /capabilities flags)。"""
-    import re
-    from pathlib import Path
-    try:
-        from scribe3.mcp._common import WRITE_GATED
-    except Exception:
-        WRITE_GATED = set()
-    tools = []
-    import scribe3 as _s3pkg
-    mcp_dir = Path(_s3pkg.__file__).resolve().parent / "mcp"
-    seen = set()
-    for py in sorted(mcp_dir.glob("tools*.py")):
-        text = py.read_text(encoding="utf-8", errors="ignore")
-        for m in re.finditer(r"^def (s3_[a-z0-9_]+)\(", text, re.M):
-            name = m.group(1)
-            if name in seen:
-                continue
-            seen.add(name)
-            # docstring first line
-            rest = text[m.end():]
-            doc = ""
-            dm = re.match(r"\s*:\s*(?:\n\s*)?\"\"\"(.*?)\"\"\"", rest, re.S)
-            if dm:
-                doc = dm.group(1).strip().split("\n")[0][:160]
-            try:
-                gated = name in set(WRITE_GATED or [])
-            except Exception:
-                gated = False
-            tools.append({
-                "name": name,
-                "write_gated": gated,
-                "group": "write" if gated else "read",
-                "doc": doc,
-                "module": py.name,
-            })
-    return {"tools": tools, "count": len(tools)}
+    """s3_* 工具能力地图：async 扫描、五档 gate、中文 domains。"""
+    from scribe3.mcp_catalog_build import build_mcp_catalog
+    return build_mcp_catalog()
 
 
 def data_health(work: str = "main"):

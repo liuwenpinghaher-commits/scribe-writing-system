@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
-import { PLANES, CRAFT_COMMON_KEYS, IMPACT_HINTS } from './planes'
+import { PLANES, CRAFT_COMMON_KEYS, IMPACT_HINTS, GATE_LABEL } from './planes'
+import { NODES, EDGES, SEQ_STEPS } from './mapGraph.js'
+import { MODULES } from './moduleCatalog.js'
+import { TASKS } from './taskCatalog.js'
 import { SettingField } from '../settings/SettingField'
 import { BookSection } from '../settings/BookSection'
 import { PrefsSection } from '../settings/PrefsSection'
@@ -10,7 +13,8 @@ import AdminConsole from '../admin/AdminConsole'
 import { Btn } from '../ui.jsx'
 
 /**
- * 系统中心：App 级全页（KD-Mount）。无书可开；依赖 work 的区 disabled。
+ * 系统中心 + 活地图默认首页（控制面 KD-M2）。
+ * 无书可开；依赖 work 的区 disabled。
  */
 export function SystemHub({
   work,
@@ -24,21 +28,27 @@ export function SystemHub({
     () => PLANES.filter((p) => !p.adminOnly || isAdmin),
     [isAdmin],
   )
-  const [planeId, setPlaneId] = useState(visiblePlanes[0]?.id || 'writing')
+  const defaultSection = initialSection || 'map'
+  const [planeId, setPlaneId] = useState(() => {
+    if (initialSection === 'accounts' && isAdmin) return 'ops'
+    return 'writing'
+  })
   const plane = visiblePlanes.find((p) => p.id === planeId) || visiblePlanes[0]
-  const [sectionId, setSectionId] = useState(
-    initialSection || plane?.sections?.[0]?.id || 'book',
-  )
+  const [sectionId, setSectionId] = useState(defaultSection)
   const [items, setItems] = useState(null)
   const [usage, setUsage] = useState(null)
   const [skills, setSkills] = useState(null)
   const [skillBody, setSkillBody] = useState(null)
   const [mcp, setMcp] = useState(null)
+  const [mcpFilter, setMcpFilter] = useState('all')
+  const [showRawNames, setShowRawNames] = useState(false)
   const [gw, setGw] = useState(null)
   const [dataHealth, setDataHealth] = useState(null)
   const [tables, setTables] = useState(null)
   const [tableRows, setTableRows] = useState(null)
   const [lessons, setLessons] = useState(null)
+  const [moduleId, setModuleId] = useState(null)
+  const [taskId, setTaskId] = useState(TASKS[0]?.id)
   const [err, setErr] = useState(null)
 
   const sections = plane?.sections || []
@@ -46,7 +56,7 @@ export function SystemHub({
 
   useEffect(() => {
     if (!sections.find((s) => s.id === sectionId)) {
-      setSectionId(sections[0]?.id)
+      setSectionId(sections[0]?.id || 'map')
     }
   }, [planeId, sections, sectionId])
 
@@ -57,45 +67,89 @@ export function SystemHub({
   }, [])
 
   useEffect(() => { reloadSettings() }, [reloadSettings])
-
   useEffect(() => {
     api.aiUsage?.().then(setUsage).catch(() => setUsage(null))
   }, [])
 
-  // section loaders
   useEffect(() => {
     setErr(null)
-    if (section?.id === 'skills') {
-      api.craftSkills?.().then((r) => setSkills(r.skills || r || [])).catch((e) => setErr(String(e?.message || e)))
-    }
-    if (section?.id === 'mcp') {
-      api.mcpCatalog?.().then((r) => setMcp(r)).catch((e) => setErr(String(e?.message || e)))
-    }
-    if (section?.id === 'hermes' || section?.id === 'health') {
+    const sid = section?.id
+    if (sid === 'map' || sid === 'health' || sid === 'hermes') {
       api.gatewayStatus?.().then(setGw).catch(() => setGw(null))
     }
-    if (section?.id === 'surreal' && work) {
-      api.dataHealth?.(work).then(setDataHealth).catch((e) => setDataHealth({ ok: false, detail: String(e) }))
-      if (isAdmin) {
+    if (sid === 'map' || sid === 'health') {
+      api.aiUsage?.().then(setUsage).catch(() => setUsage(null))
+    }
+    if ((sid === 'map' || sid === 'surreal') && work) {
+      api.dataHealth?.(work).then(setDataHealth).catch((e) => setDataHealth({ ok: false, detail: String(e?.message || e) }))
+      if (isAdmin && sid === 'surreal') {
         api.adminDataTables?.(work).then((r) => setTables(r.tables || [])).catch(() => setTables([]))
       }
     }
-    if (section?.id === 'evolution' && work) {
+    if (sid === 'skills') {
+      api.craftSkills?.().then((r) => setSkills(r.skills || r || [])).catch((e) => setErr(String(e?.message || e)))
+    }
+    if (sid === 'mcp') {
+      api.mcpCatalog?.().then(setMcp).catch((e) => setErr(String(e?.message || e)))
+    }
+    if (sid === 'evolution' && work) {
       api.promotableLessons?.(work).then((r) => setLessons(r.lessons || r.rows || r || [])).catch(() => setLessons([]))
     }
   }, [section?.id, work, isAdmin])
 
   const byCat = (c) => (items || []).filter((i) => i.category === c)
+  const byKey = useMemo(() => {
+    const m = {}
+    for (const it of items || []) m[it.key] = it
+    return m
+  }, [items])
   const craftItems = byCat('craft')
   const craftCommon = craftItems.filter((i) => CRAFT_COMMON_KEYS.has(i.key))
   const craftAdvanced = craftItems.filter((i) => !CRAFT_COMMON_KEYS.has(i.key))
   const needsWork = !!section?.needsWork
   const workMissing = needsWork && !work
-
   const onChanged = () => reloadSettings()
 
-  const renderSettingsList = (list, { advanced } = {}) => (
-    <div className="space-y-2" data-testid={advanced ? 'craft-advanced' : 'craft-common'}>
+  const goSection = (id, planeHint) => {
+    if (planeHint) setPlaneId(planeHint)
+    else {
+      for (const p of visiblePlanes) {
+        if (p.sections.some((s) => s.id === id)) {
+          setPlaneId(p.id)
+          break
+        }
+      }
+    }
+    setSectionId(id)
+    setModuleId(null)
+  }
+
+  const onNodeActivate = (node) => {
+    if (node.exit) {
+      onExit?.()
+      return
+    }
+    if (node.section) goSection(node.section)
+    if (node.id === 'registry') goSection('mcp')
+    if (node.id === 'policy') goSection('tasks')
+    if (node.id === 'assemble') goSection('craft')
+    if (node.id === 'story') goSection('surreal', 'runtime')
+    setModuleId(node.id)
+  }
+
+  const onStepActivate = (step) => {
+    if (step.action === 'exit') onExit?.()
+    else if (step.action === 'section') {
+      goSection(step.section)
+      if (step.filter) setMcpFilter(step.filter)
+    } else if (step.action === 'module') {
+      setModuleId(step.module)
+      goSection('map')
+    }
+  }
+
+  const renderSettingsList = (list, testid) => (
+    <div className="space-y-2" data-testid={testid}>
       {(list || []).map((it) => (
         <div key={it.key}>
           {IMPACT_HINTS[it.key] && (
@@ -104,106 +158,283 @@ export function SystemHub({
           <SettingField item={it} onChanged={onChanged} />
         </div>
       ))}
-      {!list?.length && <div className="text-f13 text-faint">本区暂无设置项</div>}
+      {!list?.length && <div className="text-f13 text-faint">本区暂无设置项或无权查看</div>}
     </div>
   )
+
+  const ObserveStrip = () => (
+    <div className="flex flex-wrap gap-3 text-f12 border border-line rounded-lg p-3 bg-surface/40" data-testid="system-hub-observe">
+      <span>
+        网关：
+        {(gw?.gateways || []).map((g) => (
+          <span key={g.name} className="inline-flex items-center gap-1 mr-2">
+            <span className={`inline-block h-2 w-2 rounded-full ${g.online ? 'bg-ok' : 'bg-line'}`} />
+            {g.name}
+          </span>
+        ))}
+        {!gw && <span className="text-faint">—</span>}
+      </span>
+      {usage?.cap && (
+        <span>今日 LLM：{usage.cap.used_today}{usage.cap.unlimited ? ' · 不限' : ` / ${usage.cap.cap}`}</span>
+      )}
+      <span>
+        故事库：
+        {!work ? '选书后可见' : dataHealth == null ? '…' : dataHealth.ok ? '健康' : '异常'}
+      </span>
+      <span className="text-faint">上下文检查器请在写作台打开（返回后使用）。</span>
+    </div>
+  )
+
+  const MapHome = () => (
+    <div className="p-5 space-y-5" data-testid="system-hub-map">
+      <div>
+        <h3 className="text-f14 font-medium text-ink mb-1">铜炉运转图</h3>
+        <p className="text-f12 text-faint mb-3">
+          点模块看「是什么 / 怎么运转 / 你能控什么」。配置在任务旋钮与工艺区；能力注册表是 AI 工具说明书（不可在此执行写工具）。
+        </p>
+        <div className="rounded-lg border border-line bg-canvas p-4 overflow-x-auto" data-testid="system-hub-arch-map">
+          <svg viewBox="0 0 480 280" className="w-full max-w-xl h-auto" role="img" aria-label="系统模块架构图">
+            {EDGES.map(([a, b]) => {
+              const na = NODES.find((n) => n.id === a)
+              const nb = NODES.find((n) => n.id === b)
+              if (!na || !nb) return null
+              return (
+                <line key={`${a}-${b}`} x1={na.x + 50} y1={na.y + 18} x2={nb.x + 50} y2={nb.y + 18}
+                  stroke="currentColor" className="text-line" strokeWidth="1.5" />
+              )
+            })}
+            {NODES.map((n) => (
+              <g key={n.id}>
+                <rect x={n.x} y={n.y} width={100} height={36} rx={8}
+                  className="fill-surface stroke-line" strokeWidth="1" />
+                <foreignObject x={n.x} y={n.y} width={100} height={36}>
+                  <button type="button"
+                    className="w-full h-full text-f12 text-ink hover:text-brand cursor-pointer"
+                    data-testid={`map-node-${n.id}`}
+                    aria-label={n.label}
+                    onClick={() => onNodeActivate(n)}
+                  >
+                    {n.label}
+                  </button>
+                </foreignObject>
+              </g>
+            ))}
+          </svg>
+        </div>
+      </div>
+
+      <div data-testid="system-hub-seq">
+        <h4 className="text-f13 font-medium mb-2">写一章时序</h4>
+        <div className="flex flex-wrap gap-2">
+          {SEQ_STEPS.map((s) => (
+            <button key={s.id} type="button"
+              data-testid={`map-step-${s.id}`}
+              className="rounded-full border border-line px-3 py-1 text-f12 hover:bg-soft cursor-pointer"
+              onClick={() => onStepActivate(s)}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" data-testid="system-hub-module-cards">
+        {MODULES.map((m) => (
+          <button key={m.id} type="button"
+            className="text-left rounded-lg border border-line p-3 hover:bg-soft cursor-pointer"
+            data-testid={`module-card-${m.id}`}
+            onClick={() => { setModuleId(m.id); if (m.exit) {/* keep on map */} }}
+          >
+            <div className="text-f13 font-medium text-ink">{m.label}</div>
+            <div className="text-f12 text-faint mt-1 line-clamp-2">{m.purpose}</div>
+          </button>
+        ))}
+      </div>
+
+      <ObserveStrip />
+
+      <div className="flex flex-wrap gap-2">
+        <Btn variant="soft" size="sm" onClick={() => goSection('tasks')}>任务旋钮</Btn>
+        <Btn variant="soft" size="sm" onClick={() => goSection('mcp')}>能力注册表</Btn>
+        <Btn variant="soft" size="sm" onClick={() => goSection('health')}>健康</Btn>
+      </div>
+
+      {moduleId && (
+        <ModulePane id={moduleId} health={dataHealth} work={work} onClose={() => setModuleId(null)}
+          onGoSection={goSection} onExit={onExit} />
+      )}
+    </div>
+  )
+
+  function ModulePane({ id, health, work: w, onClose, onGoSection, onExit: exit }) {
+    const m = MODULES.find((x) => x.id === id)
+    if (!m) return null
+    return (
+      <div className="rounded-lg border border-line p-4 bg-surface space-y-2" data-testid="system-hub-module-pane">
+        <div className="flex items-center justify-between">
+          <h4 className="text-f14 font-medium">{m.label}</h4>
+          <button type="button" className="text-f12 text-faint cursor-pointer" onClick={onClose}>关闭</button>
+        </div>
+        <p className="text-f13"><strong>作用：</strong>{m.purpose}</p>
+        <p className="text-f13"><strong>怎么运转：</strong>{m.flow}</p>
+        <p className="text-f13 text-ok"><strong>你能：</strong>{m.can}</p>
+        <p className="text-f13 text-faint"><strong>你不能：</strong>{m.cannot}</p>
+        {id === 'story' && (
+          <p className="text-f12">健康：{!w ? '请先选书' : health?.ok ? 'OK' : health?.detail || '—'}</p>
+        )}
+        <p className="text-meta text-warn">Hub 内不提供执行写工具按钮；世界写须经主编审批。</p>
+        <div className="flex gap-2 pt-1">
+          {m.section && <Btn size="sm" variant="soft" onClick={() => onGoSection(m.section)}>打开相关分区</Btn>}
+          {m.exit && <Btn size="sm" variant="ghost" onClick={exit}>返回写作台</Btn>}
+        </div>
+      </div>
+    )
+  }
+
+  const TaskControls = () => {
+    const task = TASKS.find((t) => t.id === taskId) || TASKS[0]
+    const list = (task?.keys || []).map((k) => byKey[k]).filter(Boolean)
+    return (
+      <div className="p-5 space-y-4" data-testid="system-hub-tasks">
+        <p className="text-f12 text-faint">按任务拧旋钮（精确 settings 键）。作者可改工艺/部分模型；admin 键由门禁拒绝。</p>
+        <div className="flex flex-wrap gap-2">
+          {TASKS.map((t) => (
+            <button key={t.id} type="button"
+              className={`rounded-full px-3 py-1 text-f12 border cursor-pointer ${taskId === t.id ? 'border-brand text-brand bg-brand/10' : 'border-line'}`}
+              onClick={() => setTaskId(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        {renderSettingsList(list, 'task-knobs-list')}
+      </div>
+    )
+  }
+
+  const CapabilityRegistry = () => {
+    const tools = mcp?.tools || []
+    const domains = mcp?.domains || []
+    const counts = mcp?.counts_by_gate || {}
+    const filtered = mcpFilter === 'all' ? tools : tools.filter((t) => t.gate === mcpFilter)
+    return (
+      <div className="p-5 space-y-4" data-testid="system-hub-capability-registry">
+        <p className="text-f12 text-faint">
+          AI 能力说明书（只读）。共 {mcp?.count ?? 0} 工具；
+          世界写须审批 {counts.world_write_gated ?? mcp?.write_gated_total ?? '—'}；
+          存稿 {counts.manuscript_save ?? 0}；入库 {counts.ingest ?? 0}；只读 {counts.read ?? 0}。
+          <strong className="text-ink"> 无「执行」按钮。</strong>
+        </p>
+        <div className="flex flex-wrap gap-2 text-f12">
+          {['all', 'world_write_gated', 'manuscript_save', 'ingest', 'read'].map((g) => (
+            <button key={g} type="button"
+              className={`rounded-full px-2 py-0.5 border cursor-pointer ${mcpFilter === g ? 'border-brand text-brand' : 'border-line text-faint'}`}
+              onClick={() => setMcpFilter(g)}
+            >
+              {g === 'all' ? '全部' : (GATE_LABEL[g] || g)}
+            </button>
+          ))}
+          <label className="ml-2 flex items-center gap-1 cursor-pointer">
+            <input type="checkbox" checked={showRawNames} onChange={(e) => setShowRawNames(e.target.checked)} />
+            显示 s3_ 名
+          </label>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2" data-testid="capability-domains">
+          {domains.map((d) => (
+            <div key={d.domain} className="rounded-lg border border-line p-3">
+              <div className="text-f13 font-medium">{d.label}</div>
+              <div className="text-meta text-faint">
+                读 {d.read_count ?? (d.read_tools || []).length}
+                {d.channel === 'world_write' || (d.write_tools || []).length
+                  ? ` · 写(待批) ${d.write_gated_count ?? (d.write_tools || []).length}`
+                  : ''}
+                {d.gate_note ? ` · ${GATE_LABEL[d.gate_note] || d.gate_note}` : ''}
+              </div>
+              {showRawNames && (
+                <div className="mt-1 font-mono text-f11 text-faint break-all">
+                  {[...(d.read_tools || []), ...(d.write_tools || [])].slice(0, 12).join(' ')}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {showRawNames && (
+          <ul className="text-f12 space-y-1 max-h-64 overflow-auto font-mono" data-testid="capability-raw-list">
+            {filtered.map((t) => (
+              <li key={t.name}>
+                <span className="text-ink">{t.name}</span>
+                <span className="text-faint ml-2 font-sans">{GATE_LABEL[t.gate] || t.gate}</span>
+                {t.doc && <span className="text-faint ml-2 font-sans">{t.doc}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    )
+  }
 
   let main = null
   if (workMissing) {
     main = (
       <div className="p-8 text-f13 text-faint" data-testid="system-hub-need-work">
-        本区依赖当前作品。请在顶部选择一本书，或从作品库打开后再来。
+        本区依赖当前作品。请在顶部选择一本书。
       </div>
     )
+  } else if (section?.id === 'map') {
+    main = <MapHome />
   } else if (section?.id === 'book') {
     main = <BookSection work={work} />
   } else if (section?.id === 'prefs') {
     main = <PrefsSection work={work} />
+  } else if (section?.id === 'tasks') {
+    main = <TaskControls />
   } else if (section?.id === 'craft') {
     main = (
       <div className="p-5 space-y-6" data-testid="system-hub-craft">
         <div>
           <h4 className="text-f13 font-medium text-ink mb-2">常用</h4>
-          {renderSettingsList(craftCommon)}
+          {renderSettingsList(craftCommon, 'craft-common')}
         </div>
         <div>
           <h4 className="text-f13 font-medium text-ink mb-2">进阶</h4>
-          <p className="text-meta text-faint mb-2">检索权重与半衰期等；误改可能影响召回。</p>
-          {renderSettingsList(craftAdvanced, { advanced: true })}
+          {renderSettingsList(craftAdvanced, 'craft-advanced')}
         </div>
       </div>
     )
   } else if (section?.id === 'skills') {
     main = (
       <div className="p-5" data-testid="system-hub-skills">
-        <p className="text-f12 text-faint mb-3">仓库技法库（craft_skills）；全文只读。增删改请改仓库 md 后部署。</p>
+        <p className="text-f12 text-faint mb-3">技法库只读；增删改仓库 craft_skills/*.md 后部署。</p>
         <ul className="space-y-2">
           {(skills || []).map((s) => (
             <li key={s.slug || s.name}>
-              <button
-                type="button"
-                className="text-left w-full rounded-lg border border-line px-3 py-2 hover:bg-soft cursor-pointer"
-                onClick={() => api.craftSkill?.(s.slug).then((r) => setSkillBody(r.content || r)).catch((e) => setErr(String(e)))}
-              >
-                <div className="text-f13 font-medium text-ink">{s.name || s.slug}</div>
+              <button type="button" className="text-left w-full rounded-lg border border-line px-3 py-2 hover:bg-soft cursor-pointer"
+                onClick={() => api.craftSkill?.(s.slug).then((r) => setSkillBody(r.content || r)).catch((e) => setErr(String(e)))}>
+                <div className="text-f13 font-medium">{s.name || s.slug}</div>
                 <div className="text-meta text-faint">{s.desc || s.slug}</div>
               </button>
             </li>
           ))}
         </ul>
-        {skillBody && (
-          <pre className="mt-4 p-3 rounded-lg bg-canvas border border-line text-f12 whitespace-pre-wrap max-h-96 overflow-auto">{skillBody}</pre>
-        )}
+        {skillBody && <pre className="mt-4 p-3 rounded-lg bg-canvas border border-line text-f12 whitespace-pre-wrap max-h-96 overflow-auto">{skillBody}</pre>}
       </div>
     )
   } else if (section?.id === 'mcp') {
-    const tools = mcp?.tools || []
-    const reads = tools.filter((t) => !t.write_gated)
-    const writes = tools.filter((t) => t.write_gated)
-    main = (
-      <div className="p-5" data-testid="system-hub-mcp">
-        <p className="text-f12 text-faint mb-3">共 {mcp?.count ?? tools.length} 个 s3_* 工具。写工具需审批（WRITE_GATED）。</p>
-        <h4 className="text-f13 font-medium mb-2">读 / 召回（{reads.length}）</h4>
-        <ul className="text-f12 space-y-1 mb-4 max-h-48 overflow-auto">
-          {reads.map((t) => <li key={t.name} className="font-mono text-ink">{t.name}<span className="text-faint ml-2 font-sans">{t.doc}</span></li>)}
-        </ul>
-        <h4 className="text-f13 font-medium mb-2">写（待批 {writes.length}）</h4>
-        <ul className="text-f12 space-y-1 max-h-48 overflow-auto">
-          {writes.map((t) => <li key={t.name} className="font-mono text-ink">{t.name}</li>)}
-        </ul>
-      </div>
-    )
+    main = <CapabilityRegistry />
   } else if (section?.id === 'health') {
     main = (
       <div className="p-5 space-y-4" data-testid="system-hub-health">
-        {usage?.cap && (
-          <div className="rounded-lg border border-line p-3 text-f13">
-            今日 LLM：{usage.cap.used_today}
-            {usage.cap.unlimited ? ' · 不限' : ` / ${usage.cap.cap}`}
-          </div>
-        )}
-        <div>
-          <h4 className="text-f13 font-medium mb-2">网关状态</h4>
-          <div className="space-y-1">
-            {(gw?.gateways || []).map((g) => (
-              <div key={g.name} className="flex items-center gap-2 text-f13">
-                <span className={`inline-block h-2 w-2 rounded-full ${g.online ? 'bg-ok' : 'bg-line'}`} />
-                <span>{g.name}</span>
-                <span className="text-meta text-faint">{g.profile}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <p className="text-meta text-faint">更细的上下文溯源请在写作台打开「上下文检查器」。</p>
+        <ObserveStrip />
+        <p className="text-meta text-faint">更细的上下文溯源请返回写作台打开「上下文检查器」。</p>
       </div>
     )
   } else if (section?.id === 'evolution') {
     main = (
       <div className="p-5" data-testid="system-hub-evolution">
-        <p className="text-f12 text-faint mb-3">可升格教训（promotable）。治理以只读入口为主；写入仍走既有审批路径。</p>
-        {Array.isArray(lessons) && lessons.length === 0 && (
-          <div className="text-f13 text-faint">暂无 promotable lessons（空态正常）。</div>
-        )}
+        <p className="text-f12 text-faint mb-3">可升格教训（只读入口）。</p>
+        {Array.isArray(lessons) && lessons.length === 0 && <div className="text-f13 text-faint">暂无 promotable lessons。</div>}
         <ul className="space-y-2">
           {(lessons || []).slice(0, 40).map((L, i) => (
             <li key={L.id || i} className="rounded-lg border border-line px-3 py-2 text-f13">
@@ -227,18 +458,14 @@ export function SystemHub({
             今日已用 {usage.cap.used_today}{usage.cap.unlimited ? ' · 不限' : ` / 日帽 ${usage.cap.cap}`}
           </div>
         )}
-        {renderSettingsList(byCat('llm').filter((i) => isAdmin || i.audience !== 'admin'))}
-        {!isAdmin && (
-          <p className="text-meta text-faint">日帽等管理员项已隐藏；author 可改模型名与超时。</p>
-        )}
+        {renderSettingsList(byCat('llm').filter((i) => isAdmin || i.audience !== 'admin'), 'llm-settings')}
       </div>
     )
   } else if (section?.id === 'surreal') {
     main = (
       <div className="p-5 space-y-4" data-testid="system-hub-surreal">
         <div className="rounded-lg border border-line p-3 text-f13">
-          健康 · work=<code className="text-meta">{work}</code>
-          {' '}
+          健康 · work=<code className="text-meta">{work}</code>{' '}
           <span className={dataHealth?.ok ? 'text-ok' : 'text-danger'}>
             {dataHealth == null ? '加载中…' : dataHealth.ok ? 'OK' : '异常'}
           </span>
@@ -249,12 +476,9 @@ export function SystemHub({
             <h4 className="text-f13 font-medium">表白名单（只读）</h4>
             <div className="flex flex-wrap gap-2">
               {(tables || []).map((tb) => (
-                <button
-                  key={tb.id}
-                  type="button"
+                <button key={tb.id} type="button"
                   className="rounded-lg px-3 py-1.5 text-f12 border border-line hover:bg-soft cursor-pointer"
-                  onClick={() => api.adminDataRows?.(tb.id, work).then((r) => setTableRows(r)).catch((e) => setErr(String(e)))}
-                >
+                  onClick={() => api.adminDataRows?.(tb.id, work).then((r) => setTableRows(r)).catch((e) => setErr(String(e)))}>
                   {tb.label || tb.id}
                 </button>
               ))}
@@ -270,9 +494,9 @@ export function SystemHub({
       </div>
     )
   } else if (section?.id === 'connection') {
-    main = <div className="p-5" data-testid="system-hub-connection">{renderSettingsList(byCat('connection'))}</div>
+    main = <div className="p-5">{renderSettingsList(byCat('connection'), 'connection-settings')}</div>
   } else if (section?.id === 'flags') {
-    main = <div className="p-5" data-testid="system-hub-flags">{renderSettingsList(byCat('flags'))}</div>
+    main = <div className="p-5">{renderSettingsList(byCat('flags'), 'flags-settings')}</div>
   } else if (section?.id === 'accounts') {
     main = isAdmin ? <AdminConsole onExit={onExit} hasWork={!!work} /> : <div className="p-8 text-faint">需要管理员</div>
   } else if (section?.id === 'audit') {
@@ -306,8 +530,7 @@ export function SystemHub({
         <nav className="w-48 shrink-0 border-r border-line bg-surface/50 overflow-y-auto p-2" aria-label="系统中心平面">
           {visiblePlanes.map((p) => (
             <div key={p.id} className="mb-3">
-              <button
-                type="button"
+              <button type="button"
                 className={`w-full text-left px-2 py-1.5 rounded-md text-f13 font-medium cursor-pointer ${
                   planeId === p.id ? 'bg-soft text-brand' : 'text-ink hover:bg-soft'
                 }`}
@@ -319,12 +542,11 @@ export function SystemHub({
                 <ul className="mt-1 ml-1 space-y-0.5">
                   {p.sections.map((s) => (
                     <li key={s.id}>
-                      <button
-                        type="button"
+                      <button type="button"
                         className={`w-full text-left px-2 py-1 rounded-md text-f12 cursor-pointer ${
                           sectionId === s.id ? 'bg-brand/10 text-brand' : 'text-faint hover:text-ink hover:bg-soft'
                         }`}
-                        onClick={() => setSectionId(s.id)}
+                        onClick={() => { setSectionId(s.id); setModuleId(null) }}
                       >
                         {s.label}
                       </button>
@@ -337,9 +559,7 @@ export function SystemHub({
         </nav>
         <div className="flex-1 min-h-0 overflow-y-auto">
           {err && <div className="m-4 text-f13 text-danger" role="alert">{err}</div>}
-          {!items && section?.id === 'craft' ? (
-            <div className="p-8 text-faint">加载设置…</div>
-          ) : main}
+          {main}
         </div>
       </div>
     </div>
