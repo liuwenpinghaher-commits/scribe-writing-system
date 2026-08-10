@@ -14,7 +14,7 @@ docs/plans/2026-08-09-memory-quality-rootcause-plan.md：
   - 非纯 SPA Playwright；不得声称「仅浏览器点选 PASS」
 
 用法：
-  export API_BASE=https://www.qing.blue
+  export API_BASE=https://tonglu.qing.blue
   export SCRIBE3_BOOTSTRAP_USERS=admin:xxx
   python3 scripts/v63_memory_journey.py --phase all
   python3 scripts/v63_memory_journey.py --phase scaffold
@@ -35,7 +35,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = os.environ.get("API_BASE", "https://www.qing.blue")
+BASE = os.environ.get("API_BASE", "https://tonglu.qing.blue")
 JAR = os.environ.get("COOKIE_JAR", "/tmp/v63_cookie.txt")
 TITLE = os.environ.get(
     "WORK_TITLE",

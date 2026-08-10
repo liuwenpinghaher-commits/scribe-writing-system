@@ -8,7 +8,7 @@
 
 用法（在 demo 机 / 能访问 API 的环境）:
   export SCRIBE3_BOOTSTRAP_USERS=admin:chris0120
-  export API_BASE=http://127.0.0.1:8088   # 或 https://www.qing.blue
+  export API_BASE=http://127.0.0.1:8088   # 或 https://tonglu.qing.blue
   python3 scripts/v2_serial_pilot.py --phase scaffold
   python3 scripts/v2_serial_pilot.py --phase serialize --from-seq 1 --to-seq 10
   python3 scripts/v2_serial_pilot.py --phase score

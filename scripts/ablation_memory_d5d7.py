@@ -5,7 +5,7 @@
 质量 9.5 仍须人评成稿 A/B（见 memory_gain.comparison_protocol）。
 
 用法：
-  API_BASE=https://www.qing.blue SCRIBE3_BOOTSTRAP_USERS=admin:x \\
+  API_BASE=https://tonglu.qing.blue SCRIBE3_BOOTSTRAP_USERS=admin:x \\
   python3 scripts/ablation_memory_d5d7.py --work book_4c7815eb --chapter 4 \\
     --out artifacts/ablation-d5d7-book_4c7815eb.md
 """
@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = os.environ.get("API_BASE", "https://www.qing.blue")
+BASE = os.environ.get("API_BASE", "https://tonglu.qing.blue")
 JAR = os.environ.get("COOKIE_JAR", "/tmp/ablation_d5d7_cookie.txt")
 
 

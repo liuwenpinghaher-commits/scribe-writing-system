@@ -72,7 +72,7 @@ docker compose up
 | `SCRIBE3_AUTH_DB` | 与 settings 同目录 | 用户表 SQLite 路径 |
 | `SCRIBE3_SESSION_SECURE` | (HTTPS 建议 1) | Cookie `Secure` 标志 |
 
-公网域名假设：`https://www.qing.blue`。规格：`docs/L1-AUTH-ISOLATION.md`。
+公网域名假设：`https://tonglu.qing.blue`（旧 `www.qing.blue` / `qing.blue` 301 至主域）。规格：`docs/L1-AUTH-ISOLATION.md`。
 | `SCRIBE3_MAX_CONCURRENT` | `3` | LLM 并发上限 |
 | `SCRIBE3_DAILY_CALL_CAP` | `500` | LLM 日调用上限 |
 | `SCRIBE3_WORK` | `main` | MCP 当前书 DB 名 |

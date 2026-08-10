@@ -3,7 +3,7 @@
 
 质量 9.5 仍需人评「像角色在想」；本脚本只做地板。
 
-  API_BASE=https://www.qing.blue SCRIBE3_BOOTSTRAP_USERS=admin:x \\
+  API_BASE=https://tonglu.qing.blue SCRIBE3_BOOTSTRAP_USERS=admin:x \\
   python3 scripts/probe_d6_epistemic.py --work book_6340c01f --seq 3
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-BASE = os.environ.get("API_BASE", "https://www.qing.blue")
+BASE = os.environ.get("API_BASE", "https://tonglu.qing.blue")
 JAR = os.environ.get("COOKIE_JAR", "/tmp/d6_probe_cookie.txt")
 
 

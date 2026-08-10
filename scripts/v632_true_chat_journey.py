@@ -10,7 +10,7 @@
   - 连载：先 chat 开写，再 pilot 步进+approve（点批）
 
 用法：
-  export API_BASE=https://www.qing.blue SCRIBE3_BOOTSTRAP_USERS=admin:x
+  export API_BASE=https://tonglu.qing.blue SCRIBE3_BOOTSTRAP_USERS=admin:x
   python3 scripts/v632_true_chat_journey.py --phase all
   python3 scripts/v632_true_chat_journey.py --phase setup   # 到 WCG+M1
   python3 scripts/v632_true_chat_journey.py --phase write --slug book_xxx --from-seq 1 --to-seq 5
@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = os.environ.get("API_BASE", "https://www.qing.blue")
+BASE = os.environ.get("API_BASE", "https://tonglu.qing.blue")
 JAR = os.environ.get("COOKIE_JAR", "/tmp/v632_chat_cookie.txt")
 TITLE = os.environ.get(
     "WORK_TITLE",

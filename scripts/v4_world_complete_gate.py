@@ -4,7 +4,7 @@
 未 exit 0 禁止任何验收向 draft_loop / 定稿。
 用法：
   export SCRIBE3_BOOTSTRAP_USERS=admin:chris0120
-  export API_BASE=http://127.0.0.1:8088   # 或 https://www.qing.blue
+  export API_BASE=http://127.0.0.1:8088   # 或 https://tonglu.qing.blue
   python3 scripts/v4_world_complete_gate.py --slug book_xxx
   # 可选 --out artifacts/.../00-world-complete-gate.json
 """

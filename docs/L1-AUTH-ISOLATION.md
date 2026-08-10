@@ -1,7 +1,7 @@
 # L1 认证与多用户隔离规格（Scribe3）
 
 **状态**: 已定稿并与实现同步  
-**公开入口**: `https://www.qing.blue`（及 `qing.blue`），同源 SPA + `/api`  
+**公开入口**: `https://tonglu.qing.blue`（旧 `www.qing.blue` / `qing.blue` 301），同源 SPA + `/api`  
 **隔离档位**: **L1** — 单进程、同一 Surreal、按 `owner_user_id` 逻辑隔离  
 
 ---
@@ -97,7 +97,7 @@
 ## 4. 架构位置（实现约束）
 
 ```
-Browser (www.qing.blue)
+Browser (tonglu.qing.blue)
   → nginx (TLS, / + /api)
     → FastAPI
          Auth middleware (session cookie | machine bearer)
@@ -116,7 +116,7 @@ Browser (www.qing.blue)
 - 登录页：用户名 + 密码 → `POST /auth/login`（`credentials: 'include'`）  
 - 启动：`GET /auth/me`；失败进登录页  
 - `fetch` 包装：默认 `credentials: 'include'`；401 → 登录；**不再**以 `localStorage` 的 API token 为主闸  
-- 域名: 生产 Cookie 面向 `qing.blue` / `www.qing.blue` 同源部署
+- 域名: 生产 Cookie 面向 `tonglu.qing.blue` 同源部署（旧主域仅 301）
 
 ---
 
@@ -137,4 +137,4 @@ Browser (www.qing.blue)
 | 无会话拒绝 | 受保护 API → 401 |
 | A/B 隔离 | A 列表不含 B 的 work；B 访问 A 的 slug → 403 |
 | L1 同进程 | 无 per-user 容器；owner 在注册表 |
-| 公开域 | 文档与部署假设 `www.qing.blue` |
+| 公开域 | 文档与部署假设 `tonglu.qing.blue` |

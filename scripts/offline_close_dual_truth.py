@@ -2,7 +2,7 @@
 """Offline close mutually exclusive open facts on a work (demo API).
 
 用法：
-  API_BASE=https://www.qing.blue python3 scripts/offline_close_dual_truth.py --work book_aa57f17e
+  API_BASE=https://tonglu.qing.blue python3 scripts/offline_close_dual_truth.py --work book_aa57f17e
 
 仅扫描并报告；加 --apply 才写 supersede（通过 s3 或 save fact API 若可用）。
 默认 dry-run：打印互斥对，不写库。
@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-os.environ.setdefault("API_BASE", "https://www.qing.blue")
+os.environ.setdefault("API_BASE", "https://tonglu.qing.blue")
 
 import importlib.util
 
