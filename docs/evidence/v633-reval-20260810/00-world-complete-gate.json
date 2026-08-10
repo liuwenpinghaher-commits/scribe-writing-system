@@ -1,0 +1,96 @@
+{
+  "slug": "book_013bcb3b",
+  "pass": false,
+  "fail_count": 9,
+  "pass_count": 8,
+  "fails": [
+    {
+      "check": "characters.count>=4",
+      "ok": false,
+      "detail": "n=3"
+    },
+    {
+      "check": "characters.codex_full(backstory+5fields)",
+      "ok": false,
+      "detail": "full=0/3 names=['冷锅婆', '灰狸', '覃灰七']"
+    },
+    {
+      "check": "faction_item_term.two_categories",
+      "ok": false,
+      "detail": "kinds={'character': 3, 'faction': 0, 'item': 0, 'term': 0}"
+    },
+    {
+      "check": "promises.ge3",
+      "ok": false,
+      "detail": "n=0"
+    },
+    {
+      "check": "motifs.ge3",
+      "ok": false,
+      "detail": "n=0 names=[]"
+    },
+    {
+      "check": "volumes.ge3",
+      "ok": false,
+      "detail": "n=0"
+    },
+    {
+      "check": "chapters.ge10",
+      "ok": false,
+      "detail": "n=0"
+    },
+    {
+      "check": "synopsis.ge40chars.ge10",
+      "ok": false,
+      "detail": "syn_ok=0"
+    },
+    {
+      "check": "synopsis.mentions_character.ge8",
+      "ok": false,
+      "detail": "align=0"
+    }
+  ],
+  "passes": [
+    {
+      "check": "intent.reader_feeling",
+      "ok": true,
+      "detail": "len=19"
+    },
+    {
+      "check": "intent.emotional_arc",
+      "ok": true,
+      "detail": "len=17"
+    },
+    {
+      "check": "intent.red_lines",
+      "ok": true,
+      "detail": "preview='1.铜炉未冷不得念亡者真名\\n2.禁止全知灌设定\\n3.主角不无故背叛\\n4.每章必须出现铜腥味或炉灰的触感；禁止系统流/面板'"
+    },
+    {
+      "check": "intent.total_word_goal",
+      "ok": true,
+      "detail": "goal=45000"
+    },
+    {
+      "check": "characters.has_protagonist",
+      "ok": true,
+      "detail": "importance values"
+    },
+    {
+      "check": "relations.ge3_or_graph_edges",
+      "ok": true,
+      "detail": "rel_or_edges=3"
+    },
+    {
+      "check": "world_rules_or_propositions.ge3",
+      "ok": true,
+      "detail": "rules=4 fact_nodes=4"
+    },
+    {
+      "check": "facts.ge5_or_graph",
+      "ok": true,
+      "detail": "facts=5 prop_nodes=4"
+    }
+  ],
+  "policy": "WCG must pass before any acceptance draft_loop"
+}

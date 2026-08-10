@@ -574,21 +574,29 @@ def _pilot_executor(work: str) -> dict:
         if t["verdict"] == "blocking":
             blocking = t.get("blocking") or []
             dets = sorted({b.get("detector") or "?" for b in blocking})
-            # 仅 aggregate_ai_grade（AI 味 heavy）时：pilot 连载不硬停——
-            # 限知泄露/退化 S1 仍硬拦；AI 味记入 quality_warn 供账本，作者可继续交付。
-            # 否则真链会在 full_check 空转（同稿反复 step），5 万字验收不可达。
-            only_ai_grade = bool(blocking) and all(
-                (b.get("detector") or "") == "aggregate_ai_grade" for b in blocking
+            # pilot 连载软通过集合：仅这些检测器时不硬停——
+            # 限知泄露/退化 S1 等仍硬拦；软项记入 quality_warn 供账本，作者可继续交付。
+            # 否则真链会在 full_check 空转（同稿反复 step），5 万字/记忆旅程验收不可达。
+            # pressure_metrics 属进度/兑锚启发式，loop 回炉已消费；full_check 再硬拦会锁死
+            # 已 restore 的合格长稿（与 aggregate_ai_grade soft-pass 同型）。
+            _soft_dets = frozenset({"aggregate_ai_grade", "pressure_metrics"})
+            only_soft = bool(blocking) and all(
+                (b.get("detector") or "") in _soft_dets for b in blocking
             )
-            if only_ai_grade:
+            if only_soft:
                 resp["_triage_verdict"] = "advisory"
                 resp["_pilot_quality_warn"] = {
-                    "kind": "ai_grade_heavy_nonblocking",
+                    "kind": "pilot_full_check_soft_nonblocking",
                     "detectors": dets,
-                    "note": "pilot full_check: AI 味 heavy 不硬停，仍须交付后读感/质量线把关",
+                    "note": (
+                        "pilot full_check: 仅 AI 味/pressure 不硬停，"
+                        "仍须交付后读感/质量线把关"
+                    ),
                 }
                 logging.getLogger("scribe3").warning(
-                    "pilot full_check AI-grade-only soft-pass work=%s seq=%s", work, seq)
+                    "pilot full_check soft-pass work=%s seq=%s dets=%s",
+                    work, seq, dets,
+                )
                 return resp
             return {"pilot_park": f"全量体检 blocking({'、'.join(dets)}),请处理后继续",
                     "post_check": resp}

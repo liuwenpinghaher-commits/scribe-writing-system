@@ -1,0 +1,28 @@
+{
+  "http": "200",
+  "pack": {
+    "id": "cp_28c03bb9f890",
+    "work": "book_013bcb3b",
+    "source": "discussion",
+    "items": [],
+    "impact": {
+      "chapters": [],
+      "inject_surfaces": [
+        "chapter_brief",
+        "pilot_steer",
+        "write_assemble",
+        "project_frame"
+      ],
+      "note": "empty chapters means no prior chapter index hit (explicit empty, not omitted)"
+    },
+    "status": "proposed",
+    "l1_count": 0,
+    "l2_count": 0,
+    "requires_approval_count": 0,
+    "debt": {
+      "total": 0,
+      "high": 0,
+      "by_module": {}
+    }
+  }
+}
