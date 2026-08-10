@@ -461,7 +461,9 @@ def _pilot_executor(work: str) -> dict:
             from scribe3.brief import parse_chapter_meta
             from scribe3.pressure_drive import (
                 bootstrap_pdc_from_texts,
+                first_ok_bootstrap_evidence,
                 pdc_flag_enabled,
+                template_bootstrap_evidence,
                 validate_pdc,
             )
             if not pdc_flag_enabled():
@@ -475,18 +477,30 @@ def _pilot_executor(work: str) -> dict:
             texts = [
                 str(b.get("text") or "") for b in (beats or []) if isinstance(b, dict)
             ]
-            # 确定性：用 synopsis 片段作 fork/evidence 种子（须 ≥2 字）
+            # 确定性：fork 仍用 synopsis 种子；evidence 优先 beat cost→turn→hook
             seed = (synopsis or "").strip().replace("\n", "")[:40]
             fork = f"推进或收束本章核心：{seed[:24]}" if seed else "推进本章核心抉择"
-            evidence = "掌心嵌下的灰印" if "灰" in (synopsis or "") else "收不回的一步痕迹"
+            evidence = first_ok_bootstrap_evidence(
+                beats,
+                template_fallback=template_bootstrap_evidence(synopsis or ""),
+                synopsis=synopsis or "",
+            )
+            # cost_steps：有 evidence_ok 的 beat.cost 则作阶梯种子
+            beat_costs = [
+                str(b.get("cost") or "").strip()
+                for b in (beats or [])
+                if isinstance(b, dict) and str(b.get("cost") or "").strip()
+            ]
             contract = bootstrap_pdc_from_texts(
                 synopsis=synopsis or "",
                 beat_texts=texts,
+                chapter_beats=beats if isinstance(beats, list) else None,
                 chapter_pressure=cp,
                 role=role,
                 fork_choice=fork,
                 evidence=evidence,
                 irreversible_action="留下痕迹",
+                cost_steps=beat_costs[:3] if beat_costs else None,
             )
             if not contract:
                 logging.getLogger("scribe3").info(

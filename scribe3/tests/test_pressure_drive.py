@@ -9,10 +9,12 @@ import pytest
 from scribe3.pressure_drive import (
     MAX_PDC_BLOCK,
     bootstrap_pdc_from_texts,
+    first_ok_bootstrap_evidence,
     load_pdc,
     parse_pressure_drive,
     pdc_flag_enabled,
     render_pressure_drive_block,
+    template_bootstrap_evidence,
     validate_pdc,
 )
 from scribe3.pressure_metrics import measure_pressure
@@ -104,6 +106,65 @@ def test_bootstrap_requires_core():
     )
     assert c is not None
     assert validate_pdc(c)["ok"] is True
+
+
+def test_first_ok_bootstrap_evidence_prefers_cost_turn_hook():
+    """PR-7：evidence 优先 cost → turn → hook → 模板，非仅灰印。"""
+    # empty → template
+    assert first_ok_bootstrap_evidence(None, synopsis="") == "收不回的一步痕迹"
+    assert first_ok_bootstrap_evidence([], synopsis="覃灰七") == "掌心嵌下的灰印"
+    assert template_bootstrap_evidence("灰") == "掌心嵌下的灰印"
+
+    beats = [
+        {"text": "a", "cost": "", "turn": "门闩已错半寸", "hook": "明日有人来问"},
+        {"text": "b", "cost": "退则空过三日", "turn": "别的", "hook": "钩"},
+    ]
+    # cost 优先于 turn/hook
+    assert first_ok_bootstrap_evidence(beats) == "退则空过三日"
+
+    no_cost = [
+        {"text": "a", "cost": "的", "turn": "门闩已错半寸", "hook": "明日有人来问"},
+    ]
+    # cost 虚词/过短跳过 → turn
+    assert first_ok_bootstrap_evidence(no_cost) == "门闩已错半寸"
+
+    only_hook = [{"goal": "x", "hook": "掌心留灰印"}]
+    assert first_ok_bootstrap_evidence(only_hook) == "掌心留灰印"
+
+    # explicit template_fallback when fields empty
+    assert (
+        first_ok_bootstrap_evidence(
+            [{"text": "only"}], template_fallback="作者指定痕迹"
+        )
+        == "作者指定痕迹"
+    )
+
+
+def test_bootstrap_uses_chapter_beats_for_evidence():
+    """evidence 空 + chapter_beats → first_ok 填入 irreversible.evidence_must_show。"""
+    c = bootstrap_pdc_from_texts(
+        fork_choice="进或不进",
+        evidence="",
+        chapter_beats=[
+            {"text": "侧门", "cost": "半寸匙痕收不回", "turn": "他拧开了"},
+            {"text": "余波", "hook": "有人看见"},
+        ],
+        beat_texts=["侧门", "权衡", "抉择", "余波"],
+    )
+    assert c is not None
+    assert c["irreversible"]["evidence_must_show"] == "半寸匙痕收不回"
+    assert validate_pdc(c)["ok"] is True
+
+    # no drama fields → synopsis template
+    c2 = bootstrap_pdc_from_texts(
+        synopsis="灰雾旧巷",
+        fork_choice="进或不进",
+        evidence="",
+        chapter_beats=[{"text": "走"}],
+        beat_texts=["a", "b", "c", "d"],
+    )
+    assert c2 is not None
+    assert c2["irreversible"]["evidence_must_show"] == "掌心嵌下的灰印"
 
 
 def test_separation_bad_worse_than_good():
