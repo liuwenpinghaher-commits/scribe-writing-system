@@ -207,7 +207,7 @@ export function ReadOnlyText({
     ? (value.length ? value.join('、') : null)
     : (value == null || value === '' ? null : String(value))
   const body = (
-    <div className="type-stage whitespace-pre-wrap min-h-[1.25rem]">
+    <div className="type-stage whitespace-pre-wrap break-words min-w-0 min-h-[1.25rem]">
       {display || <span className="text-faint">{emptyHint || placeholder}</span>}
     </div>
   )

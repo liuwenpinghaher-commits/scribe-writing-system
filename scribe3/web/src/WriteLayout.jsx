@@ -908,11 +908,16 @@ export function WriteLayout({ work, seq, sceneIdx }) {
   )
 
   const center = (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center border-b border-line/50 bg-surface/95">
-        <NorthStarBar />
-        {/* 主编主动化 T2:六维脉搏条——信号自动可见,「聊这个」预填右栏写作对话 */}
-        <PulseBar seq={chapter} onChat={(p) => { setSeedQuote(p); focusChiefTab() }} />
+    <div className="flex flex-col h-full min-w-0">
+      {/* 作品意图独占全宽可换行；脉搏/记忆另起一行，避免横排把意图条挤成单行截断 */}
+      <div className="flex flex-col min-w-0 w-full bg-surface/95">
+        <div className="min-w-0 w-full max-w-full">
+          <NorthStarBar />
+        </div>
+        <div className="flex flex-wrap items-center gap-1 min-w-0 px-1 py-0.5 border-b border-line/50">
+          {/* 主编主动化 T2:六维脉搏条——信号自动可见,「聊这个」预填右栏写作对话 */}
+          <PulseBar seq={chapter} onChat={(p) => { setSeedQuote(p); focusChiefTab() }} />
+        </div>
         <ChapterMemoryRefs chapter={chapter} />
       </div>
       {topbarMid}
