@@ -13,13 +13,15 @@
 3. **B**：`ENGINE=1` + ensure + 含对白引导的 assemble → 真 LLM 重写  
 4. 记录：字数、词表代理（逛/冲突/喻/引号）、注入是否含「对白」「引爆」、可选 LLM 分维  
 
-## 已落样本（2026-08-10）
+## 已落样本（2026-08-10 · pass2）
 
 | 文件 | 说明 |
 |------|------|
-| `ch3_a.md` / `ch3_b.md` | `book_013bcb3b` 第 3 章 旧稿 vs OI 重写 |
-| `metrics.json` | 词表代理 + 注入/ soft 标志 |
-| `ANALYSIS.md` | 诚实结论（工程过 / 文学未跃迁） |
+| `ch3_a.md` | 旧稿基线 |
+| `ch3_b_pass1.md` | OI 首遍（短、弱对白） |
+| `ch3_b.md` / `ch3_b_pass2.md` | **加严对白+加长** 后定稿（demo 已落库） |
+| `metrics.json` | A / pass1 / B 三方指标 |
+| `ANALYSIS.md` | 诚实结论（pass2 相对 pass1 显著；非 ≥9.5） |
 | `metrics.template.json` | 空模板 |
 
 ```bash
