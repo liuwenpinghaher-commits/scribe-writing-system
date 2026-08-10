@@ -1,0 +1,32 @@
+{
+  "work": "book_013bcb3b",
+  "seq": 3,
+  "a": {
+    "label": "ch3_before_oi_rewrite",
+    "prose_cn": 4894,
+    "walk_per_k": 27.0,
+    "conflict_per_k": 2.9,
+    "simile_per_k": 6.1,
+    "quotes": 23,
+    "inject_has_event_drive": false,
+    "inject_has_dialogue_guide": false
+  },
+  "b": {
+    "label": "ch3_after_oi_rewrite",
+    "prose_cn": 1893,
+    "walk_per_k": 38.6,
+    "conflict_per_k": 0.0,
+    "simile_per_k": 9.0,
+    "quotes": 1,
+    "inject_has_event_drive": true,
+    "inject_has_dialogue_guide": true,
+    "soft_opener_force_felt": true
+  },
+  "delta": {
+    "walk_per_k": 11.6,
+    "conflict_per_k": -2.9,
+    "simile_per_k": 2.9,
+    "quotes": -22
+  },
+  "notes": "A=引擎后未重写的 ch3 旧稿；B=ENGINE+对白注入真 LLM 重写。非人盲≥9.5。"
+}

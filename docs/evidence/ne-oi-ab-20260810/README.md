@@ -13,17 +13,22 @@
 3. **B**：`ENGINE=1` + ensure + 含对白引导的 assemble → 真 LLM 重写  
 4. 记录：字数、词表代理（逛/冲突/喻/引号）、注入是否含「对白」「引爆」、可选 LLM 分维  
 
-## 样本占位
+## 已落样本（2026-08-10）
 
-部署 OI-8 冒烟后，将 `book_xxx/chN_{a,b}.md` 与 `metrics.json` 放入本目录。
+| 文件 | 说明 |
+|------|------|
+| `ch3_a.md` / `ch3_b.md` | `book_013bcb3b` 第 3 章 旧稿 vs OI 重写 |
+| `metrics.json` | 词表代理 + 注入/ soft 标志 |
+| `ANALYSIS.md` | 诚实结论（工程过 / 文学未跃迁） |
+| `metrics.template.json` | 空模板 |
 
-```text
-ne-oi-ab-20260810/
-  README.md          # 本文件
-  metrics.template.json
+```bash
+python -m scribe3.tools.ne_oi_ab_metrics --a ch3_a.md --b ch3_b.md --work book_013bcb3b --seq 3
 ```
 
 ## 非宣称
 
 - 不宣称文学 ≥9.5  
 - 单章 AB 不外推全书  
+- 词表代理 ≠ 责编读感  
+
