@@ -1068,12 +1068,30 @@ Execution Contract：**首写 Drama Steer（floor=2400 组合条件）** + **sof
 
 ---
 
+## 与章工作台 IA 的关系（交叉引用）
+
+Execution Contract **不替代** 五阶段字段，也不合并 synopsis/beats/draft/prose。
+
+| EC 能力 | 后端 | 章工作台（IA）露出 |
+|---------|------|-------------------|
+| 默认 Drama Steer | `format_default_drama_steer` / draft first-write | 注入；作者在正文/pilot 侧间接受益 |
+| soft_fulfill | `soft_fulfill_drive` · full_check | `GET /chapter/execution-soft-status` → MetaPane「写后执行对照」+ 正文 soft banner 合一 |
+| stamp / drift | `execution_stamp` · `drive_prose_drift` | MetaPane drift 一句；**不**自动清稿 |
+| narrative_drive 三行 | `format_drive_three_lines` | MetaPane「本章事件驱动」 |
+| stakes 高压探测 | `parse_stakes_presence` | 写前齐套 stakes 行（warn only） |
+
+产品面：`ChapterMetaPane` / `ContractSoftBanner` / `chapterContractGate.js`。  
+IA 设计真源：`docs/plans/2026-08-10-chapter-writing-ia-optimal.md`。
+
+---
+
 ## Revision History
 
 | rev | 日期 | 摘要 |
 |-----|------|------|
 | 1.0 | 2026-08-10 | 初稿 |
 | **1.1** | 2026-08-10 | 评审修订：C.0.1 再生成合同；floor 2400+组合；stamp 真源与 pilot_card merge；pass1 归因降级；宁短优先级；resolve 解析；PR fragment；drift 指纹；对立词 experimental；NQ 职责分离；KD-EC-11…17 |
+| 1.1+IA | 2026-08-10 | 增加与章工作台 IA / soft-status API 互指（契约可见 + 软门合一） |
 
 ---
 

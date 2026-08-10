@@ -50,8 +50,11 @@
 | 草稿 | `draft` | 执行稿;与 prose 分列 |
 | 正文 | `prose` | 落库长散文 |
 | 章末钩元 | `beats_meta.chapter_hook` | 钩子 SSOT 优先层(见 `chapter_hooks.resolve_chapter_hook`) |
-| 事件驱动 | `narrative_drive` | 章级导航/引导;end_hook 由钩子链种子 |
+| 事件驱动 | `narrative_drive` | 章级导航/引导;end_hook 由钩子链种子;MetaPane「本章事件驱动」只读三行 |
 | 力学合同 | `pressure_drive` | 写路径压力真源;≠经验复盘 UI |
+| 执行合同 soft | `soft_fulfill` / `soft_fulfill_drive` | 写后对白/长度组合 advisory;同源 GET `/chapter/execution-soft-status`;永不 blocking |
+| 执行戳/漂移 | `execution_stamp` / `drive_prose_drift` | drive 与 prose 对齐指纹;drift 建议强制重写,不自动清稿 |
+| 章执行软状态 | `chapter_execution_soft_status` | UI SSOT 聚合:drive 三行+stakes+soft_fulfill+drift |
 
 ## 组七:写路径注入 domain(节选)
 | 中文名/槽 | 规范 domain / 代码 | 定义 |
@@ -67,8 +70,11 @@
 | 产品中文名 | 规范代码/入口 | 旧称/勿混 | 注入/数据源 |
 |---|---|---|---|
 | 作品意图 | 顶栏 `NorthStarBar` · `intent:main` | 旧 UI「北极星」条 | s3_get/set_intent |
-| 评分卡 | 辅助 tab · `NorthStarPanel` | 旧「北极星」面板 | chapter/book scorecard |
-| 经验复盘 | 辅助 tab · `ExperiencePressurePanel` | 旧「压力」面板 | 六格/问诊/续写;不写 beats |
+| 评分卡 | 辅助 tab · `NorthStarPanel` | 旧「北极星」面板;≠作品意图 | chapter/book scorecard |
+| 经验复盘 | 辅助 tab · `ExperiencePressurePanel` | 旧「压力」面板;≠力学合同 | 六格/问诊/续写;不写 beats |
 | 力学合同 | `pressure_drive` 写路径块 | 勿称「压力面板」 | PDC 真源 |
+| 章节信息 | `ChapterMetaPane` | 章前契约+事件驱动+执行 soft | `evaluateChapterContract` + execution-soft-status |
+| 契约 soft banner | `ContractSoftBanner` | 正文顶栏合一黄条 | 契约缺口 + 执行 soft;不阻断生成 |
 | 信息密度 | `localStorage s3.ia.density` | 禁止 USER.md / author_prefs | essential(默认)/standard/full |
-| 设计锚 | `docs/plans/2026-08-10-chapter-writing-ia-optimal.md` | — | Accepted rev.3.1+ |
+| 设计锚 · IA | `docs/plans/2026-08-10-chapter-writing-ia-optimal.md` | — | Accepted rev.3.1+ |
+| 设计锚 · EC | `docs/plans/2026-08-10-narrative-rootcause-optimal-execution.md` | 执行合同 | rev.1.1+ |

@@ -27,6 +27,9 @@ import {
   contractSoftSummary,
   isContractBannerDismissed,
   dismissContractBanner,
+  mergedSoftBannerSummary,
+  shouldShowMergedSoftBanner,
+  executionSoftSummary,
 } from './lib/chapterContractGate.js'
 import { loadIaDensity, saveIaDensity, auxVisibleForDensity } from './lib/iaDensity.js'
 
@@ -52,23 +55,33 @@ const PHASE_KEYS = new Set(PHASES.map((p) => p.key))
 const META_EDITOR_PHASES = new Set(['outline', 'beats', 'deduce', 'draft'])
 const normalizePhase = (phase) => PHASE_KEYS.has(phase) ? phase : 'final'
 
-/** 正文顶栏：章前契约 soft banner（不阻断生成；存实质正文仍可能 GATE-B 硬拦） */
-function ContractSoftBanner({ work, seq, meta, onGoFix, onDismiss }) {
-  if (!meta) return null
-  if (!contractNeedsAttention(meta)) return null
+/** 正文顶栏：章前契约 + 执行 soft 合一 banner（不阻断生成；存实质正文仍可能 GATE-B 硬拦） */
+function ContractSoftBanner({ work, seq, meta, executionSoft, onGoFix, onDismiss }) {
+  if (!meta && !executionSoft) return null
+  if (!shouldShowMergedSoftBanner(meta, executionSoft)) return null
   if (isContractBannerDismissed(work, seq)) return null
-  const summary = contractSoftSummary(meta)
+  const summary = mergedSoftBannerSummary(meta, executionSoft)
+    || contractSoftSummary(meta)
+    || executionSoftSummary(executionSoft)
+  const hasContractGap = meta ? contractNeedsAttention(meta) : false
+  const title = hasContractGap ? '章前契约 / 执行对照' : '执行对照'
   return (
     <div
       role="status"
       data-testid="contract-soft-banner"
       className="shrink-0 border-b border-warn/40 bg-warn/10 px-3 py-2 text-f12 text-ink flex items-start gap-2 flex-wrap"
     >
-      <span className="font-medium text-warn shrink-0">章前契约未齐</span>
+      <span className="font-medium text-warn shrink-0">{title}</span>
       <span className="flex-1 min-w-[12rem] text-faint leading-relaxed">
-        {summary || '大纲/节拍/场景真相有缺口'}。
-        <strong className="text-ink font-medium">不建议开写</strong>
-        （本提示不阻断对话生成；存实质正文时工艺门仍可能硬拦缺项）。
+        {summary || '大纲/节拍/场景真相或执行 soft 有缺口'}。
+        {hasContractGap ? (
+          <>
+            <strong className="text-ink font-medium">不建议开写</strong>
+            （本提示不阻断对话生成；存实质正文时工艺门仍可能硬拦缺项）。
+          </>
+        ) : (
+          <>（advisory only · 不阻断生成；有 drift 时建议章节信息页【强制重写】核对，不自动清稿）。</>
+        )}
       </span>
       {typeof onGoFix === 'function' && (
         <button
@@ -816,6 +829,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
   // refresh 静默刷新,不卸载中区编辑器——否则演绎落库 refresh→loading 竞态冲掉 scene_truth。
   const metaKey = useRef('')
   const [bannerTick, setBannerTick] = useState(0) // dismiss 后强制重渲 banner
+  const [executionSoft, setExecutionSoft] = useState(null)
   useEffect(() => {
     let alive = true
     const key = String(seq)
@@ -824,6 +838,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
       metaKey.current = key
       if (META_EDITOR_PHASES.has(phase)) setLoading(true)
       else setLoading(false)
+      setExecutionSoft(null)
     }
     api.chapter(seq)
       .then((ch) => {
@@ -856,6 +871,12 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
     api.entities().then((es) => {
       if (alive) setMeta((m) => ({ ...(m || {}), chars: es.filter((e) => e.kind === 'character') }))
     }).catch(() => {})
+    // 执行 soft（同源 API · 失败静默 · 仅 advisory）
+    if (typeof api.executionSoftStatus === 'function') {
+      api.executionSoftStatus(seq)
+        .then((s) => { if (alive) setExecutionSoft(s || null) })
+        .catch(() => { if (alive) setExecutionSoft(null) })
+    }
     return () => { alive = false }
     // phase 变化不重拉；final/冷启动也依赖本 effect 填 meta 以驱动 soft banner
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1010,10 +1031,15 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
             work={work}
             seq={seq}
             meta={meta}
+            executionSoft={executionSoft}
             onGoFix={() => {
-              const c = evaluateChapterContract(meta)
+              const c = evaluateChapterContract(meta || {})
+              const hasExecGap = executionSoft?.soft_fulfill?.ok_soft === false
+                || executionSoft?.drift?.drift
               if (!c.synopsisOk) setPhaseP('outline')
               else if (!c.beatsOk) setPhaseP('beats')
+              else if (!c.sceneTruthOk) setPhaseP('deduce')
+              else if (hasExecGap) setChapterMetaOpen(true)
               else setPhaseP('deduce')
             }}
             onDismiss={() => {

@@ -8,6 +8,7 @@ vi.mock('./api', () => ({
     listVolumes: vi.fn(),
     patchChapter: vi.fn(),
     chapterBrief: vi.fn(),
+    executionSoftStatus: vi.fn(),
   },
 }))
 vi.mock('./ui/Toast.jsx', () => ({ useToast: () => vi.fn() }))
@@ -27,9 +28,19 @@ describe('ChapterMetaPane', () => {
       scene_truth: '',
       involved_characters: [],
       deductions: [],
+      narrative_drive: {},
     })
     api.listVolumes.mockResolvedValue([{ id: 'vol:one', title: '第一卷·退潮之名' }])
     api.chapterBrief.mockRejectedValue(new Error('no brief'))
+    api.executionSoftStatus.mockResolvedValue({
+      seq: 1,
+      severity: 'advisory',
+      has_prose: false,
+      drive_summary: { present: false, inciting: '', opposition: '', end_hook: '' },
+      stakes: { present: false, high_pressure: false, warning: '' },
+      soft_fulfill: null,
+      drift: { drift: false, advisory: '', reason: 'no_prose' },
+    })
   })
 
   it('章节信息只读,让主编写入不调用 patchChapter', async () => {
@@ -77,11 +88,47 @@ describe('ChapterMetaPane', () => {
       scene_truth: '义庄后室有人先到，换走了证物。',
       involved_characters: [],
       deductions: [],
+      narrative_drive: {
+        inciting_force: { summary: '铜钱失踪' },
+        opposition: { who_or_what: '义庄管事', wants: '掩盖' },
+        end_hook: '门外脚步',
+      },
+    })
+    api.executionSoftStatus.mockResolvedValue({
+      seq: 2,
+      severity: 'advisory',
+      has_prose: true,
+      drive_summary: {
+        present: true,
+        inciting: '铜钱失踪',
+        opposition: '义庄管事 要 掩盖',
+        end_hook: '门外脚步',
+      },
+      stakes: { present: false, high_pressure: false, warning: '' },
+      soft_fulfill: {
+        ok_soft: false,
+        gaps: ['dialogue_low'],
+        quotes: 1,
+        prose_cn: 1200,
+        severity: 'advisory',
+      },
+      drift: { drift: false, advisory: '', reason: '' },
     })
     render(<ChapterMetaPane seq={2} work="book-test" onClose={vi.fn()} />)
     expect(await screen.findByText(/柳怀玉赴义庄验尸/)).toBeTruthy()
     expect(screen.getByText(/抵达/)).toBeTruthy()
     expect(screen.getByText(/义庄后室/)).toBeTruthy()
     expect(screen.queryByTestId('contract-attention')).toBeNull()
+    expect(await screen.findByTestId('chapter-event-drive')).toBeTruthy()
+    expect(screen.getByText(/铜钱失踪/)).toBeTruthy()
+    expect(screen.getByTestId('chapter-execution-soft')).toBeTruthy()
+    expect(screen.getByTestId('contract-stakes-row')).toBeTruthy()
+  })
+
+  it('空章也挂载事件驱动与执行对照区块', async () => {
+    render(<ChapterMetaPane seq={1} work="book-test" onClose={vi.fn()} />)
+    expect(await screen.findByTestId('chapter-event-drive')).toBeTruthy()
+    expect(screen.getByTestId('chapter-execution-soft')).toBeTruthy()
+    expect(screen.getByTestId('contract-stakes-row')).toBeTruthy()
   })
 })

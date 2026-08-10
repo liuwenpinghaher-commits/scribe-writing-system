@@ -725,4 +725,20 @@ flowchart LR
 
 ---
 
-*文档结束 · Accepted rev.3.1 · 已实现 PR-1…PR-7 · 2026-08-10*
+## 与 Execution Contract / narrative_drive 的关系（交叉引用）
+
+| 层 | 职责 | 章工作台可见面 |
+|----|------|----------------|
+| **IA 五阶段** | synopsis / beats / scene_truth / draft / prose 分列字段真源 | 阶段页签 + `ChapterMetaPane` 写前齐套 |
+| **Narrative Engine** | `narrative_drive` 合成/注入（引爆/对立/钩子） | MetaPane「本章事件驱动」只读三行 |
+| **Execution Contract** | 默认 Drama Steer、`soft_fulfill`、stamp/drift；引导优先 | MetaPane「写后执行对照」+ 正文 `ContractSoftBanner` 合一 |
+| **GATE-B / craft** | 存实质正文硬门（缺大纲/节拍/真相） | UI soft **≠** 存盘硬门；文案须分清 |
+
+- 设计真源：`docs/plans/2026-08-10-narrative-rootcause-optimal-execution.md`（rev.1.1+）
+- 只读 API：`GET /chapter/execution-soft-status` → `chapter_execution_soft_status`（同源 `soft_fulfill_drive`，永不 blocking）
+- **不**在前端重算 soft 算法；**不**默认 EVENT_DRIVE_GATE / RESTEER 硬 park
+- 高压大纲缺 `stakes:` → 契约门 **warn**（非 error 红灯）
+
+---
+
+*文档结束 · Accepted rev.3.1 · 已实现 PR-1…PR-7 · EC 可见性互指 2026-08-10*

@@ -1,6 +1,9 @@
 /**
  * 章前契约软门（对齐 GATE-B normal 章 B1/B2/B3 发现层）。
  * 纯函数，无 IO。仅 UI soft 提示；不替代 evaluate_save_craft_gate。
+ *
+ * stakes / 高压探测与后端 ``parse_stakes_presence`` /
+ * ``brief.parse_chapter_meta`` 口径对齐（正则同源注释）。
  */
 
 import { softGateIssues, softGateSummary } from './deduceGate.js'
@@ -9,6 +12,8 @@ import { softGateIssues, softGateSummary } from './deduceGate.js'
 export const MIN_BEAT_TEXTS = 3
 /** synopsis / scene_truth 短于该字数 → warn（非 error） */
 export const SHORT_FIELD_CHARS = 40
+/** 高压 role（与后端 parse_stakes_presence 对齐） */
+const HIGH_PRESSURE_ROLES = new Set(['高压', '推进', '高潮', '决战'])
 
 function trimText(value) {
   return String(value ?? '').trim()
@@ -27,6 +32,45 @@ export function countBeatTexts(beats) {
 }
 
 /**
+ * 从 synopsis 解析 stakes / 压力级 / role（轻量；对齐后端）。
+ * @returns {{
+ *   present: boolean,
+ *   stakes: string,
+ *   highPressure: boolean,
+ *   pressure: number,
+ *   role: string,
+ *   warning: string,
+ * }}
+ */
+export function parseOutlineStakes(synopsis) {
+  const text = String(synopsis || '')
+  let stakes = ''
+  let pressure = 0
+  let role = ''
+  const stakesM = text.match(/(?:stakes|赌注)\s*[:：]\s*([^\n]+)/i)
+  if (stakesM) stakes = (stakesM[1] || '').trim()
+  const pM = text.match(/压力级\s*[:：]\s*(\d)/)
+  if (pM) pressure = Number(pM[1]) || 0
+  const rM = text.match(/chapter_role\s*[:：]\s*(\S+)/i)
+  if (rM) role = (rM[1] || '').trim()
+  // 也认「角色:高压」类中文标注
+  if (!role) {
+    const r2 = text.match(/(?:章角色|本章角色|角色)\s*[:：]\s*(高压|推进|高潮|决战)/)
+    if (r2) role = r2[1]
+  }
+  const highPressure = pressure >= 4 || HIGH_PRESSURE_ROLES.has(role)
+  const present = Boolean(stakes)
+  return {
+    present,
+    stakes,
+    highPressure,
+    pressure,
+    role,
+    warning: highPressure && !present ? 'missing_outline_stakes' : '',
+  }
+}
+
+/**
  * @param {object|null|undefined} ch chapter-like: synopsis, beats, scene_truth, …
  * @returns {{
  *   issues: Array<{ id: string, level: 'error'|'warn'|'info', message: string }>,
@@ -35,6 +79,8 @@ export function countBeatTexts(beats) {
  *   synopsisOk: boolean,
  *   beatsOk: boolean,
  *   sceneTruthOk: boolean,
+ *   stakesOk: boolean,
+ *   stakes: ReturnType<typeof parseOutlineStakes>,
  *   beatCount: number,
  *   deduce: ReturnType<typeof softGateIssues>,
  * }}
@@ -44,6 +90,7 @@ export function evaluateChapterContract(ch) {
   const synopsis = trimText(meta.synopsis)
   const truth = trimText(meta.scene_truth)
   const beatCount = countBeatTexts(meta.beats)
+  const stakes = parseOutlineStakes(synopsis)
   const issues = []
 
   if (!synopsis) {
@@ -82,6 +129,15 @@ export function evaluateChapterContract(ch) {
     })
   }
 
+  // 高压缺 stakes → warn only（不把「可开写」打成红 error）
+  if (stakes.warning === 'missing_outline_stakes') {
+    issues.push({
+      id: 'missingOutlineStakes',
+      level: 'warn',
+      message: '高压章大纲缺 stakes/赌注 标签（建议补一句代价）',
+    })
+  }
+
   const deduce = softGateIssues(meta)
   if (deduce.needsAttention) {
     const summary = softGateSummary(deduce)
@@ -100,6 +156,8 @@ export function evaluateChapterContract(ch) {
     synopsisOk: Boolean(synopsis),
     beatsOk: beatCount >= MIN_BEAT_TEXTS,
     sceneTruthOk: Boolean(truth),
+    stakesOk: stakes.present || !stakes.highPressure,
+    stakes,
     beatCount,
     deduce,
   }
@@ -122,6 +180,59 @@ export function contractSoftSummary(chOrIssues) {
     ...warns.slice(0, 2).map((i) => i.message),
   ]
   return parts.join('；') || ''
+}
+
+/**
+ * 执行 soft 一行人话（同源 API 字段；前端不重算 soft_fulfill）。
+ * @param {object|null|undefined} softStatus GET /chapter/execution-soft-status 响应
+ */
+export function executionSoftSummary(softStatus) {
+  if (!softStatus || typeof softStatus !== 'object') return ''
+  const parts = []
+  const soft = softStatus.soft_fulfill
+  if (soft && soft.ok_soft === false) {
+    const gaps = Array.isArray(soft.gaps) ? soft.gaps : []
+    const gapMap = {
+      dialogue_low: '对白偏少',
+      short_and_dialogue_low: '短稿且对白不足',
+      weak_opener: '开篇外力弱',
+      missing_event: '事件推进弱',
+    }
+    const gapText = gaps.map((g) => gapMap[g] || g).filter(Boolean).slice(0, 3).join('、')
+    if (gapText) parts.push(gapText)
+    else if (soft.steer_hint) parts.push(String(soft.steer_hint).slice(0, 80))
+    else parts.push('执行对照未达标')
+    if (soft.quotes != null) parts.push(`引号${soft.quotes}`)
+  }
+  const drift = softStatus.drift
+  if (drift && drift.drift) {
+    parts.push(drift.advisory ? String(drift.advisory).slice(0, 60) : '事件驱动相对成稿已变，建议强制重写核对')
+  }
+  const stakes = softStatus.stakes
+  if (stakes && stakes.warning === 'missing_outline_stakes' && !parts.some((p) => p.includes('stakes') || p.includes('赌注'))) {
+    parts.push('高压缺 stakes')
+  }
+  return parts.join('；') || ''
+}
+
+/** 契约 + 执行 soft 合并摘要（banner 用） */
+export function mergedSoftBannerSummary(ch, softStatus) {
+  const contract = contractSoftSummary(ch)
+  const exec = executionSoftSummary(softStatus)
+  if (contract && exec) return `章前契约：${contract}。执行对照：${exec}`
+  if (contract) return `章前契约：${contract}`
+  if (exec) return `执行对照：${exec}`
+  return ''
+}
+
+/** 是否应展示合一 soft banner（契约 error 或执行 soft 有 gap/drift） */
+export function shouldShowMergedSoftBanner(ch, softStatus) {
+  if (contractNeedsAttention(ch)) return true
+  if (!softStatus) return false
+  const soft = softStatus.soft_fulfill
+  if (soft && soft.ok_soft === false) return true
+  if (softStatus.drift && softStatus.drift.drift) return true
+  return false
 }
 
 /** sessionStorage key：关闭契约 soft banner 当次会话 */

@@ -472,6 +472,24 @@ def delete_volume(vid: str, work: str = "main"):
 def get_chapter(seq: int, work: str = "main"):
     return _store_for(work).get_chapter(seq) or {}
 
+
+def get_chapter_execution_soft_status(seq: int = Query(ge=1), work: str = "main"):
+    """章执行软状态（只读 · advisory only）。
+
+    聚合 narrative_drive 三行摘要、大纲 stakes 探测、soft_fulfill 与 drive/prose drift。
+    与 full_check 同源 ``soft_fulfill_drive``；永不 blocking、不触发 park/清稿。
+    """
+    from scribe3.execution_contract import chapter_execution_soft_status
+
+    ch = _store_for(work).get_chapter(seq) or {}
+    return chapter_execution_soft_status(
+        seq=seq,
+        prose=ch.get("prose") or "",
+        drive=ch.get("narrative_drive") if isinstance(ch.get("narrative_drive"), dict) else {},
+        synopsis=ch.get("synopsis") or "",
+    )
+
+
 def chapter_versions(seq: int, work: str = "main"):
     return _store_for(work).list_chapter_versions(seq)
 
@@ -1079,6 +1097,20 @@ def _bind_and_register() -> None:
     setattr(core, 'get_chapter', _re)
     g['get_chapter'] = _re
     router.add_api_route('/chapter', _re, methods=['GET'], name='get_chapter')
+
+    _fn = g['get_chapter_execution_soft_status']
+    _re = types.FunctionType(
+        _fn.__code__, core.__dict__, 'get_chapter_execution_soft_status',
+        _fn.__defaults__, _fn.__closure__,
+    )
+    if _fn.__annotations__:
+        _re.__annotations__ = dict(_fn.__annotations__)
+    setattr(core, 'get_chapter_execution_soft_status', _re)
+    g['get_chapter_execution_soft_status'] = _re
+    router.add_api_route(
+        '/chapter/execution-soft-status', _re, methods=['GET'],
+        name='get_chapter_execution_soft_status',
+    )
 
     _fn = g['chapter_versions']
     _re = types.FunctionType(_fn.__code__, core.__dict__, 'chapter_versions', _fn.__defaults__, _fn.__closure__)

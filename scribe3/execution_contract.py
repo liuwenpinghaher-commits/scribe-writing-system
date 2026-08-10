@@ -273,6 +273,113 @@ def count_dialogue_keyword_hits(text: str | None) -> int:
     return (text or "").count("对白")
 
 
+def format_drive_three_lines(drive: dict | None) -> dict[str, Any]:
+    """只读三行摘要：引爆 / 对立 / 钩子（UI 用）。"""
+    d = drive if isinstance(drive, dict) else {}
+    inc = d.get("inciting_force") if isinstance(d.get("inciting_force"), dict) else {}
+    opp = d.get("opposition") if isinstance(d.get("opposition"), dict) else {}
+    inciting = str(inc.get("summary") or "").strip()
+    who = str(opp.get("who_or_what") or "").strip()
+    wants = str(opp.get("wants") or "").strip()
+    opposition = " ".join(x for x in (who, f"要 {wants}" if wants else "") if x).strip()
+    end_hook = str(d.get("end_hook") or "").strip()
+    present = bool(inciting or opposition or end_hook or d.get("scene_turn"))
+    return {
+        "present": present,
+        "inciting": inciting,
+        "opposition": opposition,
+        "end_hook": end_hook,
+        "scene_turn": str(d.get("scene_turn") or "").strip(),
+    }
+
+
+def parse_stakes_presence(synopsis: str | None) -> dict[str, Any]:
+    """与 brief.parse_chapter_meta 对齐的轻量 stakes/高压探测（纯函数，无 I/O）。"""
+    text = synopsis or ""
+    stakes = ""
+    try:
+        from scribe3.brief import parse_chapter_meta
+        meta = parse_chapter_meta(text) or {}
+        stakes = str(meta.get("stakes") or "").strip()
+        try:
+            pressure = int(meta.get("pressure") or 0)
+        except (TypeError, ValueError):
+            pressure = 0
+        role = str(meta.get("role") or "")
+    except Exception:
+        meta = {}
+        pressure = 0
+        role = ""
+        # fallback 正则
+        m = re.search(r"(?:stakes|赌注)\s*[:：]\s*([^\n]+)", text, re.I)
+        if m:
+            stakes = (m.group(1) or "").strip()
+        m2 = re.search(r"压力级\s*[:：]\s*(\d)", text)
+        if m2:
+            pressure = int(m2.group(1))
+        m3 = re.search(r"chapter_role\s*[:：]\s*(\S+)", text, re.I)
+        if m3:
+            role = m3.group(1)
+    high = pressure >= 4 or role in ("高压", "推进", "高潮", "决战")
+    warning = ""
+    if high and not stakes:
+        warning = "missing_outline_stakes"
+    return {
+        "present": bool(stakes),
+        "stakes": stakes,
+        "high_pressure": high,
+        "pressure": pressure,
+        "role": role,
+        "warning": warning,
+    }
+
+
+def chapter_execution_soft_status(
+    *,
+    seq: int = 0,
+    prose: str | None = "",
+    drive: dict | None = None,
+    synopsis: str | None = "",
+) -> dict[str, Any]:
+    """章执行软状态聚合（只读 · advisory only · 永不 blocking）。
+
+    UI / GET API 同源；与 full_check soft_fulfill 共用 soft_fulfill_drive。
+    """
+    d = drive if isinstance(drive, dict) else {}
+    drive_summary = format_drive_three_lines(d)
+    stakes = parse_stakes_presence(synopsis or "")
+    prose_s = (prose or "").strip()
+    soft = None
+    if prose_s:
+        soft = soft_fulfill_drive(prose_s, d)
+    drift = drive_prose_drift(d, prose_s) if prose_s else {"drift": False, "advisory": "", "reason": "no_prose"}
+    return {
+        "seq": int(seq or 0),
+        "drive_summary": drive_summary,
+        "stakes": stakes,
+        "soft_fulfill": (
+            {
+                "ok_soft": soft.get("ok_soft"),
+                "gaps": list(soft.get("gaps") or []),
+                "quotes": soft.get("quotes"),
+                "prose_cn": soft.get("prose_cn"),
+                "collapse_combo": soft.get("collapse_combo"),
+                "steer_hint": soft.get("steer_hint") or "",
+                "severity": "advisory",
+            }
+            if soft
+            else None
+        ),
+        "drift": {
+            "drift": bool(drift.get("drift")),
+            "advisory": str(drift.get("advisory") or ""),
+            "reason": str(drift.get("reason") or ""),
+        },
+        "severity": "advisory",
+        "has_prose": bool(prose_s),
+    }
+
+
 # ── draft_loop 真源决策（shipped · 单测必须调这些函数）──────────────────
 
 _LEN_GE_STEER_RE = re.compile(r"可见汉字\s*≥\s*(\d{3,5})")

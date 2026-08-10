@@ -8,11 +8,15 @@ from scribe3.execution_contract import (
     DEFAULT_SOFT_LEN_FLOOR,
     attach_execution_stamp,
     build_execution_stamp,
+    chapter_execution_soft_status,
+    count_dialogue_keyword_hits,
     count_quotes,
     drive_content_fp,
     drive_prose_drift,
     format_default_drama_steer,
+    format_drive_three_lines,
     merge_pilot_card_dict,
+    parse_stakes_presence,
     preserve_execution_stamp,
     resolve_drama_steer_params,
     soft_fulfill_drive,
@@ -323,3 +327,91 @@ def test_real_draft_loop_skip_no_loop_chapter(monkeypatch):
 
 def test_count_quotes():
     assert count_quotes("「甲」「乙」") >= 2
+
+
+def test_format_drive_three_lines():
+    d = format_drive_three_lines({
+        "inciting_force": {"summary": "旧债上门"},
+        "opposition": {"who_or_what": "婆婆", "wants": "立还"},
+        "end_hook": "门外脚步",
+        "scene_turn": "验尸翻盘",
+    })
+    assert d["present"] is True
+    assert "旧债" in d["inciting"]
+    assert "婆婆" in d["opposition"]
+    assert "门外" in d["end_hook"]
+    empty = format_drive_three_lines({})
+    assert empty["present"] is False
+
+
+def test_parse_stakes_presence_high_missing():
+    syn = "压力级:4\nchapter_role:高压\n甲赴义庄验尸。"
+    r = parse_stakes_presence(syn)
+    assert r["high_pressure"] is True
+    assert r["present"] is False
+    assert r["warning"] == "missing_outline_stakes"
+
+
+def test_parse_stakes_presence_with_stakes():
+    syn = "压力级:5\nchapter_role:推进\nstakes: 铜钱易主则功名尽\n剧情若干。"
+    r = parse_stakes_presence(syn)
+    assert r["present"] is True
+    assert r["warning"] == ""
+    assert "铜钱" in r["stakes"] or "功名" in r["stakes"]
+
+
+def test_chapter_execution_soft_status_no_prose_advisory():
+    out = chapter_execution_soft_status(
+        seq=3,
+        prose="",
+        drive={"inciting_force": {"summary": "债"}},
+        synopsis="压力级:4\nchapter_role:高压\n无赌注行。",
+    )
+    assert out["severity"] == "advisory"
+    assert out["has_prose"] is False
+    assert out["soft_fulfill"] is None
+    assert out["drive_summary"]["present"] is True
+    assert out["stakes"]["warning"] == "missing_outline_stakes"
+    assert out["seq"] == 3
+
+
+def test_chapter_execution_soft_status_short_prose_gaps():
+    drive = {
+        "inciting_force": {"summary": "债"},
+        "opposition": {"who_or_what": "婆", "wants": "还"},
+        "end_hook": "h",
+    }
+    out = chapter_execution_soft_status(
+        seq=1,
+        prose="他走了。",
+        drive=drive,
+        synopsis="stakes: 命\n压力级:3",
+    )
+    assert out["severity"] == "advisory"
+    assert out["has_prose"] is True
+    soft = out["soft_fulfill"]
+    assert soft is not None
+    assert soft["severity"] == "advisory"
+    assert soft.get("ok_soft") is False
+    assert "dialogue_low" in (soft.get("gaps") or [])
+
+
+def test_chapter_execution_soft_status_pass2_like():
+    body = "「你欠的东西，该还了。」" * 50 + "他站在门前。" * 200
+    while len(__import__("re").sub(r"\s+", "", body)) < 2980:
+        body += "炉火还在烧。"
+    out = chapter_execution_soft_status(seq=6, prose=body, drive={}, synopsis="")
+    soft = out["soft_fulfill"]
+    assert soft is not None
+    assert soft["severity"] == "advisory"
+    assert "short_and_dialogue_low" not in (soft.get("gaps") or [])
+    assert soft["prose_cn"] >= 2400
+
+
+def test_count_dialogue_keyword_hits_steer_guard():
+    """DEFAULT_DRAMA_STEER 文案中「对白」出现次数应受控（防注入面双写膨胀）。"""
+    s = format_default_drama_steer(dialogue_min=4, soft_len_floor=2400)
+    hits = count_dialogue_keyword_hits(s)
+    assert hits <= 2, f"对白 keyword hits={hits} in steer: {s!r}"
+    # 故意膨胀样例须 >2，证明计数器有效
+    assert count_dialogue_keyword_hits("对白 对白 对白") == 3

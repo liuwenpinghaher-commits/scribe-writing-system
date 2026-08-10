@@ -32,6 +32,10 @@ const {
   contractNeedsAttention,
   contractSoftSummary,
   countBeatTexts,
+  parseOutlineStakes,
+  executionSoftSummary,
+  mergedSoftBannerSummary,
+  shouldShowMergedSoftBanner,
   MIN_BEAT_TEXTS,
 } = mod
 
@@ -87,6 +91,62 @@ await test('countBeatTexts ignores empty', () => {
 await test('contractSoftSummary lists errors', () => {
   const s = contractSoftSummary({})
   assert.ok(s.includes('大纲'))
+})
+
+await test('high pressure missing stakes → warn not error', () => {
+  const syn = '压力级:4\nchapter_role:高压\n' + '甲'.repeat(40)
+  const r = evaluateChapterContract({
+    synopsis: syn,
+    beats: [{ text: '一' }, { text: '二' }, { text: '三' }],
+    scene_truth: '乙'.repeat(50),
+  })
+  assert.equal(r.hasError, false)
+  assert.equal(r.stakesOk, false)
+  assert.ok(r.issues.some((i) => i.id === 'missingOutlineStakes' && i.level === 'warn'))
+  const stakes = parseOutlineStakes(syn)
+  assert.equal(stakes.warning, 'missing_outline_stakes')
+  assert.equal(stakes.highPressure, true)
+})
+
+await test('high pressure with stakes → no stakes warning', () => {
+  const syn = '压力级:5\nchapter_role:推进\nstakes: 铜钱易主则功名尽\n' + '甲'.repeat(20)
+  const r = evaluateChapterContract({
+    synopsis: syn,
+    beats: [{ text: '一' }, { text: '二' }, { text: '三' }],
+    scene_truth: '乙'.repeat(50),
+  })
+  assert.equal(r.stakesOk, true)
+  assert.ok(!r.issues.some((i) => i.id === 'missingOutlineStakes'))
+  assert.ok(parseOutlineStakes(syn).present)
+})
+
+await test('low pressure no stakes → no stakes warning', () => {
+  const r = evaluateChapterContract({
+    synopsis: '压力级:2\n' + '甲'.repeat(40),
+    beats: [{ text: '一' }, { text: '二' }, { text: '三' }],
+    scene_truth: '乙'.repeat(50),
+  })
+  assert.ok(!r.issues.some((i) => i.id === 'missingOutlineStakes'))
+  assert.equal(r.stakesOk, true)
+})
+
+await test('executionSoftSummary and merged banner', () => {
+  const soft = {
+    soft_fulfill: { ok_soft: false, gaps: ['dialogue_low'], quotes: 1, severity: 'advisory' },
+    drift: { drift: false },
+  }
+  const exec = executionSoftSummary(soft)
+  assert.ok(exec.includes('对白'))
+  const ch = { synopsis: '', beats: [], scene_truth: '' }
+  const merged = mergedSoftBannerSummary(ch, soft)
+  assert.ok(merged.includes('章前契约') || merged.includes('大纲'))
+  assert.ok(merged.includes('执行对照'))
+  assert.equal(shouldShowMergedSoftBanner(ch, soft), true)
+  assert.equal(shouldShowMergedSoftBanner({
+    synopsis: '甲'.repeat(50),
+    beats: [{ text: '一' }, { text: '二' }, { text: '三' }],
+    scene_truth: '乙'.repeat(50),
+  }, { soft_fulfill: { ok_soft: true }, drift: { drift: false } }), false)
 })
 
 console.log('chapterContractGate tests done')

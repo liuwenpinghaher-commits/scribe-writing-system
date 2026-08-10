@@ -278,6 +278,8 @@ export const api = {
   northStarBook: () => j('/north-star/book'),                   // 北极星任务10:书级四维
   chapterBrief: (seq, focalizer = '') => j(`/chapter-brief?seq=${seq}` + (focalizer ? `&focalizer=${enc(focalizer)}` : '')),
   chapterPulse: (seq) => j(`/chapter-pulse?seq=${seq}`),   // 主编主动化 T1:六维脉搏
+  /** 章执行软状态（NE/EC soft_fulfill + drive 三行 + stakes · advisory only） */
+  executionSoftStatus: (seq, work) => j(`/chapter/execution-soft-status?seq=${seq}`, work),
   inbox: (seq) => j('/inbox' + (seq != null ? `?seq=${seq}` : '')),   // T4:决策收件箱
   // Chapter Pilot(主编主动化 T6-T11)
   pilotStep: (seq, mode = 'manual', steer = '') => post('/pilot/step', { seq, mode, steer }),

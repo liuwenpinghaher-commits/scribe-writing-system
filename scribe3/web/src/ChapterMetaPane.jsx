@@ -11,8 +11,39 @@ import {
 import {
   evaluateChapterContract,
   contractSoftSummary,
+  executionSoftSummary,
 } from './lib/chapterContractGate.js'
 import { softGateIssues } from './lib/deduceGate.js'
+
+/** 本地三行摘要（chapter.narrative_drive 直读；与后端 format_drive_three_lines 同形） */
+function driveThreeFromChapter(drive) {
+  const d = drive && typeof drive === 'object' ? drive : {}
+  const inc = d.inciting_force && typeof d.inciting_force === 'object' ? d.inciting_force : {}
+  const opp = d.opposition && typeof d.opposition === 'object' ? d.opposition : {}
+  const inciting = String(inc.summary || '').trim()
+  const who = String(opp.who_or_what || '').trim()
+  const wants = String(opp.wants || '').trim()
+  const opposition = [who, wants ? `要 ${wants}` : ''].filter(Boolean).join(' ').trim()
+  const end_hook = String(d.end_hook || '').trim()
+  const scene_turn = String(d.scene_turn || '').trim()
+  return {
+    present: Boolean(inciting || opposition || end_hook || scene_turn),
+    inciting,
+    opposition,
+    end_hook,
+    scene_turn,
+  }
+}
+
+function gapLabel(g) {
+  const map = {
+    dialogue_low: '对白偏少',
+    short_and_dialogue_low: '短稿且对白不足',
+    weak_opener: '开篇外力弱',
+    missing_event: '事件推进弱',
+  }
+  return map[g] || g
+}
 
 const LABEL_OPTIONS = [
   ['idea', '想法'],
@@ -58,10 +89,12 @@ export function ChapterMetaPane({
   const [volumes, setVolumes] = useState([])
   const [chapter, setChapter] = useState(null)
   const [briefHint, setBriefHint] = useState(null)
+  const [execSoft, setExecSoft] = useState(null)
 
   useEffect(() => {
     let alive = true
     setLoading(true)
+    setExecSoft(null)
     Promise.all([api.chapter(seq, work), api.listVolumes()])
       .then(([ch, rows]) => {
         if (!alive) return
@@ -83,6 +116,12 @@ export function ChapterMetaPane({
         })
         .catch(() => { if (alive) setBriefHint(null) })
     }
+    // 执行 soft：同源 API，失败静默（不挡契约页）
+    if (typeof api.executionSoftStatus === 'function') {
+      api.executionSoftStatus(seq, work)
+        .then((s) => { if (alive) setExecSoft(s || null) })
+        .catch(() => { if (alive) setExecSoft(null) })
+    }
     return () => { alive = false }
   }, [seq, work])
 
@@ -100,6 +139,13 @@ export function ChapterMetaPane({
   const deduce = contract.deduce || softGateIssues(chapter || {})
   const involved = Array.isArray(chapter?.involved_characters) ? chapter.involved_characters : []
   const doneDeduce = Math.max(0, involved.length - (deduce.missing?.length || 0))
+
+  const driveSummary = useMemo(() => {
+    if (execSoft?.drive_summary?.present || execSoft?.drive_summary?.inciting) {
+      return execSoft.drive_summary
+    }
+    return driveThreeFromChapter(chapter?.narrative_drive)
+  }, [chapter, execSoft])
 
   const goPhase = (phase) => {
     if (typeof onNavigatePhase === 'function') {
@@ -126,6 +172,19 @@ export function ChapterMetaPane({
       'deduce',
       `第 ${seq} 章场景真相`,
       `请填写/完善第 ${seq} 章 scene_truth（场景真相）。当前:\n${sceneTruth || '（空）'}`,
+    )
+  }
+
+  const askEventDrive = () => {
+    const ds = driveSummary || {}
+    seedChiefNarrativeWrite(
+      'chapter-event-drive',
+      `第 ${seq} 章事件驱动`,
+      `请按冲突/事件补全第 ${seq} 章：大纲 stakes 标签、对白对立、引爆/对立/章末钩。` +
+        `当前驱动：引爆=${ds.inciting || '（空）'}；对立=${ds.opposition || '（空）'}；钩子=${ds.end_hook || '（空）'}。` +
+        (execSoft?.soft_fulfill?.gaps?.length
+          ? ` 执行 soft gaps：${(execSoft.soft_fulfill.gaps || []).join(', ')}。`
+          : ''),
     )
   }
 
@@ -185,6 +244,20 @@ export function ChapterMetaPane({
             />
             <span>场景真相 scene_truth{!contract.sceneTruthOk ? ' · 空' : ''}</span>
           </li>
+          <li className="flex items-center gap-2" data-testid="contract-stakes-row">
+            <StatusDot
+              ok={contract.stakesOk}
+              warn={!contract.stakesOk && contract.stakes?.highPressure}
+            />
+            <span>
+              赌注 stakes
+              {!contract.stakes?.highPressure
+                ? ' · 非高压（可选）'
+                : contract.stakesOk
+                  ? ` · 已标${contract.stakes?.stakes ? `：${clip(contract.stakes.stakes, 24)}` : ''}`
+                  : ' · 高压缺标签（建议）'}
+            </span>
+          </li>
           <li className="flex items-center gap-2 text-faint">
             <span className="w-2 shrink-0" aria-hidden />
             <span>
@@ -193,7 +266,7 @@ export function ChapterMetaPane({
             </span>
           </li>
         </ul>
-        {contract.hasError && (
+        {(contract.hasError || contract.needsAttention) && (
           <p className="mt-2 text-f12 text-warn" data-testid="contract-soft-summary">
             {contractSoftSummary(chapter)}
           </p>
@@ -207,6 +280,82 @@ export function ChapterMetaPane({
         <p className="mt-2 text-f11 text-faint leading-relaxed">
           以上为写前建议，不阻断进入正文或对话生成。
           存实质正文时工艺门仍可能硬拦缺大纲/节拍/场景真相。
+        </p>
+      </section>
+
+      <section
+        className="mb-5 rounded-lg border border-line/60 bg-surface/60 px-3 py-3"
+        data-testid="chapter-event-drive"
+        aria-label="本章事件驱动"
+      >
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <h4 className="text-f13 font-medium text-ink">本章事件驱动</h4>
+          <Btn variant="ghost" size="xs" data-testid="contract-seed-event-drive" onClick={askEventDrive}>
+            让主编按驱动补 stakes/对白
+          </Btn>
+        </div>
+        {driveSummary?.present ? (
+          <ul className="space-y-1.5 text-f13 text-ink">
+            <li><span className="text-faint">引爆 · </span>{driveSummary.inciting || '（空）'}</li>
+            <li><span className="text-faint">对立 · </span>{driveSummary.opposition || '（空）'}</li>
+            <li><span className="text-faint">钩子 · </span>{driveSummary.end_hook || '（空）'}</li>
+            {driveSummary.scene_turn ? (
+              <li><span className="text-faint">转折 · </span>{driveSummary.scene_turn}</li>
+            ) : null}
+          </ul>
+        ) : (
+          <p className="text-f13 text-faint">
+            尚未合成事件驱动 · 可进大纲补 stakes/冲突，或跑 pilot / ensure 后刷新。
+          </p>
+        )}
+        <p className="mt-2 text-f11 text-faint">只读 · 真源 narrative_drive；引导优先，不默认硬 park。</p>
+      </section>
+
+      <section
+        className="mb-5 rounded-lg border border-line/60 bg-surface/60 px-3 py-3"
+        data-testid="chapter-execution-soft"
+        aria-label="写后执行对照"
+      >
+        <h4 className="text-f13 font-medium text-ink mb-2">写后执行对照</h4>
+        {!execSoft ? (
+          <p className="text-f13 text-faint">加载中或暂不可用…</p>
+        ) : !execSoft.has_prose ? (
+          <p className="text-f13 text-faint">尚无正文 · 成稿后显示 soft 对白/长度 gaps 与 drift（advisory）。</p>
+        ) : (
+          <div className="space-y-1.5 text-f13 text-ink">
+            {execSoft.soft_fulfill ? (
+              <>
+                <p>
+                  <span className="text-faint">状态 · </span>
+                  {execSoft.soft_fulfill.ok_soft
+                    ? 'soft 通过'
+                    : `建议关注：${(execSoft.soft_fulfill.gaps || []).map(gapLabel).join('、') || '未达标'}`}
+                  <span className="text-faint"> · {execSoft.soft_fulfill.severity || 'advisory'}</span>
+                </p>
+                <p className="text-faint tnum">
+                  引号 {execSoft.soft_fulfill.quotes ?? '—'}
+                  {execSoft.soft_fulfill.prose_cn != null ? ` · 可见字 ${execSoft.soft_fulfill.prose_cn}` : ''}
+                </p>
+              </>
+            ) : (
+              <p className="text-faint">无 soft_fulfill 数据</p>
+            )}
+            {execSoft.drift?.drift ? (
+              <p className="text-warn" data-testid="chapter-execution-drift">
+                drift · {execSoft.drift.advisory || '事件驱动相对成稿已变，建议【强制重写】核对（不自动清稿）'}
+              </p>
+            ) : (
+              <p className="text-faint">drift · 无（或尚未打 stamp）</p>
+            )}
+            {executionSoftSummary(execSoft) ? (
+              <p className="text-f12 text-warn" data-testid="chapter-execution-soft-summary">
+                {executionSoftSummary(execSoft)}
+              </p>
+            ) : null}
+          </div>
+        )}
+        <p className="mt-2 text-f11 text-faint">
+          与 full_check soft_fulfill 同源 · 仅 advisory，不阻断生成。
         </p>
       </section>
 
