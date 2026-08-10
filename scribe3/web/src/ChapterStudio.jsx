@@ -248,34 +248,117 @@ function OutlineTab({ seq, value, meta }) {
   )
 }
 
-// ——— 节拍:只读 + 主编种子(禁止 patchChapter beats 作者直写) ———
-function BeatsTab({ seq, value, meta }) {
-  const beats = Array.isArray(value) ? value : []
+// ——— 节拍 GCD 戏剧卡(PR-8):展示 goal/conflict/turn/cost/hook;手改经 patchChapter 保存 ———
+// 结构增删仍可由主编审批写入;作者可补齐/改写单拍 GCD 字段(不增删条数)。
+const GCD_FIELDS = [
+  ['goal', '目标'],
+  ['conflict', '冲突'],
+  ['turn', '转折'],
+  ['cost', '代价'],
+  ['hook', '钩子'],
+]
+
+function normalizeBeat(b) {
+  if (b != null && typeof b === 'object' && !Array.isArray(b)) {
+    return { ...b, text: b.text != null ? String(b.text) : '' }
+  }
+  return { text: b == null ? '' : String(b) }
+}
+
+/** 拍上是否已有任一 GCD 字段(非空);用于「有则展卡」与 empty 态区分。 */
+function beatHasGcd(b) {
+  if (!b || typeof b !== 'object') return false
+  return GCD_FIELDS.some(([k]) => String(b[k] ?? '').trim() !== '')
+}
+
+function formatBeatForChief(b, i) {
+  const t = b?.text || ''
+  const gcd = GCD_FIELDS
+    .map(([k, label]) => {
+      const v = String(b?.[k] ?? '').trim()
+      return v ? `${label}:${v}` : null
+    })
+    .filter(Boolean)
+  const gcdPart = gcd.length ? ` | ${gcd.join(' · ')}` : ''
+  return `${i + 1}. ${t || '（无摘要）'}${b?.done ? ' [已完成]' : ''}${gcdPart}`
+}
+
+function BeatsTab({ seq, work, value, meta, onSaved }) {
+  const toast = useToast()
+  const [beats, setBeats] = useState(() => (Array.isArray(value) ? value : []).map(normalizeBeat))
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  // 无 GCD 的旧拍默认折叠;点「戏剧卡」展开空字段以便手填。
+  const [forceGcd, setForceGcd] = useState(() => ({}))
+
+  useEffect(() => {
+    setBeats((Array.isArray(value) ? value : []).map(normalizeBeat))
+    setDirty(false)
+    setForceGcd({})
+  }, [value, seq])
+
+  useUnsavedGuard(() => dirty)
+
+  const updateField = (i, key, val) => {
+    setBeats((prev) => prev.map((b, j) => (j === i ? { ...b, [key]: val } : b)))
+    setDirty(true)
+  }
+
+  const save = async () => {
+    if (saving) return
+    setSaving(true)
+    try {
+      // 整表回写:保留 id/kind/density/budget/pov/done 等既有键,仅 GCD/text 由本面板改。
+      await api.patchChapter(seq, { beats }, work)
+      setDirty(false)
+      toast('节拍已保存', { tone: 'ok' })
+      onSaved?.()
+    } catch (e) {
+      toast(e?.body?.detail || e?.message || '节拍保存失败', { tone: 'danger' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const askChief = () => seedChiefNarrativeWrite(
     'beats',
     `第 ${seq} 章节拍`,
-    `请更新第 ${seq} 章节拍列表(beats)。当前 ${beats.length} 条:\n` + beats.map((b, i) => `${i + 1}. ${b.text || b || ''}${b.done ? ' [已完成]' : ''}`).join('\n'),
+    `请更新第 ${seq} 章节拍列表(beats,含 GCD:goal/conflict/turn/cost/hook)。当前 ${beats.length} 条:\n`
+      + beats.map((b, i) => formatBeatForChief(b, i)).join('\n'),
   )
+
   return (
     <div className={STAGE_WRAP} data-testid="chapter-workbench-shell" data-phase="beats">
       <StageTitle
         title="节拍"
-        subtitle="场景节拍只读;增删改勾选由主编审批写入。"
+        subtitle="戏剧卡(目标/冲突/转折/代价/钩子)可手改保存;条数增删可由主编审批写入。"
         actions={(
-          <Btn variant="primary" size="sm" data-testid="beats-ask-chief" onClick={askChief}>
-            让主编写入节拍
-          </Btn>
+          <>
+            <Btn
+              variant="ghost"
+              size="sm"
+              data-testid="beats-save"
+              disabled={!dirty || saving}
+              onClick={save}
+              title={dirty ? '保存 GCD 与摘要到章 meta' : '无未保存更改'}
+            >
+              {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+              {saving ? '保存中…' : '保存节拍'}
+            </Btn>
+            <Btn variant="primary" size="sm" data-testid="beats-ask-chief" onClick={askChief}>
+              让主编写入节拍
+            </Btn>
+          </>
         )}
       />
       <MetaBar meta={meta} wordCount={meta?.proseWords} />
-      <SelectionQuoteActions
-        scopeLabel={`第 ${seq} 章节拍`}
-        className="flex-1 min-h-0 overflow-y-auto space-y-2"
-        data-testid="beats-readonly"
+      <div
+        className="flex-1 min-h-0 overflow-y-auto space-y-3"
+        data-testid="beats-list"
       >
         {beats.length === 0 ? (
           <div className={`${STAGE_BODY} flex items-start gap-2 flex-wrap`}>
-            <span className="text-faint flex-1">（空 · 由主编审批写入）</span>
+            <span className="text-faint flex-1">（空 · 由主编审批写入，或让主编展开节拍）</span>
             <button
               type="button"
               data-testid="beats-empty-ask"
@@ -289,15 +372,64 @@ function BeatsTab({ seq, value, meta }) {
               聊聊怎么写
             </button>
           </div>
-        ) : beats.map((b, i) => (
-          <div key={i} className={`flex gap-2 py-1.5 ${STAGE_BODY} border-b border-line/30 last:border-0`}>
-            <span className="text-meta text-faint shrink-0 tnum w-5">{i + 1}.</span>
-            {b.done ? <span className="text-ok shrink-0">✓</span> : null}
-            <span className="whitespace-pre-wrap min-w-0">{b.text || b || ''}</span>
-          </div>
-        ))}
-      </SelectionQuoteActions>
-      <div className="text-f12 text-faint leading-snug">节拍只读；划选一段可「聊这段/改这段」送主编。</div>
+        ) : beats.map((b, i) => {
+          const showGcd = beatHasGcd(b) || forceGcd[i]
+          return (
+            <div
+              key={b.id || i}
+              className={`rounded-lg border border-line/50 bg-surface/40 px-3 py-2.5 ${STAGE_BODY}`}
+              data-testid={`beat-card-${i}`}
+            >
+              <div className="flex gap-2 items-start">
+                <span className="text-meta text-faint shrink-0 tnum w-5 pt-1">{i + 1}.</span>
+                {b.done ? <span className="text-ok shrink-0 pt-1">✓</span> : null}
+                <div className="flex-1 min-w-0 space-y-2">
+                  <textarea
+                    className="w-full min-h-[2.5rem] resize-y rounded-md border border-line/40 bg-canvas px-2 py-1.5 text-f13 text-ink leading-snug outline-none focus:border-brand/50"
+                    value={b.text || ''}
+                    onChange={(e) => updateField(i, 'text', e.target.value)}
+                    placeholder="节拍摘要"
+                    data-testid={`beat-text-${i}`}
+                    aria-label={`第 ${i + 1} 拍摘要`}
+                  />
+                  {showGcd ? (
+                    <div
+                      className="grid grid-cols-1 sm:grid-cols-2 gap-2"
+                      data-testid={`beat-gcd-${i}`}
+                    >
+                      {GCD_FIELDS.map(([key, label]) => (
+                        <label key={key} className="block text-meta min-w-0">
+                          <span className="mb-0.5 block text-faint text-f12">{label}</span>
+                          <textarea
+                            className="w-full min-h-[2.75rem] resize-y rounded-md border border-line/40 bg-canvas px-2 py-1 text-f13 text-ink leading-snug outline-none focus:border-brand/50"
+                            value={b[key] != null ? String(b[key]) : ''}
+                            onChange={(e) => updateField(i, key, e.target.value)}
+                            placeholder={label}
+                            data-testid={`beat-gcd-${i}-${key}`}
+                            aria-label={`第 ${i + 1} 拍${label}`}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-f12 text-brand hover:underline cursor-pointer"
+                      data-testid={`beat-gcd-expand-${i}`}
+                      onClick={() => setForceGcd((m) => ({ ...m, [i]: true }))}
+                    >
+                      补戏剧卡（目标/冲突/转折/代价/钩子）
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="text-f12 text-faint leading-snug">
+        {dirty ? '有未保存更改 · 点「保存节拍」写入章 meta。' : 'GCD 字段有值时自动展卡；无则点「补戏剧卡」。保存走 patchChapter(beats)。'}
+      </div>
     </div>
   )
 }
