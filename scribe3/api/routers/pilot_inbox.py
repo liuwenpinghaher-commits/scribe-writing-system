@@ -549,6 +549,47 @@ async def live(work: str = "main"):
     return sse_response(counted_live_stream())
 
 
+def ensure_narrative_drive_volume_ep(
+    req: NarrativeDriveEnsureReq,
+    work: str = "main",
+):
+    """OI-2b：书级 narrative_drive 批量 ensure（运维/已登录会话）。
+
+    - 默认 ``dry_run=True``，须显式 ``dry_run=false`` 才写库
+    - 须 ``SCRIBE3_NARRATIVE_ENGINE=1``
+    - **永不 park**；不暴露公网匿名（走既有 session/auth 中间件）
+    - ``include_author`` / ``force`` 危险，默认关
+    """
+    from scribe3.novel_quality_flags import narrative_engine_enabled
+    from scribe3.narrative_drive import ensure_narrative_drive_range
+
+    if not narrative_engine_enabled():
+        raise HTTPException(
+            status_code=400,
+            detail="SCRIBE3_NARRATIVE_ENGINE 未开启，拒绝 ensure",
+        )
+    recompose = (req.recompose_if or "").strip() or None
+    if recompose and recompose not in ("outline_enrich", "always"):
+        raise HTTPException(
+            status_code=400,
+            detail="recompose_if 仅支持 outline_enrich|always|省略",
+        )
+    max_seqs = int(req.max_seqs or 200)
+    if max_seqs < 1 or max_seqs > 500:
+        raise HTTPException(status_code=400, detail="max_seqs 须在 1..500")
+    st = _store_for(work)
+    force = bool(req.force) or recompose == "always"
+    stats = ensure_narrative_drive_range(
+        st,
+        seqs=req.seqs,
+        force=force,
+        steer=req.steer or "",
+        recompose_if=recompose if recompose != "always" else None,
+        dry_run=bool(req.dry_run),
+        max_seqs=max_seqs,
+        include_author=bool(req.include_author),
+    )
+    return {"ok": True, "work": work, **stats}
 
 
 def _bind_and_register() -> None:
@@ -633,6 +674,18 @@ def _bind_and_register() -> None:
     setattr(core, 'pilot_reset', _re)
     g['pilot_reset'] = _re
     router.add_api_route('/pilot/reset-step', _re, methods=['POST'], name='pilot_reset')
+
+    _fn = g['ensure_narrative_drive_volume_ep']
+    _re = types.FunctionType(
+        _fn.__code__, core.__dict__, 'ensure_narrative_drive_volume_ep',
+        _fn.__defaults__, _fn.__closure__)
+    if _fn.__annotations__:
+        _re.__annotations__ = dict(_fn.__annotations__)
+    setattr(core, 'ensure_narrative_drive_volume_ep', _re)
+    g['ensure_narrative_drive_volume_ep'] = _re
+    router.add_api_route(
+        '/narrative-drive/ensure', _re, methods=['POST'],
+        name='ensure_narrative_drive_volume_ep')
 
     _fn = g['decision_inbox']
     _re = types.FunctionType(_fn.__code__, core.__dict__, 'decision_inbox', _fn.__defaults__, _fn.__closure__)

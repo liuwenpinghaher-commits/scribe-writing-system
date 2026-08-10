@@ -544,3 +544,68 @@ def test_needs_outline_enrich_recompose():
         },
     }
     assert needs_outline_enrich_recompose(good, "", meta) is False
+
+
+def test_ensure_volume_ep_dry_run(monkeypatch):
+    """OI-2b REST handler：ENGINE 开 + dry_run 不写库（需 fastapi 环境）。"""
+    try:
+        from fastapi import HTTPException  # noqa: F401
+        from scribe3.api.models import NarrativeDriveEnsureReq
+        from scribe3.api.routers import pilot_inbox as pi
+    except ImportError:
+        return  # Grok 主机无 fastapi 时跳过；demo/CI 有
+
+    class St:
+        def chapters_lite(self):
+            return [{"seq": 1, "synopsis": "stakes:若失败 章末钩子:h"}]
+
+        def get_chapter(self, seq):
+            return {
+                "synopsis": "stakes:若失败 章末钩子:h",
+                "narrative_drive": {},
+                "beats": [],
+                "focalizer": "",
+                "deltas": [],
+            }
+
+        def update_chapter_meta(self, seq, fields):
+            raise AssertionError("dry_run must not write")
+
+        def open_promises(self):
+            return []
+
+        def events_at(self, seq):
+            return []
+
+    monkeypatch.setattr(
+        "scribe3.novel_quality_flags.narrative_engine_enabled",
+        lambda: True,
+    )
+    monkeypatch.setattr(pi, "_store_for", lambda work: St())
+    out = pi.ensure_narrative_drive_volume_ep(
+        NarrativeDriveEnsureReq(dry_run=True, max_seqs=5),
+        work="book_test",
+    )
+    assert out["ok"] is True
+    assert out["dry_run"] is True
+    assert out["enabled"] is True
+
+
+def test_ensure_volume_ep_engine_off(monkeypatch):
+    try:
+        from fastapi import HTTPException
+        from scribe3.api.models import NarrativeDriveEnsureReq
+        from scribe3.api.routers import pilot_inbox as pi
+    except ImportError:
+        return
+
+    monkeypatch.setattr(
+        "scribe3.novel_quality_flags.narrative_engine_enabled",
+        lambda: False,
+    )
+    try:
+        pi.ensure_narrative_drive_volume_ep(
+            NarrativeDriveEnsureReq(dry_run=True), work="x")
+        assert False, "expected 400"
+    except HTTPException as e:
+        assert e.status_code == 400

@@ -521,3 +521,14 @@ class PilotRunReq(BaseModel):
     start_seq: int
     until_seq: int
 
+
+class NarrativeDriveEnsureReq(BaseModel):
+    """OI-2b：卷/书级 narrative_drive 批量 ensure（默认 dry-run，永不 park）。"""
+    seqs: list[int] | None = None
+    force: bool = False
+    recompose_if: str | None = None  # None | outline_enrich | always
+    dry_run: bool = True
+    max_seqs: int = 200
+    include_author: bool = False
+    steer: str = ""
+
