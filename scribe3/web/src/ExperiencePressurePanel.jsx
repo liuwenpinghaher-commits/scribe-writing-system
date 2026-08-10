@@ -15,8 +15,9 @@ const GRID_CELLS = [
 const emptyGrid = () => Object.fromEntries(GRID_CELLS.map(([k]) => [k, '']))
 
 /**
- * 经验压力最小 UI:问诊信列表 + 本章 Scene–Sequel 六格 + 续写重读仪式。
- * 全部走 api.js 真实后端路径(非本地第二套 store)。
+ * 经验复盘 UI(产品名锁定「经验复盘」· IA KD-IA-3/7):
+ * 问诊信 + Scene–Sequel 六格 + 续写重读。≠ 写路径力学合同 pressure_drive。
+ * 全部走 api.js 真实后端路径。
  */
 export function ExperiencePressurePanel({ seq }) {
   const [letter, setLetter] = useState(null)
@@ -119,8 +120,38 @@ export function ExperiencePressurePanel({ seq }) {
 
   const items = Array.isArray(letter?.items) ? letter.items : []
 
+  /** PR-7：从本章 beats GCD 单向填充六格（不写回 beats） */
+  const onFillFromGcd = async () => {
+    if (seq == null) return
+    setBusy('fill-gcd')
+    setErr('')
+    try {
+      const ch = await api.chapter(seq)
+      const beats = Array.isArray(ch?.beats) ? ch.beats : []
+      const next = emptyGrid()
+      for (const b of beats) {
+        if (!b || typeof b !== 'object') continue
+        if (b.goal && !next.goal) next.goal = String(b.goal)
+        if (b.conflict && !next.conflict) next.conflict = String(b.conflict)
+        if ((b.turn || b.disaster) && !next.disaster) next.disaster = String(b.turn || b.disaster)
+        if (b.reaction && !next.reaction) next.reaction = String(b.reaction)
+        if (b.dilemma && !next.dilemma) next.dilemma = String(b.dilemma)
+        if ((b.decision || b.cost) && !next.decision) next.decision = String(b.decision || b.cost)
+      }
+      setGrid(next)
+      // 只更新本地面板；作者需点「保存六格」才 putSceneGrid——绝不 patchChapter(beats)
+    } catch (e) {
+      setErr(e?.message || '从节拍填充失败')
+    } finally {
+      setBusy('')
+    }
+  }
+
   return (
     <div className="space-y-6 text-ink" data-testid="experience-pressure-panel">
+      <p className="text-meta text-faint">
+        经验复盘（问诊/六格/续写）· 写路径力学合同见工艺侧 pressure_drive，二者不同源
+      </p>
       {err && (
         <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-meta text-danger" role="alert">
           {err}
@@ -206,7 +237,12 @@ export function ExperiencePressurePanel({ seq }) {
                 ))}
               </ul>
             )}
-            <div className="mt-2">
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Btn size="sm" variant="ghost" disabled={busy === 'fill-gcd'} onClick={onFillFromGcd}
+                data-testid="exp-fill-from-gcd"
+                title="从节拍 GCD 单向建议填充；不写回 chapter.beats">
+                {busy === 'fill-gcd' ? '填充中…' : '从节拍 GCD 填充'}
+              </Btn>
               <Btn size="sm" disabled={busy === 'grid'} onClick={onSaveGrid}>
                 {busy === 'grid' ? '保存中…' : '保存六格'}
               </Btn>

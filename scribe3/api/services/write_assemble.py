@@ -717,6 +717,7 @@ def _drama_block(st, chapter: int, focalizer: str = "") -> str:
 
     置顶注入点：``_assemble_write_instructions_v1`` 在 envelope（重记忆）之前。
     无 GCD/钩子 → 空串。限知免责与 ``_outline_block`` 同口径（Issue 14）。
+    章末钩子经 ``chapter_hooks.resolve_chapter_hook`` SSOT（与 ensure 同源）。
     fail-soft：取数异常只 warning，不阻断写作。
     """
     if chapter is None:
@@ -728,15 +729,19 @@ def _drama_block(st, chapter: int, focalizer: str = "") -> str:
             "写路径 _drama_block 读章失败(fail-soft): %s", e)
         return ""
     beats = ch.get("beats") or []
-    hook = ""
-    meta = ch.get("beats_meta") or {}
-    if isinstance(meta, dict):
-        hook = str(meta.get("chapter_hook") or "").strip()
-    if not hook:
-        for b in reversed(list(beats)):
-            if isinstance(b, dict) and str(b.get("hook") or "").strip():
-                hook = str(b.get("hook") or "").strip()
-                break
+    try:
+        from scribe3.chapter_hooks import resolve_chapter_hook
+        hook = resolve_chapter_hook(ch)
+    except Exception:
+        hook = ""
+        meta = ch.get("beats_meta") or {}
+        if isinstance(meta, dict):
+            hook = str(meta.get("chapter_hook") or "").strip()
+        if not hook:
+            for b in reversed(list(beats)):
+                if isinstance(b, dict) and str(b.get("hook") or "").strip():
+                    hook = str(b.get("hook") or "").strip()
+                    break
     try:
         from scribe3.drama_beats import format_drama_block
         return format_drama_block(
@@ -890,19 +895,30 @@ def _pressure_drive_write_block(st, chapter: int) -> str:
         return ""
 
 
-def _brief_must_sections_write_block(st, chapter: int, focalizer: str = "") -> str:
+def _brief_must_sections_write_block(
+    st, chapter: int, focalizer: str = "",
+    *, must_link_already_pinned: bool | None = None,
+) -> str:
     """生产写路径:章前简报**操作必达段**(伏笔/开环/心跳/弧光/因果/stale)。
 
     单源 assemble_chapter_brief;刻意剔除 purpose/lessons(已由
     _purpose_and_lessons_write_block 内联)与 injection 回显(codex 块另注),
     避免双份圣经/双份目的合同。空操作段 → 空串。fail-soft:组装故障不阻断写作。
 
-    D3：前置「戏剧必需锚」短块，与 context_assembler must_link 同源。"""
+    D3 / IA：前置「戏剧必需锚」与 context_assembler must_link 同源；
+    默认信封 pin 已占全文时（``must_link_already_pinned`` / 注入去重开）brief 短路。
+    """
     must_prefix = ""
     try:
-        from scribe3.memory_must_link import build_must_prefix
+        from scribe3.memory_must_link import build_must_prefix, inject_dedup_enabled
+        # 生产写路径 envelope 恒会 _pin_must_link；DEDUP 开则 brief 不再出全文。
+        pinned = must_link_already_pinned
+        if pinned is None:
+            pinned = inject_dedup_enabled()
         must_prefix = build_must_prefix(
-            st, int(chapter), focalizer=focalizer or "")
+            st, int(chapter), focalizer=focalizer or "",
+            must_link_already_pinned=bool(pinned),
+        )
     except Exception as e:
         logging.getLogger("scribe3").warning(
             "写路径 must_link 注入失败(fail-soft): %s", e)
@@ -1304,6 +1320,27 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         context_trace.update(binding)
         envelope_trace["context"] = context_trace
         envelope_trace.update(binding)
+        # IA PR-6：可选注入去重报告（观测，不含正文）
+        try:
+            from scribe3.memory_must_link import (
+                inject_dedup_enabled, must_link_already_pinned_from_items,
+            )
+            pin_items = []
+            try:
+                for blk in (getattr(envelope, "blocks", None) or []):
+                    for it in (getattr(blk, "items", None) or []):
+                        pin_items.append(it)
+            except Exception:
+                pin_items = []
+            pinned = must_link_already_pinned_from_items(pin_items)
+            envelope_trace["dedup_report"] = {
+                "inject_dedup": inject_dedup_enabled(),
+                "must_link_pinned": pinned,
+                "brief_must_link_short_circuit": inject_dedup_enabled() and pinned,
+                "pin_detect": "reason=must_link_priority|source_id_prefix",
+            }
+        except Exception:
+            pass
     if reference_craft_briefs:
         from scribe3.quality.store import QualityStore
         QualityStore(st).record_reference_craft_use(

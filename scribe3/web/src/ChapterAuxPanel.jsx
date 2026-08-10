@@ -6,18 +6,9 @@ import { FramePanel } from './FramePanel'
 import { NorthStarPanel } from './NorthStarPanel'
 import { ExperiencePressurePanel } from './ExperiencePressurePanel'
 
-// 章节辅助面板:简报/关联/北极星/压力 是"读着写"的辅助资料,不是章的写作阶段——
-// 挂载语境(2026-07-12 修正):章工作台头部入口触发后,在【栏3 内容区】替换阶段内容渲染
-// (与点大纲/正文页签同级的内容切换)。不再是铺满栏2+3+4 的全宽层——那会挤掉栏4 主编,
-// 用户没法边看简报/关联边和主编讨论;栏2 目录、栏4 主编全程不动。
-// tab 受控/非受控双模:
-//   · 受控(ChapterStudio 用法):传 tab + onTabChange——头部入口是【唯一】切换器,
-//     面板内不再渲染自己的 tab 行(2026-07-12 UX 修正:同名 tab 画两遍是重复信息
-//     且白占一行,作者实拍反馈),内容区直接顶满;
-//   · 非受控:只传 initialTab(可省),内部自持 tab state 并渲染 tab 行(旧直渲用法)。
-// 签名不收 work:面板走全局 WORK(与左栏 FramePanel 同惯例,见 studioDocks 左栏 caps;
-// 2026-07-11 裁决:FramePanel 省略 work prop,不碰在途 FourPaneShell)。
-// onSelectNode:章工作台透传,关联 tab 点击带 targetNode 的条目可跳设定/素材详情。
+// 章节辅助面板:简报/关联/评分卡/经验复盘 是"读着写"的辅助资料,不是章的写作阶段。
+// 产品名锁定(IA):评分卡≠作品意图;经验复盘≠力学合同 pressure_drive。
+// tab 受控/非受控双模见历史注释;onSelectNode 透传关联跳转。
 const AUX_TAB_KEYS = new Set(['brief', 'frame', 'northstar', 'pressure'])
 export function ChapterAuxPanel({ seq, initialTab, tab: tabProp, onTabChange, onSelectNode }) {
   const [tabState, setTabState] = useState(() => (AUX_TAB_KEYS.has(initialTab) ? initialTab : 'brief'))
@@ -59,8 +50,8 @@ export function ChapterAuxPanel({ seq, initialTab, tab: tabProp, onTabChange, on
   const items = [
     { value: 'brief', label: '简报' },
     { value: 'frame', label: '关联' },
-    { value: 'northstar', label: '北极星' },
-    { value: 'pressure', label: '压力' },
+    { value: 'northstar', label: '评分卡', title: '机器评分卡 · 与顶栏「作品意图」不是同一物' },
+    { value: 'pressure', label: '经验复盘', title: '经验六格/问诊 · 与写路径力学合同不是同一物' },
   ]
   // 栏3 内容区适配:内容套一层宽松 max-w 居中(超宽屏不贴边拉满),Tabs 与内容同一约束对齐;
   // BriefPanel/FramePanel/NorthStarPanel 内部不动,自适应可用宽度。

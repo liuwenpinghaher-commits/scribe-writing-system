@@ -1,9 +1,7 @@
-// 北极星面板(北极星方案任务10,蓝图 §3-③):双级 scorecard,三分栏展示——
-// constraints(硬约束偏离,setpoint)/ advisory_scores(软参考,只提示不门禁)/
-// fulfillment(目的达成,正向)。绝不合成总分(宪法):面板全绿只证明机器没失职,
-// 不证明书好;"是不是好小说"的裁决权在人。
-// 数据刷新走 /live SSE:经 BinderLayout 单连接广播的 s3-live 事件驱动重取
-// (不自开 EventSource——SCRIBE3_LIVE_MAX=5 连接配额),不轮询。
+// 评分卡面板(产品名锁定「评分卡」· IA KD-IA-3):双级 scorecard,三分栏展示——
+// constraints / advisory_scores / fulfillment。绝不合成总分。
+// 与顶栏「作品意图」(intent:main)不是同一物——旧称「北极星」易混。
+// 数据刷新走 /live SSE:BinderLayout 广播 s3-live,不自开 EventSource。
 import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, BookOpen, Gauge, ShieldCheck, Target } from 'lucide-react'
 import { api } from './api'
@@ -77,7 +75,10 @@ export function NorthStarPanel({ seq, scope }) {
   const degraded = ch?.degraded || []
 
   return (
-    <div>
+    <div data-testid="scorecard-panel">
+      <p className="mb-2 text-meta text-faint" title="与顶栏作品意图不是同一物">
+        评分卡（机器硬约束/软参考/目的达成）· 改读者感受/红线请用顶栏「作品意图」
+      </p>
       {/* ===== 章级 ===== */}
       {scope !== 'book' && (
         seq == null ? <Empty>未选章</Empty> : ch === undefined ? <Skeleton /> : ch === null ? (

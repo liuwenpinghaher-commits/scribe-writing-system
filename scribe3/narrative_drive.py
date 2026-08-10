@@ -871,6 +871,16 @@ def ensure_narrative_drive(
         preserve_source_refs=prev_refs,
         synopsis=synopsis,
     )
+    # IA KD-IA-5：end_hook 与 drama 共用 chapter_hooks SSOT（非仅 synopsis meta.hook）
+    try:
+        from scribe3.chapter_hooks import resolve_chapter_hook
+        resolved_hook = resolve_chapter_hook(
+            ch, synopsis_meta=meta, prev_end_hook=prev_hook,
+        )
+        if resolved_hook:
+            new_drive["end_hook"] = resolved_hook
+    except Exception as e:
+        _log.debug("resolve_chapter_hook fail-soft: %s", e)
     new_drive["source"] = "assembled"
     new_drive["locked"] = False
     new_drive["synopsis_fp"] = fp_now

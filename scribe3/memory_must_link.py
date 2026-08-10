@@ -363,6 +363,56 @@ def format_must_link_items(anchors: list[dict[str, Any]], work: str = "") -> lis
     return lines
 
 
+def inject_dedup_enabled() -> bool:
+    """SCRIBE3_INJECT_DEDUP：1/true/空默认开；0/false 恢复 brief 与 envelope 双全文。"""
+    raw = _setting_str("SCRIBE3_INJECT_DEDUP", "1").lower()
+    if raw in {"0", "false", "off", "no", "dual", "legacy"}:
+        return False
+    return True
+
+
+def is_must_link_pin_source(source: Any) -> bool:
+    """现网 pin 真值：source_kind=canonical + reason=must_link_priority（或 source_id 前缀）。
+
+    **禁止** 仅用 ``source_kind == "must_link"`` —— pin 从不写该 kind（恒假 → 双全文）。
+    """
+    if source is None:
+        return False
+    reason = ""
+    sid = ""
+    sk = ""
+    if isinstance(source, dict):
+        reason = str(source.get("reason") or "")
+        sid = str(source.get("source_id") or "")
+        sk = str(source.get("source_kind") or "")
+    else:
+        reason = str(getattr(source, "reason", None) or "")
+        sid = str(getattr(source, "source_id", None) or "")
+        sk = str(getattr(source, "source_kind", None) or "")
+    if reason == "must_link_priority":
+        return True
+    if sid.startswith("must_link"):
+        return True
+    # 故意：不把 sk == "must_link" 当作充分条件
+    _ = sk
+    return False
+
+
+def must_link_already_pinned_from_items(items: Any) -> bool:
+    """从 envelope / canonical 列表检测是否已 pin must-link 全文。"""
+    if not items:
+        return False
+    for it in items:
+        src = None
+        if isinstance(it, dict):
+            src = it.get("source") or it
+        else:
+            src = getattr(it, "source", None) or it
+        if is_must_link_pin_source(src):
+            return True
+    return False
+
+
 def build_must_prefix(
     store,
     chapter: int | None,
@@ -370,8 +420,16 @@ def build_must_prefix(
     limit: int | None = None,
     query: str = "",
     focalizer: str = "",
+    must_link_already_pinned: bool = False,
 ) -> str:
-    """写路径 brief 用：与 assembler must 同源（format + limit + ablation）。"""
+    """写路径 brief 用：与 assembler must 同源（format + limit + ablation）。
+
+    ``must_link_already_pinned=True`` 且 ``inject_dedup_enabled()`` 时返回空串
+    （权威全文已在 envelope pin，brief 短路防双份）。
+    DEDUP=0 时忽略 pinned 标志，恢复双前缀兼容路径。
+    """
+    if must_link_already_pinned and inject_dedup_enabled():
+        return ""
     if ablation_disables_must_link():
         return ""
     lim = limit if limit is not None else must_link_limit(8)

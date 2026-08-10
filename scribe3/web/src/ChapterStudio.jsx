@@ -28,28 +28,24 @@ import {
   isContractBannerDismissed,
   dismissContractBanner,
 } from './lib/chapterContractGate.js'
+import { loadIaDensity, saveIaDensity, auxVisibleForDensity } from './lib/iaDensity.js'
 
-// 章五阶段(Task 7):大纲(synopsis)→ 节拍(beats)→ 演绎(deduce)→ 草稿(draft)→ 正文(prose/WriteLayout)。
-// 大纲/节拍 patchChapter;演绎就地渲 DeduceStage(不再改道左栏能力);草稿 saveDraft/latestDraft;
-// 正文整体复用 WriteLayout(护栏/QC/帧/伏笔/版本不丢)。
-// 简报/关联/北极星是"读着写"的辅助资料而非写作阶段:入口在本工作台头部(章导航旁),
-// 点击在【栏3 内容区】切换渲染 ChapterAuxPanel(2026-07-12 修正:撤全宽层——铺满栏2+3+4
-// 会挤掉栏4 主编,用户没法边看辅助资料边和主编讨论;栏2 目录、栏4 主编全程不动)。
+// 章五阶段(Task 7):大纲→节拍→演绎→草稿→正文。字段分列禁止合并(IA KD-IA-1)。
+// 辅助面:简报/关联/评分卡/经验复盘——读着写,不参与阶段时钟。
+
 const PHASES = [
-  { key: 'outline', label: '大纲', icon: AlignLeft },
-  { key: 'beats', label: '节拍', icon: ListChecks },
-  { key: 'deduce', label: '演绎', icon: Sparkles },
-  { key: 'draft', label: '草稿', icon: FileEdit },
-  { key: 'final', label: '正文', icon: BookText },
+  { key: 'outline', label: '大纲', icon: AlignLeft, duty: '章级梗概与 stakes 种子（synopsis 真源）' },
+  { key: 'beats', label: '节拍', icon: ListChecks, duty: 'GCD 戏剧合同与拍级执行（主杠杆）' },
+  { key: 'deduce', label: '演绎', icon: Sparkles, duty: '场景真相与限知投影（认知，不写戏）' },
+  { key: 'draft', label: '草稿', icon: FileEdit, duty: '执行戏剧与声口（draft 分列）' },
+  { key: 'final', label: '正文', icon: BookText, duty: '落库长散文（prose 分列）' },
 ]
-// 章节辅助入口(2026-07-12 裁决 + 经验压力层):从栏4 RightDock capability 迁到章工作台头部——
-// 点击在栏3 内容区替换阶段内容展现(与点大纲/正文页签同级的内容切换,四栏结构不动)。
-// 图标:简报=ScrollText / 关联=Eye / 北极星=Compass / 压力=Gauge。
+// 辅助入口:评分卡≠作品意图;经验复盘≠力学合同。渐进披露见 s3.ia.density。
 const AUX_ENTRIES = [
-  { key: 'brief', label: '简报', icon: ScrollText },
-  { key: 'frame', label: '关联', icon: Eye },
-  { key: 'northstar', label: '北极星', icon: Compass },
-  { key: 'pressure', label: '压力', icon: Gauge },
+  { key: 'brief', label: '简报', icon: ScrollText, tip: '只读本章创作简报' },
+  { key: 'frame', label: '关联', icon: Eye, tip: '设定/素材/伏笔/限知边界' },
+  { key: 'northstar', label: '评分卡', icon: Compass, tip: '机器评分卡 · 与顶栏「作品意图」不是同一物' },
+  { key: 'pressure', label: '经验复盘', icon: Gauge, tip: '六格/问诊 · 与写路径力学合同不是同一物' },
 ]
 const PHASE_KEYS = new Set(PHASES.map((p) => p.key))
 /** 阶段编辑器仍可 loading 占位的 phase；final 也拉契约 meta，但不挡 WriteLayout */
@@ -711,6 +707,17 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
   //   · 再点当前高亮的辅助入口 → toggle 关闭,回到离开时的阶段。
   const [auxView, setAuxView] = useState(null)
   const [chapterMetaOpen, setChapterMetaOpen] = useState(false)
+  // IA 渐进披露:仅 localStorage s3.ia.density；未设置默认 essential
+  const [iaDensity, setIaDensity] = useState(() => loadIaDensity())
+  const visibleAux = AUX_ENTRIES.filter((e) => auxVisibleForDensity(iaDensity, e.key))
+  const cycleDensity = () => {
+    const order = ['essential', 'standard', 'full']
+    const i = order.indexOf(iaDensity)
+    const next = order[(i < 0 ? 0 : i + 1) % order.length]
+    setIaDensity(saveIaDensity(next))
+    // 若当前辅助 tab 在新密度下不可见，收起
+    if (auxView && !auxVisibleForDensity(next, auxView)) setAuxView(null)
+  }
 
   // 草稿软门:切到草稿时若 missing/stale/空真相 → toast + 草稿页常驻 banner(不阻断)。
   // 正文 soft:切到 final 且契约 B1/B2/B3 缺口 → toast；banner 另见 ContractSoftBanner。
@@ -897,13 +904,13 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
       {seq != null && (
         <>
           <div role="group" aria-label="章节辅助" className="flex items-center gap-0.5 rounded-lg bg-soft p-0.5">
-            {AUX_ENTRIES.map((entry) => {
+            {visibleAux.map((entry) => {
               const Icon = entry.icon
               const active = auxView === entry.key
               return (
                 <button key={entry.key} type="button" aria-pressed={active}
                   onClick={() => { setChapterMetaOpen(false); setAuxView(active ? null : entry.key) }}
-                  title={active ? `${entry.label} · 再点一次回到写作阶段` : `${entry.label} · 在本栏展开章节辅助`}
+                  title={active ? `${entry.label} · 再点一次回到写作阶段` : (entry.tip || `${entry.label} · 在本栏展开章节辅助`)}
                   className={`inline-flex items-center gap-1 h-7 rounded-md px-2 text-f12 cursor-pointer transition-colors ${
                     active ? 'bg-surface text-brand ring-1 ring-line' : 'text-faint hover:bg-surface hover:text-ink'
                   }`}>
@@ -911,6 +918,13 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
                 </button>
               )
             })}
+            <button type="button" onClick={cycleDensity}
+              data-testid="ia-density-toggle"
+              title={`信息密度 ${iaDensity}（localStorage s3.ia.density；点切换）`}
+              className="inline-flex items-center h-7 rounded-md px-1.5 text-meta text-faint hover:text-ink cursor-pointer"
+            >
+              {iaDensity === 'essential' ? '简' : iaDensity === 'standard' ? '标' : '全'}
+            </button>
           </div>
           <span className="w-px h-4 bg-line mx-0.5" aria-hidden="true" />
           <Btn variant="ghost" size="sm" onClick={() => { setAuxView(null); setChapterMetaOpen(true) }}
@@ -960,6 +974,14 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
       onTab={(p) => { setAuxView(null); setChapterMetaOpen(false); setPhaseP(p) }}
       actions={frameActions}
     >
+      {!showAux && !showChapterMeta && (
+        <div
+          className="shrink-0 border-b border-line/60 px-3 py-1 text-meta text-faint"
+          data-testid="phase-duty-line"
+        >
+          {(PHASES.find((p) => p.key === phase) || {}).duty || ''}
+        </div>
+      )}
       {showChapterMeta ? (
         <div className="h-full min-h-0 overflow-y-auto bg-canvas">
           <ChapterMetaPane

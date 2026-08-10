@@ -40,3 +40,35 @@
 | 题材规则类型 | `craft_rule_kind` | purple_regex/artifact_craft/allow_pattern/allow_word |
 | 声音语域 | `voice_kind` | free/pressure/relation/narration |
 | 伏笔性质 | `promise_kind` | promise/red_herring |
+
+## 组六:写作产物字段(章表)
+| 中文名 | 规范代码名 | 定义 |
+|---|---|---|
+| 章大纲/梗概 | `synopsis` | 章级种子;大纲阶段真源 |
+| 节拍列表 | `beats` | 拍级 GCD/text;戏剧合同主杠杆 |
+| 场景真相 | `scene_truth` | 演绎认知层;≠世界命题真相 |
+| 草稿 | `draft` | 执行稿;与 prose 分列 |
+| 正文 | `prose` | 落库长散文 |
+| 章末钩元 | `beats_meta.chapter_hook` | 钩子 SSOT 优先层(见 `chapter_hooks.resolve_chapter_hook`) |
+| 事件驱动 | `narrative_drive` | 章级导航/引导;end_hook 由钩子链种子 |
+| 力学合同 | `pressure_drive` | 写路径压力真源;≠经验复盘 UI |
+
+## 组七:写路径注入 domain(节选)
+| 中文名/槽 | 规范 domain / 代码 | 定义 |
+|---|---|---|
+| 戏剧合同 | `drama_contract` / `_drama_block` | 唯一 GCD 执行摘要 |
+| 大纲块 | `outline` | 仅 synopsis + beat.text(无 GCD 字段当大纲) |
+| 简报必达 | `brief_must` | 操作段;已 pop purpose/drama_contract/injection |
+| must-link 钉 | envelope pin · `reason=must_link_priority` | 权威全文;brief 在 `SCRIBE3_INJECT_DEDUP=1` 时短路 |
+| 目的 | `purpose` | 世界验收 delta;非文案 |
+| 续写快照 | `continue_snapshot` | 可注入;≠ pressure_drive |
+
+## 组八:产品面命名(IA 人决 · 消歧)
+| 产品中文名 | 规范代码/入口 | 旧称/勿混 | 注入/数据源 |
+|---|---|---|---|
+| 作品意图 | 顶栏 `NorthStarBar` · `intent:main` | 旧 UI「北极星」条 | s3_get/set_intent |
+| 评分卡 | 辅助 tab · `NorthStarPanel` | 旧「北极星」面板 | chapter/book scorecard |
+| 经验复盘 | 辅助 tab · `ExperiencePressurePanel` | 旧「压力」面板 | 六格/问诊/续写;不写 beats |
+| 力学合同 | `pressure_drive` 写路径块 | 勿称「压力面板」 | PDC 真源 |
+| 信息密度 | `localStorage s3.ia.density` | 禁止 USER.md / author_prefs | essential(默认)/standard/full |
+| 设计锚 | `docs/plans/2026-08-10-chapter-writing-ia-optimal.md` | — | Accepted rev.3.1+ |

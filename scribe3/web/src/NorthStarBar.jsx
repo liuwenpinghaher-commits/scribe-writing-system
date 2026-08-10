@@ -6,7 +6,8 @@ import { ReadOnlyText } from './ui/EditableText.jsx'
 
 const FIELDS = [['reader_feeling', '读者感受'], ['emotional_arc', '情感弧'], ['red_lines', '红线']]
 
-// 顶栏北极星条:作品意图常驻,只读展示。写入走主编对话审批(s3_set_intent),禁止表单直填。
+// 顶栏作品意图条(IA KD-IA-3):只读展示 intent:main。写入走主编审批(s3_set_intent)。
+// 与辅助面「评分卡」(scorecard)不是同一物——勿混称「北极星」。
 export function NorthStarBar() {
   const [intent, setIntent] = useState({ reader_feeling: '', emotional_arc: '', red_lines: '' })
   const [open, setOpen] = useState(false)
@@ -24,7 +25,7 @@ export function NorthStarBar() {
 
   const askChiefToWrite = () => {
     const text = [
-      '请登记/更新本书北极星意图并写入落库(需我审批):',
+      '请登记/更新本书作品意图并写入落库(需我审批):',
       '读者感受:压抑中见微光,雪夜仍有灯',
       '情感弧:由怯到决,灰契为代价',
       '红线:不写超自然明机制;不洗白加害;不丑化底层',
@@ -38,9 +39,10 @@ export function NorthStarBar() {
   return (
     <div className="border-b border-line bg-surface" data-testid="northstar-bar">
       <button type="button" onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-2 px-4 h-9 cursor-pointer hover:bg-soft/40 transition-colors border-l-2 border-brand">
+        className="w-full flex items-center gap-2 px-4 h-9 cursor-pointer hover:bg-soft/40 transition-colors border-l-2 border-brand"
+        title="作品意图（intent）· 与辅助面「评分卡」不是同一物">
         <Compass size={14} className="text-brand shrink-0" />
-        <span className="text-f12 text-faint shrink-0">北极星</span>
+        <span className="text-f12 text-faint shrink-0">作品意图</span>
         <span className="text-f12 text-ink truncate" data-testid="northstar-summary">{summary}</span>
         <ChevronDown size={13} className={`ml-auto shrink-0 text-faint transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -52,14 +54,16 @@ export function NorthStarBar() {
                 label={label}
                 value={intent[k] || ''}
                 emptyHint="（空 · 由主编审批写入）"
-                entityLabel="北极星"
+                entityLabel="作品意图"
                 fieldKey={k}
                 emptyAskLabel="聊聊怎么写"
               />
             </div>
           ))}
           <div className="sm:col-span-3 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-meta text-faint">禁止表单直填 · 写入走主编工具 s3_set_intent + 审批</span>
+            <span className="text-meta text-faint">
+              禁止表单直填 · 写入走主编 s3_set_intent + 审批 · 这不是「评分卡」
+            </span>
             <Btn variant="primary" size="sm" data-testid="northstar-ask-chief" onClick={askChiefToWrite}>
               <MessageSquare size={13} />让主编写入
             </Btn>

@@ -5,7 +5,7 @@
 | **文档标题** | 铜炉章工作台 IA：分层保留 + 同名消歧 + 注入去重 + SSOT 矩阵 |
 | **作者** | Grok Design；**人决签收** 2026-08-10 |
 | **日期** | 2026-08-10 |
-| **状态** | **Accepted · rev.3.1（人决）** · 实现 PR **待启动**（仅落仓设计） |
+| **状态** | **Accepted · rev.3.1** · **已实现 PR-1…PR-7（goal 覆盖原 KD-IA-14 仅落仓）** · 2026-08-10 |
 | **产品** | scribe-writing-system / scribe3（铜炉） |
 | **代码根（优先）** | `/home/admin/projects/scribe-ia-verify-wt/scribe3/` |
 | **会话 scratch** | `/tmp/grok-1000/grok-design-doc-40299602.md` |
@@ -197,7 +197,7 @@ event_drive → drama_contract
 | **KD-IA-11** | 验收 = demo 冒烟 + 针对性单测；正文级锚计数防假绿 | |
 | **KD-IA-12** | must-link：**权威全文 = envelope pin**（检测用 `reason=must_link_priority` / `source_id` 前缀 / 显式 `must_link_already_pinned`，**禁** `source_kind==must_link`）；`SCRIBE3_INJECT_DEDUP=1` 时 brief 短路；=0 恢复双前缀；必改 `context_assembler.py` | 防只改 helper 假绿与错误谓词恒假 |
 | **KD-IA-13** | **渐进披露默认**：`s3.ia.density` **未设置**（新用户 / 首次打开）时 **default = `essential`**；已显式写入的用户保留其值；设置页可切 standard/full | 人决「最优默认」：降噪优先，不藏死能力（「更多」可展开） |
-| **KD-IA-14** | **交付节奏**：本修订只做设计落仓；**不启动** PR-1…PR-7 实现；Rollout 状态 = **待启动** | 2026-08-10 人决 |
+| **KD-IA-14** | 原「仅落仓」；**已被 goal「全部实现」覆盖**，PR-1…PR-7 已合入主路径 | goal 2026-08-10 |
 
 ---
 
@@ -565,7 +565,7 @@ stakes：章 drive/synopsis；拍 cost；purpose=世界验收。
 
 ## 上线计划（Rollout）
 
-**当前状态：待启动。** 人决本轮 **只落仓设计文档**，**不**合并实现 PR（KD-IA-14）。下表供日后开工时按序执行。
+**当前状态：已实现（goal 覆盖）。** 下列步骤为已执行路径；验收见 demo 热更 + 单元证据。
 
 | 阶段 | 内容 | 回滚 |
 |------|------|------|
@@ -725,4 +725,4 @@ flowchart LR
 
 ---
 
-*文档结束 · Accepted rev.3.1（人决）· 2026-08-10 · 仅落仓设计，实现待启动*
+*文档结束 · Accepted rev.3.1 · 已实现 PR-1…PR-7 · 2026-08-10*
