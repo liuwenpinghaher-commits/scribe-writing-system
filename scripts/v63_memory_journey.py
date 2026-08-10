@@ -896,18 +896,63 @@ def drive_chapter(work: str, evid: Path, seq: int) -> int:
                 curl("POST", f"/api/chapters/{seq}/restore-version", {
                     "version_id": best_id,
                 }, work=work, timeout=120)
-                # 若 restore 不够，直写正文
-                if chapter_prose_len(work, seq) < restore_floor and best_prose:
+                # 始终直写正文：restore 可能不落 prose；且避免后续 force_clear 清空
+                if best_prose:
+                    code_sv, res_sv = curl("POST", "/api/save-chapter", {
+                        "seq": seq, "prose": best_prose, "focalizer": f"role:{pov}",
+                    }, work=work, timeout=180)
+                    print(f"  save after restore http={code_sv} {str(res_sv)[:80]}", flush=True)
+                    if str(code_sv) == "409":
+                        time.sleep(2)
+                        code_sv, res_sv = curl("POST", "/api/save-chapter", {
+                            "seq": seq, "prose": best_prose, "focalizer": f"role:{pov}",
+                        }, work=work, timeout=180)
+                        print(f"  save retry http={code_sv}", flush=True)
+                n_now = chapter_prose_len(work, seq)
+                # 关键：pilot_steer 若残留「【强制重写】/可见汉字≥N」，approve→draft_loop 会 force_clear 清稿。
+                # 故 dismiss 清 steer+state，再以「禁止清空」弱 steer 从 idle 推进；draft 见长 prose 即 skip。
+                print(f"  accept restored prose n={n_now} → dismiss+soft-advance", flush=True)
+                curl("POST", "/api/pilot/dismiss", {"seq": seq}, work=work, timeout=60)
+                # re-save after dismiss (state cleared; prose must stay)
+                if best_prose and chapter_prose_len(work, seq) < restore_floor:
                     curl("POST", "/api/save-chapter", {
                         "seq": seq, "prose": best_prose, "focalizer": f"role:{pov}",
                     }, work=work, timeout=180)
-                # 切勿 dismiss：会清 pilot_state→从大纲重跑，且与 force_clear 叠加成死环。
-                # reset-step 只清 parked；approve 重跑 draft_loop，正文够长则 skip→drafting。
-                curl("POST", "/api/pilot/reset-step", {"seq": seq}, work=work, timeout=60)
-                code_a, res_a = curl(
-                    "POST", "/api/pilot/approve", {"seq": seq}, work=work, timeout=STEP_TIMEOUT,
+                soft = (
+                    "正文已落库且篇幅足够，禁止清空重写或【强制重写】；"
+                    "跳过再生成，直接推进体检与交付。"
                 )
-                print(f"  after restore approve http={code_a} {str(res_a)[:120]}", flush=True)
+                advanced = False
+                for _ai in range(14):
+                    _, st2 = curl("GET", f"/api/pilot/status?seq={seq}", work=work)
+                    stt = (st2 or {}).get("state") if isinstance(st2, dict) else None
+                    pk2 = (st2 or {}).get("parked") if isinstance(st2, dict) else None
+                    if stt == "finalized":
+                        advanced = True
+                        break
+                    if pk2:
+                        curl("POST", "/api/pilot/reset-step", {"seq": seq}, work=work, timeout=60)
+                    if stt in (None, "idle", "outline_proposed", "delivered") or not stt:
+                        code_a, res_a = curl(
+                            "POST", "/api/pilot/approve", {"seq": seq}, work=work, timeout=STEP_TIMEOUT,
+                        )
+                        print(f"  soft-advance approve http={code_a} {str(res_a)[:100]}", flush=True)
+                    else:
+                        code_a, res_a = curl("POST", "/api/pilot/step", {
+                            "seq": seq, "mode": "manual",
+                            "steer": soft if _ai == 0 else "继续；禁止清空已有正文。",
+                        }, work=work, timeout=STEP_TIMEOUT)
+                        print(f"  soft-advance step http={code_a} {str(res_a)[:100]}", flush=True)
+                        if code_a == "409":
+                            curl("POST", "/api/pilot/approve", {"seq": seq}, work=work, timeout=STEP_TIMEOUT)
+                    # if draft wiped again, re-save once
+                    if chapter_prose_len(work, seq) < restore_floor and best_prose:
+                        curl("POST", "/api/save-chapter", {
+                            "seq": seq, "prose": best_prose, "focalizer": f"role:{pov}",
+                        }, work=work, timeout=180)
+                    time.sleep(0.5)
+                if not advanced and chapter_prose_len(work, seq) >= restore_floor:
+                    print("  WARN soft-advance did not finalize; prose retained for next loop", flush=True)
             else:
                 # 无可用长稿：清 parked 后强制重写（强调 chapter 围栏）；仍不 dismiss
                 print(
