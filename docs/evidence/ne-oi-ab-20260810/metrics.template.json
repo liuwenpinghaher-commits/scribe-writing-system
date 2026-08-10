@@ -1,0 +1,25 @@
+{
+  "work": "",
+  "seq": 0,
+  "a": {
+    "label": "baseline",
+    "prose_cn": 0,
+    "walk_per_k": 0,
+    "conflict_per_k": 0,
+    "simile_per_k": 0,
+    "quotes": 0,
+    "inject_has_event_drive": false,
+    "inject_has_dialogue_guide": false
+  },
+  "b": {
+    "label": "engine_oi",
+    "prose_cn": 0,
+    "walk_per_k": 0,
+    "conflict_per_k": 0,
+    "simile_per_k": 0,
+    "quotes": 0,
+    "inject_has_event_drive": true,
+    "inject_has_dialogue_guide": true
+  },
+  "notes": ""
+}

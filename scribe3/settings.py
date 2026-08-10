@@ -232,8 +232,17 @@ REGISTRY: tuple[Setting, ...] = (
             danger=True),
     Setting("SCRIBE3_EVENT_LED_DETECT", "flags", "bool", False, "hot",
             "写后事件驱动检测（可选）",
-            "开=写后 event_drive findings（默认 advisory）；代码默认关。",
+            "开=写后 event_drive findings（默认 advisory）；代码默认关。"
+            "注：DETECT 体未实现；开篇 soft 见 SCRIBE3_OPENER_SOFT_TRACE。",
             danger=True),
+    Setting("SCRIBE3_OPENER_SOFT_TRACE", "flags", "bool", False, "hot",
+            "开篇外力痕迹 soft 日志",
+            "开=draft/full_check 后 logging opener_soft_trace（advisory only，永不 blocking）；代码默认关。",
+            danger=False),
+    Setting("SCRIBE3_METAPHOR_SOFT_PER_1K", "flags", "int", 0, "hot",
+            "比喻密度 soft 阈值（每千字）",
+            "0=关；>0 时超过阈值仅 logging advisory，永不 park。建议试验 6。",
+            min=0, max=50, danger=False),
     # ── gateway(Hermes 网关;地址类 restart)──
     Setting("HERMES_API", "gateway", "str", "http://127.0.0.1:8642/v1", "restart", "速答网关(default)"),
     Setting("HERMES_RESPONSES_API", "gateway", "str", "http://127.0.0.1:8643/v1", "restart", "agentic 读网关"),

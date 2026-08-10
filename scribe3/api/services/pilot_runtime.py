@@ -425,7 +425,20 @@ def _pilot_executor(work: str) -> dict:
                              f"只输出大纲正文与上述标签，不要解释。"
                              + (f"\n作者意图(最高优先):{steer}" if steer else ""))
         st.update_chapter_meta(seq, {"synopsis": out})
-        return {"synopsis": out}
+        # OI-2：仅本步新写出 synopsis 时 ensure 本章（skip 大纲不会走到这里）
+        _nd = None
+        try:
+            from scribe3.novel_quality_flags import narrative_engine_enabled
+            if narrative_engine_enabled():
+                from scribe3.narrative_drive import ensure_narrative_drive
+                _nd = ensure_narrative_drive(st, seq, steer=_pilot_steer(st, seq) or "")
+        except Exception as e:
+            logging.getLogger("scribe3").warning(
+                "propose_outline ensure_narrative_drive fail-soft: %s", e)
+        ret = {"synopsis": out}
+        if _nd is not None:
+            ret["narrative_drive"] = _nd
+        return ret
 
     def _pdc_gate_park_if_needed(st, seq) -> dict | None:
         """SCRIBE3_PDC_GATE=1 时：仅 ok=False（完整非法合同）→ pilot_park；ok=None 不 park。"""
@@ -1043,6 +1056,17 @@ def _pilot_executor(work: str) -> dict:
         prose = (ch.get("prose") or "").strip()
         if not prose:
             return {"pilot_park": "正文为空,无从体检(上游未交稿——若在等 advisory 裁决请先处理)"}
+        # OI-5/6：soft 日志 only（永不 park / 永不进 S1）
+        try:
+            from scribe3.narrative_drive import (
+                maybe_log_metaphor_soft,
+                maybe_log_opener_soft_trace,
+            )
+            _drive = ch.get("narrative_drive") if isinstance(ch.get("narrative_drive"), dict) else {}
+            maybe_log_opener_soft_trace(prose, _drive, seq=seq)
+            maybe_log_metaphor_soft(prose, seq=seq)
+        except Exception as e:
+            logging.getLogger("scribe3").debug("soft narrative traces fail-soft: %s", e)
         resp = post_check(PostCheckReq(prose=prose, focalizer=ch.get("focalizer") or ""),
                           seq=seq, work=work)
         # 审查 P1-7:体检结果必须被消费——blocking 停靠,不再"烧一遍然后扔"

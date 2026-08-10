@@ -294,3 +294,253 @@ def test_expand_beats_skip_ensures_drive(monkeypatch):
     assert written.get("narrative_drive")
     # GATE 关 → 无 pilot_park
     assert "pilot_park" not in out
+
+
+# ── OI-1 enrich ──────────────────────────────────────────
+
+def test_inventory_seed_absorbs_outline_stakes_hook():
+    inv = {
+        "overdue_promises": [
+            {"id": "p1", "label": "冷锅婆当夜索一炉香债", "from": "冷锅婆"},
+        ],
+        "open_promises": [],
+        "purpose_deltas": [],
+        "events_here": [],
+        "events_prev": [],
+        "prev_end_hook": "",
+    }
+    meta = {
+        "role": "推进",
+        "pressure": 5,
+        "stakes": "若失败，灰七失侧门钥",
+        "hook": "炉册上父名未干",
+    }
+    drive = compose_narrative_drive_dict(meta, inv, "")
+    assert drive["composed_from"]["seed_tier"] == "inventory"
+    assert "失侧门" in drive["stakes_line"] or "香债" in drive["inciting_force"]["summary"]
+    assert drive["end_hook"] == "炉册上父名未干"
+    assert drive["stakes_line"] == "若失败，灰七失侧门钥"
+
+
+def test_inventory_seed_outline_source_refs():
+    inv = {
+        "overdue_promises": [{"id": "p1", "label": "讨香债", "from": "冷锅婆"}],
+        "open_promises": [],
+        "purpose_deltas": [],
+        "events_here": [],
+        "events_prev": [],
+    }
+    meta = {"pressure": 5, "role": "推进", "stakes": "若失败丢钥", "hook": "钩子一句"}
+    drive = compose_narrative_drive_dict(meta, inv, "")
+    refs = drive["inciting_force"]["source_refs"]
+    assert "outline:stakes" in refs
+    assert "outline:hook" in refs
+
+
+def test_outline_hook_absorbed_flag():
+    drive = compose_narrative_drive_dict(_stakes_meta(), {}, "")
+    assert drive["composed_from"].get("outline_hook_absorbed") is True
+
+
+def test_high_pressure_missing_stakes_warning():
+    drive = compose_narrative_drive_dict(
+        {"role": "推进", "pressure": 5, "hook": "有钩无赌注"},
+        {},
+        "",
+        synopsis="压力级:5 chapter_role:推进 章末钩子:有钩无赌注",
+    )
+    warns = drive["validation"].get("warnings") or []
+    assert "missing_outline_stakes" in warns
+
+
+def test_format_includes_dialogue_guide():
+    drive = compose_narrative_drive_dict(_stakes_meta(), {}, "")
+    blk = format_event_drive_block(drive)
+    assert "对白" in blk
+    # micro/short must fit 220
+    body = blk.lstrip()
+    assert len(body) <= 220 + 5
+
+
+def test_align_low_pressure_mismatch_ok():
+    drive = {
+        "inciting_force": {"summary": "冷锅婆讨香债", "source_refs": []},
+        "opposition": {"wants": "抵债"},
+        "end_hook": "炉册",
+    }
+    beats = [{"kind": "scene", "goal": "去旧库看看", "conflict": "巷里走走", "text": "闻味"}]
+    al = align_beats_to_drive(beats, drive, high_pressure=False)
+    assert al["ok"] is True
+    assert al["matched"] is False
+
+
+def test_range_dry_run_no_update(monkeypatch):
+    from scribe3 import narrative_drive as nd
+
+    updates = []
+
+    class St:
+        def chapters_lite(self):
+            return [
+                {"seq": 1, "synopsis": "压力级:5 chapter_role:推进 stakes:若失败丢钥 章末钩子:钩"},
+                {"seq": 2, "synopsis": "stakes:若失败B 章末钩子:h2"},
+            ]
+
+        def list_chapters(self):
+            return self.chapters_lite()
+
+        def get_chapter(self, seq):
+            for c in self.chapters_lite():
+                if c["seq"] == seq:
+                    return {
+                        **c,
+                        "beats": [{"text": "x"}],
+                        "narrative_drive": {},
+                        "focalizer": "",
+                        "deltas": [],
+                    }
+            return {}
+
+        def update_chapter_meta(self, seq, fields):
+            updates.append((seq, fields))
+
+        def open_promises(self):
+            return []
+
+        def events_at(self, seq):
+            return []
+
+    monkeypatch.setattr(
+        "scribe3.novel_quality_flags.narrative_engine_enabled",
+        lambda: True,
+    )
+    stats = nd.ensure_narrative_drive_range(St(), dry_run=True, max_seqs=10)
+    assert stats["enabled"] is True
+    assert updates == []
+    assert stats["total"] == 2
+    assert len(stats["dry_run_would_write"]) >= 1
+
+
+def test_range_skips_locked(monkeypatch):
+    from scribe3 import narrative_drive as nd
+
+    class St:
+        def chapters_lite(self):
+            return [{"seq": 1, "synopsis": "stakes:若失败 章末钩子:h"}]
+
+        def get_chapter(self, seq):
+            return {
+                "synopsis": "stakes:若失败 章末钩子:h",
+                "narrative_drive": {
+                    "locked": True,
+                    "source": "author",
+                    "version": 3,
+                    "inciting_force": {"summary": "旧", "source_refs": []},
+                    "scene_turn": "旧转",
+                    "validation": {"ok": True},
+                },
+                "beats": [],
+                "focalizer": "",
+                "deltas": [],
+            }
+
+        def update_chapter_meta(self, seq, fields):
+            raise AssertionError("must not write locked")
+
+        def open_promises(self):
+            return []
+
+        def events_at(self, seq):
+            return []
+
+    monkeypatch.setattr(
+        "scribe3.novel_quality_flags.narrative_engine_enabled",
+        lambda: True,
+    )
+    stats = nd.ensure_narrative_drive_range(St(), dry_run=False, force=False)
+    assert stats["skipped_locked"] >= 1
+    assert stats["rewritten"] == 0
+
+
+def test_range_max_seqs(monkeypatch):
+    from scribe3 import narrative_drive as nd
+
+    class St:
+        def chapters_lite(self):
+            return [{"seq": i, "synopsis": f"stakes:若失败{i} 章末钩子:h{i}"} for i in range(1, 6)]
+
+        def get_chapter(self, seq):
+            return {
+                "synopsis": f"stakes:若失败{seq} 章末钩子:h",
+                "narrative_drive": {},
+                "beats": [],
+                "focalizer": "",
+                "deltas": [],
+            }
+
+        def update_chapter_meta(self, seq, fields):
+            pass
+
+        def open_promises(self):
+            return []
+
+        def events_at(self, seq):
+            return []
+
+    monkeypatch.setattr(
+        "scribe3.novel_quality_flags.narrative_engine_enabled",
+        lambda: True,
+    )
+    stats = nd.ensure_narrative_drive_range(St(), dry_run=True, max_seqs=2)
+    assert stats["total"] == 2
+
+
+def test_opener_soft_and_metaphor_helpers():
+    from scribe3.narrative_drive import (
+        soft_metaphor_density_trace,
+        soft_opener_event_trace,
+        head_span_text,
+    )
+    prose = "他顺着巷子走，闻见铜腥，没有人逼他。\n\n第二段还是走。"
+    t = soft_opener_event_trace(prose)
+    assert t["severity"] == "advisory"
+    assert t["type"] == "opener_soft_trace"
+    assert head_span_text(prose)
+    m = soft_metaphor_density_trace("像火，仿佛水，宛如风" * 20, threshold=1.0)
+    assert m["over"] is True
+    assert m["severity"] == "advisory"
+
+
+def test_flags_oi_defaults_off():
+    from scribe3.novel_quality_flags import (
+        CODE_DEFAULTS,
+        FLAG_OPENER_SOFT_TRACE,
+        FLAG_METAPHOR_SOFT_PER_1K,
+        opener_soft_trace_enabled,
+        metaphor_soft_per_1k,
+    )
+    assert CODE_DEFAULTS.get(FLAG_OPENER_SOFT_TRACE) is False
+    assert CODE_DEFAULTS.get(FLAG_METAPHOR_SOFT_PER_1K) in (0, 0.0)
+    assert opener_soft_trace_enabled() is False
+    assert metaphor_soft_per_1k() == 0 or metaphor_soft_per_1k() == 0.0
+
+
+def test_needs_outline_enrich_recompose():
+    from scribe3.narrative_drive import needs_outline_enrich_recompose
+
+    old = {
+        "validation": {"ok": True},
+        "composed_from": {"seed_tier": "inventory"},
+        "inciting_force": {"summary": "债", "source_refs": ["promise:p1"]},
+    }
+    meta = {"stakes": "若失败丢钥", "hook": "钩"}
+    assert needs_outline_enrich_recompose(old, "", meta) is True
+    good = {
+        "validation": {"ok": True},
+        "composed_from": {"seed_tier": "inventory", "outline_hook_absorbed": True},
+        "inciting_force": {
+            "summary": "债",
+            "source_refs": ["promise:p1", "outline:stakes", "outline:hook"],
+        },
+    }
+    assert needs_outline_enrich_recompose(good, "", meta) is False

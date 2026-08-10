@@ -335,7 +335,8 @@ def compose_narrative_drive_dict(
         drive["end_hook"] = hook or prev
         drive["synopsis_fp"] = synopsis_content_fp(synopsis)
         drive["validation"] = validate_narrative_drive(drive, high_pressure=bool(high_pressure))
-        return drive
+        # OI-1：无种子亦做大纲 enrich 观测（advisory）
+        return _absorb_outline_fields(drive, meta, high_pressure=bool(high_pressure))
 
     if stakes and not if_fail:
         _, fail2 = _split_stakes_fail(stakes)
@@ -413,7 +414,108 @@ def compose_narrative_drive_dict(
         "synopsis_fp": synopsis_content_fp(synopsis),
     }
     drive["validation"] = validate_narrative_drive(drive, high_pressure=bool(high_pressure))
+    # OI-1：显式 enrich 纪律（source_refs / outline_hook_absorbed / missing_outline_stakes）
+    return _absorb_outline_fields(drive, meta, high_pressure=bool(high_pressure))
+
+
+def _absorb_outline_fields(
+    drive: dict,
+    meta: dict | None,
+    *,
+    high_pressure: bool = False,
+) -> dict:
+    """幂等大纲 enrich：不改 seed_tier；补 source_refs / 观测键 / advisory warning。
+
+    字段级 stakes_line/end_hook 收尾与现网 compose 对齐；本函数只保证可观测性合同。
+    """
+    if not isinstance(drive, dict):
+        return drive
+    meta = meta if isinstance(meta, dict) else {}
+    stakes = _s(meta.get("stakes"))
+    hook = _s(meta.get("hook"))
+
+    cf = drive.get("composed_from") if isinstance(drive.get("composed_from"), dict) else {}
+    if not isinstance(cf, dict):
+        cf = {}
+    drive["composed_from"] = cf
+
+    inc = drive.get("inciting_force") if isinstance(drive.get("inciting_force"), dict) else {}
+    refs = list(inc.get("source_refs") or [])
+    dl = drive.get("deadline_or_cost") if isinstance(drive.get("deadline_or_cost"), dict) else {}
+    if not isinstance(dl, dict):
+        dl = {"timer": "", "if_fail": "", "irreversible_if_pay": ""}
+
+    if stakes:
+        drive["stakes_line"] = stakes
+        if not _s(dl.get("if_fail")):
+            _, fail = _split_stakes_fail(stakes)
+            if fail:
+                dl["if_fail"] = fail
+                drive["deadline_or_cost"] = dl
+        if "outline:stakes" not in refs:
+            refs.append("outline:stakes")
+        cf["outline_stakes"] = True
+
+    if hook:
+        drive["end_hook"] = hook
+        cf["outline_hook_absorbed"] = True
+        if "outline:hook" not in refs:
+            refs.append("outline:hook")
+    else:
+        # 未提供 hook 时不强制 False（旧 drive 回填用「缺键」判定）
+        if "outline_hook_absorbed" not in cf:
+            cf["outline_hook_absorbed"] = False
+
+    if not isinstance(inc, dict):
+        inc = {"kind": "other", "summary": "", "source_refs": refs}
+    else:
+        inc = {**inc, "source_refs": refs}
+    drive["inciting_force"] = inc
+
+    val = drive.get("validation") if isinstance(drive.get("validation"), dict) else {}
+    if not isinstance(val, dict):
+        val = {"ok": True, "errors": [], "warnings": [], "drama_weak": False}
+    warns = list(val.get("warnings") or [])
+    if high_pressure and not stakes:
+        if "missing_outline_stakes" not in warns:
+            warns.append("missing_outline_stakes")
+    val["warnings"] = warns
+    drive["validation"] = val
     return drive
+
+
+def needs_outline_enrich_recompose(
+    drive: dict | None,
+    synopsis: str = "",
+    meta: dict | None = None,
+) -> bool:
+    """OI 上线回填谓词：旧 ok drive 缺 enrich 观测键时需 recompose。"""
+    if not isinstance(drive, dict) or not drive:
+        return True
+    if (drive.get("validation") or {}).get("ok") is False:
+        return True
+    if meta is None:
+        try:
+            from scribe3.brief import parse_chapter_meta
+            meta = parse_chapter_meta(synopsis or "") or {}
+        except Exception:
+            meta = {}
+    meta = meta if isinstance(meta, dict) else {}
+    stakes = _s(meta.get("stakes"))
+    hook = _s(meta.get("hook"))
+    cf = drive.get("composed_from") if isinstance(drive.get("composed_from"), dict) else {}
+    refs = list(
+        ((drive.get("inciting_force") or {}).get("source_refs") or [])
+        if isinstance(drive.get("inciting_force"), dict)
+        else []
+    )
+    if hook and not cf.get("outline_hook_absorbed"):
+        return True
+    if stakes and "outline:stakes" not in refs:
+        return True
+    if hook and "outline:hook" not in refs:
+        return True
+    return False
 
 
 def format_event_drive_block(
@@ -474,11 +576,13 @@ def format_event_drive_block(
     if end_hook:
         core_lines.append(f"- 钩子：{_clip(end_hook, 28)}")
 
-    guide_short = "优先冲突/事件推动；跟主角可以，须服务当前戏。"
+    # OI-3：对白净增；逼近并入一句；micro ≤24 字；MAX 仍 220
     guide_full = (
-        "优先写冲突与事件如何推着局势变；跟着主角走可以，"
-        "但这段应逼近或兑现当前冲突/事件，避免空洞巡礼。"
+        "优先冲突/事件；对白须带对立（要求/拒绝/代价）；"
+        "跟主角可以，须逼近或兑现当前戏。"
     )
+    guide_short = "对白承载对立；逼近戏；冲突优先。"
+    guide_micro = "对白对立；逼近戏。"  # ≤24 字
     cam = ""
     if foc or owner:
         cam = f"- 相机：{foc or '—'} / 事件主={owner or '—'}"
@@ -486,13 +590,13 @@ def format_event_drive_block(
     def _join(parts: list[str]) -> str:
         return "\n".join(p for p in parts if p)
 
-    # 尝试：核心 + 短引导 + 相机
+    # 裁剪：先丢 cam → 缩 guide → 保核心前三行（引爆/对立/代价）
     candidates = [
         _join([header, *core_lines, "## 引导", guide_full, cam]),
         _join([header, *core_lines, "## 引导", guide_short, cam]),
         _join([header, *core_lines, "## 引导", guide_short]),
-        _join([header, *core_lines[:3], "## 引导", guide_short]),
-        _join([header, core_lines[0], "## 引导", guide_short]),
+        _join([header, *core_lines[:3], "## 引导", guide_micro]),
+        _join([header, core_lines[0], "## 引导", guide_micro]),
     ]
     text = candidates[-1]
     for cand in candidates:
@@ -684,10 +788,15 @@ def ensure_narrative_drive(
     *,
     force: bool = False,
     steer: str = "",
+    recompose_if: str | None = None,
+    dry_run: bool = False,
+    include_author: bool = False,
 ) -> dict[str, Any] | None:
     """引导旗开时合成/刷新章级 narrative_drive 并落库。
 
-    - 默认不 park；作者锁 / source=author 不覆盖（除非 force 或「强制重算驱动」）。
+    - 默认不 park；作者锁 / source=author 不覆盖（除非 force+include_author 或「强制重算驱动」）。
+    - recompose_if: None | \"outline_enrich\" | \"always\"（always 等价 force）
+    - dry_run: 不写库，返回将合成的 drive（或现 drive）
     - 旗关 → 返回 None，不写库。
     """
     try:
@@ -696,6 +805,9 @@ def ensure_narrative_drive(
             return None
     except Exception:
         return None
+
+    if recompose_if == "always":
+        force = True
 
     try:
         ch = st.get_chapter(seq) or {}
@@ -709,19 +821,20 @@ def ensure_narrative_drive(
     synopsis = ch.get("synopsis") or ""
     fp_now = synopsis_content_fp(synopsis)
     steer_text = steer or ""
-    try:
-        if not steer_text and hasattr(st, "get_setting"):
-            pass
-    except Exception:
-        pass
     # steer 从调用方传入；pilot 侧会给
     steer_force = "强制重算驱动" in steer_text or "【强制重算驱动】" in steer_text
     steer_soft = ("重算驱动" in steer_text) and not steer_force
 
     author_protected = bool(drive.get("locked")) or drive.get("source") == "author"
-    if author_protected and not (force or steer_force):
+    if author_protected and not ((force and include_author) or steer_force):
         if drive:
             return drive
+
+    try:
+        from scribe3.brief import parse_chapter_meta
+        meta = parse_chapter_meta(synopsis) or {}
+    except Exception:
+        meta = {}
 
     need = (
         force
@@ -736,16 +849,16 @@ def ensure_narrative_drive(
             and drive.get("source") != "author"
         )
         or (steer_soft and not author_protected)
+        or (
+            recompose_if == "outline_enrich"
+            and not author_protected
+            and needs_outline_enrich_recompose(drive, synopsis, meta)
+        )
     )
     if not need and drive:
         return drive
 
     inv = assemble_narrative_inventory(st, seq)
-    try:
-        from scribe3.brief import parse_chapter_meta
-        meta = parse_chapter_meta(synopsis) or {}
-    except Exception:
-        meta = {}
     prev_hook = inv.get("prev_end_hook") or ""
     prev_refs = list((drive.get("inciting_force") or {}).get("source_refs") or []) if drive else []
     prev_ver = int(drive.get("version") or 0) if drive else 0
@@ -763,9 +876,296 @@ def ensure_narrative_drive(
     new_drive["synopsis_fp"] = fp_now
     new_drive["version"] = prev_ver + 1 if drive else 1
 
+    if dry_run:
+        return new_drive
+
     try:
         st.update_chapter_meta(seq, {"narrative_drive": new_drive})
     except Exception as e:
         _log.warning("ensure_narrative_drive update_chapter_meta failed: %s", e)
         # 仍返回内存对象，供本轮注入
     return new_drive
+
+
+def ensure_narrative_drive_range(
+    st: Any,
+    *,
+    seqs: list[int] | None = None,
+    force: bool = False,
+    steer: str = "",
+    recompose_if: str | None = None,
+    dry_run: bool = True,
+    max_seqs: int = 200,
+    include_author: bool = False,
+) -> dict[str, Any]:
+    """ENGINE=1 批量 ensure。串行、fail-soft、永不 park。
+
+    默认 dry_run=True（CLI 安全）。返回统计字段见设计 KD-OI-13。
+    """
+    stats: dict[str, Any] = {
+        "enabled": False,
+        "total": 0,
+        "rewritten": 0,
+        "already_ok_skip": 0,
+        "skipped_locked": 0,
+        "empty_seed": 0,
+        "ensured_ok": 0,
+        "dry_run_would_write": [],
+        "errors": [],
+        "coverage_ratio": 0.0,
+        "dry_run": bool(dry_run),
+        "recompose_if": recompose_if,
+        "force": bool(force),
+    }
+    try:
+        from scribe3.novel_quality_flags import narrative_engine_enabled
+        if not narrative_engine_enabled():
+            return stats
+    except Exception:
+        return stats
+    stats["enabled"] = True
+
+    if seqs is None:
+        chapters: list = []
+        try:
+            if hasattr(st, "chapters_lite"):
+                chapters = list(st.chapters_lite() or [])
+            else:
+                chapters = list(st.list_chapters() or [])
+        except Exception as e:
+            stats["errors"].append(f"list_chapters:{e}")
+            chapters = []
+        targets: list[int] = []
+        for c in chapters:
+            if not isinstance(c, dict):
+                continue
+            try:
+                seq = int(c.get("seq"))
+            except (TypeError, ValueError):
+                continue
+            # chapters_lite 有 synopsis/beats；list_chapters 仅 seq/title → 全收再按章 ensure
+            if (
+                _s(c.get("synopsis"))
+                or c.get("beats")
+                or c.get("narrative_drive")
+                or ("synopsis" not in c and "beats" not in c)
+            ):
+                targets.append(seq)
+    else:
+        targets = [int(s) for s in seqs]
+
+    targets = targets[: max(1, int(max_seqs or 200))]
+    stats["total"] = len(targets)
+
+    for seq in targets:
+        try:
+            ch = st.get_chapter(seq) or {}
+            drive = ch.get("narrative_drive") or {}
+            if not isinstance(drive, dict):
+                drive = {}
+            author_protected = bool(drive.get("locked")) or drive.get("source") == "author"
+            if author_protected and not (force and include_author):
+                # 仍可能因 steer_force 重算，这里 CLI 默认跳过
+                if not force or not include_author:
+                    stats["skipped_locked"] += 1
+                    continue
+
+            before = drive
+            # 探测是否 need：dry_run 时用 ensure 的 dry_run
+            out = ensure_narrative_drive(
+                st,
+                seq,
+                force=force,
+                steer=steer,
+                recompose_if=recompose_if,
+                dry_run=True,
+                include_author=include_author,
+            )
+            if out is None:
+                continue
+            # 比较是否会写：version 增或字段变
+            would = (
+                not before
+                or out.get("version") != before.get("version")
+                or out.get("synopsis_fp") != before.get("synopsis_fp")
+                or (out.get("composed_from") or {}) != (before.get("composed_from") or {})
+                or (out.get("inciting_force") or {}).get("source_refs")
+                != (before.get("inciting_force") or {}).get("source_refs")
+            )
+            # 若 ensure 内部 need=False 会返回原 drive 同 version
+            if not would and before:
+                stats["already_ok_skip"] += 1
+                # 仍计可注入
+                if format_event_drive_block(before):
+                    stats["ensured_ok"] += 1
+                continue
+
+            if dry_run:
+                stats["dry_run_would_write"].append(seq)
+                if format_event_drive_block(out):
+                    stats["ensured_ok"] += 1
+                cf = (out.get("composed_from") or {})
+                if cf.get("seed_tier") == "none" or (out.get("validation") or {}).get("drama_weak"):
+                    stats["empty_seed"] += 1
+                continue
+
+            written = ensure_narrative_drive(
+                st,
+                seq,
+                force=force,
+                steer=steer,
+                recompose_if=recompose_if,
+                dry_run=False,
+                include_author=include_author,
+            )
+            stats["rewritten"] += 1
+            if written and format_event_drive_block(written):
+                stats["ensured_ok"] += 1
+            if written and (
+                (written.get("composed_from") or {}).get("seed_tier") == "none"
+                or (written.get("validation") or {}).get("drama_weak")
+            ):
+                stats["empty_seed"] += 1
+        except Exception as e:
+            stats["errors"].append(f"seq={seq}:{e}")
+            if len(stats["errors"]) > 20:
+                stats["errors"].append("…truncated")
+                break
+
+    tot = max(int(stats["total"] or 0), 1)
+    stats["coverage_ratio"] = round(float(stats["ensured_ok"]) / tot, 4)
+    return stats
+
+
+# ── OI-5 · 开篇 soft 痕迹（净新建；非 EVENT_LED）──────────────────────────
+
+_OPENER_FORCE_LEX: tuple[str, ...] = (
+    "债", "禁", "讨", "到期", "若不", "否则", "逼", "胁", "钥", "匙",
+    "门闩", "索", "欠", "规矩", "代价", "对立", "威胁", "收", "夺",
+)
+
+
+def head_span_text(prose: str) -> str:
+    """对齐设计：max(ceil(0.15*n), first_two_paras 长度) 的前缀。"""
+    import math
+    t = prose or ""
+    if not t.strip():
+        return ""
+    # 前两段
+    paras = [p for p in re.split(r"\n\s*\n", t.strip()) if p.strip()]
+    first_two = "\n\n".join(paras[:2]) if paras else t
+    n = len(re.sub(r"\s+", "", t))
+    need = max(int(math.ceil(0.15 * max(n, 1))), len(re.sub(r"\s+", "", first_two)))
+    # 按字符粗截（含空白），保证覆盖 need 可见字
+    acc = []
+    cn = 0
+    for ch in t:
+        acc.append(ch)
+        if not ch.isspace():
+            cn += 1
+        if cn >= need:
+            break
+    return "".join(acc)
+
+
+def soft_opener_event_trace(prose: str, drive: dict | None = None) -> dict[str, Any]:
+    """开篇 15% 是否有外力/对立痕迹（确定性 soft）。永不 blocking。"""
+    head = head_span_text(prose or "")
+    hits = [w for w in _OPENER_FORCE_LEX if w in head]
+    # drive 锚
+    if isinstance(drive, dict):
+        inc = _s((drive.get("inciting_force") or {}).get("summary"))
+        if inc and len(inc) >= 2 and inc[:4] in head:
+            hits.append("drive_inciting_span")
+    force_felt = bool(hits)
+    return {
+        "type": "opener_soft_trace",
+        "severity": "advisory",
+        "detector": "opener_soft_trace",
+        "force_felt": force_felt,
+        "hits": hits[:12],
+        "head_len": len(re.sub(r"\s+", "", head)),
+        "note": (
+            "开篇可感外力/对立痕迹" if force_felt else "开篇偏空；可更早落地冲突/事件（advisory）"
+        ),
+    }
+
+
+def maybe_log_opener_soft_trace(
+    prose: str,
+    drive: dict | None = None,
+    *,
+    seq: int | None = None,
+) -> dict[str, Any] | None:
+    """旗 SCRIBE3_OPENER_SOFT_TRACE=1 时 logging；永不 park。"""
+    try:
+        from scribe3.novel_quality_flags import opener_soft_trace_enabled
+        if not opener_soft_trace_enabled():
+            return None
+    except Exception:
+        return None
+    finding = soft_opener_event_trace(prose, drive)
+    _log.info(
+        "opener_soft_trace seq=%s force_felt=%s hits=%s note=%s",
+        seq,
+        finding.get("force_felt"),
+        finding.get("hits"),
+        finding.get("note"),
+    )
+    return finding
+
+
+# ── OI-6 · 比喻密度 soft ──────────────────────────────────────────────────
+
+_METAPHOR_RE = re.compile(r"像|仿佛|宛如|好似|如同|恍若")
+
+
+def metaphor_density_per_1k(prose: str) -> float:
+    t = prose or ""
+    cn = len(re.sub(r"\s+", "", t))
+    if cn <= 0:
+        return 0.0
+    return round(1000.0 * len(_METAPHOR_RE.findall(t)) / cn, 2)
+
+
+def soft_metaphor_density_trace(prose: str, *, threshold: float = 6.0) -> dict[str, Any]:
+    dens = metaphor_density_per_1k(prose)
+    over = dens > float(threshold)
+    return {
+        "type": "metaphor_soft",
+        "severity": "advisory",
+        "detector": "metaphor_soft",
+        "density_per_1k": dens,
+        "threshold": float(threshold),
+        "over": over,
+        "note": (
+            f"比喻约 {dens}/千字，超过建议阈值 {threshold}（advisory）"
+            if over
+            else f"比喻约 {dens}/千字"
+        ),
+    }
+
+
+def maybe_log_metaphor_soft(
+    prose: str,
+    *,
+    seq: int | None = None,
+) -> dict[str, Any] | None:
+    """SCRIBE3_METAPHOR_SOFT_PER_1K>0 时 logging；0=关。"""
+    try:
+        from scribe3.novel_quality_flags import metaphor_soft_per_1k
+        thr = metaphor_soft_per_1k()
+        if thr <= 0:
+            return None
+    except Exception:
+        return None
+    finding = soft_metaphor_density_trace(prose, threshold=float(thr))
+    if finding.get("over"):
+        _log.info(
+            "metaphor_soft seq=%s density=%s thr=%s",
+            seq,
+            finding.get("density_per_1k"),
+            thr,
+        )
+    return finding
+

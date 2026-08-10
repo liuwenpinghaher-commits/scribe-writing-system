@@ -45,6 +45,8 @@ FLAG_DRAMA_HARD_PRESSURE = "SCRIBE3_DRAMA_HARD_PRESSURE"
 FLAG_NARRATIVE_ENGINE = "SCRIBE3_NARRATIVE_ENGINE"
 FLAG_EVENT_DRIVE_GATE = "SCRIBE3_EVENT_DRIVE_GATE"
 FLAG_EVENT_LED_DETECT = "SCRIBE3_EVENT_LED_DETECT"
+FLAG_OPENER_SOFT_TRACE = "SCRIBE3_OPENER_SOFT_TRACE"
+FLAG_METAPHOR_SOFT_PER_1K = "SCRIBE3_METAPHOR_SOFT_PER_1K"
 
 # REGISTRY 内 novel-quality 旗键序（派生 CODE_DEFAULTS / 对齐检查用）
 NQ_FLAG_KEYS: tuple[str, ...] = (
@@ -60,6 +62,8 @@ NQ_FLAG_KEYS: tuple[str, ...] = (
     FLAG_NARRATIVE_ENGINE,
     FLAG_EVENT_DRIVE_GATE,
     FLAG_EVENT_LED_DETECT,
+    FLAG_OPENER_SOFT_TRACE,
+    FLAG_METAPHOR_SOFT_PER_1K,
 )
 
 
@@ -87,6 +91,8 @@ QUALITY_MODE_TARGETS: dict[str, object] = {
     FLAG_NARRATIVE_ENGINE: True,
     FLAG_EVENT_DRIVE_GATE: False,
     FLAG_EVENT_LED_DETECT: False,
+    FLAG_OPENER_SOFT_TRACE: False,
+    FLAG_METAPHOR_SOFT_PER_1K: 0,
 }
 
 # 质量模式完整 env 另需的 PDC 半边（未进本 REGISTRY；os.environ 直读，见 pressure_drive）
@@ -265,6 +271,20 @@ def event_led_detect_enabled() -> bool:
     return _bool(FLAG_EVENT_LED_DETECT)
 
 
+def opener_soft_trace_enabled() -> bool:
+    """开篇外力 soft 日志。代码默认 False。永不 blocking。"""
+    return _bool(FLAG_OPENER_SOFT_TRACE)
+
+
+def metaphor_soft_per_1k() -> float:
+    """比喻 soft 阈值（每千字）；0=关。"""
+    from scribe3.settings import get_setting
+    try:
+        return float(get_setting(FLAG_METAPHOR_SOFT_PER_1K) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def quality_enforcement_on() -> bool:
     """质量执法复合条件（设计真值表）。
 
@@ -302,5 +322,7 @@ def novel_quality_flags_snapshot() -> dict[str, Any]:
         FLAG_NARRATIVE_ENGINE: narrative_engine_enabled(),
         FLAG_EVENT_DRIVE_GATE: event_drive_gate_enabled(),
         FLAG_EVENT_LED_DETECT: event_led_detect_enabled(),
+        FLAG_OPENER_SOFT_TRACE: opener_soft_trace_enabled(),
+        FLAG_METAPHOR_SOFT_PER_1K: metaphor_soft_per_1k(),
         LOG_FIELD_QUALITY_ENFORCEMENT: quality_enforcement_on(),
     }
