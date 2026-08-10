@@ -4,7 +4,8 @@ import { wcLabel } from '../outlineColors'
 import { showToast } from '../ui/Toast'
 import { Btn, Input, Textarea, SectionTitle } from '../ui.jsx'
 import { seedChiefNarrativeWrite } from '../lib/chiefSeed.js'
-import { ReadOnlyText } from '../ui/EditableText.jsx'
+import { buildAddVolumeSeed, buildPatchVolumeSeed } from '../lib/volumeSeed.js'
+import { loadIaDensity, volumeReviewVisible } from '../lib/iaDensity.js'
 
 function volumeIdOf(node) {
   if (node?.ref != null) return node.ref
@@ -34,7 +35,10 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
   const [saving, setSaving] = useState(false)
+  // 本地草稿缓冲（正式卷/未分卷共用 form；落库仅走主编种子）
   const [form, setForm] = useState({ title: '', intro: '', color: '', sort_order: 0 })
+  const [savedSnap, setSavedSnap] = useState(null)
+  const [kr4, setKr4] = useState(null)
 
   const reload = () => {
     setLoading(true)
@@ -45,14 +49,19 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
         const nextVolume = (nextOutline.volumes || [])
           .find((v) => String(v.id) === String(vid)) || null
         setOutline(nextOutline)
-        setForm(vid == null
-          ? { title: '', intro: '', color: '', sort_order: 0 }
-          : {
-              title: nextVolume?.title || node?.label || '未命名卷',
-              intro: nextVolume?.intro || '',
-              color: nextVolume?.color || '',
-              sort_order: nextVolume?.sort_order ?? 0,
-            })
+        if (vid == null) {
+          setForm({ title: '', intro: '', color: '', sort_order: 0 })
+          setSavedSnap(null)
+        } else {
+          const nextForm = {
+            title: nextVolume?.title || node?.label || '未命名卷',
+            intro: nextVolume?.intro || '',
+            color: nextVolume?.color || '',
+            sort_order: nextVolume?.sort_order ?? 0,
+          }
+          setForm(nextForm)
+          setSavedSnap({ ...nextForm })
+        }
         setErr('')
       })
       .catch((e) => {
@@ -64,6 +73,23 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
 
   useEffect(() => { reload() }, [vid]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // full 密度：可选挂 GET /volume/review（复用现网，无新路由）
+  useEffect(() => {
+    if (vid == null || !volumeReviewVisible(loadIaDensity())) {
+      setKr4(null)
+      return undefined
+    }
+    let alive = true
+    if (typeof api.volumeReview !== 'function') {
+      setKr4(null)
+      return undefined
+    }
+    api.volumeReview(vid)
+      .then((r) => { if (alive) setKr4(r) })
+      .catch(() => { if (alive) setKr4(null) })
+    return () => { alive = false }
+  }, [vid])
+
   const volume = useMemo(() => {
     const volumes = outline?.volumes || []
     return volumes.find((v) => String(v.id) === String(vid)) || null
@@ -74,6 +100,16 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
     return rows.filter((c) => String(c.volume ?? '') === String(vid ?? ''))
   }, [outline, vid])
 
+  const dirty = useMemo(() => {
+    if (vid == null || !savedSnap) return false
+    return (
+      String(form.title || '') !== String(savedSnap.title || '')
+      || String(form.intro || '') !== String(savedSnap.intro || '')
+      || String(form.color || '') !== String(savedSnap.color || '')
+      || String(form.sort_order ?? '') !== String(savedSnap.sort_order ?? '')
+    )
+  }, [form, savedSnap, vid])
+
   const totalWords = chapters.reduce((sum, c) => sum + (c.word_count || 0), 0)
   const statusCounts = chapters.reduce((map, c) => {
     const key = c.label || '未设'
@@ -81,11 +117,20 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
     return map
   }, {})
 
+  /** 正式卷：种子必须含 s3_patch_volume + volume_id（S4） */
   const askChiefVolume = () => {
+    if (vid == null) return
+    const seed = buildPatchVolumeSeed({
+      volumeId: vid,
+      title: form.title,
+      intro: form.intro,
+      color: form.color,
+      sort_order: form.sort_order,
+    })
     seedChiefNarrativeWrite(
       'volume',
       `分卷「${volume?.title || form.title || vid}」`,
-      `请更新卷 ${vid} 的 title/intro/color/sort_order。当前: title=${form.title}; color=${form.color}; sort_order=${form.sort_order}; intro:\n${form.intro || '（空）'}`,
+      seed,
     )
   }
 
@@ -110,20 +155,22 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
       return
     }
     const maxOrder = (outline?.volumes || []).reduce((max, v) => Math.max(max, v.sort_order ?? 0), 0)
-    const chSeqs = chapters.map((c) => c.seq).join(', ')
+    const seed = buildAddVolumeSeed({
+      title,
+      intro: form.intro,
+      color: form.color,
+      sort_order: maxOrder + 1,
+      chapterSeqs: chapters.map((c) => c.seq),
+    })
     seedChiefNarrativeWrite(
       'volume',
       `从「未分卷」创建正式分卷「${title}」`,
-      [
-        `请用 s3_add_volume 创建卷 title=${title}, sort_order=${maxOrder + 1}`
-        + (form.color ? `, color=${form.color}` : '')
-        + (form.intro ? `, intro 如下:\n${form.intro}` : '。'),
-        chSeqs
-          ? `创建后请将未分卷章节 [${chSeqs}] 归入该卷(可用 s3_patch_chapter_meta)。`
-          : '',
-        '未获批准不得声称已落库。',
-      ].filter(Boolean).join('\n'),
+      seed,
     )
+  }
+
+  const resetDraft = () => {
+    if (savedSnap) setForm({ ...savedSnap })
   }
 
   if (loading) return <div className="p-8 text-f13 text-faint/60">加载卷信息…</div>
@@ -218,7 +265,7 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
   return (
     <section data-testid="volume-detail-pane" className="h-full min-h-0 overflow-y-auto bg-canvas">
       <header className="border-b border-line/40 px-5 py-2.5">
-        <div className="text-meta text-faint">手稿 / 分卷</div>
+        <div className="text-meta text-faint">手稿 / 分卷 · 按需后建卷</div>
         <div className="mt-0.5 flex min-w-0 items-baseline gap-3">
           <h2 className="min-w-0 flex-1 truncate type-section text-ink">{volume.title || node.label || '未命名卷'}</h2>
           <span className="text-meta text-faint shrink-0">{chapters.length} 章 · {wcLabel(totalWords)} 字</span>
@@ -227,23 +274,81 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
 
       <div className="grid gap-8 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_14rem]">
         <div className="min-w-0 space-y-6">
-          <section data-testid="volume-meta-readonly">
-            <div className="flex items-center justify-between gap-3 mb-2">
-              <SectionTitle>卷信息</SectionTitle>
-              <Btn variant="ghost" size="sm" data-testid="volume-ask-chief" onClick={askChiefVolume}>
-                让主编写入
-              </Btn>
+          {/* 正式卷：本地草稿缓冲 + 主编 s3_patch_volume（无 REST 叙事保存） */}
+          <section data-testid="volume-meta-draft">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+              <SectionTitle>卷信息 / 卷纲</SectionTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                {dirty && (
+                  <span className="text-meta text-warn" data-testid="volume-draft-dirty">有未提交草稿</span>
+                )}
+                {dirty && (
+                  <Btn variant="ghost" size="sm" data-testid="volume-draft-reset" onClick={resetDraft}>
+                    还原库中值
+                  </Btn>
+                )}
+                <Btn variant="primary" size="sm" data-testid="volume-ask-chief" onClick={askChiefVolume}>
+                  让主编写入
+                </Btn>
+              </div>
             </div>
             <p className="mb-2 text-f12 text-faint leading-relaxed" data-testid="volume-intro-hint">
-              卷纲为作者备忘：有内容时写作本章可注入约 400 字摘要作氛围/卷级冲突参考；
-              空则跳过。不经限知 SQL 门，勿写入未揭示剧透。表单仅为 UI 缓冲，落库仍走主编审批。
+              卷纲为作者备忘（非章大纲）：有内容时写作本章可注入约 400 字摘要；空则跳过。
+              下方为本地草稿缓冲，无「保存到库」按钮；点「让主编写入」经 s3_patch_volume 审批落库。
             </p>
-            <div className="grid gap-1">
-              <ReadOnlyText label="卷名" value={form.title} entityLabel={form.title || volume.title || node.label || '卷'} fieldKey="title" emptyHint="（空 · 由主编审批写入）" />
-              <ReadOnlyText label="标识色" value={form.color} emptyHint="—" entityLabel={form.title || volume.title || node.label || '卷'} fieldKey="color" />
-              <ReadOnlyText label="卷排序" value={form.sort_order} entityLabel={form.title || volume.title || node.label || '卷'} fieldKey="sort_order" emptyHint="—" />
-              <ReadOnlyText label="卷纲" value={form.intro} emptyHint="（空 · 由主编审批写入；空则不注入写路径）" entityLabel={form.title || volume.title || node.label || '卷'} fieldKey="intro" />
+            <div className="grid gap-3" data-testid="volume-meta-fields">
+              <FieldLabel>
+                卷名
+                <Input
+                  variant="bordered"
+                  aria-label="卷名"
+                  data-testid="volume-draft-title"
+                  value={form.title}
+                  onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                />
+              </FieldLabel>
+              <FieldLabel>
+                标识色
+                <Input
+                  variant="bordered"
+                  aria-label="标识色"
+                  data-testid="volume-draft-color"
+                  value={form.color}
+                  onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
+                  placeholder="#2f7563"
+                />
+              </FieldLabel>
+              <FieldLabel>
+                卷排序
+                <Input
+                  variant="bordered"
+                  aria-label="卷排序"
+                  type="number"
+                  min="0"
+                  step="1"
+                  data-testid="volume-draft-sort"
+                  value={form.sort_order}
+                  onChange={(e) => setForm((f) => ({ ...f, sort_order: e.target.value }))}
+                />
+              </FieldLabel>
+              <FieldLabel>
+                卷纲
+                <Textarea
+                  variant="bordered"
+                  aria-label="卷纲"
+                  data-testid="volume-draft-intro"
+                  value={form.intro}
+                  onChange={(e) => setForm((f) => ({ ...f, intro: e.target.value }))}
+                  rows={8}
+                  placeholder="本卷主冲突、角色弧、应付的账（勿当章 synopsis/GCD）。"
+                  className="min-h-40"
+                />
+              </FieldLabel>
             </div>
+            <p className="mt-2 text-meta text-faint">
+              volume_id=<code className="text-meta">{vid}</code>
+              {' · '}无 REST 叙事直写 · WRITE_GATED
+            </p>
           </section>
 
           <section>
@@ -299,6 +404,17 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
               ))}
             </div>
           </section>
+          {kr4 && (
+            <section data-testid="volume-kr4-review">
+              <div className="text-meta text-faint uppercase tracking-wider mb-2">卷信号复盘（KR4 · 只读）</div>
+              <p className="text-faint leading-snug break-words">
+                {typeof kr4 === 'string'
+                  ? kr4
+                  : (kr4.summary || kr4.note || JSON.stringify(kr4).slice(0, 280))}
+              </p>
+              <p className="mt-1 text-meta text-faint">≠ GATE-B 工艺门</p>
+            </section>
+          )}
         </aside>
       </div>
     </section>

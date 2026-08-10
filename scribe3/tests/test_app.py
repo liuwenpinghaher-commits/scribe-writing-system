@@ -4741,7 +4741,10 @@ def test_outline_block_focalizer_guardrail(store):
 
 
 def test_volume_intro_block_injects_and_empty(store, monkeypatch):
-    """PR-3:有卷 intro → 注入摘要;无卷/空 intro → 空;flag 关 → 空。"""
+    """有卷+非空 intro → 注入;无卷 → 空;flag 关 → 空。
+
+    注意:本测**不**覆盖「有卷·intro 空」(见 tests/test_volume_intro_block.py 防假绿矩阵)。
+    """
     from scribe3.app import _volume_intro_block
     store.save_chapter(2, "", title="第2章")
     vid = store.add_volume(

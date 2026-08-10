@@ -27,3 +27,18 @@ export function auxVisibleForDensity(density, auxKey) {
   }
   return true
 }
+
+/**
+ * 章节信息里的「本卷卷纲摘要」peek（KD-VOL-8）。
+ * essential → false；standard/full → true。Binder 卷节点不受此限制。
+ */
+export function volumeMetaPeekVisible(density) {
+  const d = density || loadIaDensity()
+  return d === 'standard' || d === 'full'
+}
+
+/** full 密度可挂 GET /volume/review 只读摘要（可选） */
+export function volumeReviewVisible(density) {
+  const d = density || loadIaDensity()
+  return d === 'full'
+}

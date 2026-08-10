@@ -560,6 +560,16 @@ export const api = {
   addVolume: (title, sort_order = 0, color = null, intro = null) => post('/volumes', { title, sort_order, color, intro }),
   patchVolume: (vid, fields) => patch('/volumes/' + enc(vid), fields),
   deleteVolume: (vid) => del('/volumes/' + enc(vid)),
+  /** 卷信号复盘 KR4（只读；≠ GATE-B） */
+  volumeReview: (volumeId, extra = {}) => {
+    const q = new URLSearchParams()
+    if (volumeId != null && volumeId !== '') q.set('volume_id', volumeId)
+    Object.entries(extra || {}).forEach(([k, v]) => {
+      if (v != null && v !== '') q.set(k, v)
+    })
+    const qs = q.toString()
+    return j(`/volume/review${qs ? `?${qs}` : ''}`)
+  },
   // 改章梗概/卷/标签/标题(不碰正文/embedding/qc)
   // work 可选:大纲/节拍卸载兜底 flush 传入捕获的 work,钉死目标书,防切书写错书(F5,同 saveDraft/saveChapter)。
   patchChapter: (seq, b, work) => patch('/chapters/' + seq, b, work),

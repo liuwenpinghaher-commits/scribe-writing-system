@@ -574,6 +574,18 @@ def _voice_anchor_block(st, focalizer: str = "") -> str:
 _VOLUME_INTRO_BUDGET = 400  # 卷纲摘要注入字符上限
 
 
+def _clip_chars(text: str, n: int) -> str:
+    """本模块可单测的截断（不依赖 app_impl 重绑的 ``_clip``）。"""
+    s = str(text or "")
+    try:
+        lim = int(n)
+    except (TypeError, ValueError):
+        lim = 0
+    if lim <= 0:
+        return ""
+    return s if len(s) <= lim else s[:lim]
+
+
 def _volume_intro_inject_enabled() -> bool:
     """SCRIBE3_VOLUME_INTRO_INJECT 默认开；显式 0/false/no/off 关闭。"""
     v = (os.environ.get("SCRIBE3_VOLUME_INTRO_INJECT") or "1").strip().lower()
@@ -661,8 +673,10 @@ def _volume_intro_block(st, chapter: int, focalizer: str = "") -> str:
                 intro = (v.get("intro") or "").strip()
                 break
         if not intro:
+            # 有 volume 归属但 intro 空 → 不注入（S2 / R-Vol-5）
             return ""
-        body = _clip(intro, 400)  # volume intro budget; keep literal for rebind safety
+        # 预算常量与 clip 必须同值（KD-VOL-4）；用本模块 _clip_chars 可纯测
+        body = _clip_chars(intro, _VOLUME_INTRO_BUDGET)
         parts = [
             "## 本卷卷纲摘要(作者备忘·氛围与卷级冲突;不得覆盖本章大纲/场景真相)",
             body,

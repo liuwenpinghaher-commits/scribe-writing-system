@@ -5,7 +5,7 @@
 | **文档标题** | 铜炉卷层 IA：无卷一等公民 · 卷信息 vs 卷纲 · 注入与 WRITE_GATED 对齐 |
 | **作者** | Grok Design（系统架构） |
 | **日期** | 2026-08-10 |
-| **状态** | **Accepted · rev.2.1** · 人决：**按需后建卷（opt-in）**；**仅落仓设计，暂不实现 PR** |
+| **状态** | **Accepted · rev.2.1+ 已实现 PR-1…PR-3**（goal 覆盖原「仅落仓」）· 按需后建卷 |
 | **产品** | scribe-writing-system / scribe3（铜炉） |
 | **代码根（优先）** | `/home/admin/projects/scribe-ia-verify-wt/scribe3/` |
 | **对齐前序** | `docs/plans/2026-08-10-chapter-writing-ia-optimal.md`（章 IA · Accepted rev.3.1） |

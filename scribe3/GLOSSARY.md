@@ -78,3 +78,17 @@
 | 信息密度 | `localStorage s3.ia.density` | 禁止 USER.md / author_prefs | essential(默认)/standard/full |
 | 设计锚 · IA | `docs/plans/2026-08-10-chapter-writing-ia-optimal.md` | — | Accepted rev.3.1+ |
 | 设计锚 · EC | `docs/plans/2026-08-10-narrative-rootcause-optimal-execution.md` | 执行合同 | rev.1.1+ |
+| 设计锚 · 卷 IA | `docs/plans/2026-08-10-volume-outline-ia-optimal.md` | 卷信息/卷纲 | Accepted rev.2.1+ |
+
+## 组九:卷层(卷信息 / 卷纲 · 按需后建)
+| 中文名 | 规范代码名 | 定义 |
+|---|---|---|
+| 卷 | `volume` 表 / `chapter.volume` | Binder 容器;可空=**未分卷**(一等合法态) |
+| 未分卷 | `volume is null` / Binder 未分卷组 | **按需后建卷**默认路径;非错误;永不作 GATE-B 硬拦 |
+| 卷信息 | `title` / `sort_order` / `color` | 卷元数据;≠卷纲 |
+| 卷纲 | `volume.intro`（UI 称「卷纲」） | 卷级冲突/弧/应付的账备忘;SSOT 单字段;≠章 synopsis/beats |
+| 写路径注入 | domain `volume_intro` / `_volume_intro_block` | 有归属且 intro 非空且 flag 开 → ≤400 字;空 intro/无卷 → 空串 |
+| 卷信号复盘 | `GET /volume/review` · KR4 | 伏笔超期/母题等只读; **≠ GATE-B** 工艺门 |
+| 改卷工具 | `s3_patch_volume` | WRITE_GATED;正式卷「让主编写入」种子必须点名 `volume_id` |
+| 建卷工具 | `s3_add_volume` | WRITE_GATED;从「未分卷」创建正式卷 |
+| 策略 | 按需后建卷（opt-in） | 默认后建;先建卷=作者主动;禁止开书强制先建卷 |

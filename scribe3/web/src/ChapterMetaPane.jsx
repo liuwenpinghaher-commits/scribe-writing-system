@@ -14,6 +14,7 @@ import {
   executionSoftSummary,
 } from './lib/chapterContractGate.js'
 import { softGateIssues } from './lib/deduceGate.js'
+import { loadIaDensity, volumeMetaPeekVisible } from './lib/iaDensity.js'
 
 /** 本地三行摘要（chapter.narrative_drive 直读；与后端 format_drive_three_lines 同形） */
 function driveThreeFromChapter(drive) {
@@ -132,7 +133,10 @@ export function ChapterMetaPane({
   const beats = Array.isArray(chapter?.beats) ? chapter.beats : []
   const sceneTruth = chapter?.scene_truth || ''
 
-  const volTitle = volumes.find((v) => String(v.id) === String(volume))?.title || volume || '未分卷'
+  const volRow = volumes.find((v) => String(v.id) === String(volume))
+  const volTitle = volRow?.title || volume || '未分卷'
+  const volIntro = String(volRow?.intro || '').trim()
+  const showVolPeek = Boolean(volume && volIntro && volumeMetaPeekVisible(loadIaDensity()))
   const labelText = LABEL_OPTIONS.find(([v]) => v === label)?.[1] || label || '未标记'
 
   const contract = useMemo(() => evaluateChapterContract(chapter), [chapter])
@@ -205,10 +209,24 @@ export function ChapterMetaPane({
           </p>
           <p className="mt-0.5 text-f12 text-faint">
             只读合成；大纲/节拍/真相与写作台同源。写入走主编审批，不表单直写。
+            未分卷合法（按需后建卷）。
           </p>
         </div>
         <Btn variant="ghost" size="sm" onClick={onClose}>返回写作</Btn>
       </div>
+
+      {showVolPeek && (
+        <section
+          className="mb-4 rounded-lg border border-line/50 bg-soft/30 px-3 py-2"
+          data-testid="chapter-volume-intro-peek"
+          aria-label="本卷卷纲摘要"
+        >
+          <div className="text-meta text-faint mb-1">本卷卷纲摘要（注入参考 · ≠ 章大纲）</div>
+          <p className="text-f13 text-ink leading-snug break-words whitespace-pre-wrap">
+            {clip(volIntro, 120)}
+          </p>
+        </section>
+      )}
 
       <section
         className="mb-5 rounded-lg border border-line/60 bg-surface/60 px-3 py-3"
