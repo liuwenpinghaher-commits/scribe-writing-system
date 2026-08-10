@@ -86,11 +86,22 @@ def _arc_dim(st, seq: int) -> dict:
     no_lie = parts["eligible_no_lie"]
     items: list[dict] = []
 
-    # 冷启动：主档缺 lie
+    # 冷启动：主档缺 lie（作者 UI 用 tools=False，不暴露 MCP 工具名）
     for row in no_lie:
-        msg = AS.format_cold_start_decision(row["name"], tools=True)
-        items.append(_item(msg, "decision",
-                           _chat_action(f"{row['name']} 缺 Lie 锚，帮我写弧光内核?")))
+        name = row["name"]
+        msg = AS.format_cold_start_decision(name, tools=False)
+        seed = (
+            f"请为角色「{name}」登记弧光内核并写入落库（需我审批）。\n"
+            f"请先读取该角色现有设定，再补全并提交：\n"
+            f"- 错误信念(Lie)：角色信以为真、阻碍成长的一句信念\n"
+            f"- 幽灵伤(Ghost)：造成 Lie 的往事创伤\n"
+            f"- 真相(Truth)：故事要教会角色的、与 Lie 对冲的认识\n"
+            f"- 想要(Want) / 需要(Need) / 弧型(arc_type)\n"
+            f"- 私议程(private_agenda，可选)\n"
+            f"工具：s3_get 相关读后，用 s3_set_char_anchors 写入（MERGE 只传要改的字段）。"
+            f"未获批准不得声称已落库。"
+        )
+        items.append(_item(msg, "decision", _chat_action(seed)))
 
     if not with_lie and not no_lie:
         # 合法未启用 — info 静音，禁止「未见跳变」假绿
@@ -127,10 +138,14 @@ def _arc_dim(st, seq: int) -> dict:
         if focus and (focus.get("status") or "") in (
             "overdue_miss", "overdue_unmeasured",
         ):
-            msg = AS.format_beat_decision(row["name"], focus, tools=True)
+            msg = AS.format_beat_decision(row["name"], focus, tools=False)
             items.append(_item(
                 msg, "decision",
-                _chat_action(f"{row['name']} 弧光节拍逾期，三选一怎么处理?")))
+                _chat_action(
+                    f"角色「{row['name']}」弧光节拍逾期，请帮我三选一："
+                    f"① 补事件并记录信奉度；② 展期/重规划里程碑；③ 改写 Lie/弧型。"
+                    f"先读现有弧光锚与计划，再提交待批写入。"
+                )))
         elif focus and (focus.get("status") or "") == "due":
             bn = focus.get("beat_name") or "—"
             items.append(_item(

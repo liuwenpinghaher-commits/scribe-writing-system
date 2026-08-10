@@ -252,6 +252,7 @@ def arc_beat_focus(
 
 
 def format_cold_start_decision(name: str, *, tools: bool = True) -> str:
+    """冷启动文案。tools=True 给 LLM/简报（可点名工具）；False 给作者 UI。"""
     n = (name or "角色").replace("\n", " ")
     if tools:
         return (
@@ -259,7 +260,8 @@ def format_cold_start_decision(name: str, *, tools: bool = True) -> str:
             f"（及 ghost/truth/want/need/arc_type），否则弧光指令与信奉度采样无法启用。"
         )
     return (
-        f"冷启动·主角色「{n}」缺错误信念(Lie)锚：请补写 Lie/弧型内核，"
+        f"冷启动·主角色「{n}」还没有错误信念（Lie）锚。"
+        f"请点「跟主编聊这个」补写弧光内核（Lie / 幽灵伤 / 真相 / 想要·需要 / 弧型），"
         f"否则弧光指令与信奉度采样无法启用。"
     )
 
@@ -300,9 +302,17 @@ def format_beat_decision(
     )
 
 
-def format_unmeasured_nudge(names: list[str]) -> str:
+def format_unmeasured_nudge(names: list[str], *, tools: bool = False) -> str:
     listing = "、".join((n or "").replace("\n", " ") for n in names if n) or "角色"
-    return f"已设 Lie 尚无信奉度采样：{listing}——写后 ingest 或 s3_add_char_state belief 补点"
+    if tools:
+        return (
+            f"已设 Lie 尚无信奉度采样：{listing}——"
+            f"写后 ingest 或 s3_add_char_state belief 补点"
+        )
+    return (
+        f"已设错误信念、尚未有信奉度采样：{listing}——"
+        f"写完本章入库分析后会自动补点；也可让主编记录信念变化。"
+    )
 
 
 def healthy_arc_message(n_samples: int) -> str:
