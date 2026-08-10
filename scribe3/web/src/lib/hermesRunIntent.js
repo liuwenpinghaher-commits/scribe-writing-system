@@ -40,3 +40,24 @@ export function hermesRunInstructions({ chapter, phase, focalizer } = {}) {
   if (focalizer) parts.push(`当前视角:${focalizer}`)
   return parts.join('\n')
 }
+
+/**
+ * world_write Run 指令单源：base + resolve.instruction_suffix。
+ * 即使 phase 被清空，后缀仍须注入（H1 KD-CM-13）。
+ */
+export function assembleWorldWriteInstructions({
+  chapter,
+  focalizer = '',
+  instructionSuffix = '',
+  phase = '',
+} = {}) {
+  // world_write 故意不传业务 phase（与 ChiefDock 一致）；后缀承载域纪律
+  const base = hermesRunInstructions({
+    chapter,
+    phase: '',
+    focalizer,
+  })
+  const suf = String(instructionSuffix || '').trim()
+  if (!suf) return base
+  return `${base}\n\n## 本域纪律\n${suf}`
+}

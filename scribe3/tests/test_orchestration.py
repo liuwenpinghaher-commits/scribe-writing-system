@@ -126,6 +126,9 @@ def test_resolve_outline_plan_is_write_intent():
     assert pkg["domain"] == "chapter.outline"
     assert pkg["use_world_write_run"] is True
     assert pkg["required_outcome"] == "write_proposal"
+    assert "s3_patch_chapter_plan" in (pkg.get("write_tools") or [])
+    assert (pkg.get("instruction_suffix") or "")
+    assert "context_pack" in pkg
 
 
 def test_resolve_outline_intent():
@@ -134,6 +137,60 @@ def test_resolve_outline_intent():
     assert "s3_patch_chapter_plan" in pkg["write_tools"] or "s3_patch_chapter_meta" in pkg["write_tools"]
     assert pkg["ui_directive"].get("phase") == "outline"
     assert pkg["chapter"] == 12 or (pkg.get("focus") or {}).get("ref") == 12
+
+
+def test_resolve_plan_tool_force_outline_world_write():
+    """种子点名 s3_patch_chapter_plan → world_write + outline/beats/deduce 域。"""
+    pkg = resolve_work_package(
+        "请更新第1章大纲并使用工具 s3_patch_chapter_plan 提交写入提案",
+        work="w1",
+        chapter=1,
+        phase="outline",
+    )
+    assert pkg["domain"] == "chapter.outline"
+    assert pkg["use_world_write_run"] is True
+    assert "s3_patch_chapter_plan" in pkg["write_tools"]
+    assert "域纪律" in (pkg.get("instruction_suffix") or "") or "s3_patch_chapter_plan" in (
+        pkg.get("instruction_suffix") or ""
+    )
+    assert isinstance(pkg.get("context_pack"), list)
+
+
+def test_resolve_scorecard_not_intent_write():
+    """解读评分卡 → 只读 aux，非 intent 写、非 plan 写。"""
+    pkg = resolve_work_package("请帮我解读本章评分卡", work="w1", chapter=2)
+    assert pkg["domain"] == "aux.scorecard"
+    assert pkg["use_world_write_run"] is False
+    assert pkg["write_tools"] == [] or not pkg.get("write_tools")
+    assert "s3_set_intent" not in (pkg.get("write_tools") or [])
+    assert "s3_patch_chapter_plan" not in (pkg.get("write_tools") or [])
+
+
+def test_resolve_experience_not_beats_write():
+    pkg = resolve_work_package("帮我看看经验复盘六格怎么填", work="w1", chapter=2)
+    assert pkg["domain"] == "aux.experience"
+    assert pkg["use_world_write_run"] is False
+    assert not pkg.get("write_tools")
+
+
+def test_instruction_suffix_for_scaffold_domains():
+    from scribe3.orchestration.resolve import instruction_suffix_for_entry
+    from scribe3.orchestration.catalog import get_domain
+
+    for dom in ("chapter.outline", "chapter.beats", "chapter.deduce"):
+        e = get_domain(dom)
+        suf = instruction_suffix_for_entry(e, chapter=3)
+        assert suf
+        assert "s3_patch_chapter_plan" in suf or "域纪律" in suf
+
+
+def test_phase_role_block_maps_outline_beats_deduce():
+    from scribe3.api.services.misc_helpers import _phase_role_block
+
+    assert "规划" in _phase_role_block("outline") or "大纲" in _phase_role_block("outline")
+    assert "节拍" in _phase_role_block("beats") or "s3_patch_chapter_plan" in _phase_role_block("beats")
+    assert "演绎" in _phase_role_block("deduce") or "scene_truth" in _phase_role_block("deduce")
+    assert _phase_role_block("") == ""
 
 
 def test_resolve_promise_lifecycle_intent():

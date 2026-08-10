@@ -6,8 +6,12 @@ import {
   seedChiefNarrativeWrite,
   seedChiefReorderChapters,
   seedChiefDeleteVolume,
+  seedChapterOutline,
+  seedChapterBeats,
+  seedChapterDeduce,
+  SCAFFOLD_FORBID_SAVE,
 } from './chiefSeed.js'
-import { shouldUseHermesRun } from './hermesRunIntent.js'
+import { shouldUseHermesRun, assembleWorldWriteInstructions } from './hermesRunIntent.js'
 
 describe('chiefSeed helpers', () => {
   beforeEach(() => {
@@ -66,5 +70,47 @@ describe('chiefSeed helpers', () => {
     for (const s of samples) {
       expect(shouldUseHermesRun(s)).toBe(true)
     }
+  })
+
+  it('outline/beats/deduce seeds name plan tool and forbid scaffold save', () => {
+    const o = seedChapterOutline(3, '旧债上门')
+    expect(o).toMatch(/s3_patch_chapter_plan/)
+    expect(o).toMatch(/synopsis/)
+    expect(o).toMatch(/s3_save_chapter/)
+    expect(o).toContain('禁止用 s3_save_chapter')
+    expect(shouldUseHermesRun(o)).toBe(true)
+
+    const b = seedChapterBeats(2, [{ text: '抵达' }, { text: '对峙' }])
+    expect(b).toMatch(/s3_patch_chapter_plan/)
+    expect(b).toMatch(/beats/)
+    expect(b).toContain('禁止用 s3_save_chapter')
+    expect(shouldUseHermesRun(b)).toBe(true)
+
+    const d = seedChapterDeduce(1, '后室有人先到')
+    expect(d).toMatch(/s3_patch_chapter_plan/)
+    expect(d).toMatch(/scene_truth/)
+    expect(d).toContain('禁止用 s3_save_chapter')
+    expect(shouldUseHermesRun(d)).toBe(true)
+
+    expect(SCAFFOLD_FORBID_SAVE).toMatch(/s3_save_chapter/)
+  })
+
+  it('volume scope narrative seed names s3_patch_volume when hint omits tool', () => {
+    const t = seedChiefNarrativeWrite('volume', '分卷甲', '请把卷纲写成：潮声将至')
+    expect(t).toMatch(/s3_patch_volume/)
+    expect(shouldUseHermesRun(t)).toBe(true)
+  })
+
+  it('assembleWorldWriteInstructions concatenates suffix when phase cleared', () => {
+    const s = assembleWorldWriteInstructions({
+      chapter: 4,
+      instructionSuffix: '域纪律(章大纲):s3_patch_chapter_plan',
+      phase: 'outline',
+    })
+    expect(s).toMatch(/scribe3/)
+    expect(s).toMatch(/域纪律/)
+    expect(s).toMatch(/s3_patch_chapter_plan/)
+    // phase 不进入 base 业务阶段行（world_write 清空）
+    expect(s).not.toMatch(/当前阶段:outline/)
   })
 })

@@ -144,18 +144,77 @@ export function seedChiefDeleteCodex(objectType, objectId, { label = '', archive
   ].join('\n'))
 }
 
+/** 脚手架任务禁止用正文 save 完成（软合同 · 与 H1 设计一致） */
+export const SCAFFOLD_FORBID_SAVE =
+  '禁止用 s3_save_chapter 或「保存正文」完成本章大纲/节拍/演绎/章信息脚手架；请用下列 patch 工具提交写入提案。'
+
+/**
+ * scope → 具名写工具合同（点名工具 = RunToolContract / match_force 素材）。
+ * @returns {{ tool: string, field?: string, gateHint?: string }|null}
+ */
+export function scaffoldToolContract(scope) {
+  const s = String(scope || '').toLowerCase()
+  if (s === 'outline' || s === 'synopsis' || s === '章大纲') {
+    return {
+      tool: 's3_patch_chapter_plan',
+      field: 'synopsis',
+      gateHint: 'GATE-B B1：synopsis 须非空；高压章建议大纲含 stakes:/赌注: 标签（soft warn）。',
+    }
+  }
+  if (s === 'beats' || s === '节拍') {
+    return {
+      tool: 's3_patch_chapter_plan',
+      field: 'beats',
+      gateHint: 'GATE-B B2：建议 ≥3 条非空节拍（bridge/epilogue 可少）。结构增删优先本工具；作者可微调 GCD 字段。',
+    }
+  }
+  if (s === 'deduce' || s === 'scene_truth' || s === '演绎') {
+    return {
+      tool: 's3_patch_chapter_plan',
+      field: 'scene_truth',
+      gateHint: 'GATE-B B3：scene_truth 须非空（过短 soft warn）。演绎认知层，勿与 s3_add_fact 世界命题混淆。',
+    }
+  }
+  if (s === 'chapter-meta' || s === 'chapter_meta' || s === '章信息') {
+    return { tool: 's3_patch_chapter_meta', field: null, gateHint: '仅 title/label/volume/focalizer 等身份字段。' }
+  }
+  if (s === 'volume' || s === '卷' || s === '卷纲') {
+    return { tool: 's3_patch_volume', field: 'intro', gateHint: '卷纲≠章大纲 synopsis；空 intro 则不注入 volume_intro。' }
+  }
+  return null
+}
+
 /**
  * 通用叙事元数据种子（大纲/节拍/演绎/卷纲/章信息/意图/伏笔决策等）。
+ * 已知脚手架 scope 时**必须点名**对应 s3_ 写工具（H1 KD-CM-6）。
  * @param {string} scope 简短域标签
  * @param {string} target 对象描述（如「第 3 章大纲」）
  * @param {string} [hint] 具体意图
  */
 export function seedChiefNarrativeWrite(scope, target, hint = '') {
+  const contract = scaffoldToolContract(scope)
   const lines = [
     `请更新/更正「${target}」(${scope})并提交写入提案供我批准。`,
-    '先用只读工具核实当前库内内容,再调用对应 s3_ 写工具;未获批准不得声称已落库。',
   ]
+  if (contract) {
+    const fieldPart = contract.field ? ` field=${contract.field}` : ''
+    const alreadyNamesTool = String(hint || '').includes(contract.tool)
+    if (!alreadyNamesTool) {
+      lines.push(
+        `使用工具 ${contract.tool}${fieldPart} 提交写入提案；先用 s3_get_chapter / 只读工具核实现状。`,
+      )
+    }
+    if (contract.gateHint) lines.push(contract.gateHint)
+    if (contract.tool === 's3_patch_chapter_plan' || contract.tool === 's3_patch_chapter_meta') {
+      lines.push(SCAFFOLD_FORBID_SAVE)
+    }
+  } else {
+    lines.push('先用只读工具核实当前库内内容,再调用对应 s3_ 写工具;未获批准不得声称已落库。')
+  }
   if (hint) lines.push(String(hint))
+  if (contract && !lines.some((l) => l.includes('未获批准'))) {
+    lines.push('未获批准不得声称已落库。')
+  }
   return focusChiefWithSeed(lines.join('\n'))
 }
 
@@ -163,23 +222,62 @@ export function seedChiefNarrativeWrite(scope, target, hint = '') {
  * 章大纲 synopsis 主编种子（与 OutlineTab / ChapterCard scope='outline' 同源）。
  */
 export function seedChapterOutline(seq, synopsis = '', extraHint = '') {
-  const hint = extraHint
-    || `请更新第 ${seq} 章大纲(synopsis)。当前内容:\n${synopsis || '（空）'}`
-  return seedChiefNarrativeWrite('outline', `第 ${seq} 章大纲`, hint)
+  const n = Number(seq) || seq
+  const body = extraHint
+    || `请更新第 ${n} 章大纲(synopsis)。当前内容:\n${synopsis || '（空）'}`
+  return seedChiefNarrativeWrite(
+    'outline',
+    `第 ${n} 章大纲`,
+    [
+      `使用工具 s3_patch_chapter_plan(seq=${n}, field=synopsis) 提交写入提案。`,
+      SCAFFOLD_FORBID_SAVE,
+      'GATE-B B1：synopsis 须非空；高压章建议含 stakes:/赌注:。',
+      body,
+    ].join('\n'),
+  )
 }
 
 /**
  * 章节拍 beats 主编种子（与 BeatsTab scope='beats' 同源）。
  */
 export function seedChapterBeats(seq, beats = [], extraHint = '') {
+  const n = Number(seq) || seq
   const list = Array.isArray(beats) ? beats : []
   const serialized = list.map((b, i) => {
     if (typeof b === 'string') return `${i + 1}. ${b}`
     return `${i + 1}. ${b?.text || ''}${b?.done ? ' [已完成]' : ''}`
   }).join('\n')
-  const hint = extraHint
-    || `请更新第 ${seq} 章节拍列表(beats)。当前 ${list.length} 条:\n${serialized || '（空）'}`
-  return seedChiefNarrativeWrite('beats', `第 ${seq} 章节拍`, hint)
+  const body = extraHint
+    || `请更新第 ${n} 章节拍列表(beats)。当前 ${list.length} 条:\n${serialized || '（空）'}`
+  return seedChiefNarrativeWrite(
+    'beats',
+    `第 ${n} 章节拍`,
+    [
+      `使用工具 s3_patch_chapter_plan(seq=${n}, field=beats) 提交写入提案。`,
+      SCAFFOLD_FORBID_SAVE,
+      'GATE-B B2：建议 ≥3 条非空节拍。',
+      body,
+    ].join('\n'),
+  )
+}
+
+/**
+ * 章演绎 scene_truth / 限知 主编种子。
+ */
+export function seedChapterDeduce(seq, sceneTruth = '', extraHint = '') {
+  const n = Number(seq) || seq
+  const body = extraHint
+    || `请填写/完善第 ${n} 章 scene_truth（场景真相）。当前:\n${sceneTruth || '（空）'}`
+  return seedChiefNarrativeWrite(
+    'deduce',
+    `第 ${n} 章演绎/场景真相`,
+    [
+      `使用工具 s3_patch_chapter_plan(seq=${n}, field=scene_truth) 提交写入提案；演绎字段也可同工具。`,
+      SCAFFOLD_FORBID_SAVE,
+      'GATE-B B3：scene_truth 须非空。勿用 s3_add_fact 当场景真相。',
+      body,
+    ].join('\n'),
+  )
 }
 
 /** 章节重排 → s3_reorder_chapters */

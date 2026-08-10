@@ -76,8 +76,9 @@ export function NorthStarPanel({ seq, scope }) {
 
   return (
     <div data-testid="scorecard-panel">
-      <p className="mb-2 text-meta text-faint" title="与顶栏作品意图不是同一物">
-        评分卡（机器硬约束/软参考/目的达成）· 改读者感受/红线请用顶栏「作品意图」
+      <p className="mb-2 text-meta text-faint" title="与顶栏作品意图不是同一物" data-testid="scorecard-readonly-hint">
+        评分卡（机器只读 · 硬约束/软参考/目的达成）· <strong className="font-medium text-ink">不是可写 SSOT</strong>
+        · 改读者感受/红线请用顶栏「作品意图」· 缺大纲/节拍请去章阶段让主编写，勿「生成评分卡」
       </p>
       {/* ===== 章级 ===== */}
       {scope !== 'book' && (

@@ -79,6 +79,19 @@
 | 设计锚 · IA | `docs/plans/2026-08-10-chapter-writing-ia-optimal.md` | — | Accepted rev.3.1+ |
 | 设计锚 · EC | `docs/plans/2026-08-10-narrative-rootcause-optimal-execution.md` | 执行合同 | rev.1.1+ |
 | 设计锚 · 卷 IA | `docs/plans/2026-08-10-volume-outline-ia-optimal.md` | 卷信息/卷纲 | Accepted rev.2.1+ |
+| 设计锚 · 主编能力 H1 | `docs/plans/2026-08-11-chief-module-generation-skill-vs-mcp.md` | skill≠模块生成器 | 单脑+软路由+种子 |
+
+## 组十:主编能力分层(H1 · 软门控 vs 硬门控)
+
+| 中文名 | 规范代码/入口 | 定义 | 勿混 |
+|---|---|---|---|
+| 主编 | `ChiefDock` / Hermes Run | 作者右栏对话写入口 | 非多 skill 人格 |
+| 能力目录软路由 | `orchestration/catalog.py` · `resolve` | domain / write_tools **评价与提案** | **不是** Hermes MCP include 过滤器 |
+| 硬门控 profile | `run_stage_policy` · `scribe3_deduce*` | 运行时 tools.include 真子集 | 现网仅演绎;大纲/节拍为全写+软合同 |
+| 种子合同 | `chiefSeed.js` · `volumeSeed.js` | 点名 `s3_*` + 禁脚手架 save | 非「进 Hermes」门槛本身 |
+| 域指令后缀 | resolve `instruction_suffix` | world_write 清空 phase 时仍注入域纪律 | 不靠 run phase 恢复 |
+| 技法 skill | `craft_skills/*.md` · `s3_skill_read` | 渐进披露写作技法 | **不是**大纲/节拍生成器 |
+| 派生只读面 | 简报/评分卡/关联 | 后端组装;LLM 不写 SSOT | 评分卡≠作品意图;经验复盘≠`pressure_drive` |
 
 ## 组九:卷层(卷信息 / 卷纲 · 按需后建)
 | 中文名 | 规范代码名 | 定义 |

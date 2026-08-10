@@ -14,17 +14,21 @@ CATALOG: list[dict[str, Any]] = [
     {
         "domain": "intent.northstar",
         "label": "北极星/作品意图",
+        # 勿含「评分卡」——评分卡是 aux.scorecard 只读域
         "match_keywords": (
             "北极星", "读者感受", "读者感", "情感弧", "红线", "作品意图", "本书意图",
             "set_intent", "s3_set_intent",
         ),
-        "match_force": ("登记/更新本书北极星", "写入落库", "北极星意图"),
+        "match_force": ("登记/更新本书北极星", "写入落库", "北极星意图", "s3_set_intent"),
         "read_tools": ("s3_get_intent",),
         "write_tools": ("s3_set_intent",),
         "required_outcome": "write_proposal",
         "ui": {"entry": "manuscript", "phase": None, "node": None, "right_tab": "chief",
-               "layout_mode": "collaboration", "panel": "northstar"},
+               "layout_mode": "collaboration", "panel": "intent"},
         "channel": "world_write",
+        "instruction_duty": (
+            "域纪律(作品意图):用 s3_set_intent；**不是**评分卡 scorecard。"
+        ),
     },
     # —— 设定 Codex ——
     {
@@ -258,14 +262,18 @@ CATALOG: list[dict[str, Any]] = [
         "channel": "world_write",
     },
     # —— 章阶段（大纲/节拍/演绎）——
+    # match_force 含 s3_patch_chapter_plan：种子点名即 world_write（软门控；非 Hermes include）
     {
         "domain": "chapter.outline",
         "label": "章大纲",
         "match_keywords": (
             "大纲", "章纲", "synopsis", "起草大纲", "写大纲", "本章大纲",
-            "s3_patch_chapter_plan", "压力级", "chapter_role",
+            "s3_patch_chapter_plan", "压力级", "chapter_role", "stakes", "赌注",
         ),
-        "match_force": (),
+        "match_force": (
+            "s3_patch_chapter_plan",
+            "写大纲", "起草大纲", "更新大纲", "补大纲", "填大纲",
+        ),
         "read_tools": ("s3_get_chapter", "s3_get_intent", "s3_list_promises"),
         "write_tools": ("s3_patch_chapter_meta", "s3_patch_chapter_plan"),
         "required_outcome": "write_proposal",
@@ -273,12 +281,20 @@ CATALOG: list[dict[str, Any]] = [
                "right_tab": "chief", "layout_mode": "collaboration", "panel": "outline"},
         "channel": "world_write",
         "phase_hint": "outline",
+        "context_pack": ("synopsis", "intent_snip", "open_promises", "volume_intro"),
+        "instruction_duty": (
+            "域纪律(章大纲):用 s3_patch_chapter_plan 写 synopsis；"
+            "高压建议 stakes 标签；禁止 s3_save_chapter 完成本任务。"
+        ),
     },
     {
         "domain": "chapter.beats",
         "label": "章节拍",
-        "match_keywords": ("节拍", "情节点", "beats", "字数预算", "展开节拍"),
-        "match_force": (),
+        "match_keywords": ("节拍", "情节点", "beats", "字数预算", "展开节拍", "GCD"),
+        "match_force": (
+            "s3_patch_chapter_plan",
+            "写节拍", "更新节拍", "展开节拍", "补节拍",
+        ),
         "read_tools": ("s3_get_chapter",),
         "write_tools": ("s3_patch_chapter_plan",),
         "required_outcome": "write_proposal",
@@ -286,12 +302,20 @@ CATALOG: list[dict[str, Any]] = [
                "right_tab": "chief", "layout_mode": "collaboration", "panel": "beats"},
         "channel": "world_write",
         "phase_hint": "beats",
+        "context_pack": ("beats", "synopsis_snip", "drama_contract"),
+        "instruction_duty": (
+            "域纪律(章节拍):用 s3_patch_chapter_plan 写 beats 结构；"
+            "建议≥3条非空；禁止 s3_save_chapter 完成本任务；≠经验复盘六格。"
+        ),
     },
     {
         "domain": "chapter.deduce",
         "label": "章演绎",
         "match_keywords": ("演绎", "场景真相", "限知投影", "deduce", "scene_truth"),
-        "match_force": (),
+        "match_force": (
+            "s3_patch_chapter_plan",
+            "写场景真相", "补场景真相", "更新演绎", "场景真相",
+        ),
         "read_tools": ("s3_get_chapter", "s3_project_frame", "s3_find_leaks"),
         "write_tools": ("s3_patch_chapter_plan", "s3_patch_chapter_meta"),
         "required_outcome": "write_proposal",
@@ -299,6 +323,69 @@ CATALOG: list[dict[str, Any]] = [
                "right_tab": "chief", "layout_mode": "collaboration", "panel": "deduce"},
         "channel": "world_write",
         "phase_hint": "deduce",
+        "context_pack": ("scene_truth", "involved", "project_frame"),
+        "instruction_duty": (
+            "域纪律(章演绎):用 s3_patch_chapter_plan 写 scene_truth/演绎；"
+            "勿用 s3_add_fact 当场景真相；禁止 s3_save_chapter 完成本任务。"
+        ),
+    },
+    # —— 辅助只读（派生面 · LLM 不写 SSOT）——
+    {
+        "domain": "aux.brief",
+        "label": "章前简报",
+        "match_keywords": ("章前简报", "创作简报", "本章简报", "解读简报"),
+        "match_force": (),
+        "read_tools": ("s3_get_chapter", "s3_list_promises"),
+        "write_tools": (),
+        "required_outcome": "read_only_advice",
+        "ui": {"entry": "manuscript", "phase": None, "node": {"type": "chapter"},
+               "right_tab": "chief", "layout_mode": "collaboration", "panel": "brief"},
+        "channel": "discuss",
+        "context_pack": ("brief_sections",),
+        "instruction_duty": (
+            "域纪律(简报):只读解释/指引；改大纲走 s3_patch_chapter_plan；"
+            "埋伏笔走 s3_plant_promise。禁止把简报当可写 SSOT。"
+        ),
+    },
+    {
+        "domain": "aux.scorecard",
+        "label": "评分卡",
+        "match_keywords": (
+            "评分卡", "scorecard", "解读评分卡", "本章评分", "机器评分",
+            "硬约束 setpoint", "advisory_scores",
+        ),
+        "match_force": (),
+        "read_tools": (),
+        "write_tools": (),
+        "required_outcome": "read_only_advice",
+        "ui": {"entry": "manuscript", "phase": None, "node": {"type": "chapter"},
+               "right_tab": "chief", "layout_mode": "collaboration", "panel": "northstar"},
+        "channel": "discuss",
+        "context_pack": ("scorecard",),
+        "instruction_duty": (
+            "域纪律(评分卡):机器只读分；**不是**作品意图。"
+            "改读者感受/红线请用 s3_set_intent；禁止 LLM 写评分卡 SSOT。"
+        ),
+    },
+    {
+        "domain": "aux.experience",
+        "label": "经验复盘",
+        "match_keywords": (
+            "经验复盘", "六格", "Scene-Sequel", "问诊信", "续写快照",
+            "goal/conflict/disaster", "经验六格",
+        ),
+        "match_force": (),
+        "read_tools": (),
+        "write_tools": (),
+        "required_outcome": "read_only_advice",
+        "ui": {"entry": "manuscript", "phase": None, "node": {"type": "chapter"},
+               "right_tab": "chief", "layout_mode": "collaboration", "panel": "pressure"},
+        "channel": "discuss",
+        "context_pack": ("scene_grid", "letter"),
+        "instruction_duty": (
+            "域纪律(经验复盘):六格/问诊是作者复盘面，**不是** pressure_drive 力学合同，也不是 beats。"
+            "改节拍请 s3_patch_chapter_plan；勿把六格当戏剧合同写入。"
+        ),
     },
     # —— 正文（与世界写分离）——
     {

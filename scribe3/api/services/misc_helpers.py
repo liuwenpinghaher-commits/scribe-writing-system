@@ -240,12 +240,22 @@ def _focalizer_sincerity_block() -> str:
 
 
 def _phase_role_block(phase: str) -> str:
-    """阶段角色提示块(Phase0-BE2 四阶段):按写作阶段微调主编侧重。
-    phase 空 → 返回空串(默认行为不变)。plan/draft/final 各加一句角色提示,挂 instructions 末尾。"""
+    """阶段角色提示块:按写作阶段微调主编侧重（主要服务 chat_write assemble）。
+
+    phase 空 → 返回空串。outline 与 plan 同句映射；beats/deduce 各 ≤3 句。
+    world_write Hermes 主路径**不依赖**本函数（用 resolve instruction_suffix）。
+    """
     p = (phase or "").strip().lower()
+    # outline ↔ plan：前端 WRITE_PHASE 常把 outline 映射为 plan
+    if p == "outline":
+        p = "plan"
     roles = {
-        "plan": "## 阶段角色(规划期)\n你此刻是规划者:重事件因果与结构骨架——先把这章要发生什么、"
-                "推动哪条线、落哪些伏笔/弧光说清,暂不雕字句。",
+        "plan": "## 阶段角色(规划期/大纲)\n你此刻是规划者:重事件因果与结构骨架——先把这章要发生什么、"
+                "推动哪条线、落哪些伏笔/弧光说清,暂不雕字句。大纲用 s3_patch_chapter_plan 写 synopsis。",
+        "beats": "## 阶段角色(节拍)\n你此刻落戏剧合同:用 s3_patch_chapter_plan 写 beats；"
+                 "优先冲突与对立；建议≥3条非空；≠经验复盘六格。",
+        "deduce": "## 阶段角色(演绎)\n你此刻管认知:用 s3_patch_chapter_plan 写 scene_truth/限知投影；"
+                  "勿把场景真相写成 s3_add_fact 世界命题。",
         "draft": "## 阶段角色(草稿期)\n你此刻是写手:重限知帧——严格贴焦点者所知所感铺陈,"
                  "先把场景与节拍落成连贯草稿,允许糙,但不得越界写焦点者不知之事。",
         "final": "## 阶段角色(正文期)\n你此刻是编审:重 QC——逐句收紧文风、清复读与 AI 腔、"

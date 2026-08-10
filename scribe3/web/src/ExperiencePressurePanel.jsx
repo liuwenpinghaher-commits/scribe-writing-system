@@ -17,7 +17,7 @@ const emptyGrid = () => Object.fromEntries(GRID_CELLS.map(([k]) => [k, '']))
 /**
  * 经验复盘 UI(产品名锁定「经验复盘」· IA KD-IA-3/7):
  * 问诊信 + Scene–Sequel 六格 + 续写重读。≠ 写路径力学合同 pressure_drive。
- * 全部走 api.js 真实后端路径。
+ * 全部走 api.js 真实后端路径。六格作者 REST 可写；≠ beats 戏剧合同。
  */
 export function ExperiencePressurePanel({ seq }) {
   const [letter, setLetter] = useState(null)
@@ -149,8 +149,9 @@ export function ExperiencePressurePanel({ seq }) {
 
   return (
     <div className="space-y-6 text-ink" data-testid="experience-pressure-panel">
-      <p className="text-meta text-faint">
-        经验复盘（问诊/六格/续写）· 写路径力学合同见工艺侧 pressure_drive，二者不同源
+      <p className="text-meta text-faint" data-testid="experience-readonly-hint">
+        经验复盘（问诊/六格/续写）· <strong className="font-medium text-ink">≠</strong> 写路径力学合同 pressure_drive
+        · <strong className="font-medium text-ink">≠</strong> 章节拍 beats · 改节拍请去「节拍」阶段让主编写
       </p>
       {err && (
         <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-meta text-danger" role="alert">

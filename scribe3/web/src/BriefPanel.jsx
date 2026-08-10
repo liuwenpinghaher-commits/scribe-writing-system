@@ -94,8 +94,11 @@ export function BriefPanel({ seq }) {
     && overdue.length === 0 && heartbeat.length === 0 && !(loops.weighted > 0) && chosen.length === 0
 
   return (
-    <div>
+    <div data-testid="brief-panel">
       <SectionTitle icon={ScrollText} right={`第 ${seq} 章`}>章前简报</SectionTitle>
+      <p className="mb-2 text-meta text-faint" data-testid="brief-readonly-hint">
+        简报为后端派生只读投影 · 缺大纲/节拍请去章阶段让主编写 · 伏笔决策点下方「让主编…」（非「生成简报」）
+      </p>
       {empty ? <Empty>本章暂无简报项</Empty> : (
         <>
           {arcs.length > 0 && (

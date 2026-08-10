@@ -7,6 +7,7 @@ import {
   seedChiefNarrativeWrite,
   seedChapterOutline,
   seedChapterBeats,
+  seedChapterDeduce,
 } from './lib/chiefSeed.js'
 import {
   evaluateChapterContract,
@@ -172,11 +173,7 @@ export function ChapterMetaPane({
       onNavigatePhase('deduce')
       return
     }
-    seedChiefNarrativeWrite(
-      'deduce',
-      `第 ${seq} 章场景真相`,
-      `请填写/完善第 ${seq} 章 scene_truth（场景真相）。当前:\n${sceneTruth || '（空）'}`,
-    )
+    seedChapterDeduce(seq, sceneTruth)
   }
 
   const askEventDrive = () => {

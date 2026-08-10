@@ -137,6 +137,9 @@ def orch_resolve_ep(req: OrchResolveReq, work: str = "main"):
         "ui_events": events,
         "use_world_write_run": bool(pkg.get("use_world_write_run")),
         "channel": pkg.get("channel"),
+        # H1：顶层暴露，便于前端不挖 package 也能拼 instructions
+        "instruction_suffix": pkg.get("instruction_suffix") or "",
+        "context_pack": list(pkg.get("context_pack") or []),
     }
     if "total_score" in out or "composite_score" in str(out):
         raise HTTPException(500, "orchestration payload 不得含文学分")

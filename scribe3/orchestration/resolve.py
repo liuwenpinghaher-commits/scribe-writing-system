@@ -69,6 +69,21 @@ def match_domain(message: str, *, prior_domain: str | None = None) -> dict[str, 
         prose = get_domain("prose.generate")
         if prose:
             return prose
+    # 负向：评分卡解读不得落到 intent 写；经验六格不得落到 beats 写
+    if best and best.get("domain") == "intent.northstar":
+        if re.search(r"评分卡|scorecard", text) and not re.search(
+            r"作品意图|s3_set_intent|读者感受|红线|北极星意图", text
+        ):
+            aux = get_domain("aux.scorecard")
+            if aux:
+                return aux
+    if best and best.get("domain") == "chapter.beats":
+        if re.search(r"经验复盘|经验六格|问诊信|Scene.?Sequel", text) and not re.search(
+            r"s3_patch_chapter_plan|写节拍|更新节拍", text
+        ):
+            aux = get_domain("aux.experience")
+            if aux:
+                return aux
     if best_score <= 0:
         if prior_domain:
             prior = get_domain(prior_domain)
@@ -76,6 +91,40 @@ def match_domain(message: str, *, prior_domain: str | None = None) -> dict[str, 
                 return prior
         return deepcopy(default or CATALOG[-1])
     return deepcopy(best or default or CATALOG[-1])
+
+
+def instruction_suffix_for_entry(
+    entry: dict[str, Any] | None,
+    *,
+    chapter: int | None = None,
+) -> str:
+    """域纪律后缀（world_write 主路径；不依赖 run phase）。
+
+    catalog ``instruction_duty`` 为真源；无则按 domain 回落短句。
+    """
+    e = entry if isinstance(entry, dict) else {}
+    duty = str(e.get("instruction_duty") or "").strip()
+    domain = str(e.get("domain") or "")
+    ch = f"当前章:{int(chapter)}。" if chapter is not None else ""
+    if duty:
+        return f"{duty} {ch}".strip()
+    # 回落：章脚手架三域
+    fallbacks = {
+        "chapter.outline": (
+            "域纪律(章大纲):s3_patch_chapter_plan 写 synopsis；禁 s3_save_chapter 完成本任务。"
+        ),
+        "chapter.beats": (
+            "域纪律(章节拍):s3_patch_chapter_plan 写 beats；禁 s3_save_chapter；≠经验六格。"
+        ),
+        "chapter.deduce": (
+            "域纪律(章演绎):s3_patch_chapter_plan 写 scene_truth；禁 s3_save_chapter；勿 s3_add_fact。"
+        ),
+        "aux.scorecard": "域纪律(评分卡):只读；≠作品意图；禁止写评分卡 SSOT。",
+        "aux.experience": "域纪律(经验复盘):≠pressure_drive/beats；六格为作者复盘。",
+        "aux.brief": "域纪律(简报):只读派生；改大纲/伏笔走对应写工具。",
+    }
+    fb = fallbacks.get(domain, "")
+    return f"{fb} {ch}".strip() if fb or ch else ""
 
 
 # 角色名后常见接续（停用边界），避免「沈砚的恐惧写入…」整段当 id
@@ -375,6 +424,8 @@ def resolve_work_package(
     if draft and draft.get("draft_id") and draft["draft_id"] not in entity_ids:
         entity_ids.append(draft["draft_id"])
 
+    suffix = instruction_suffix_for_entry(entry, chapter=ch)
+    ctx_pack = list(entry.get("context_pack") or ())
     pkg = {
         "id": pkg_id,
         "work": work or "main",
@@ -396,6 +447,10 @@ def resolve_work_package(
         "use_world_write_run": bool(use_world_write and write_tools),
         "phase_hint": entry.get("phase_hint") or ui.get("phase"),
         "chapter": ch,
+        # H1：域纪律不依赖 run phase；前端 world_write 须拼进 instructions
+        "instruction_suffix": suffix,
+        # H1 PR-5：声明式 context_pack（不裁剪 assemble envelope）
+        "context_pack": ctx_pack,
         "updated_at": int(time.time()),
         "source": "resolve",
     }

@@ -3,7 +3,10 @@
  * 正则 shouldUseHermesRun 仅作离线弱回退，不再是唯一真理。
  */
 import { api } from '../api'
-import { shouldUseHermesRun, hermesRunInstructions } from './hermesRunIntent'
+import {
+  shouldUseHermesRun,
+  assembleWorldWriteInstructions,
+} from './hermesRunIntent'
 import { applyUiEvents } from './uiDirective'
 
 /**
@@ -15,6 +18,8 @@ import { applyUiEvents } from './uiDirective'
  *   uiEvents: array,
  *   channel: string,
  *   instructions: string,
+ *   instructionSuffix: string,
+ *   contextPack: array,
  *   evaluationHint: object|null,
  *   resolveOk: boolean,
  * }>}
@@ -37,6 +42,8 @@ export async function orchestrateBeforeSend(message, opts = {}) {
   let channel = 'discuss'
   let focusPolicy = 'soft'
   let uiTarget = null
+  let instructionSuffix = ''
+  let contextPack = []
 
   try {
     const body = {
@@ -56,6 +63,14 @@ export async function orchestrateBeforeSend(message, opts = {}) {
     channel = res.channel || pkg?.channel || 'discuss'
     focusPolicy = res.focus_policy || pkg?.focus_policy || 'soft'
     uiTarget = res.ui_target || pkg?.ui_target || null
+    instructionSuffix = String(
+      res.instruction_suffix || pkg?.instruction_suffix || '',
+    ).trim()
+    contextPack = Array.isArray(res.context_pack)
+      ? res.context_pack
+      : Array.isArray(pkg?.context_pack)
+        ? pkg.context_pack
+        : []
   } catch {
     // 离线/后端旧版：弱回退正则（非唯一真理路径的兼容）
     useWorldWriteRun = shouldUseHermesRun(message)
@@ -73,11 +88,13 @@ export async function orchestrateBeforeSend(message, opts = {}) {
     })
   }
 
+  // H1：world_write 指令 = base + instruction_suffix（phase 强制空）
   const instructions = useWorldWriteRun
-    ? hermesRunInstructions({
+    ? assembleWorldWriteInstructions({
       chapter,
-      phase: useWorldWriteRun ? '' : phase,
       focalizer: '',
+      instructionSuffix,
+      phase: '',
     })
     : ''
 
@@ -89,6 +106,8 @@ export async function orchestrateBeforeSend(message, opts = {}) {
     focusPolicy,
     channel,
     instructions,
+    instructionSuffix,
+    contextPack,
     evaluationHint: pkg?.required_outcome === 'write_proposal'
       ? { required_outcome: 'write_proposal', write_tools: pkg.write_tools || [] }
       : null,

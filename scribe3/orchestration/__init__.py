@@ -10,6 +10,7 @@ from scribe3.orchestration.catalog import (
 from scribe3.orchestration.resolve import (
     apply_ui_directive_events,
     evaluate_turn,
+    instruction_suffix_for_entry,
     match_domain,
     resolve_work_package,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "primary_domain_ids",
     "resolve_work_package",
     "match_domain",
+    "instruction_suffix_for_entry",
     "evaluate_turn",
     "apply_ui_directive_events",
     "apply_ui_target_events",
