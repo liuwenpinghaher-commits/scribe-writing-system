@@ -748,9 +748,8 @@ def mcp_catalog():
             dm = re.match(r"\s*:\s*(?:\n\s*)?\"\"\"(.*?)\"\"\"", rest, re.S)
             if dm:
                 doc = dm.group(1).strip().split("\n")[0][:160]
-            gated = name in WRITE_GATED or name in getattr(WRITE_GATED, "__iter__", lambda: []) and name in set(WRITE_GATED)
             try:
-                gated = name in set(WRITE_GATED)
+                gated = name in set(WRITE_GATED or [])
             except Exception:
                 gated = False
             tools.append({
