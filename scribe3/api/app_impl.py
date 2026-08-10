@@ -1651,7 +1651,15 @@ def _rebind_services() -> None:
         (_svc_ingest_bg, ['mark_chapter_ingest_status', '_refresh_scorecard_after_ingest', '_bg_ingest', '_enqueue_ingest', '_enqueue_ingest_raw', 'schedule_ingest', '_semantic_repair_violations', '_prose_stats']),
         (_svc_lifecycle, ['_normalize_lifecycle_id', '_impact_token', '_object_impact', '_delete_object_with_lifecycle', '_archive_object_with_lifecycle']),
         (_svc_misc_helpers, ['_FACTION_TYPE_MAP', '_fact_item', '_facts', '_mask_field', '_search_excerpt', '_build_faction_in', '_field_violations', '_import_job_get', '_run_import', '_current_tail_block', '_focalizer_sincerity_block', '_phase_role_block', '_loop_journal_path', '_import_journal_path', '_is_selection_candidate_version', '_pilot_llm_gen', '_pilot_journal']),
-        (_svc_pilot_runtime, ['_contextual_review_complete', '_grounding_review', '_pilot_executor', '_pilot_run_bg']),
+        # expand_beats 嵌套在 _pilot_executor 内，rebind 后 __globals__=app_impl，
+        # 须把节拍 v2 解析/接地/门闩助手一并注入，否则 NameError: parse_beats_v2_output。
+        (_svc_pilot_runtime, [
+            '_contextual_review_complete', '_grounding_review',
+            '_pilot_executor', '_pilot_run_bg',
+            'parse_beats_v2_output', 'parse_beats_v1_lines',
+            'grounding_candidate_from_beats', '_beats_from_synopsis_segments',
+            '_compose_beats_meta', '_drama_gate_park_if_needed',
+        ]),
         (_svc_prompt_blocks, ['_codex_value_repr', '_faction_relation_summary', '_pulse_digest', '_thread_history_for_prompt', '_secret_guard_block', '_strip_preamble', '_avoid_directive', '_arc_state_block', '_motif_block', '_frame_block', '_recap_block', '_revelation_discipline_block', '_final_reminder', '_verbatim_deduction_fallback']),
         (_svc_thread_helpers, ['_resolve_thread_or_raise', '_editor_turn_context', '_context_memory_metrics', '_capture_turn_memory', '_maybe_summarize_thread', '_summarize_thread_inner', '_ChatTurnLog']),
         # inject_floor_env_enabled + _anti_slop_floor_block：写路径 v1 组装在

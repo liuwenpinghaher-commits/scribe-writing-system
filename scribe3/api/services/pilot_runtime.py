@@ -590,9 +590,12 @@ def _pilot_executor(work: str) -> dict:
 
         def _gen_and_parse(*, strict: bool = False) -> tuple[list[dict], str, str]:
             """返回 (beats, chapter_hook, schema_tag) schema_tag ∈ v2|v1。"""
+            # 显式经模块取名：_pilot_executor rebind 后嵌套函数 globals=app_impl，
+            # 直接写 parse_beats_v2_output 会 NameError。
+            import scribe3.api.services.pilot_runtime as _pr
             if use_v2:
                 raw = _pilot_llm_gen(st, work, seq, "plan", _v2_prompt(strict=strict))
-                beats, hook = parse_beats_v2_output(raw)
+                beats, hook = _pr.parse_beats_v2_output(raw)
                 # 若无任何 GCD 字段，视为 parse 弱失败 → 可被重试；仍保留 text 行
                 has_gcd = any(
                     str(b.get("goal") or b.get("conflict") or b.get("turn") or "").strip()
@@ -605,7 +608,7 @@ def _pilot_executor(work: str) -> dict:
                     return beats, hook, "v1"
                 return [], "", "v2"
             raw = _pilot_llm_gen(st, work, seq, "plan", _v1_prompt())
-            return parse_beats_v1_lines(raw), "", "v1"
+            return _pr.parse_beats_v1_lines(raw), "", "v1"
 
         beats, chapter_hook, schema_tag = _gen_and_parse(strict=False)
         if not beats:
@@ -619,7 +622,8 @@ def _pilot_executor(work: str) -> dict:
                 "candidate_beats": [],
             }
 
-        candidate = grounding_candidate_from_beats(beats)
+        import scribe3.api.services.pilot_runtime as _pr
+        candidate = _pr.grounding_candidate_from_beats(beats)
         review = _grounding_review(
             source, candidate, mode="beats",
             st=st, work=work, chapter=seq,
@@ -628,7 +632,7 @@ def _pilot_executor(work: str) -> dict:
             # ground 失败 → 重生+重审 1 次
             beats2, hook2, schema2 = _gen_and_parse(strict=True)
             if beats2:
-                cand2 = grounding_candidate_from_beats(beats2)
+                cand2 = _pr.grounding_candidate_from_beats(beats2)
                 review2 = _grounding_review(
                     source, cand2, mode="beats",
                     st=st, work=work, chapter=seq,
@@ -642,9 +646,9 @@ def _pilot_executor(work: str) -> dict:
         if not review.get("ok"):
             log = logging.getLogger("scribe3")
             if use_synopsis_fb:
-                fb = _beats_from_synopsis_segments(synopsis)
+                fb = _pr._beats_from_synopsis_segments(synopsis)
                 if len(fb) >= 2:
-                    bmeta = _compose_beats_meta(
+                    bmeta = _pr._compose_beats_meta(
                         fb,
                         schema="v1",
                         beats_source="synopsis_segments",
@@ -668,7 +672,7 @@ def _pilot_executor(work: str) -> dict:
                         "llm_rejected": review,
                         "pdc": {"ok": None, "note": "pdc_missing_after_fallback"},
                     }
-                    dpark = _drama_gate_park_if_needed(bmeta)
+                    dpark = _pr._drama_gate_park_if_needed(bmeta)
                     if dpark:
                         log.info(
                             "expand_beats drama_gate park(fallback) work=%s seq=%s",
@@ -692,7 +696,7 @@ def _pilot_executor(work: str) -> dict:
         if chapter_hook and beats and not str(beats[-1].get("hook") or "").strip():
             beats[-1]["hook"] = chapter_hook
 
-        bmeta = _compose_beats_meta(
+        bmeta = _pr._compose_beats_meta(
             beats,
             schema=schema,
             beats_source=beats_source,
@@ -716,7 +720,7 @@ def _pilot_executor(work: str) -> dict:
             "pdc": pdc_meta,
         }
         # 戏剧门优先于 PDC 门：缺口清单对人补节拍更直接
-        dpark = _drama_gate_park_if_needed(bmeta)
+        dpark = _pr._drama_gate_park_if_needed(bmeta)
         if dpark:
             logging.getLogger("scribe3").info(
                 "expand_beats drama_gate park work=%s seq=%s gaps=%s",
