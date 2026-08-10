@@ -9,8 +9,8 @@
 """
 from __future__ import annotations
 
+import json
 import os
-import re
 from typing import Any
 
 # ── 角色 / 词表（设计 § 初版；单测锁定）──────────────────────────────────
@@ -28,19 +28,17 @@ TURN_COST_LEX = (
 REL_TENSION_LEX = (
     "误会", "疏远", "试探", "隐瞒", "愧疚", "对峙", "和解未成", "信任",
 )
+# 弱模型/夹具常见空壳 cost（不计为满足代价义务）
+_COST_PLACEHOLDERS = frozenset({
+    "无", "有", "n/a", "N/A", "na", "NA", "-", "—", "–",
+    "无代价", "暂无", "待补", "TODO", "todo", "none", "None",
+})
 
 # 阈值
 OVERLAP_FAKE_THRESHOLD = 0.72  # ≥ 且 全部缺 goal → drama_weak / 高压 ok=False
-MIN_FIELD = 4  # goal/conflict/turn 最短字
+MIN_FIELD = 4  # goal/conflict/turn 最短字；meaningful cost 亦用
 MIN_HOOK = 2  # 章末钩子最短字（检测；severity 始终 advisory · KD-NQ-16）
 DEFAULT_HARD_PRESSURE = 4  # 用户裁决 Open Q1；env SCRIBE3_DRAMA_HARD_PRESSURE 可覆盖
-
-_SCHEMA_V2_KEYS = frozenset({"goal", "conflict", "turn", "cost", "hook"})
-_WS_RE = re.compile(r"\s+")
-
-
-def _strip(s: Any) -> str:
-    return _WS_RE.sub("", str(s or "").strip()) if s is not None else ""
 
 
 def _field(s: Any) -> str:
@@ -130,12 +128,9 @@ def _lex_hit(text: str, lexicon: tuple[str, ...] | list[str]) -> bool:
 
 
 def _kind_of(beat: dict) -> str:
-    k = str(beat.get("kind") or "scene").strip().lower()
-    # 中文 kind 兼容
     raw = str(beat.get("kind") or "scene").strip()
-    if raw in ("bridge", "桥", "过渡", "衔接"):
-        return "bridge"
-    if k == "bridge":
+    k = raw.lower()
+    if raw in ("bridge", "桥", "过渡", "衔接") or k == "bridge":
         return "bridge"
     return "scene"
 
@@ -145,7 +140,6 @@ def _normalize_beats(beats: Any) -> list[dict]:
         return []
     if isinstance(beats, str):
         try:
-            import json
             beats = json.loads(beats)
         except (ValueError, TypeError):
             return []
@@ -159,30 +153,78 @@ def _normalize_beats(beats: Any) -> list[dict]:
             d = dict(b)
             d.setdefault("id", f"b{i+1}")
             out.append(d)
-        else:
-            continue
     return out
 
 
 def _is_v1_text_only(beats: list[dict]) -> bool:
-    """全部缺非空 goal（v1 ``list[{text}]`` 形态）。"""
+    """纯 v1：goal/conflict/turn/cost 全空（``list[{text}]``）。"""
     if not beats:
         return True
     for b in beats:
-        if _field(b.get("goal")):
-            return False
-        # 任一 v2 结构字段非空则不算纯 v1
-        for k in ("conflict", "turn", "cost"):
+        for k in ("goal", "conflict", "turn", "cost"):
             if _field(b.get(k)):
                 return False
     return True
 
 
-def _has_v2_shape(beats: list[dict]) -> bool:
-    for b in beats:
-        if any(_field(b.get(k)) for k in _SCHEMA_V2_KEYS if k != "hook"):
-            return True
+def _all_missing_goal(beats: list[dict]) -> bool:
+    """设计假节拍条件：全部缺 goal（允许空壳 cost/turn 仍判 fake）。"""
+    if not beats:
+        return True
+    return all(not _field(b.get("goal")) for b in beats)
+
+
+def _is_cost_placeholder(cost: str) -> bool:
+    c = (cost or "").strip()
+    if not c:
+        return False
+    if c in _COST_PLACEHOLDERS:
+        return True
+    # 过短且未命中代价词表 → 视为空壳
+    if len(c) < MIN_FIELD and not _lex_hit(c, TURN_COST_LEX):
+        return True
     return False
+
+
+def _cost_meaningful(cost: str) -> bool:
+    """非 bridge 代价义务：len≥MIN_FIELD 或命中 TURN_COST_LEX；拒 placeholder。"""
+    c = (cost or "").strip()
+    if not c or c in _COST_PLACEHOLDERS:
+        return False
+    return len(c) >= MIN_FIELD or _lex_hit(c, TURN_COST_LEX)
+
+
+def _cost_obligation(norm: list[dict]) -> dict[str, bool]:
+    """与 validate / drama_score 共用的代价义务判定。
+
+    - ``has_cost``：非 bridge 拍上有 meaningful cost
+    - ``turn_cost_lex``：任一拍 turn 或 cost 命中词表
+    - ``cost_or_lex``：满足代价义务（has_cost **或** turn_cost_lex）
+    - ``cost_placeholder``：出现过非空但非 meaningful 的 cost（观测用）
+    """
+    has_cost = False
+    turn_cost_lex = False
+    cost_placeholder = False
+    for b in norm:
+        kind = _kind_of(b)
+        cost = _field(b.get("cost"))
+        turn = _field(b.get("turn"))
+        if _lex_hit(turn, TURN_COST_LEX) or _lex_hit(cost, TURN_COST_LEX):
+            turn_cost_lex = True
+        if kind == "bridge":
+            continue
+        if not cost:
+            continue
+        if _cost_meaningful(cost):
+            has_cost = True
+        else:
+            cost_placeholder = True
+    return {
+        "has_cost": has_cost,
+        "turn_cost_lex": turn_cost_lex,
+        "cost_or_lex": has_cost or turn_cost_lex,
+        "cost_placeholder": cost_placeholder,
+    }
 
 
 def _scene_gcd_ok(b: dict) -> bool:
@@ -198,7 +240,9 @@ def _goal_conflict_uniqueness_warnings(scenes: list[dict]) -> list[str]:
     warnings: list[str] = []
     goals = [(_field(s.get("goal")), s.get("id") or "?") for s in scenes if _field(s.get("goal"))]
     conflicts = [
-        (_field(s.get("conflict")), s.get("id") or "?") for s in scenes if _field(s.get("conflict"))
+        (_field(s.get("conflict")), s.get("id") or "?")
+        for s in scenes
+        if _field(s.get("conflict"))
     ]
     for i in range(len(goals)):
         for j in range(i + 1, len(goals)):
@@ -217,6 +261,33 @@ def _goal_conflict_uniqueness_warnings(scenes: list[dict]) -> list[str]:
                     f"conflict_overlap:{id1}/{id2}>={OVERLAP_FAKE_THRESHOLD}"
                 )
     return warnings
+
+
+def _empty_metrics(
+    *,
+    overlap: float,
+    is_high: bool,
+    hp: int,
+    cp: int,
+    role_s: str,
+) -> dict:
+    return {
+        "overlap": overlap,
+        "scene_count": 0,
+        "bridge_count": 0,
+        "is_high": is_high,
+        "v1_text_only": True,
+        "all_missing_goal": True,
+        "hard_pressure": hp,
+        "chapter_pressure": cp,
+        "role": role_s,
+        "has_cost": False,
+        "has_hook": False,
+        "turn_cost_lex": False,
+        "cost_or_lex": False,
+        "cost_placeholder": False,
+        "gcd_scene_count": 0,
+    }
 
 
 def validate_drama_beats(
@@ -247,7 +318,7 @@ def validate_drama_beats(
     hard_pressure:
         高压门槛，默认 4 / env ``SCRIBE3_DRAMA_HARD_PRESSURE``。
     compat_v1 / compat:
-        v1 仅 text 时弱通过（``ok=True, drama_weak=True``）。默认 True（代码可达）。
+        纯 v1 仅 text 时弱通过（``ok=True, drama_weak=True``）。默认 True（代码可达）。
 
     返回
     ----
@@ -281,7 +352,7 @@ def validate_drama_beats(
     bridges = [b for b in norm if _kind_of(b) == "bridge"]
     scene_count = len(scenes)
     v1_only = _is_v1_text_only(norm)
-    v2_shape = _has_v2_shape(norm)
+    missing_goal = _all_missing_goal(norm)
 
     # ── 空列表 ──────────────────────────────────────────────────────────
     if not norm:
@@ -291,20 +362,9 @@ def validate_drama_beats(
             "errors": errors,
             "warnings": warnings,
             "drama_weak": True,
-            "metrics": {
-                "overlap": overlap,
-                "scene_count": 0,
-                "bridge_count": 0,
-                "is_high": is_high,
-                "v1_text_only": True,
-                "hard_pressure": hp,
-                "chapter_pressure": cp,
-                "role": role_s,
-                "has_cost": False,
-                "has_hook": False,
-                "turn_cost_lex": False,
-                "gcd_scene_count": 0,
-            },
+            "metrics": _empty_metrics(
+                overlap=overlap, is_high=is_high, hp=hp, cp=cp, role_s=role_s
+            ),
         }
 
     # ── GCD：≥1 scene 且 G/C/T 各 ≥ MIN_FIELD ───────────────────────────
@@ -322,23 +382,17 @@ def validate_drama_beats(
             errors.append(msg)
         else:
             warnings.append(msg)
-            if v1_only:
+            if v1_only or missing_goal:
                 drama_weak = True
 
-    # ── cost / turn 词表（全章；bridge 免 cost 义务）────────────────────
-    has_cost = False
-    turn_cost_lex = False
-    for b in norm:
-        kind = _kind_of(b)
-        cost = _field(b.get("cost"))
-        turn = _field(b.get("turn"))
-        if kind != "bridge" and cost:
-            has_cost = True
-        if _lex_hit(turn, TURN_COST_LEX) or _lex_hit(cost, TURN_COST_LEX):
-            turn_cost_lex = True
-            if cost:
-                has_cost = True
-    cost_or_lex = has_cost or turn_cost_lex
+    # ── cost / turn 词表（全章；bridge 免 cost；与 drama_score 共用）────
+    obl = _cost_obligation(norm)
+    has_cost = obl["has_cost"]
+    turn_cost_lex = obl["turn_cost_lex"]
+    cost_or_lex = obl["cost_or_lex"]
+    cost_placeholder = obl["cost_placeholder"]
+    if cost_placeholder:
+        warnings.append("cost_placeholder")
     if not cost_or_lex and scene_count > 0:
         msg = "cost_or_turn_lex_missing"
         if is_high and not (use_compat and v1_only):
@@ -354,16 +408,17 @@ def validate_drama_beats(
     if not has_hook:
         warnings.append("chapter_hook_missing")  # 永不进 errors
 
-    # ── 假节拍：仅 text 且与大纲 overlap ≥ 0.72 ─────────────────────────
-    if v1_only and synopsis and overlap >= OVERLAP_FAKE_THRESHOLD:
+    # ── 假节拍：全部缺 goal 且与大纲 overlap ≥ 0.72（设计注释对齐）────
+    # 即使塞了空壳 cost/turn 仍可触发（不只认纯 v1_only）
+    if missing_goal and synopsis and overlap >= OVERLAP_FAKE_THRESHOLD:
         msg = f"synopsis_fake_overlap>={OVERLAP_FAKE_THRESHOLD}"
         if is_high and not use_compat:
             errors.append(msg)
         else:
             warnings.append(msg)
             drama_weak = True
-    elif v1_only and not v2_shape:
-        # 纯 v1 无大纲可测：标弱
+    elif v1_only:
+        # 纯 v1 无高重叠大纲可测：标弱
         drama_weak = True
         warnings.append("v1_text_only")
 
@@ -390,19 +445,18 @@ def validate_drama_beats(
     if gcd_scene_count >= 2:
         warnings.extend(_goal_conflict_uniqueness_warnings(scenes))
 
-    # ── DRAMA_GATE_COMPAT：v1 仅 text → 弱通过 ──────────────────────────
+    # ── DRAMA_GATE_COMPAT：纯 v1 仅 text → 弱通过 ───────────────────────
     if use_compat and v1_only:
         drama_weak = True
         # 清掉会阻断兼容的硬错误，改记 warning（不 park）
         kept_errors: list[str] = []
         for e in errors:
-            if e in (
-                "beats_empty",
-            ):
+            if e == "beats_empty":
                 kept_errors.append(e)
             else:
-                if e not in warnings:
-                    warnings.append(f"compat_weak:{e}")
+                weak = f"compat_weak:{e}"
+                if weak not in warnings and e not in warnings:
+                    warnings.append(weak)
         errors = kept_errors
         if "v1_compat_weak_pass" not in warnings:
             warnings.append("v1_compat_weak_pass")
@@ -415,12 +469,15 @@ def validate_drama_beats(
         "bridge_count": len(bridges),
         "is_high": is_high,
         "v1_text_only": v1_only,
+        "all_missing_goal": missing_goal,
         "hard_pressure": hp,
         "chapter_pressure": cp,
         "role": role_s,
         "has_cost": has_cost,
         "has_hook": has_hook,
         "turn_cost_lex": turn_cost_lex,
+        "cost_or_lex": cost_or_lex,
+        "cost_placeholder": cost_placeholder,
         "gcd_scene_count": gcd_scene_count,
         "compat_v1": use_compat,
         "drama_weak": drama_weak,
@@ -435,18 +492,24 @@ def validate_drama_beats(
 
 
 def drama_score(beats: list[dict] | None, *, chapter_hook: str = "") -> dict:
-    """轻量戏剧完备分（供 beats_meta.drama_score；不改变 validate 结果）。"""
+    """轻量戏剧完备分（供 beats_meta.drama_score；与 validate 代价义务对齐）。
+
+    ``complete`` 要求：≥1 完整 GCD scene、代价义务满足（meaningful cost **或**
+    turn/cost 命中 ``TURN_COST_LEX``）、以及章末钩子（chapter_hook 或末拍 hook）。
+    """
     norm = _normalize_beats(beats)
     scenes = [b for b in norm if _kind_of(b) == "scene"]
-    has_cost = any(_field(b.get("cost")) for b in norm if _kind_of(b) != "bridge")
+    obl = _cost_obligation(norm)
     last_hook = _field(norm[-1].get("hook")) if norm else ""
     has_hook = len(_field(chapter_hook)) >= MIN_HOOK or len(last_hook) >= MIN_HOOK
     gcd_n = sum(1 for b in scenes if _scene_gcd_ok(b))
-    complete = gcd_n >= 1 and has_cost and has_hook
+    complete = gcd_n >= 1 and obl["cost_or_lex"] and has_hook
     return {
         "complete": complete,
         "scene_count": len(scenes),
-        "has_cost": has_cost,
+        "has_cost": obl["has_cost"],
+        "turn_cost_lex": obl["turn_cost_lex"],
+        "cost_or_lex": obl["cost_or_lex"],
         "has_hook": has_hook,
         "gcd_scene_count": gcd_n,
     }

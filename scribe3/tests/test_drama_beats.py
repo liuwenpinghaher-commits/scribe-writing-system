@@ -70,6 +70,7 @@ def test_good_v2_passes_high_pressure():
     assert r["metrics"]["is_high"] is True
     sc = drama_score(fx["beats"], chapter_hook=fx["chapter_hook"])
     assert sc["complete"] is True
+    assert sc["cost_or_lex"] is True
 
 
 def test_v1_text_only_compat_weak_pass():
@@ -103,6 +104,7 @@ def test_v1_text_only_without_compat_fails_high():
 
 def test_synopsis_fake_high_without_compat():
     fx = _load("synopsis_fake.json")
+    exp = fx["expect"]
     r = validate_drama_beats(
         fx["beats"],
         chapter_pressure=fx["chapter_pressure"],
@@ -111,9 +113,12 @@ def test_synopsis_fake_high_without_compat():
         hard_pressure=4,
         compat_v1=False,
     )
-    assert r["metrics"]["overlap"] >= OVERLAP_FAKE_THRESHOLD
+    assert r["metrics"]["overlap"] >= exp["overlap_min"]
     assert r["ok"] is False, r
-    assert any("synopsis_fake" in e or "gcd" in e or "cost" in e for e in r["errors"]) or r["errors"]
+    # 锁定假节拍错误码（不只接受任意 errors）
+    assert any("synopsis_fake_overlap" in e for e in r["errors"]), r
+    if exp.get("has_synopsis_fake_signal"):
+        assert r["metrics"]["all_missing_goal"] is True
 
 
 def test_synopsis_fake_compat_weak():
@@ -128,6 +133,28 @@ def test_synopsis_fake_compat_weak():
     )
     assert r["ok"] is True, r
     assert r["drama_weak"] is True
+
+
+def test_synopsis_fake_with_placeholder_cost_still_flags():
+    """全部缺 goal + 空壳 cost 仍应打 synopsis_fake（设计：缺 goal 即可）。"""
+    fx = _load("synopsis_fake.json")
+    beats = []
+    for b in fx["beats"]:
+        d = dict(b)
+        d["cost"] = "无"  # placeholder，不应挡住 fake
+        beats.append(d)
+    r = validate_drama_beats(
+        beats,
+        chapter_pressure=fx["chapter_pressure"],
+        role=fx["role"],
+        synopsis=fx["synopsis"],
+        hard_pressure=4,
+        compat_v1=False,
+    )
+    assert r["metrics"]["overlap"] >= OVERLAP_FAKE_THRESHOLD
+    assert any("synopsis_fake_overlap" in e for e in r["errors"]), r
+    assert r["metrics"]["cost_placeholder"] is True
+    assert "cost_placeholder" in r["warnings"]
 
 
 def test_hook_always_advisory_never_blocks():
@@ -158,7 +185,8 @@ def test_hook_always_advisory_never_blocks():
     assert r["ok"] is True, r
 
 
-def test_bridge_exempt_from_cost_but_scene_needs_cost():
+def test_bridge_exempt_and_turn_lex_satisfies_cost_and_score():
+    """turn 词表代替 cost；drama_score.complete 与 validate 对齐。"""
     beats = [
         {
             "id": "b1",
@@ -185,41 +213,79 @@ def test_bridge_exempt_from_cost_but_scene_needs_cost():
     )
     assert r["ok"] is True, r
     assert r["metrics"]["turn_cost_lex"] is True
+    assert r["metrics"]["cost_or_lex"] is True
+    sc = drama_score(beats)
+    assert sc["turn_cost_lex"] is True
+    assert sc["cost_or_lex"] is True
+    assert sc["complete"] is True, sc
 
 
-def test_low_role_rel_tension_required():
+def test_placeholder_cost_does_not_satisfy_obligation():
+    """cost='无' 不算 meaningful；高压缺 turn 词表 → cost 义务失败。"""
     beats = [
         {
             "id": "b1",
             "kind": "scene",
-            "goal": "整理昨日见闻写成条录",
-            "conflict": "笔墨不够",  # 弱冲突且无关系张力词
-            "turn": "写完收笔",
+            "goal": "夺回被扣的半页账角证据",
+            "conflict": "看守以刀拦路并索要真名",
+            "turn": "她转身离开巷口",  # 无 TURN_COST_LEX
             "cost": "无",
-            "text": "整理条录。",
+            "hook": "梆子又响了一声。",
+            "text": "未得手离开。",
         }
     ]
     r = validate_drama_beats(
         beats,
+        chapter_pressure=5,
+        role="高压",
+        hard_pressure=4,
+        compat_v1=False,
+    )
+    assert r["ok"] is False, r
+    assert any("cost_or_turn_lex_missing" in e for e in r["errors"])
+    assert r["metrics"]["cost_placeholder"] is True
+    sc = drama_score(beats)
+    assert sc["cost_or_lex"] is False
+    assert sc["complete"] is False
+
+
+def test_low_role_rel_tension_required():
+    # ≥MIN_FIELD 的 conflict 视为张力（设计「或非空冲突」）→ 放行
+    beats_ok_conflict = [
+        {
+            "id": "b1",
+            "kind": "scene",
+            "goal": "整理昨日见闻写成条录",
+            "conflict": "笔墨不够",  # ≥ MIN_FIELD，无 REL 词亦可
+            "turn": "写完收笔离开",
+            "cost": "空过半日未得旧友回音",
+            "hook": "窗外雨停了。",
+            "text": "整理条录。",
+        }
+    ]
+    r = validate_drama_beats(
+        beats_ok_conflict,
         chapter_pressure=2,
         role="关系回收",
         hard_pressure=4,
         compat_v1=False,
     )
-    # conflict 长度够 MIN_FIELD 时 tension_ok=True；缩冲突
-    beats2 = [
+    assert r["ok"] is True, r
+
+    # conflict 过短且无 REL 词 → 硬失败
+    beats_fail = [
         {
             "id": "b1",
             "kind": "scene",
             "goal": "想与旧友重逢说话",
             "conflict": "雨",  # < MIN_FIELD 且无 REL 词
             "turn": "未说话就离开了",
-            "cost": "无",
+            "cost": "空过半日",
             "text": "未遇。",
         }
     ]
     r2 = validate_drama_beats(
-        beats2,
+        beats_fail,
         chapter_pressure=2,
         role="关系回收",
         hard_pressure=4,
@@ -228,7 +294,8 @@ def test_low_role_rel_tension_required():
     assert r2["ok"] is False
     assert any("rel_tension" in e for e in r2["errors"])
 
-    beats3 = [
+    # REL 词命中 → 通过
+    beats_rel = [
         {
             "id": "b1",
             "kind": "scene",
@@ -241,7 +308,7 @@ def test_low_role_rel_tension_required():
         }
     ]
     r3 = validate_drama_beats(
-        beats3,
+        beats_rel,
         chapter_pressure=2,
         role="关系回收",
         hard_pressure=4,
@@ -255,7 +322,14 @@ def test_hard_pressure_env_override(monkeypatch):
     assert resolve_hard_pressure(None) == 3
     monkeypatch.delenv("SCRIBE3_DRAMA_HARD_PRESSURE", raising=False)
     assert resolve_hard_pressure(5) == 5
-    assert resolve_hard_pressure(None) == 4 or resolve_hard_pressure(None) >= 3
+    # 锁代码默认 4：阻断 flags/DB 回落干扰
+    monkeypatch.setattr(
+        "scribe3.novel_quality_flags.drama_hard_pressure",
+        lambda: 4,
+        raising=False,
+    )
+    # 若模块尚未被 import，resolve 内 try/import 仍走 default
+    assert resolve_hard_pressure(None) == DEFAULT_HARD_PRESSURE == 4
 
 
 def test_goal_uniqueness_warning():
