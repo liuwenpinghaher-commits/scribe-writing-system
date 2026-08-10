@@ -62,6 +62,37 @@ def evidence_ok(s: str) -> bool:
     return True
 
 
+def template_bootstrap_evidence(synopsis: str = "") -> str:
+    """历史模板兜底：synopsis 含「灰」→ 掌心灰印，否则通用痕迹。"""
+    if "灰" in (synopsis or ""):
+        return "掌心嵌下的灰印"
+    return "收不回的一步痕迹"
+
+
+def first_ok_bootstrap_evidence(
+    beats: list | None = None,
+    *,
+    template_fallback: str = "",
+    synopsis: str = "",
+) -> str:
+    """PDC bootstrap 证据种子：first_ok(cost, turn, hook, template)。
+
+    按字段优先级扫全部 beats：任一 beat 的 cost 通过 evidence_ok 即用；
+    否则 turn，再 hook；全空才回落 template_fallback（或 synopsis 模板）。
+    """
+    for field in ("cost", "turn", "hook"):
+        for b in beats or []:
+            if not isinstance(b, dict):
+                continue
+            val = str(b.get(field) or "").strip()
+            if evidence_ok(val):
+                return _clip(val, MAX_FIELD)
+    fb = (template_fallback or "").strip() or template_bootstrap_evidence(synopsis)
+    if evidence_ok(fb):
+        return _clip(fb, MAX_FIELD)
+    return "收不回的一步痕迹"
+
+
 def parse_pressure_drive(raw: Any) -> dict | None:
     """解析落库字段 → dict；status=missing 视为无合同。"""
     if raw is None or raw == "":
@@ -703,6 +734,7 @@ def bootstrap_pdc_from_texts(
     *,
     synopsis: str = "",
     beat_texts: list[str] | None = None,
+    chapter_beats: list | None = None,
     chapter_pressure: int = 4,
     role: str = "推进",
     fork_choice: str = "",
@@ -713,12 +745,28 @@ def bootstrap_pdc_from_texts(
     motif_caps: list[dict] | None = None,
     cost_steps: list[str] | None = None,
 ) -> dict | None:
-    """确定性 bootstrap：字段齐全才返回 present 合同；含 progress 双台阶。"""
+    """确定性 bootstrap：字段齐全才返回 present 合同；含 progress 双台阶。
+
+    evidence 空时：若传入 chapter_beats（含 cost/turn/hook），
+    用 first_ok(cost,turn,hook,template) 作种子（PR-7）。
+    """
     choice = (fork_choice or "").strip()
     ev = (evidence or "").strip()
+    if not evidence_ok(ev) and chapter_beats is not None:
+        ev = first_ok_bootstrap_evidence(
+            chapter_beats, synopsis=synopsis
+        )
     if len(choice) < 1 or len(ev) < 2:
         return None
-    texts = list(beat_texts or []) or ["推进", "对峙", "抉择", "余波"]
+    texts = list(beat_texts or [])
+    if not texts and chapter_beats:
+        texts = [
+            str(b.get("text") or "")
+            for b in chapter_beats
+            if isinstance(b, dict)
+        ]
+    if not texts:
+        texts = ["推进", "对峙", "抉择", "余波"]
     n = max(4, min(7, len(texts)))
     while len(texts) < n:
         texts.append(f"节拍{len(texts)+1}")

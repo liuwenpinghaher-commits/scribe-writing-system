@@ -5,10 +5,17 @@ per-work 表承载(已建表,store.py CRUD + seed;方案B任务14补齐 allow_pa
 allow_word 豁免路径)。
 
 `SCRIBE3_PDC=1` 时 idle/sensory 切到「闲笔偏科」文案，与压力驱动注入同 flag 原子切换。
+`SCRIBE3_CRAFT_NOVEL=1` 时走小说优先选择表：比喻降权、闲笔/感官偏科、留白并入 anti_essay；
+与 PDC 同开时每个槽位只注入一段(不双注入)。
 """
 from __future__ import annotations
 
 import os
+
+# 展示槽位(8 段);ENGINES 另含 _pdc / _novel 变体键,由 build_craft_block 择一注入。
+PUBLIC_ENGINE_KEYS: tuple[str, ...] = (
+    "body", "temperature", "idle", "metaphor", "subtext", "sensory", "soak", "restraint",
+)
 
 ENGINES: dict[str, str] = {
     "body": (
@@ -28,7 +35,7 @@ ENGINES: dict[str, str] = {
         "闲笔:每章≥3 个与剧情无关但让世界/角色有温度的具体细节(至少一个世界级、一个角色级)。"
         "必须具体到能画出来。不解释,放在那里就好。豁免契诃夫之枪——闲笔不为推动剧情,是让世界活着。"
     ),
-    # PDC 偏科：禁止与「≥3 均匀」同向；由 build_craft_block 在 flag 下替换 idle/sensory
+    # PDC / novel 偏科：禁止与「≥3 均匀」同向；由 build_craft_block 在 flag 下替换 idle/sensory
     "idle_pdc": (
         "闲笔偏科(压力驱动):全章约 2 笔极闲(与剧情弱相关但有温度、可画)+1 笔极狠(正笔高峰才全开)。"
         "禁止同强度三联均铺巷志；禁止每段都「景+身+心+味」四件套齐活。极闲服务蓄力，极狠独占高峰。"
@@ -38,6 +45,13 @@ ENGINES: dict[str, str] = {
         "认知比喻:每个比喻必须让读者理解一件之前不理解的事,且来自角色的专业领域"
         "(思维惯性冒出来,不是在「用修辞」)。三问——①删了它读者少理解什么?「没什么」→删"
         "(装饰比喻);②来自角色领域吗?否→重写;③后面跟解释句吗?有→删解释(比喻自己会说话)。每章 2-4 个。"
+    ),
+    # CRAFT_NOVEL：全文替换默认 metaphor；无「2-4」配额；动作优先、禁比喻链
+    "metaphor_novel": (
+        "认知比喻(小说优先):默认少用比喻——优先具体动作、对话与身体反应推进场景。"
+        "仅当比喻能让读者理解一件之前不理解的事、且来自角色专业领域(思维惯性,非修辞表演)时才写;"
+        "全章至多 1 个认知必需比喻,删了读者不少懂则删。"
+        "禁止明喻/隐喻连环(「像…像…仿佛…」)凑字;禁止比喻后跟解释句。"
     ),
     "subtext": (
         "潜台词:每章至少 1 处角色实际说的与真正想说的不同。不在叙述中解释潜台词,让读者自己发现。"
@@ -64,6 +78,16 @@ ENGINES: dict[str, str] = {
         "③删装饰:删了读者不少懂的形容词/比喻 → 删。"
         "④克制收尾:章末冷笔定格,不升华不总结。"
         "⑤一段一焦点:别在一段里塞满所有情绪/信息,留下未说的。"
+    ),
+    # CRAFT_NOVEL：在默认留白上扩 1 句 anti_essay；仍占 restraint 槽,不新增第 9 段展示引擎
+    "restraint_novel": (
+        "留白/减法:写满是 AI 通病,该不写的不写比写满更有力。"
+        "①信息冰山:前史/设定落笔只露 1/8,读者能推的不写明。"
+        "②情绪不解释:给身体/场景,不给「这意味着/他明白了/正是因为」的解说;转折后留一句呼吸,不立即点透。"
+        "③删装饰:删了读者不少懂的形容词/比喻 → 删。"
+        "④克制收尾:章末冷笔定格,不升华不总结。"
+        "⑤一段一焦点:别在一段里塞满所有情绪/信息,留下未说的。"
+        "⑥禁议论文腔(anti_essay):勿章末升华点题,勿「原来如此/正是因为」收束;戏尽于动作与未说完的话。"
     ),
 }
 
@@ -164,6 +188,52 @@ def _pdc_craft_skew() -> bool:
     return v in ("1", "true", "yes", "on")
 
 
+def _craft_novel() -> bool:
+    """小说优先 craft 包；读 novel_quality_flags(DB→env→默认 False)。"""
+    try:
+        from scribe3.novel_quality_flags import craft_novel_enabled
+        return bool(craft_novel_enabled())
+    except Exception:
+        # fail-soft：模块不可用时回落 env，与 PDC 直读口径一致
+        v = (os.environ.get("SCRIBE3_CRAFT_NOVEL") or "0").strip().lower()
+        return v in ("1", "true", "yes", "on")
+
+
+def resolve_engine_key(key: str, *, novel: bool | None = None, pdc: bool | None = None) -> str:
+    """选择表：每个展示槽位只返回一个 ENGINES 键(不双注入)。
+
+    优先级：``novel_override if CRAFT_NOVEL else (pdc_skew if PDC else default)``。
+
+    | 槽位 | 默认 | CRAFT_NOVEL=1 | PDC=1 only | 两者皆 1 |
+    |------|------|---------------|------------|----------|
+    | idle | idle | idle_pdc | idle_pdc | idle_pdc |
+    | sensory | sensory | sensory_pdc | sensory_pdc | sensory_pdc |
+    | metaphor | metaphor | metaphor_novel | metaphor | metaphor_novel |
+    | restraint | restraint | restraint_novel | restraint | restraint_novel |
+    | 其余 | 自身 | 自身 | 自身 | 自身 |
+    """
+    if novel is None:
+        novel = _craft_novel()
+    if pdc is None:
+        pdc = _pdc_craft_skew()
+    if novel:
+        if key == "idle":
+            return "idle_pdc"
+        if key == "sensory":
+            return "sensory_pdc"
+        if key == "metaphor":
+            return "metaphor_novel"
+        if key == "restraint":
+            return "restraint_novel"
+        return key
+    if pdc:
+        if key == "idle":
+            return "idle_pdc"
+        if key == "sensory":
+            return "sensory_pdc"
+    return key
+
+
 def build_craft_block(rules: list[dict] | None = None, short_mode: bool = False) -> str:
     """组装引擎层引导块(注入渲染 prompt);题材层 rules 叠加其后。
     rules: [{kind, pattern, note}] 来自 craft_rule per-work 表。
@@ -174,6 +244,8 @@ def build_craft_block(rules: list[dict] | None = None, short_mode: bool = False)
     其余引擎(身体先行/温度曲线/闲笔/……)不受影响。
 
     SCRIBE3_PDC=1: idle/sensory 换用偏科文案(与压力注入同 flag)。
+    SCRIBE3_CRAFT_NOVEL=1: 小说优先选择表(比喻无「2-4」、闲笔/感官偏科、留白 anti_essay);
+    与 PDC 同开时每个槽位仍只注入一段变体。
 
     TODO(题材包 prompt 消费):四题材包的 pov_tone/moves/opening_patterns 等尚未
     接进本函数的 rules 叠加——本任务(B16)只负责数据落库(genres.seed_genre_pack),
@@ -181,16 +253,13 @@ def build_craft_block(rules: list[dict] | None = None, short_mode: bool = False)
     _ZH = {"body": "身体先行", "temperature": "温度曲线", "idle": "闲笔",
            "metaphor": "认知比喻", "subtext": "潜台词", "sensory": "感官锚定",
            "soak": "浸泡", "restraint": "留白"}
-    skew = _pdc_craft_skew()
+    novel = _craft_novel()
+    pdc = _pdc_craft_skew()
     lines = ["## 写作引擎(题材无关,渲染时遵守)"]
     for key in _ZH:
         if short_mode and key == "restraint":
             continue
-        engine_key = key
-        if skew and key == "idle":
-            engine_key = "idle_pdc"
-        elif skew and key == "sensory":
-            engine_key = "sensory_pdc"
+        engine_key = resolve_engine_key(key, novel=novel, pdc=pdc)
         lines.append(f"- 【{_ZH[key]}】{ENGINES[engine_key]}")
     if rules:
         lines.append("## 本书题材规则(本作专属)")

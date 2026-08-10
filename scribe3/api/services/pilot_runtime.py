@@ -189,6 +189,223 @@ def _grounding_review(
     return {"ok": not issues, "issues": issues[:12], "claims": claims}
 
 
+# ── 节拍 v2 行协议 / 接地候选（纯函数；PR-2 · 无 LLM）────────────────────
+
+_BEAT_V2_KIND = frozenset({
+    "scene", "bridge", "场景", "桥", "过渡", "衔接", "SCENE", "BRIDGE",
+})
+
+
+def grounding_candidate_from_beats(beats: list | None) -> str:
+    """接地候选串：每拍 text|goal|conflict|turn|cost|hook 换行拼接（空字段跳过）。"""
+    parts: list[str] = []
+    for b in beats or []:
+        if not isinstance(b, dict):
+            if isinstance(b, str) and b.strip():
+                parts.append(b.strip())
+            continue
+        for k in ("text", "goal", "conflict", "turn", "cost", "hook"):
+            v = str(b.get(k) or "").strip()
+            if v:
+                parts.append(v)
+    return "\n".join(parts)
+
+
+def parse_beats_v2_output(raw: str) -> tuple[list[dict], str]:
+    """解析节拍 v2 行协议。
+
+    行格式：``KIND|目标|冲突|结果|代价|钩子|摘要|密度|预算``
+    另支持 ``CHAPTER_HOOK|…`` / ``章末钩子|…``。
+    无管道的纯文本行降级为 ``{text}``。
+    返回 ``(beats, chapter_hook)``。
+    """
+    beats: list[dict] = []
+    chapter_hook = ""
+    for raw_ln in (raw or "").splitlines():
+        ln = re.sub(r"^\s*(?:[-·•*]|\d{1,2}[.、)])\s*", "", raw_ln).strip()
+        if not ln:
+            continue
+        # 全角/半角管道
+        if "｜" in ln and "|" not in ln:
+            ln_norm = ln.replace("｜", "|")
+        else:
+            ln_norm = ln.replace("｜", "|")
+        head = ln_norm.split("|", 1)[0].strip()
+        head_u = head.upper().replace(" ", "")
+        if head_u in ("CHAPTER_HOOK", "章末钩子", "章钩子", "HOOK"):
+            chapter_hook = ln_norm.split("|", 1)[1].strip() if "|" in ln_norm else ""
+            continue
+        if "|" in ln_norm:
+            cols = [c.strip() for c in ln_norm.split("|")]
+            while len(cols) < 9:
+                cols.append("")
+            kind_raw = cols[0]
+            # 首列是 KIND 标签，或模型把摘要放首列时仍尽量解析
+            if kind_raw in _BEAT_V2_KIND or kind_raw == "" or kind_raw.lower() in (
+                "scene", "bridge",
+            ):
+                kind = "bridge" if str(kind_raw).lower() in (
+                    "bridge", "桥", "过渡", "衔接",
+                ) else "scene"
+                goal, conflict, turn = cols[1], cols[2], cols[3]
+                cost, hook, text = cols[4], cols[5], cols[6]
+                density, budget_s = cols[7], cols[8]
+            else:
+                # 无 KIND 标签的 管道行：按 目标|冲突|结果|… 或整行当 text
+                if len(cols) >= 3:
+                    kind = "scene"
+                    goal, conflict, turn = cols[0], cols[1], cols[2]
+                    cost = cols[3] if len(cols) > 3 else ""
+                    hook = cols[4] if len(cols) > 4 else ""
+                    text = cols[5] if len(cols) > 5 else ""
+                    density = cols[6] if len(cols) > 6 else ""
+                    budget_s = cols[7] if len(cols) > 7 else ""
+                else:
+                    beats.append({
+                        "id": f"b{len(beats) + 1}",
+                        "kind": "scene",
+                        "text": ln_norm.replace("|", " ").strip(),
+                    })
+                    continue
+            if not text:
+                # 摘要空时用 goal/turn 拼可读 text（下游仍可读 GCD）
+                text = "；".join(x for x in (goal, turn) if x) or conflict or cost
+            beat: dict[str, Any] = {
+                "id": f"b{len(beats) + 1}",
+                "kind": kind,
+                "goal": goal,
+                "conflict": conflict,
+                "turn": turn,
+                "cost": cost,
+                "hook": hook,
+                "text": text,
+            }
+            if density:
+                beat["density"] = density
+            if budget_s:
+                try:
+                    beat["budget"] = int(float(budget_s))
+                except (TypeError, ValueError):
+                    if budget_s:
+                        beat["budget"] = budget_s
+            # 至少有一个实质字段
+            if any(str(beat.get(k) or "").strip() for k in (
+                "text", "goal", "conflict", "turn", "cost", "hook",
+            )):
+                beats.append(beat)
+            continue
+        # 纯文本行 → v1 兼容
+        beats.append({"id": f"b{len(beats) + 1}", "kind": "scene", "text": ln})
+    # 章末钩子回填末拍
+    if chapter_hook and beats:
+        last = beats[-1]
+        if not str(last.get("hook") or "").strip():
+            last["hook"] = chapter_hook
+    return beats[:8], chapter_hook
+
+
+def parse_beats_v1_lines(raw: str) -> list[dict]:
+    """v1：每行一条动作/转折 → ``{text}``。"""
+    beats: list[dict] = []
+    for ln in (raw or "").splitlines():
+        t = re.sub(r"^\s*(?:[-·•*]|\d{1,2}[.、)])\s*", "", ln).strip()
+        if t:
+            beats.append({"id": f"b{len(beats) + 1}", "kind": "scene", "text": t})
+    return beats[:8]
+
+
+def _beats_from_synopsis_segments(syn: str) -> list[dict]:
+    """确定性回退：只切大纲原文，不引入新主张（与接地 fail-closed 同口径）。"""
+    parts = [p.strip() for p in re.split(r"[；;。！？!?\n]+", syn or "") if p.strip()]
+    out_b = [{"id": f"b{i + 1}", "kind": "scene", "text": p}
+             for i, p in enumerate(parts) if len(p) >= 4][:7]
+    if len(out_b) < 2 and (syn or "").strip():
+        s = syn.strip()
+        mid = max(8, len(s) // 2)
+        out_b = [
+            {"id": "b1", "kind": "scene", "text": s[:mid].strip()},
+            {"id": "b2", "kind": "scene", "text": s[mid:].strip() or s[:mid].strip()},
+        ]
+    return [b for b in out_b if b.get("text")]
+
+
+def _compose_beats_meta(
+    beats: list[dict],
+    *,
+    schema: str,
+    beats_source: str,
+    chapter_hook: str = "",
+    synopsis: str = "",
+    chapter_pressure: int = 4,
+    role: str = "推进",
+) -> dict:
+    """组装 ``beats_meta``（含 ``drama_validation`` + 结构化 ``gaps``）。
+
+    戏剧门 park 由 ``expand_beats`` 在 ``SCRIBE3_DRAMA_GATE=1`` 时另判；本函数只落元数据。
+    """
+    from scribe3.drama_beats import (
+        drama_score,
+        extract_drama_gaps,
+        validate_drama_beats,
+    )
+
+    dv = validate_drama_beats(
+        beats,
+        chapter_pressure=chapter_pressure,
+        role=role,
+        synopsis=synopsis or "",
+        chapter_hook=chapter_hook or "",
+    )
+    score = drama_score(beats, chapter_hook=chapter_hook or "")
+    gaps = extract_drama_gaps(beats, validation=dv)
+    return {
+        "schema": schema,
+        "chapter_hook": chapter_hook or "",
+        "beats_source": beats_source,
+        "drama_score": score,
+        "drama_validation": {
+            "ok": bool(dv.get("ok")),
+            "errors": list(dv.get("errors") or []),
+            "warnings": list(dv.get("warnings") or []),
+            "drama_weak": bool(dv.get("drama_weak")),
+            "metrics": dv.get("metrics") or {},
+            "gaps": gaps,
+        },
+    }
+
+
+def _drama_gate_park_if_needed(bmeta: dict) -> dict | None:
+    """``SCRIBE3_DRAMA_GATE=1`` 且高压 + ``drama_validation.ok=False`` → advisory park。
+
+    **不**擦除已写 beats；文案含「可补字段继续」与缺口清单。
+    低压/非高压章不 park（仅 meta 记 gaps）。
+    """
+    try:
+        from scribe3.novel_quality_flags import drama_gate_enabled
+        gate_on = bool(drama_gate_enabled())
+    except Exception:
+        gate_on = False
+    dv = (bmeta or {}).get("drama_validation") or {}
+    from scribe3.drama_beats import (
+        format_drama_gate_park_reason,
+        should_drama_gate_park,
+    )
+    if not should_drama_gate_park(dv, gate_enabled=gate_on):
+        return None
+    gaps = dv.get("gaps") or {}
+    reason = format_drama_gate_park_reason(gaps, advisory=True)
+    return {
+        "pilot_park": reason,
+        "drama_gate": {
+            "mode": "advisory",
+            "ok": False,
+            "parked": True,
+            "gaps": gaps,
+            "errors": list(dv.get("errors") or []),
+        },
+    }
+
+
 def _pilot_executor(work: str) -> dict:
     """action → callable(st, seq)。全部落库走 update_chapter_meta 白名单/既有端点函数。"""
     def propose_outline(st, seq):
@@ -199,8 +416,13 @@ def _pilot_executor(work: str) -> dict:
             return {"skipped": "大纲已有内容,按既有推进(不覆盖)"}
         steer = _pilot_steer(st, seq)
         out = _pilot_llm_gen(st, work, seq, "plan",
-                             f"给第{seq}章出大纲提案:3-5句,写清这章发生什么、压力级(1-5)、"
-                             f"章末钩子。只输出大纲正文。"
+                             f"给第{seq}章出大纲提案:3-5句,写清这章发生什么。"
+                             f"并在正文后单独标注以下标签行（全角或半角冒号均可，勿省略）:\n"
+                             f"压力级:N  （N=1-5，本章戏剧压力）\n"
+                             f"chapter_role:高压|推进|修炼|关系回收|低压|信息整理\n"
+                             f"stakes:若失败，…  （一句：POV 若失败会失去什么/不可逆代价）\n"
+                             f"章末钩子:…  （一句：追读拉力，信息差或未兑现威胁）\n"
+                             f"只输出大纲正文与上述标签，不要解释。"
                              + (f"\n作者意图(最高优先):{steer}" if steer else ""))
         st.update_chapter_meta(seq, {"synopsis": out})
         return {"synopsis": out}
@@ -239,7 +461,9 @@ def _pilot_executor(work: str) -> dict:
             from scribe3.brief import parse_chapter_meta
             from scribe3.pressure_drive import (
                 bootstrap_pdc_from_texts,
+                first_ok_bootstrap_evidence,
                 pdc_flag_enabled,
+                template_bootstrap_evidence,
                 validate_pdc,
             )
             if not pdc_flag_enabled():
@@ -253,18 +477,30 @@ def _pilot_executor(work: str) -> dict:
             texts = [
                 str(b.get("text") or "") for b in (beats or []) if isinstance(b, dict)
             ]
-            # 确定性：用 synopsis 片段作 fork/evidence 种子（须 ≥2 字）
+            # 确定性：fork 仍用 synopsis 种子；evidence 优先 beat cost→turn→hook
             seed = (synopsis or "").strip().replace("\n", "")[:40]
             fork = f"推进或收束本章核心：{seed[:24]}" if seed else "推进本章核心抉择"
-            evidence = "掌心嵌下的灰印" if "灰" in (synopsis or "") else "收不回的一步痕迹"
+            evidence = first_ok_bootstrap_evidence(
+                beats,
+                template_fallback=template_bootstrap_evidence(synopsis or ""),
+                synopsis=synopsis or "",
+            )
+            # cost_steps：有 evidence_ok 的 beat.cost 则作阶梯种子
+            beat_costs = [
+                str(b.get("cost") or "").strip()
+                for b in (beats or [])
+                if isinstance(b, dict) and str(b.get("cost") or "").strip()
+            ]
             contract = bootstrap_pdc_from_texts(
                 synopsis=synopsis or "",
                 beat_texts=texts,
+                chapter_beats=beats if isinstance(beats, list) else None,
                 chapter_pressure=cp,
                 role=role,
                 fork_choice=fork,
                 evidence=evidence,
                 irreversible_action="留下痕迹",
+                cost_steps=beat_costs[:3] if beat_costs else None,
             )
             if not contract:
                 logging.getLogger("scribe3").info(
@@ -284,55 +520,214 @@ def _pilot_executor(work: str) -> dict:
             return {"ok": None, "note": f"pdc_bootstrap_error:{e}"}
 
     def expand_beats(st, seq):
+        """展开节拍：v2 GCD 行协议（旗控）+ 全字段接地 + synopsis fallback 旗 + beats_meta。
+
+        - ``SCRIBE3_BEATS_V2``（默认开）：生成 goal/conflict/turn/cost/hook/text
+        - 接地候选 = 全 GCD 字段拼接（非仅 text）
+        - 接地失败：``SCRIBE3_BEATS_SYNOPSIS_FALLBACK``（默认开）→ 大纲切句；
+          否则 park，不写 beats
+        - ``validate_drama_beats`` → ``beats_meta.drama_validation``（含 ``gaps``）
+        - ``SCRIBE3_DRAMA_GATE=1``（默认关）：高压章且 ok=False → ``pilot_park``
+          ``drama_incomplete`` advisory（可补字段继续；**不**擦 beats）
+        """
         ch = st.get_chapter(seq) or {}
         if ch.get("beats"):
             return {"skipped": "节拍已有内容,按既有推进(不覆盖)"}
-        import re as _re_b
 
-        def _beats_from_synopsis(syn: str) -> list[dict]:
-            """确定性回退：只切大纲原文，不引入新主张（与接地 fail-closed 同口径）。"""
-            parts = [p.strip() for p in _re_b.split(r"[；;。！？!?\n]+", syn or "") if p.strip()]
-            out_b = [{"text": p} for p in parts if len(p) >= 4][:7]
-            if len(out_b) < 2 and (syn or "").strip():
-                s = syn.strip()
-                mid = max(8, len(s) // 2)
-                out_b = [{"text": s[:mid].strip()}, {"text": s[mid:].strip() or s[:mid].strip()}]
-            return [b for b in out_b if b["text"]]
+        try:
+            from scribe3.novel_quality_flags import (
+                beats_synopsis_fallback_enabled,
+                beats_v2_enabled,
+            )
+            use_v2 = bool(beats_v2_enabled())
+            use_synopsis_fb = bool(beats_synopsis_fallback_enabled())
+        except Exception:
+            use_v2 = True
+            use_synopsis_fb = True
 
-        out = _pilot_llm_gen(st, work, seq, "plan",
-                             f"据本章大纲展开节拍:4-7条,每条一行一个动作/转折,"
-                             f"不写成正文。只输出节拍行,每行一条。"
-                             f"禁止新增大纲没有的人物/物件/规则。\n大纲:{ch.get('synopsis') or ''}")
-        beats = [{"text": _re_b.sub(r"^\s*(?:[-·•]|\d{1,2}[.、])\s*", "", ln).strip()}
-                 for ln in out.splitlines() if ln.strip()]
-        beats = [b for b in beats if b["text"]][:8]
-        source = (ch.get("synopsis") or "").strip()
+        synopsis = (ch.get("synopsis") or "").strip()
+        try:
+            from scribe3.brief import parse_chapter_meta
+            _meta = parse_chapter_meta(synopsis) or {}
+        except Exception:
+            _meta = {}
+        try:
+            chapter_pressure = int(_meta.get("pressure") or 4)
+        except (TypeError, ValueError):
+            chapter_pressure = 4
+        role = str(_meta.get("role") or "推进")
+
+        source = synopsis
         steer = _pilot_steer(st, seq)
         if steer:
             source += "\n\n作者意图:\n" + steer
+
+        def _v2_prompt(*, strict: bool = False) -> str:
+            base = (
+                f"据本章大纲展开戏剧节拍（beats.v2）：输出 4–7 行，每行严格用管道分隔，"
+                f"字段顺序固定为：\n"
+                f"KIND|目标|冲突|结果|代价|钩子|摘要|密度|预算\n"
+                f"KIND 仅用 scene 或 bridge；目标=POV场景级欲望；冲突=阻力；"
+                f"结果=转折/灾难；代价=不可逆或损失；钩子=读者悬念（可空）；"
+                f"摘要=一句叙事；密度=密或疏；预算=整数可空。\n"
+                f"最后可另起一行：CHAPTER_HOOK|章末钩子全文\n"
+                f"禁止散文段落；禁止新增大纲没有的人物/物件/规则/不可逆设定。\n"
+                f"只输出上述行，不要 Markdown。\n大纲:\n{synopsis}"
+            )
+            if strict:
+                base = (
+                    "【重试·严格】必须逐行 KIND|目标|冲突|结果|代价|钩子|摘要|密度|预算，"
+                    "禁止散文段落与编号说明。\n"
+                ) + base
+            return base
+
+        def _v1_prompt() -> str:
+            return (
+                f"据本章大纲展开节拍:4-7条,每条一行一个动作/转折,"
+                f"不写成正文。只输出节拍行,每行一条。"
+                f"禁止新增大纲没有的人物/物件/规则。\n大纲:{synopsis}"
+            )
+
+        def _gen_and_parse(*, strict: bool = False) -> tuple[list[dict], str, str]:
+            """返回 (beats, chapter_hook, schema_tag) schema_tag ∈ v2|v1。"""
+            if use_v2:
+                raw = _pilot_llm_gen(st, work, seq, "plan", _v2_prompt(strict=strict))
+                beats, hook = parse_beats_v2_output(raw)
+                # 若无任何 GCD 字段，视为 parse 弱失败 → 可被重试；仍保留 text 行
+                has_gcd = any(
+                    str(b.get("goal") or b.get("conflict") or b.get("turn") or "").strip()
+                    for b in beats if isinstance(b, dict)
+                )
+                if beats and has_gcd:
+                    return beats, hook, "v2"
+                if beats and not has_gcd:
+                    # 模型回落成纯文本行
+                    return beats, hook, "v1"
+                return [], "", "v2"
+            raw = _pilot_llm_gen(st, work, seq, "plan", _v1_prompt())
+            return parse_beats_v1_lines(raw), "", "v1"
+
+        beats, chapter_hook, schema_tag = _gen_and_parse(strict=False)
+        if not beats:
+            # parse 失败 → 严格重试 1 次
+            beats, chapter_hook, schema_tag = _gen_and_parse(strict=True)
+
+        if not beats:
+            return {
+                "pilot_park": "节拍解析失败:模型未产出可用节拍行，请修订后再推进",
+                "grounding": {"ok": False, "issues": [{"claim": "", "reason": "parse_empty", "evidence": ""}]},
+                "candidate_beats": [],
+            }
+
+        candidate = grounding_candidate_from_beats(beats)
         review = _grounding_review(
-            source, "\n".join(b["text"] for b in beats), mode="beats",
+            source, candidate, mode="beats",
             st=st, work=work, chapter=seq,
         )
-        if not review["ok"]:
-            # 产品最优：不用外部脚手架，而用大纲原文切分作节拍（零新增主张）
-            fb = _beats_from_synopsis(ch.get("synopsis") or "")
-            if len(fb) >= 2:
-                st.update_chapter_meta(seq, {"beats": fb})
-                logging.getLogger("scribe3").info(
-                    "expand_beats synopsis-segment fallback work=%s seq=%s n=%s", work, seq, len(fb))
-                # 回退路径：不写 pressure_drive → validate ok=None；GATE 不 park
-                return {"beats": fb, "grounding": {"ok": True, "fallback": "synopsis_segments"},
-                        "llm_rejected": review, "pdc": {"ok": None, "note": "pdc_missing_after_fallback"}}
-            return {"pilot_park": "事实对齐失败:节拍含无来源主张，请修订后再推进",
-                    "grounding": review, "candidate_beats": beats}
-        st.update_chapter_meta(seq, {"beats": beats})
-        pdc_meta = _try_bootstrap_pdc(st, seq, ch.get("synopsis") or "", beats)
-        # SCRIBE3_PDC_GATE=1：仅完整落库且结构非法 → park；ok=None 永不 park
+        if not review.get("ok"):
+            # ground 失败 → 重生+重审 1 次
+            beats2, hook2, schema2 = _gen_and_parse(strict=True)
+            if beats2:
+                cand2 = grounding_candidate_from_beats(beats2)
+                review2 = _grounding_review(
+                    source, cand2, mode="beats",
+                    st=st, work=work, chapter=seq,
+                )
+                if review2.get("ok"):
+                    beats, chapter_hook, schema_tag, review = beats2, hook2, schema2, review2
+                else:
+                    review = review2
+                    beats, chapter_hook, schema_tag = beats2, hook2, schema2
+
+        if not review.get("ok"):
+            log = logging.getLogger("scribe3")
+            if use_synopsis_fb:
+                fb = _beats_from_synopsis_segments(synopsis)
+                if len(fb) >= 2:
+                    bmeta = _compose_beats_meta(
+                        fb,
+                        schema="v1",
+                        beats_source="synopsis_segments",
+                        chapter_hook="",
+                        synopsis=synopsis,
+                        chapter_pressure=chapter_pressure,
+                        role=role,
+                    )
+                    # 先落库再门检：advisory drama gate **不**擦 beats
+                    st.update_chapter_meta(seq, {"beats": fb, "beats_meta": bmeta})
+                    log.info(
+                        "expand_beats synopsis-segment fallback work=%s seq=%s n=%s "
+                        "beats_source=synopsis_segments drama_ok=%s",
+                        work, seq, len(fb),
+                        (bmeta.get("drama_validation") or {}).get("ok"),
+                    )
+                    out_fb = {
+                        "beats": fb,
+                        "beats_meta": bmeta,
+                        "grounding": {"ok": True, "fallback": "synopsis_segments"},
+                        "llm_rejected": review,
+                        "pdc": {"ok": None, "note": "pdc_missing_after_fallback"},
+                    }
+                    dpark = _drama_gate_park_if_needed(bmeta)
+                    if dpark:
+                        log.info(
+                            "expand_beats drama_gate park(fallback) work=%s seq=%s",
+                            work, seq,
+                        )
+                        return {**out_fb, **dpark}
+                    return out_fb
+            return {
+                "pilot_park": "事实对齐失败:节拍含无来源主张，请修订后再推进",
+                "grounding": review,
+                "candidate_beats": beats,
+            }
+
+        # 接地通过：写 beats + beats_meta；可选 DRAMA_GATE advisory park
+        if schema_tag == "v2":
+            beats_source = "llm_v2"
+            schema = "v2"
+        else:
+            beats_source = "llm_v1"
+            schema = "v1"
+        if chapter_hook and beats and not str(beats[-1].get("hook") or "").strip():
+            beats[-1]["hook"] = chapter_hook
+
+        bmeta = _compose_beats_meta(
+            beats,
+            schema=schema,
+            beats_source=beats_source,
+            chapter_hook=chapter_hook,
+            synopsis=synopsis,
+            chapter_pressure=chapter_pressure,
+            role=role,
+        )
+        st.update_chapter_meta(seq, {"beats": beats, "beats_meta": bmeta})
+        logging.getLogger("scribe3").info(
+            "expand_beats ok work=%s seq=%s n=%s beats_source=%s drama_ok=%s",
+            work, seq, len(beats), beats_source,
+            (bmeta.get("drama_validation") or {}).get("ok"),
+        )
+
+        pdc_meta = _try_bootstrap_pdc(st, seq, synopsis, beats)
+        out = {
+            "beats": beats,
+            "beats_meta": bmeta,
+            "grounding": review,
+            "pdc": pdc_meta,
+        }
+        # 戏剧门优先于 PDC 门：缺口清单对人补节拍更直接
+        dpark = _drama_gate_park_if_needed(bmeta)
+        if dpark:
+            logging.getLogger("scribe3").info(
+                "expand_beats drama_gate park work=%s seq=%s gaps=%s",
+                work, seq,
+                ((bmeta.get("drama_validation") or {}).get("gaps") or {}).get("lines"),
+            )
+            return {**out, **dpark}
         park = _pdc_gate_park_if_needed(st, seq)
         if park:
-            return {**park, "beats": beats, "grounding": review, "pdc": pdc_meta}
-        return {"beats": beats, "grounding": review, "pdc": pdc_meta}
+            return {**out, **park}
+        return out
 
     def deduce(st, seq):
         from scribe3.deduce_helpers import (
@@ -511,6 +906,18 @@ def _pilot_executor(work: str) -> dict:
         # 1) 显式「【强制重写】」
         # 2) 作者意图要求长章(可见汉字≥N) 且当前 prose 明显偏短 → 视为扩写意图
         force_clear = False
+        # PR-4：有 GCD 戏剧合同时，禁止「仅因字数不足」清稿（宁短勿巷志）；
+        # 显式【强制重写】/超长压缩仍可清。限知红线不由此路径放宽。
+        _has_drama = False
+        try:
+            from scribe3.drama_beats import beats_have_drama_gcd
+            _bm = ch.get("beats_meta") or {}
+            _hook = ""
+            if isinstance(_bm, dict):
+                _hook = str(_bm.get("chapter_hook") or "").strip()
+            _has_drama = beats_have_drama_gcd(ch.get("beats") or [], chapter_hook=_hook)
+        except Exception:
+            _has_drama = False
         if prose_now and steer:
             m = _re_dl.search(r"可见汉字\s*≥\s*(\d{3,5})", steer)
             target = int(m.group(1)) if m else 0
@@ -519,7 +926,13 @@ def _pilot_executor(work: str) -> dict:
             # 显式强制重写 或 意图要求长章：仅当当前仍短于目标才清稿。
             # 若已够长仍见「【强制重写】」残留在 pilot_steer，不得再清（否则无限 advisory 环）。
             if target and prose_cn < target:
-                force_clear = True
+                if "【强制重写】" in steer or not _has_drama:
+                    force_clear = True
+                else:
+                    logging.getLogger("scribe3").info(
+                        "draft_loop skip length-only clear (drama present) "
+                        "work=%s seq=%s was_cn=%s target=%s",
+                        work, seq, prose_cn, target)
             elif "【强制重写】" in steer and (not target) and prose_cn < 4500:
                 force_clear = True
             # 真路径压缩：作者意图写明上限且当前超长 → 清稿重写（避免 restore 最长旧稿锁死）
@@ -546,11 +959,23 @@ def _pilot_executor(work: str) -> dict:
             # 正文已在(pass 落库/作者手动采纳 advisory 稿)→ 跳过生成直接体检
             return {"skipped": "正文已在,跳过生成(advisory 稿手动采纳后走此路)"}
         # 连载验收默认章长 ~5k 可见汉字；max_tokens 由 loop_chapter 拉高，避免默认截断成 ~1.5k 短稿
+        # PR-4 length_steer：字数次于戏；始终 soft 宁短勿巷志；CRAFT_NOVEL 再强调冲突/行动。
+        # 限知/泄露硬红线优先级不变（find_leaks 仍 blocking；本舵不覆盖）。
         length_steer = (
             "本章交完整文学正文：可见汉字目标约 4800–5500 字（去空白后），"
             "连续场景与对话，气味/触感锚，禁止公式注水尾（条N存档/换位完成/观察条/勒紧半指）。"
             "用 ⟦PROPOSAL scope=chapter⟧ 围栏交整章。"
+            "宁短勿巷志凑字；密拍预算优先于凑满 4800；欠戏禁止用气味/街景注水。"
+            "限知与硬红线优先于戏剧合同与字数目标。"
         )
+        try:
+            from scribe3.novel_quality_flags import craft_novel_enabled
+            if craft_novel_enabled():
+                length_steer += (
+                    "优先冲突与行动推进，禁止风景巡礼式注水；戏剧合同优先于字数目标。"
+                )
+        except Exception:
+            pass
         req = LoopChapterReq(
             chapter=seq,
             focalizer=ch.get("focalizer") or "",
@@ -569,38 +994,71 @@ def _pilot_executor(work: str) -> dict:
         resp = post_check(PostCheckReq(prose=prose, focalizer=ch.get("focalizer") or ""),
                           seq=seq, work=work)
         # 审查 P1-7:体检结果必须被消费——blocking 停靠,不再"烧一遍然后扔"
-        from scribe3.loop import triage
+        from scribe3.loop import bucket_counts_from_triage, triage
         t = triage(resp)
+        # PR-6c: triage buckets 计数随 full_check 产物暂存，deliver 写进 pilot_card
+        _bcounts = bucket_counts_from_triage(t)
+        if _bcounts is not None:
+            resp["_triage_bucket_counts"] = _bcounts
+
+        def _stage_bucket_counts(counts: dict | None) -> None:
+            """把 redline/story/style 计数暂存进 pilot_card（deliver 会覆写完整卡）。"""
+            if not counts:
+                return
+            try:
+                st._execute_write(
+                    "UPDATE type::record('chapter',$seq) SET pilot_card=$c",
+                    {"seq": seq, "c": json.dumps({"buckets": counts}, ensure_ascii=False)},
+                )
+            except Exception as e:
+                logging.getLogger("scribe3").warning(
+                    "pilot full_check stage buckets 失败(忽略): %s", e)
+
         if t["verdict"] == "blocking":
             blocking = t.get("blocking") or []
             dets = sorted({b.get("detector") or "?" for b in blocking})
-            # pilot 连载软通过集合：仅这些检测器时不硬停——
-            # 限知泄露/退化 S1 等仍硬拦；软项记入 quality_warn 供账本，作者可继续交付。
-            # 否则真链会在 full_check 空转（同稿反复 step），5 万字/记忆旅程验收不可达。
-            # pressure_metrics 属进度/兑锚启发式，loop 回炉已消费；full_check 再硬拦会锁死
-            # 已 restore 的合格长稿（与 aggregate_ai_grade soft-pass 同型）。
-            _soft_dets = frozenset({"aggregate_ai_grade", "pressure_metrics"})
-            only_soft = bool(blocking) and all(
-                (b.get("detector") or "") in _soft_dets for b in blocking
+            # pilot 连载软通过集合（PR-6b · KD-NQ-11）：按双旗动态构建——
+            # SOFT_PRESSURE → pressure_metrics/park_stroll；SOFT_AI_GRADE → aggregate_ai_grade。
+            # 代码默认双开=现网可达；质量模式关 SOFT_PRESSURE 后压力类可硬停。
+            # 限知泄露/退化 S1 等永不 soft；软项记入 quality_warn 供账本。
+            from scribe3.novel_quality_flags import (
+                LEGACY_SOFT_PASS_KIND,
+                LEGACY_SOFT_PASS_LOG_MSG,
+                LOG_FIELD_SOFT_AI,
+                LOG_FIELD_SOFT_P,
+                LOG_FIELD_SOFT_PASS,
+                full_check_blocking_is_only_soft,
+                full_check_soft_detectors,
+                soft_pass_category_flags,
             )
+            _soft_dets = full_check_soft_detectors()
+            only_soft = full_check_blocking_is_only_soft(blocking, _soft_dets)
             if only_soft:
+                cats = soft_pass_category_flags(blocking)
                 resp["_triage_verdict"] = "advisory"
                 resp["_pilot_quality_warn"] = {
-                    "kind": "pilot_full_check_soft_nonblocking",
+                    "kind": LEGACY_SOFT_PASS_KIND,
+                    LOG_FIELD_SOFT_PASS: True,
                     "detectors": dets,
+                    LOG_FIELD_SOFT_P: cats[LOG_FIELD_SOFT_P],
+                    LOG_FIELD_SOFT_AI: cats[LOG_FIELD_SOFT_AI],
                     "note": (
-                        "pilot full_check: 仅 AI 味/pressure 不硬停，"
+                        "pilot full_check: 当前 soft 旗下 detector 不硬停，"
                         "仍须交付后读感/质量线把关"
                     ),
                 }
                 logging.getLogger("scribe3").warning(
-                    "pilot full_check soft-pass work=%s seq=%s dets=%s",
+                    "%s work=%s seq=%s dets=%s soft_p=%s soft_ai=%s",
+                    LEGACY_SOFT_PASS_LOG_MSG,
                     work, seq, dets,
+                    cats[LOG_FIELD_SOFT_P], cats[LOG_FIELD_SOFT_AI],
                 )
+                _stage_bucket_counts(_bcounts)
                 return resp
             return {"pilot_park": f"全量体检 blocking({'、'.join(dets)}),请处理后继续",
                     "post_check": resp}
         resp["_triage_verdict"] = t["verdict"]
+        _stage_bucket_counts(_bcounts)
         return resp
 
     def deliver(st, seq):
@@ -622,8 +1080,11 @@ def _pilot_executor(work: str) -> dict:
                                    stage="final", stats=_prose_stats(prose))
         except Exception as e:
             logging.getLogger("scribe3").warning("pilot 交付留版失败(忽略): %s", e)
-        _qrows = st._query("SELECT qc_issues FROM type::record('chapter',$seq)", {"seq": seq})
-        _qc = (_qrows[0] if _qrows else {}).get("qc_issues")
+        _qrows = st._query(
+            "SELECT qc_issues, pilot_card FROM type::record('chapter',$seq)",
+            {"seq": seq})
+        _row0 = _qrows[0] if _qrows else {}
+        _qc = _row0.get("qc_issues")
         _qn = len(_qc) if isinstance(_qc, list) else (_qc or 0)
         _prom = []
         try:
@@ -636,6 +1097,31 @@ def _pilot_executor(work: str) -> dict:
             pass
         card = {"seq": seq, "words": len("".join(prose.split())),
                 "qc": _qn, "promises": _prom, "low_confidence": low_conf}
+        # PR-6c · KD-NQ-7：deliver 卡带 redline/story/style 三项计数
+        # 优先 full_check 暂存；否则 fail-soft 再跑 post_check+triage（不阻断交付）
+        from scribe3.loop import (
+            bucket_counts_from_triage,
+            normalize_bucket_counts,
+            triage as _triage_for_card,
+        )
+        _buckets = None
+        try:
+            _prev = json.loads(_row0.get("pilot_card") or "{}")
+            if isinstance(_prev, dict) and isinstance(_prev.get("buckets"), dict):
+                _buckets = normalize_bucket_counts(_prev["buckets"])
+        except Exception:
+            pass
+        if _buckets is None:
+            try:
+                _pc = post_check(
+                    PostCheckReq(prose=prose, focalizer=ch.get("focalizer") or ""),
+                    seq=seq, work=work)
+                _buckets = bucket_counts_from_triage(_triage_for_card(_pc))
+            except Exception as e:
+                logging.getLogger("scribe3").warning(
+                    "pilot deliver triage buckets 失败(忽略): %s", e)
+        if _buckets is not None:
+            card["buckets"] = _buckets
         st._execute_write("UPDATE type::record('chapter',$seq) SET pilot_card=$c",
                           {"seq": seq, "c": json.dumps(card, ensure_ascii=False)})
         return {"card": card}

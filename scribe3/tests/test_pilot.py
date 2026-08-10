@@ -475,7 +475,7 @@ def test_deduce_resave_preserves_stale_on_unstamped_existing(store, monkeypatch)
 
 
 def test_pilot_beats_grounding_failure_parks_before_persist(store, monkeypatch):
-    """真实生成若凭空新增世界规则，Pilot 必须停在原状态且不污染 beats。"""
+    """接地失败且关闭 synopsis fallback 时：park 且不污染 beats。"""
     store.save_chapter(13, "", title="十三")
     store.update_chapter_meta(13, {"synopsis": "沈砚在潮闸前拒绝报出名字。"})
     monkeypatch.setattr(A, "_pilot_llm_gen", lambda *a, **kw:
@@ -484,11 +484,42 @@ def test_pilot_beats_grounding_failure_parks_before_persist(store, monkeypatch):
         "ok": False,
         "issues": [{"claim": "持灯者会遗忘亲人", "reason": "证据未包含该规则", "evidence": ""}],
     })
+    # PR-2：synopsis fallback 默认开；本用例显式关，断言 fail-closed park
+    import scribe3.novel_quality_flags as nqf
+    monkeypatch.setattr(nqf, "beats_synopsis_fallback_enabled", lambda: False)
+    monkeypatch.setattr(nqf, "beats_v2_enabled", lambda: False)
 
     result = A._pilot_executor("main")["expand_beats"](store, 13)
 
     assert result["pilot_park"].startswith("事实对齐失败")
     assert store.get_chapter(13)["beats"] == [], "不合格节拍不得写入权威章节字段"
+
+
+def test_pilot_beats_grounding_failure_synopsis_fallback_writes_meta(store, monkeypatch):
+    """接地失败且 synopsis fallback 开：写大纲切句 + beats_meta.beats_source。"""
+    store.save_chapter(14, "", title="十四")
+    store.update_chapter_meta(14, {
+        "synopsis": "沈砚在潮闸前拒绝报出名字；闸板发出第二声裂响。",
+    })
+    monkeypatch.setattr(A, "_pilot_llm_gen", lambda *a, **kw: "幻觉新规则一行")
+    monkeypatch.setattr(A, "_grounding_review", lambda *a, **kw: {
+        "ok": False,
+        "issues": [{"claim": "x", "reason": "无来源", "evidence": ""}],
+    })
+    import scribe3.novel_quality_flags as nqf
+    monkeypatch.setattr(nqf, "beats_synopsis_fallback_enabled", lambda: True)
+    monkeypatch.setattr(nqf, "beats_v2_enabled", lambda: False)
+
+    result = A._pilot_executor("main")["expand_beats"](store, 14)
+
+    assert "pilot_park" not in result
+    assert result.get("grounding", {}).get("fallback") == "synopsis_segments"
+    ch = store.get_chapter(14)
+    assert len(ch["beats"]) >= 2
+    assert all(b.get("text") for b in ch["beats"])
+    bm = ch.get("beats_meta") or {}
+    assert bm.get("beats_source") == "synopsis_segments"
+    assert "drama_validation" in bm
 
 
 def test_grounding_reviewer_fails_closed_when_evidence_is_not_in_source(monkeypatch):

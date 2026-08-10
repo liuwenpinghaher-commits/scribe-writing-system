@@ -1,4 +1,9 @@
-"""压力后验检测（确定性）· 合同锚定优先 · 抗词表刷绿。"""
+"""压力后验检测（确定性）· 合同锚定优先 · 抗词表刷绿。
+
+PR-6a：spatial / time_linear 经 ``_sev_spatial`` 定档；组合 emit ``park_stroll``
+（可无 progress 合同，KD-NQ-14）。默认仍 advisory；``SCRIBE3_PARK_STROLL_BLOCKING=1``
+且高压章可将 spatial / park_stroll 升 blocking。full_check soft-pass 属 PR-6b。
+"""
 from __future__ import annotations
 
 import re
@@ -11,6 +16,9 @@ from scribe3.pressure_drive import (
 )
 
 METRICS_VERSION = "pressure_metrics.v2"
+
+# 高压 role 集合（与 drama_beats / 执法真值表一致）
+_HIGH_ROLES = frozenset({"高压", "推进"})
 
 _NARROW_ACT = re.compile(r"接了|拧开|空过|咬合|拨开|嵌进|半寸|锁芯")
 _RETREAT_PAT = re.compile(r"退回|退了|转身离开|缩回|没敢|不敢开|收回.{0,4}匙|头也不回")
@@ -75,10 +83,13 @@ def measure_pressure(
     synopsis: str = "",
     beats_text: str = "",
     chapter_pressure: int | None = None,
+    role: str | None = None,
 ) -> dict:
     """对正文 + 可选合同跑 P0 指标，产出 findings。
 
-    severity 默认 advisory；仅 env BLOCKING 且压力≥4 时部分 kind 可 blocking。
+    severity 默认 advisory；
+    - PDC_BLOCKING + 压力≥4：irreversible / heavy ritual / heavy progress 可 blocking；
+    - PARK_STROLL_BLOCKING + 高压(cp≥HARD 或 role∈高压/推进)：spatial / park_stroll 可 blocking。
     """
     prose = prose or ""
     present = bool(contract) and isinstance(contract, dict) and contract.get("status") != "missing"
@@ -90,6 +101,14 @@ def measure_pressure(
         cp = int(chapter_pressure if chapter_pressure is not None else (contract or {}).get("chapter_pressure") or 0)
     except (TypeError, ValueError):
         cp = 0
+    # role：显式参数 > 合同；无合同也可仅靠 chapter_pressure 判高压（KD-NQ-14）
+    if role is not None:
+        role_s = str(role or "")
+    else:
+        role_s = str((contract or {}).get("role") or "") if present else ""
+
+    # 不可逆命中（供 park_stroll 组合；无合同则 false）
+    irrev_hit = False
 
     # --- irreversible_anchored ---
     if present:
@@ -97,6 +116,7 @@ def measure_pressure(
         ev = str(irrev.get("evidence_must_show") or "").strip()
         if len(ev) >= 2:
             hit = ev in prose or _norm(ev) in _norm(prose)
+            irrev_hit = bool(hit)
             metrics["irreversible_anchored"] = _metric(
                 hit, tier="light" if hit else "heavy",
                 detail=f"evidence={'命中' if hit else '未命中'}:{ev[:40]}",
@@ -217,7 +237,7 @@ def measure_pressure(
         findings.append(_finding(
             "time_linear_flag",
             f"时间刻度词 {tmarks} 处且无弯曲信号，疑似匀速流水账",
-            severity="advisory",
+            severity=_sev_spatial(cp, role_s, kind="time_linear_flag"),
         ))
 
     # --- spatial_inventory ---
@@ -248,7 +268,7 @@ def measure_pressure(
         findings.append(_finding(
             "spatial_inventory",
             f"连续≥3 句地点/巷志铺陈且无推力动词（最长 {max_run}）",
-            severity="advisory",
+            severity=_sev_spatial(cp, role_s, kind="spatial_inventory"),
         ))
 
     # --- event_pace_cv (advisory) ---
@@ -284,8 +304,9 @@ def measure_pressure(
 
     # --- progress / PSC ---
     prog = (contract or {}).get("progress") if present else None
-    role = str((contract or {}).get("role") or "") if present else ""
-    low = role in ("低压", "关系回收", "修炼", "信息整理") or cp in (1, 2)
+    low = role_s in ("低压", "关系回收", "修炼", "信息整理") or cp in (1, 2)
+    progress_zero = False
+    location_grind_heavy = False
 
     if not present or not isinstance(prog, dict):
         metrics["progress_stairs_anchored"] = _metric(None, tier="n/a", detail="无 progress")
@@ -328,10 +349,9 @@ def measure_pressure(
                     severity=_sev("progress_stairs_anchored", cp, heavy=(hit == 0)),
                 ))
 
-        irrev = contract.get("irreversible") if isinstance(contract.get("irreversible"), dict) else {}
-        irrev_ev = str(irrev.get("evidence_must_show") or "").strip()
-        irrev_hit = bool(irrev_ev and (irrev_ev in prose or _norm(irrev_ev) in _norm(prose)))
+        # irrev_hit 已在顶部计算；progress_zero 仍用同一口径
         zero = bool(stairs) and hit == 0 and not irrev_hit
+        progress_zero = zero
         metrics["progress_zero_advance"] = _metric(
             zero,
             tier="heavy" if zero else "light",
@@ -363,9 +383,14 @@ def measure_pressure(
                 prose, contract, primary, synopsis, beats_text,
             )
             over = max_run_chars > max_chars or max_run_paras > max_paras
+            grind_tier = (
+                "heavy" if over and max_run_chars > max_chars * 1.2
+                else ("mid" if over else "light")
+            )
+            location_grind_heavy = grind_tier == "heavy"
             metrics["location_grind_run"] = _metric(
                 max_run_chars,
-                tier="heavy" if over and max_run_chars > max_chars * 1.2 else ("mid" if over else "light"),
+                tier=grind_tier,
                 detail=f"max_run_chars={max_run_chars} max_run_paras={max_run_paras} cap={max_chars}/{max_paras}",
                 anchored=True,
             )
@@ -407,6 +432,40 @@ def measure_pressure(
                 ))
 
         metrics["main_channel_idle_ratio"] = _metric(None, tier="n/a", detail="report-only stub")
+
+    # --- park_stroll（组合；可无 progress，KD-NQ-14）---
+    # high ∧ (zero | (spatial∧linear) | (spatial∧contract∧¬irrev) | (grind heavy∧¬irrev))
+    high = _is_high_chapter(cp, role_s)
+    park_reasons: list[str] = []
+    if high:
+        if progress_zero:
+            park_reasons.append("progress_zero_advance")
+        if inventory_hit and linear:
+            park_reasons.append("spatial+time_linear")
+        if inventory_hit and present and not irrev_hit:
+            park_reasons.append("spatial+no_irreversible")
+        if location_grind_heavy and not irrev_hit:
+            park_reasons.append("location_grind_heavy")
+    if park_reasons:
+        park_sev = _sev_spatial(cp, role_s, kind="park_stroll")
+        findings.append(_finding(
+            "park_stroll",
+            f"公园散步：高压章疑似无主推进（{'；'.join(park_reasons)}）",
+            severity=park_sev,
+        ))
+        metrics["park_stroll"] = _metric(
+            True,
+            tier="heavy" if park_sev == "blocking" else "mid",
+            detail=";".join(park_reasons),
+            anchored=False,
+        )
+    else:
+        metrics["park_stroll"] = _metric(
+            False,
+            tier="light" if high else "n/a",
+            detail="ok" if high else "low_pressure_skip",
+            anchored=False,
+        )
 
     return {
         "version": METRICS_VERSION,
@@ -551,6 +610,56 @@ def _location_grind_stats(
     return max_run_chars, max_run_paras
 
 
+def _hard_pressure_threshold() -> int:
+    """高压门槛：env/设置 ``SCRIBE3_DRAMA_HARD_PRESSURE``，默认 4。"""
+    try:
+        from scribe3.novel_quality_flags import drama_hard_pressure
+        return int(drama_hard_pressure())
+    except Exception:
+        return 4
+
+
+def _is_high_chapter(chapter_pressure: int, role: str = "") -> bool:
+    """高压章：cp ≥ HARD_PRESSURE 或 role ∈ {高压, 推进}。"""
+    try:
+        cp = int(chapter_pressure or 0)
+    except (TypeError, ValueError):
+        cp = 0
+    return cp >= _hard_pressure_threshold() or str(role or "") in _HIGH_ROLES
+
+
+def _park_stroll_blocking_on() -> bool:
+    """``SCRIBE3_PARK_STROLL_BLOCKING`` 代码默认 False。"""
+    try:
+        from scribe3.novel_quality_flags import park_stroll_blocking_enabled
+        return bool(park_stroll_blocking_enabled())
+    except Exception:
+        return False
+
+
+def _sev_spatial(
+    chapter_pressure: int,
+    role: str = "",
+    *,
+    kind: str = "spatial_inventory",
+) -> str:
+    """spatial / time_linear / park_stroll 定档（PR-6a）。
+
+    - 默认 advisory（``PARK_STROLL_BLOCKING=0`` 或低压章）。
+    - ``time_linear_flag`` 单独 **恒 advisory**（执法经 park_stroll 组合）。
+    - ``spatial_inventory`` / ``park_stroll``：旗开且高压 → blocking。
+    """
+    if kind == "time_linear_flag":
+        return "advisory"
+    if not _park_stroll_blocking_on():
+        return "advisory"
+    if not _is_high_chapter(chapter_pressure, role):
+        return "advisory"
+    if kind in ("spatial_inventory", "park_stroll"):
+        return "blocking"
+    return "advisory"
+
+
 def _sev(kind: str, chapter_pressure: int, *, heavy: bool = False) -> str:
     """默认 advisory；BLOCKING env 且压力≥4 时部分 kind 可 blocking。"""
     if not pdc_blocking_env_enabled():
@@ -577,11 +686,10 @@ def _finding(kind: str, message: str, *, severity: str = "advisory") -> dict:
 
 
 def pressure_should_block(findings: list[dict], *, chapter_pressure: int) -> bool:
-    """是否应升为 finalize blocking（需 triage 白名单配合）。"""
-    if not pdc_blocking_env_enabled():
-        return False
-    if chapter_pressure < 4:
-        return False
+    """是否应升为 finalize blocking（需 triage 白名单配合）。
+
+    信任 findings 上已写入的 ``meta.severity``（含 PDC 与 park_stroll 两路升档）。
+    """
     for f in findings or []:
         if f.get("type") != "pressure":
             continue

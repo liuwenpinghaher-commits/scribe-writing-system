@@ -154,6 +154,54 @@ REGISTRY: tuple[Setting, ...] = (
             "张力盲评结果写章后缓存",
             "开=/tension-check 同正文指纹可复用 rubric，免重复调模型",
             danger=False),
+    # ── novel-quality 戏剧/节拍/压力旗(PR-0 登记;代码默认=现网可达;质量模式见 demo env)──
+    # 读点：scribe3.novel_quality_flags；已接线：BEATS_* / DRAMA_GATE* / CRAFT_NOVEL /
+    # PARK_STROLL_BLOCKING(PR-6a severity) / PILOT_SOFT_*(PR-6b full_check 动态 soft)。
+    # 真源：docs/plans/2026-08-10-novel-quality-first-pipeline-optimization.md
+    Setting("SCRIBE3_BEATS_V2", "flags", "bool", True, "hot",
+            "节拍 v2 生成(GCD 字段)",
+            "开=expand_beats 写 goal/conflict/turn/cost/hook 等 GCD；关=仅 text 行(v1)。代码默认开。",
+            danger=False),
+    Setting("SCRIBE3_DRAMA_GATE", "flags", "bool", False, "hot",
+            "写前戏剧门",
+            "开=expand_beats 后高压章 validate_drama_beats 失败 → pilot_park drama_incomplete"
+            "（advisory：可补字段继续，不擦 beats；缺口在 beats_meta.drama_validation.gaps）；"
+            "关=不因戏剧弱 park（代码默认）。质量模式 demo 开。",
+            danger=True),
+    Setting("SCRIBE3_DRAMA_GATE_COMPAT", "flags", "bool", True, "hot",
+            "戏剧门 v1 弱通过兼容",
+            "开=仅 text 节拍 drama_weak 警告且 ok 弱通过（代码默认，配合 DRAMA_GATE 时不因 v1 硬 park）；"
+            "关=v1 高压可进 errors。质量模式关。",
+            danger=False),
+    Setting("SCRIBE3_BEATS_SYNOPSIS_FALLBACK", "flags", "bool", True, "hot",
+            "节拍大纲切句充数",
+            "开=接地失败用 synopsis 切句充数并标 beats_source=synopsis_segments(代码默认兼容)；"
+            "关=接地失败 park 且不写 beats（质量模式推荐关）。",
+            danger=True),
+    Setting("SCRIBE3_CRAFT_NOVEL", "flags", "bool", False, "hot",
+            "小说优先 craft 包",
+            "开=craft 小说优先选择表(比喻无「2-4」、不双注入) + draft_loop length_steer 强化冲突/行动优先；"
+            "代码默认关以免 silent 改声口",
+            danger=False),
+    Setting("SCRIBE3_PILOT_SOFT_PRESSURE", "flags", "bool", True, "hot",
+            "pilot full_check 压力 soft-pass",
+            "已接线·full_check。开=pressure_metrics/park_stroll 不硬停(代码默认可达)；"
+            "关=压力类可硬停(质量模式)；与 SOFT_AI_GRADE 双旗拆分 KD-NQ-11",
+            danger=True),
+    Setting("SCRIBE3_PILOT_SOFT_AI_GRADE", "flags", "bool", True, "hot",
+            "pilot full_check AI 味 soft-pass",
+            "已接线·full_check。开=aggregate_ai_grade 不硬停(代码/质量模式均默认可达)；"
+            "关=AI 味可硬停；与 SOFT_PRESSURE 双旗拆分 KD-NQ-11",
+            danger=True),
+    Setting("SCRIBE3_PARK_STROLL_BLOCKING", "flags", "bool", False, "hot",
+            "公园散步检测升 blocking",
+            "开=高压章 spatial_inventory/park_stroll 可 meta.severity=blocking，loop.triage 进 blocking 桶；"
+            "代码默认关=一律 advisory。full_check soft-pass 由 SOFT_PRESSURE 控制(已接线 PR-6b)。",
+            danger=True),
+    Setting("SCRIBE3_DRAMA_HARD_PRESSURE", "flags", "int", 4, "hot",
+            "高压章压力门槛",
+            "chapter_pressure>=本值或 role 高压/推进视为高压（drama 门 + park_stroll）；默认 4(KD-NQ-15)；可 env 试 3",
+            min=1, max=5, danger=False),
     # ── gateway(Hermes 网关;地址类 restart)──
     Setting("HERMES_API", "gateway", "str", "http://127.0.0.1:8642/v1", "restart", "速答网关(default)"),
     Setting("HERMES_RESPONSES_API", "gateway", "str", "http://127.0.0.1:8643/v1", "restart", "agentic 读网关"),

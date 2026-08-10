@@ -323,11 +323,16 @@ function InboxPanel({ seq, onCount }) {
 }
 
 // R2-4:交付卡——主编交付时算的埋/收清单 + QC 命中数 + 自审拿不准,终选决策的关键依据。
+// PR-6c: card.buckets = {redline, story, style} 三项计数（triage 分桶；先戏后辞可见）
 function DeliveryCard({ card, seq, onOpenProse }) {
   const proms = Array.isArray(card.promises) ? card.promises : []
   const lc = (card.low_confidence || '').trim()
+  const b = card.buckets && typeof card.buckets === 'object' ? card.buckets : null
+  const bRed = b ? (Number(b.redline) || 0) : null
+  const bStory = b ? (Number(b.story) || 0) : null
+  const bStyle = b ? (Number(b.style) || 0) : null
   return (
-    <div className="mt-1.5 rounded-md bg-soft/50 border border-line/60 px-2 py-1.5 space-y-1 text-meta">
+    <div className="mt-1.5 rounded-md bg-soft/50 border border-line/60 px-2 py-1.5 space-y-1 text-meta" data-testid="delivery-card">
       <div className="flex gap-3 text-faint items-center flex-wrap">
         <span className="tnum">{card.words ?? '?'} 字</span>
         <span className={card.qc ? 'text-danger' : 'text-ok'}>质检 {card.qc || 0} 处</span>
@@ -336,6 +341,13 @@ function DeliveryCard({ card, seq, onOpenProse }) {
             className="text-brand hover:underline cursor-pointer ml-auto">打开正文 →</button>
         )}
       </div>
+      {b && (
+        <div className="flex gap-2 text-faint items-center flex-wrap" data-testid="delivery-card-buckets">
+          <span className={bRed > 0 ? 'text-danger' : ''}>红线 {bRed}</span>
+          <span className={bStory > 0 ? 'text-warn' : ''}>戏 {bStory}</span>
+          <span>辞 {bStyle}</span>
+        </div>
+      )}
       {proms.length > 0 && <div className="text-fore leading-snug">本章伏笔:{proms.join('、')}</div>}
       {lc && lc !== '无' && <div className="text-fore leading-snug"><span className="text-faint">主编拿不准:</span>{lc}</div>}
     </div>

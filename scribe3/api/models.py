@@ -371,6 +371,8 @@ class ChapterMetaReq(BaseModel):
     deltas: list | None = None              # 北极星任务6:delta 清单(登记时校验+预演)
     # PDC/PSC：压力驱动合同 JSON（dict 或 JSON 串）；store.update_chapter_meta 已白名单
     pressure_drive: dict | str | None = None
+    # 节拍 v2 元数据（schema/chapter_hook/beats_source/drama_validation）；JSON 串或 dict
+    beats_meta: dict | str | None = None
 
     @field_validator("label")
     @classmethod

@@ -142,7 +142,9 @@ def step(st, seq: int, executor: dict, *, mode: str = "manual",
     if isinstance(artifact, dict):
         park = None
         if artifact.get("pilot_park"):
-            park = str(artifact["pilot_park"])[:160]
+            # PR-3：drama_incomplete 含缺口清单 JSON，160 会截断人补路径；抬到 800
+            _park_raw = str(artifact["pilot_park"])
+            park = _park_raw[:800] if len(_park_raw) > 800 else _park_raw
         elif artifact.get("verdict") == "needs_human":
             park = "needs_human:三稿全被确定性检测拦下,请人工裁决"
         elif artifact.get("verdict") == "advisory":
