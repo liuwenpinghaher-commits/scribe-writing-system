@@ -28,6 +28,8 @@
 
 ### 卷/章信息架构改造（2026-08-10）
 
+- **热修**：`568dede` rebind-safe `_VOLUME_INTRO_BUDGET`；demo 真库 assemble 两次一致（book_aa57f17e ch3）
+
 - **UI**：`ChapterMetaPane` 章前契约合成页 + `lib/chapterContractGate.js`（B1/B2/B3 soft）  
 - **写栈**：`_outline_block(mode=write|plan)` 挂 draft/final；focus 指针 + `source_id=chapter:N:focus`；`_volume_intro_block` ~400  
 - **soft**：`ChapterStudio` final 亦拉 meta；`ContractSoftBanner` + 切 final toast（不拦 chat-write）  
