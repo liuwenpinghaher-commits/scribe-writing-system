@@ -160,7 +160,7 @@ REGISTRY: tuple[Setting, ...] = (
     # 全部 desc 首句标明「未接线」：设置 UI/DB 改值在消费者 PR 前无运行时效果，勿当质量模式验收。
     Setting("SCRIBE3_BEATS_V2", "flags", "bool", True, "hot",
             "节拍 v2 生成(GCD 字段)",
-            "未接线·改值暂无运行时效果。开=expand_beats 可写 goal/conflict/turn 等；代码默认开；消费在 PR-2+",
+            "开=expand_beats 写 goal/conflict/turn/cost/hook 等 GCD；关=仅 text 行(v1)。代码默认开。",
             danger=False),
     Setting("SCRIBE3_DRAMA_GATE", "flags", "bool", False, "hot",
             "写前戏剧门",
@@ -172,7 +172,8 @@ REGISTRY: tuple[Setting, ...] = (
             danger=False),
     Setting("SCRIBE3_BEATS_SYNOPSIS_FALLBACK", "flags", "bool", True, "hot",
             "节拍大纲切句充数",
-            "未接线·改值暂无运行时效果。开=接地失败可用 synopsis 切句(代码默认兼容)；质量模式关=禁止假节拍；接线 PR-2",
+            "开=接地失败用 synopsis 切句充数并标 beats_source=synopsis_segments(代码默认兼容)；"
+            "关=接地失败 park 且不写 beats（质量模式推荐关）。",
             danger=True),
     Setting("SCRIBE3_CRAFT_NOVEL", "flags", "bool", False, "hot",
             "小说优先 craft 包",

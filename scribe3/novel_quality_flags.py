@@ -8,9 +8,10 @@
 ----
 - **代码默认** = 现网可达（与 v6.3.3 连载 soft-pass / synopsis fallback 兼容）。
 - **质量模式** = demo ``.env`` 显式翻转；不在此模块 silent break 主路径。
-- **本模块只提供读点与字段名**；full_check / expand_beats / craft 的行为翻转在
-  后续 PR（2/3/5/6a/6b）接线。PR-0 **无行为翻转**。
-- 设置 UI 可见的旗 **改值暂无运行时效果**（见各 Setting.desc）；勿提前当质量模式验收。
+- **本模块提供读点与字段名**；行为接线按 PR 推进：
+  PR-2 已接 ``BEATS_V2`` / ``BEATS_SYNOPSIS_FALLBACK``（``expand_beats``）；
+  其余（DRAMA_GATE / craft / soft-pass / park_stroll）仍在 PR-3/5/6a/6b。
+- 设置 UI：已接线旗改值立即影响对应路径；未接线旗改值暂无运行时效果。
 
 读取路径：``settings.get_setting``（DB 覆盖 → env → REGISTRY 默认）。
 代码默认真源：``settings.REGISTRY``（``CODE_DEFAULTS`` 由其派生，禁止手抄第二份）。
