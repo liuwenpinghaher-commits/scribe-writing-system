@@ -148,87 +148,177 @@ def test_flags_default_safe():
     assert CODE_DEFAULTS.get(FLAG_EVENT_LED_DETECT) is False
 
 
-def test_draft_skip_no_generate(monkeypatch):
-    """有 prose 且无 force → skip，不调 loop_chapter。"""
-    from scribe3.api.services import pilot_runtime as pr
-    # load_pilot_actions builds nested functions — call ensure path via simulating
-    # exported behavior: we test the control flow using a minimal double of draft_loop body
+def test_plan_draft_loop_skip_existing_prose():
+    """shipped plan_draft_loop：有 prose 且无 force → action=skip。"""
+    from scribe3.execution_contract import plan_draft_loop
 
-    called = {"loop": 0}
+    plan = plan_draft_loop(
+        prose="已有正文" * 40,
+        steer="",
+        has_drama=True,
+        drive={"inciting_force": {"summary": "债"}},
+        narrative_engine=True,
+        default_drama_steer=True,
+        soft_fulfill_on=True,
+        drift_on=False,
+        resteer_on=False,
+        craft_novel=False,
+        seq=2,
+    )
+    assert plan["action"] == "skip"
+    assert plan["skipped"]
+    assert plan["force_clear"] is False
+    assert "msg" in plan and plan["msg"] == ""
+
+
+def test_plan_draft_loop_first_write_bundle():
+    """shipped plan_draft_loop：无 prose + flags on → generate msg 含执行合同。"""
+    from scribe3.execution_contract import plan_draft_loop
+
+    plan = plan_draft_loop(
+        prose="",
+        steer="",
+        has_drama=False,
+        drive={},
+        narrative_engine=True,
+        default_drama_steer=True,
+        soft_fulfill_on=False,
+        drift_on=False,
+        resteer_on=False,
+        craft_novel=False,
+        seq=1,
+    )
+    assert plan["action"] == "generate"
+    assert "执行合同" in plan["msg"]
+    assert "对白≥4" in plan["msg"] or "对白≥" in plan["msg"]
+    assert "2400" in plan["msg"]
+    assert "执行合同" in plan["length_steer"]
+
+
+def test_assemble_draft_length_steer_flags_off():
+    """shipped assemble_draft_length_steer：旗关不加 Bundle。"""
+    from scribe3.execution_contract import assemble_draft_length_steer
+
+    s = assemble_draft_length_steer(
+        craft_novel=False,
+        narrative_engine=False,
+        default_drama_steer=False,
+        author_steer="",
+    )
+    assert "执行合同" not in s
+    assert "4800" in s  # base steer still present
+
+
+def test_real_draft_loop_first_write_calls_loop_chapter(monkeypatch):
+    """真 draft_loop（_pilot_executor）首写：loop_chapter 收到含 Bundle 的 msg。"""
+    import scribe3.api.services.pilot_runtime as pr
+
+    class FakeReq:
+        def __init__(self, **kw):
+            for k, v in kw.items():
+                setattr(self, k, v)
+
+    calls: list = []
+
+    def fake_loop(req, work=None):
+        calls.append({"msg": getattr(req, "msg", None), "work": work})
+        return {"ok": True, "generated": True}
+
+    pr.LoopChapterReq = FakeReq
+    pr.loop_chapter = fake_loop
+    pr._pilot_steer = lambda st, seq: ""
+
+    monkeypatch.setattr(
+        "scribe3.novel_quality_flags.narrative_engine_enabled", lambda: True)
+    monkeypatch.setattr(
+        "scribe3.novel_quality_flags.default_drama_steer_enabled", lambda: True)
+    monkeypatch.setattr(
+        "scribe3.novel_quality_flags.soft_fulfill_enabled", lambda: False)
+    monkeypatch.setattr(
+        "scribe3.novel_quality_flags.drive_prose_drift_enabled", lambda: False)
+    monkeypatch.setattr(
+        "scribe3.novel_quality_flags.soft_fulfill_resteer_enabled", lambda: False)
+    monkeypatch.setattr(
+        "scribe3.novel_quality_flags.craft_novel_enabled", lambda: False)
+    monkeypatch.setattr(
+        "scribe3.novel_quality_flags.event_drive_gate_enabled", lambda: False)
 
     class St:
         def get_chapter(self, seq):
             return {
-                "prose": "已有正文" * 50,
-                "beats": [{"goal": "g", "conflict": "c", "turn": "t", "cost": "x"}],
-                "beats_meta": {"chapter_hook": "钩"},
-                "narrative_drive": {
-                    "inciting_force": {"summary": "债"},
-                    "execution_stamp": {"drive_content_fp": "x"},
-                },
+                "prose": "",
+                "beats": [],
+                "beats_meta": {},
+                "narrative_drive": {},
                 "focalizer": "",
             }
 
-    # Import pure path equivalent: soft_fulfill + skip decision
-    from scribe3.execution_contract import soft_fulfill_drive
+        def update_chapter_meta(self, *a, **k):
+            return None
 
-    ch = St().get_chapter(1)
-    prose = ch["prose"]
-    ful = soft_fulfill_drive(prose, ch["narrative_drive"])
-    # skip path must not clear
-    force_clear = False
-    if not force_clear and prose:
-        result = {"skipped": "正文已在", "advisories": [ful.get("steer_hint") or ""]}
-    else:
-        called["loop"] += 1
-        result = {"gen": True}
-    assert "skipped" in result
-    assert called["loop"] == 0
+        def _execute_write(self, *a, **k):
+            return None
+
+    # structural: draft_loop must reference plan_draft_loop
+    assert "plan_draft_loop" in pr._pilot_executor("t")["draft_loop"].__code__.co_names
+
+    out = pr._pilot_executor("book_t")["draft_loop"](St(), 1)
+    assert out.get("generated") is True or out.get("ok") is True
+    assert calls, "loop_chapter must be called"
+    msg = calls[0]["msg"] or ""
+    assert "执行合同" in msg
+    assert "对白≥" in msg
+    assert "2400" in msg
 
 
-def test_first_write_steer_when_flags_on(monkeypatch):
-    """ENGINE + DEFAULT_DRAMA_STEER → length_steer 含执行合同关键词。"""
+def test_real_draft_loop_skip_no_loop_chapter(monkeypatch):
+    """真 draft_loop：有 prose 时 skip，不调用 loop_chapter。"""
+    import scribe3.api.services.pilot_runtime as pr
+
+    class FakeReq:
+        def __init__(self, **kw):
+            for k, v in kw.items():
+                setattr(self, k, v)
+
+    calls: list = []
+
+    def fake_loop(req, work=None):
+        calls.append(req)
+        return {"ok": True}
+
+    pr.LoopChapterReq = FakeReq
+    pr.loop_chapter = fake_loop
+    pr._pilot_steer = lambda st, seq: ""
+
     monkeypatch.setattr(
-        "scribe3.novel_quality_flags.narrative_engine_enabled",
-        lambda: True,
-    )
+        "scribe3.novel_quality_flags.narrative_engine_enabled", lambda: False)
     monkeypatch.setattr(
-        "scribe3.novel_quality_flags.default_drama_steer_enabled",
-        lambda: True,
-    )
-    from scribe3.novel_quality_flags import (
-        default_drama_steer_enabled,
-        narrative_engine_enabled,
-    )
-    from scribe3.execution_contract import (
-        format_default_drama_steer,
-        resolve_drama_steer_params,
-    )
+        "scribe3.novel_quality_flags.default_drama_steer_enabled", lambda: False)
+    monkeypatch.setattr(
+        "scribe3.novel_quality_flags.soft_fulfill_enabled", lambda: True)
+    monkeypatch.setattr(
+        "scribe3.novel_quality_flags.drive_prose_drift_enabled", lambda: False)
+    monkeypatch.setattr(
+        "scribe3.novel_quality_flags.soft_fulfill_resteer_enabled", lambda: False)
+    monkeypatch.setattr(
+        "scribe3.novel_quality_flags.craft_novel_enabled", lambda: False)
 
-    assert narrative_engine_enabled() and default_drama_steer_enabled()
-    length_steer = "本章交完整文学正文。"
-    params = resolve_drama_steer_params("")
-    if params["enabled"]:
-        length_steer += format_default_drama_steer(
-            dialogue_min=params["dialogue_min"],
-            soft_len_floor=params["soft_len_floor"],
-        )
-    assert "对白≥" in length_steer
-    assert "2400" in length_steer
-    assert "执行合同" in length_steer
+    class St:
+        def get_chapter(self, seq):
+            return {
+                "prose": "已有正文内容" * 30,
+                "beats": [],
+                "beats_meta": {},
+                "narrative_drive": {"inciting_force": {"summary": "债"}},
+                "focalizer": "",
+            }
 
+        def _execute_write(self, *a, **k):
+            raise AssertionError("skip must not clear prose")
 
-def test_flags_off_no_bundle():
-    """旗关时不附加 Bundle（调用方不拼）。"""
-    from scribe3.novel_quality_flags import CODE_DEFAULTS, FLAG_DEFAULT_DRAMA_STEER
-    assert CODE_DEFAULTS[FLAG_DEFAULT_DRAMA_STEER] is False
-    # 无 monkeypatch：默认读者 False（无 env 覆盖时）
-    # 只断言纯函数在 enabled 路径才应被调用——此处验证不拼
-    length = "基础。"
-    enabled = False
-    if enabled:
-        length += format_default_drama_steer()
-    assert "执行合同" not in length
+    out = pr._pilot_executor("book_t")["draft_loop"](St(), 2)
+    assert "skipped" in out
+    assert calls == []
 
 
 def test_count_quotes():

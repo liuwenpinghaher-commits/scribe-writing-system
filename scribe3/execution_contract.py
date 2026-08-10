@@ -271,3 +271,210 @@ def summarize_soft_fulfill(ful: dict | None) -> dict[str, Any]:
 
 def count_dialogue_keyword_hits(text: str | None) -> int:
     return (text or "").count("对白")
+
+
+# ── draft_loop 真源决策（shipped · 单测必须调这些函数）──────────────────
+
+_LEN_GE_STEER_RE = re.compile(r"可见汉字\s*≥\s*(\d{3,5})")
+_LEN_CAP_STEER_RE = re.compile(r"(?:勿超过|不超过|可见汉字\s*≤)\s*(\d{3,5})")
+
+BASE_LENGTH_STEER = (
+    "本章交完整文学正文：可见汉字目标约 4800–5500 字（去空白后），"
+    "连续场景与对话，气味/触感锚，禁止公式注水尾（条N存档/换位完成/观察条/勒紧半指）。"
+    "用 ⟦PROPOSAL scope=chapter⟧ 围栏交整章。"
+    "宁短勿巷志凑字；密拍预算优先于凑满 4800；欠戏禁止用气味/街景注水。"
+    "限知与硬红线优先于戏剧合同与字数目标。"
+)
+CRAFT_NOVEL_STEER_TAIL = (
+    "优先冲突与行动推进，禁止风景巡礼式注水；戏剧合同优先于字数目标。"
+)
+
+
+def build_draft_ec_advisories(
+    prose: str | None,
+    drive: dict | None,
+    *,
+    soft_fulfill_on: bool = False,
+    drift_on: bool = False,
+) -> dict[str, Any]:
+    """有 prose 时算 soft_fulfill / drift advisories（纯函数）。
+
+    返回 ``{advisories: list[str], ful: dict|None}``。
+    """
+    advisories: list[str] = []
+    ful = None
+    p = (prose or "").strip()
+    if not p:
+        return {"advisories": [], "ful": None}
+    if soft_fulfill_on:
+        ful = soft_fulfill_drive(p, drive if isinstance(drive, dict) else None)
+        if ful.get("steer_hint"):
+            advisories.append(str(ful["steer_hint"]))
+    if drift_on:
+        dr = drive_prose_drift(drive if isinstance(drive, dict) else None, p)
+        if dr.get("drift") and dr.get("advisory"):
+            advisories.append(str(dr["advisory"]))
+    return {"advisories": advisories, "ful": ful}
+
+
+def decide_legacy_force_clear(
+    prose: str | None,
+    steer: str | None,
+    *,
+    has_drama: bool = False,
+) -> bool:
+    """现网 steer 清稿规则（强制重写 / 可见汉字≥N / 超长压缩）。纯函数。"""
+    prose_now = (prose or "").strip()
+    if not prose_now:
+        return False
+    prose_cn = cn_len(prose_now)
+    s = steer or ""
+    if not s:
+        return False
+    m = _LEN_GE_STEER_RE.search(s)
+    target = int(m.group(1)) if m else 0
+    m_cap = _LEN_CAP_STEER_RE.search(s)
+    cap = int(m_cap.group(1)) if m_cap else 0
+    if target and prose_cn < target:
+        return ("【强制重写】" in s) or (not has_drama)
+    if "【强制重写】" in s and (not target) and prose_cn < 4500:
+        return True
+    if cap and prose_cn > cap and ("【强制重写】" in s or "压缩" in s):
+        return True
+    return False
+
+
+def decide_resteer_force_clear(
+    *,
+    resteer_enabled: bool,
+    prose: str | None,
+    ful: dict | None,
+) -> bool:
+    """路径 D：SOFT_FULFILL_RESTEER + collapse_combo。"""
+    if not resteer_enabled:
+        return False
+    if not (prose or "").strip():
+        return False
+    if not ful or not ful.get("collapse_combo"):
+        return False
+    return True
+
+
+def assemble_draft_length_steer(
+    *,
+    craft_novel: bool = False,
+    narrative_engine: bool = False,
+    default_drama_steer: bool = False,
+    author_steer: str = "",
+    fulfill_hint: str = "",
+) -> str:
+    """组装首写/清稿后生成用的 length_steer（含 EC Bundle）。
+
+    **这是 draft_loop 生成路径的 shipped 真源**；单测必须 import 本函数。
+    """
+    length_steer = BASE_LENGTH_STEER
+    if craft_novel:
+        length_steer += CRAFT_NOVEL_STEER_TAIL
+    if narrative_engine and default_drama_steer:
+        params = resolve_drama_steer_params(author_steer)
+        if params.get("enabled"):
+            length_steer += format_default_drama_steer(
+                dialogue_min=int(params.get("dialogue_min") or DEFAULT_DIALOGUE_MIN),
+                soft_len_floor=int(params.get("soft_len_floor") or DEFAULT_SOFT_LEN_FLOOR),
+            )
+    if fulfill_hint:
+        length_steer += " " + str(fulfill_hint)
+    return length_steer
+
+
+def build_draft_loop_msg(
+    seq: int,
+    length_steer: str,
+    author_steer: str = "",
+) -> str:
+    """loop_chapter 的 msg 字符串（shipped）。"""
+    msg = f"按简报与演绎写第{seq}章完整正文。{length_steer}"
+    if author_steer:
+        msg += f"\n作者意图:{author_steer}"
+    return msg
+
+
+def plan_draft_loop(
+    *,
+    prose: str | None,
+    steer: str = "",
+    has_drama: bool = False,
+    drive: dict | None = None,
+    narrative_engine: bool = False,
+    default_drama_steer: bool = False,
+    soft_fulfill_on: bool = False,
+    drift_on: bool = False,
+    resteer_on: bool = False,
+    craft_novel: bool = False,
+    seq: int = 1,
+) -> dict[str, Any]:
+    """draft_loop 核心决策（无 I/O）。
+
+    返回::
+      {
+        "action": "skip" | "generate",
+        "force_clear": bool,
+        "advisories": list[str],
+        "ful": dict|None,
+        "length_steer": str,   # generate only
+        "msg": str,            # generate only
+        "skipped": str|None,
+      }
+
+    draft_loop **必须**调用本函数；测试 **必须** import 本函数。
+    """
+    prose_now = (prose or "").strip()
+    adv_pack = build_draft_ec_advisories(
+        prose_now,
+        drive,
+        soft_fulfill_on=soft_fulfill_on,
+        drift_on=drift_on,
+    )
+    advisories = list(adv_pack.get("advisories") or [])
+    ful = adv_pack.get("ful")
+
+    force_clear = decide_legacy_force_clear(prose_now, steer, has_drama=has_drama)
+    if decide_resteer_force_clear(
+        resteer_enabled=resteer_on, prose=prose_now, ful=ful,
+    ):
+        force_clear = True
+
+    # 清稿后视为无正文
+    effective_prose = "" if force_clear else prose_now
+
+    if effective_prose:
+        return {
+            "action": "skip",
+            "force_clear": False,
+            "advisories": [a for a in advisories if a],
+            "ful": ful,
+            "length_steer": "",
+            "msg": "",
+            "skipped": "正文已在,跳过生成(advisory 稿手动采纳后走此路)",
+        }
+
+    hint = ""
+    if ful and ful.get("steer_hint") and force_clear:
+        hint = str(ful["steer_hint"])
+    length_steer = assemble_draft_length_steer(
+        craft_novel=craft_novel,
+        narrative_engine=narrative_engine,
+        default_drama_steer=default_drama_steer,
+        author_steer=steer or "",
+        fulfill_hint=hint,
+    )
+    msg = build_draft_loop_msg(seq, length_steer, steer or "")
+    return {
+        "action": "generate",
+        "force_clear": bool(force_clear),
+        "advisories": [a for a in advisories if a],
+        "ful": ful,
+        "length_steer": length_steer,
+        "msg": msg,
+        "skipped": None,
+    }
