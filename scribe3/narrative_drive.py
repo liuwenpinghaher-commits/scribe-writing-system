@@ -576,13 +576,22 @@ def format_event_drive_block(
     if end_hook:
         core_lines.append(f"- 钩子：{_clip(end_hook, 28)}")
 
-    # OI-3：对白净增；逼近并入一句；micro ≤24 字；MAX 仍 220
+    # OI-3 / EC-1：对白净增；DEFAULT_DRAMA_STEER 开时固定 micro 给 core 让预算
     guide_full = (
         "优先冲突/事件；对白须带对立（要求/拒绝/代价）；"
         "跟主角可以，须逼近或兑现当前戏。"
     )
     guide_short = "对白承载对立；逼近戏；冲突优先。"
     guide_micro = "对白对立；逼近戏。"  # ≤24 字
+    prefer_micro = False
+    try:
+        from scribe3.novel_quality_flags import (
+            default_drama_steer_enabled,
+            narrative_engine_enabled,
+        )
+        prefer_micro = bool(narrative_engine_enabled() and default_drama_steer_enabled())
+    except Exception:
+        prefer_micro = False
     cam = ""
     if foc or owner:
         cam = f"- 相机：{foc or '—'} / 事件主={owner or '—'}"
@@ -591,13 +600,21 @@ def format_event_drive_block(
         return "\n".join(p for p in parts if p)
 
     # 裁剪：先丢 cam → 缩 guide → 保核心前三行（引爆/对立/代价）
-    candidates = [
-        _join([header, *core_lines, "## 引导", guide_full, cam]),
-        _join([header, *core_lines, "## 引导", guide_short, cam]),
-        _join([header, *core_lines, "## 引导", guide_short]),
-        _join([header, *core_lines[:3], "## 引导", guide_micro]),
-        _join([header, core_lines[0], "## 引导", guide_micro]),
-    ]
+    if prefer_micro:
+        candidates = [
+            _join([header, *core_lines, "## 引导", guide_micro, cam]),
+            _join([header, *core_lines, "## 引导", guide_micro]),
+            _join([header, *core_lines[:3], "## 引导", guide_micro]),
+            _join([header, core_lines[0], "## 引导", guide_micro]),
+        ]
+    else:
+        candidates = [
+            _join([header, *core_lines, "## 引导", guide_full, cam]),
+            _join([header, *core_lines, "## 引导", guide_short, cam]),
+            _join([header, *core_lines, "## 引导", guide_short]),
+            _join([header, *core_lines[:3], "## 引导", guide_micro]),
+            _join([header, core_lines[0], "## 引导", guide_micro]),
+        ]
     text = candidates[-1]
     for cand in candidates:
         if len(cand) <= max_chars:
@@ -885,6 +902,12 @@ def ensure_narrative_drive(
     new_drive["locked"] = False
     new_drive["synopsis_fp"] = fp_now
     new_drive["version"] = prev_ver + 1 if drive else 1
+    # EC-3：recompose 保留 execution_stamp
+    try:
+        from scribe3.execution_contract import preserve_execution_stamp
+        new_drive = preserve_execution_stamp(new_drive, drive)
+    except Exception:
+        pass
 
     if dry_run:
         return new_drive

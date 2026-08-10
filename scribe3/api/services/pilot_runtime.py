@@ -983,6 +983,42 @@ def _pilot_executor(work: str) -> dict:
             _has_drama = beats_have_drama_gcd(ch.get("beats") or [], chapter_hook=_hook)
         except Exception:
             _has_drama = False
+        # EC · soft fulfill / drift advisories（有 prose 也可算；永不默认 clear）
+        _ec_advisories: list[str] = []
+        _ec_ful = None
+        _drive_ec = ch.get("narrative_drive") if isinstance(ch.get("narrative_drive"), dict) else {}
+        try:
+            from scribe3.novel_quality_flags import (
+                drive_prose_drift_enabled,
+                soft_fulfill_enabled,
+                soft_fulfill_resteer_enabled,
+            )
+            from scribe3.execution_contract import (
+                drive_prose_drift,
+                soft_fulfill_drive,
+            )
+            if soft_fulfill_enabled() and prose_now:
+                _ec_ful = soft_fulfill_drive(prose_now, _drive_ec)
+                if _ec_ful.get("steer_hint"):
+                    _ec_advisories.append(str(_ec_ful["steer_hint"]))
+            if drive_prose_drift_enabled() and prose_now:
+                _dr = drive_prose_drift(_drive_ec, prose_now)
+                if _dr.get("drift") and _dr.get("advisory"):
+                    _ec_advisories.append(str(_dr["advisory"]))
+            # 路径 D：显式 RESTEER + collapse_combo（默认关）
+            if (
+                soft_fulfill_resteer_enabled()
+                and prose_now
+                and _ec_ful
+                and _ec_ful.get("collapse_combo")
+            ):
+                force_clear = True
+                logging.getLogger("scribe3").info(
+                    "draft_loop soft_fulfill_resteer clear work=%s seq=%s gaps=%s",
+                    work, seq, _ec_ful.get("gaps"),
+                )
+        except Exception as e:
+            logging.getLogger("scribe3").debug("execution_contract pre-skip fail-soft: %s", e)
         if prose_now and steer:
             m = _re_dl.search(r"可见汉字\s*≥\s*(\d{3,5})", steer)
             target = int(m.group(1)) if m else 0
@@ -1021,8 +1057,13 @@ def _pilot_executor(work: str) -> dict:
                 # 清库失败仍尝试本轮重生成（不 skip 短稿）
                 prose_now = ""
         if prose_now:
-            # 正文已在(pass 落库/作者手动采纳 advisory 稿)→ 跳过生成直接体检
-            return {"skipped": "正文已在,跳过生成(advisory 稿手动采纳后走此路)"}
+            # 正文已在 → skip（C.0.1：soft 拼 msg 进不了生成；须【强制重写】或 RESTEER 旗）
+            out_skip = {
+                "skipped": "正文已在,跳过生成(advisory 稿手动采纳后走此路)",
+            }
+            if _ec_advisories:
+                out_skip["advisories"] = [a for a in _ec_advisories if a]
+            return out_skip
         # 连载验收默认章长 ~5k 可见汉字；max_tokens 由 loop_chapter 拉高，避免默认截断成 ~1.5k 短稿
         # PR-4 length_steer：字数次于戏；始终 soft 宁短勿巷志；CRAFT_NOVEL 再强调冲突/行动。
         # 限知/泄露硬红线优先级不变（find_leaks 仍 blocking；本舵不覆盖）。
@@ -1041,6 +1082,28 @@ def _pilot_executor(work: str) -> dict:
                 )
         except Exception:
             pass
+        # EC-1：Default Drama Steer（仅首写/清稿后；须 ENGINE + 旗）
+        try:
+            from scribe3.novel_quality_flags import (
+                default_drama_steer_enabled,
+                narrative_engine_enabled,
+            )
+            from scribe3.execution_contract import (
+                format_default_drama_steer,
+                resolve_drama_steer_params,
+            )
+            if narrative_engine_enabled() and default_drama_steer_enabled():
+                _params = resolve_drama_steer_params(steer)
+                if _params.get("enabled"):
+                    length_steer += format_default_drama_steer(
+                        dialogue_min=int(_params.get("dialogue_min") or 4),
+                        soft_len_floor=int(_params.get("soft_len_floor") or 2400),
+                    )
+        except Exception as e:
+            logging.getLogger("scribe3").debug("default_drama_steer fail-soft: %s", e)
+        # soft fulfill hint on force-rewrite path
+        if _ec_ful and _ec_ful.get("steer_hint") and not prose_now:
+            length_steer += " " + str(_ec_ful["steer_hint"])
         req = LoopChapterReq(
             chapter=seq,
             focalizer=ch.get("focalizer") or "",
@@ -1057,16 +1120,57 @@ def _pilot_executor(work: str) -> dict:
         if not prose:
             return {"pilot_park": "正文为空,无从体检(上游未交稿——若在等 advisory 裁决请先处理)"}
         # OI-5/6：soft 日志 only（永不 park / 永不进 S1）
+        _drive = ch.get("narrative_drive") if isinstance(ch.get("narrative_drive"), dict) else {}
         try:
             from scribe3.narrative_drive import (
                 maybe_log_metaphor_soft,
                 maybe_log_opener_soft_trace,
             )
-            _drive = ch.get("narrative_drive") if isinstance(ch.get("narrative_drive"), dict) else {}
             maybe_log_opener_soft_trace(prose, _drive, seq=seq)
             maybe_log_metaphor_soft(prose, seq=seq)
         except Exception as e:
             logging.getLogger("scribe3").debug("soft narrative traces fail-soft: %s", e)
+        # EC-2：soft_fulfill advisory + merge pilot_card（永不 blocking）
+        try:
+            from scribe3.novel_quality_flags import (
+                drive_prose_drift_enabled,
+                soft_fulfill_enabled,
+            )
+            from scribe3.execution_contract import (
+                drive_prose_drift,
+                merge_pilot_card,
+                soft_fulfill_drive,
+                summarize_soft_fulfill,
+            )
+            _patch: dict = {}
+            if soft_fulfill_enabled():
+                _ful = soft_fulfill_drive(prose, _drive)
+                logging.getLogger("scribe3").info(
+                    "soft_fulfill work=%s seq=%s ok_soft=%s gaps=%s quotes=%s cn=%s",
+                    work, seq, _ful.get("ok_soft"), _ful.get("gaps"),
+                    _ful.get("quotes"), _ful.get("prose_cn"),
+                )
+                _patch["soft_fulfill"] = summarize_soft_fulfill(_ful)
+                # 写后 stamp：记录 drive/prose 指纹（不 clear）
+                try:
+                    from scribe3.execution_contract import attach_execution_stamp
+                    _stamped = attach_execution_stamp(_drive, prose)
+                    st.update_chapter_meta(seq, {"narrative_drive": _stamped})
+                    _drive = _stamped
+                except Exception as e_st:
+                    logging.getLogger("scribe3").debug("execution_stamp fail-soft: %s", e_st)
+            if drive_prose_drift_enabled():
+                _dr = drive_prose_drift(_drive, prose)
+                if _dr.get("drift"):
+                    _patch["execution"] = {
+                        "drift": True,
+                        "reason": _dr.get("reason"),
+                        "advisory": _dr.get("advisory"),
+                    }
+            if _patch:
+                merge_pilot_card(st, seq, _patch)
+        except Exception as e:
+            logging.getLogger("scribe3").debug("soft_fulfill/drift fail-soft: %s", e)
         resp = post_check(PostCheckReq(prose=prose, focalizer=ch.get("focalizer") or ""),
                           seq=seq, work=work)
         # 审查 P1-7:体检结果必须被消费——blocking 停靠,不再"烧一遍然后扔"
@@ -1078,14 +1182,12 @@ def _pilot_executor(work: str) -> dict:
             resp["_triage_bucket_counts"] = _bcounts
 
         def _stage_bucket_counts(counts: dict | None) -> None:
-            """把 redline/story/style 计数暂存进 pilot_card（deliver 会覆写完整卡）。"""
+            """把 redline/story/style 计数 merge 进 pilot_card（保留 soft_fulfill 等键）。"""
             if not counts:
                 return
             try:
-                st._execute_write(
-                    "UPDATE type::record('chapter',$seq) SET pilot_card=$c",
-                    {"seq": seq, "c": json.dumps({"buckets": counts}, ensure_ascii=False)},
-                )
+                from scribe3.execution_contract import merge_pilot_card
+                merge_pilot_card(st, seq, {"buckets": counts})
             except Exception as e:
                 logging.getLogger("scribe3").warning(
                     "pilot full_check stage buckets 失败(忽略): %s", e)
@@ -1181,12 +1283,15 @@ def _pilot_executor(work: str) -> dict:
             triage as _triage_for_card,
         )
         _buckets = None
+        _prev_card: dict = {}
         try:
-            _prev = json.loads(_row0.get("pilot_card") or "{}")
-            if isinstance(_prev, dict) and isinstance(_prev.get("buckets"), dict):
-                _buckets = normalize_bucket_counts(_prev["buckets"])
+            _prev_card = json.loads(_row0.get("pilot_card") or "{}")
+            if not isinstance(_prev_card, dict):
+                _prev_card = {}
+            if isinstance(_prev_card.get("buckets"), dict):
+                _buckets = normalize_bucket_counts(_prev_card["buckets"])
         except Exception:
-            pass
+            _prev_card = {}
         if _buckets is None:
             try:
                 _pc = post_check(
@@ -1198,6 +1303,10 @@ def _pilot_executor(work: str) -> dict:
                     "pilot deliver triage buckets 失败(忽略): %s", e)
         if _buckets is not None:
             card["buckets"] = _buckets
+        # EC：保留 soft_fulfill / execution 摘要键（merge，非整卡抹掉）
+        for _k in ("soft_fulfill", "execution"):
+            if isinstance(_prev_card.get(_k), dict):
+                card[_k] = _prev_card[_k]
         st._execute_write("UPDATE type::record('chapter',$seq) SET pilot_card=$c",
                           {"seq": seq, "c": json.dumps(card, ensure_ascii=False)})
         return {"card": card}

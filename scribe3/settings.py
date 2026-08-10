@@ -243,6 +243,26 @@ REGISTRY: tuple[Setting, ...] = (
             "比喻密度 soft 阈值（每千字）",
             "0=关；>0 时超过阈值仅 logging advisory，永不 park。建议试验 6。",
             min=0, max=50, danger=False),
+    # ── 执行合同层 Execution Contract（rev.1.1 · 引导优先）──
+    # 真源：docs/plans/2026-08-10-narrative-rootcause-optimal-execution.md
+    # 代码默认全关；质量模式 fragment 可开 STEER/FULFILL/DRIFT；RESTEER 默认关。
+    Setting("SCRIBE3_DEFAULT_DRAMA_STEER", "flags", "bool", False, "hot",
+            "默认首写戏剧执行合同",
+            "开=draft 首写/清稿后重写附加对白≥N+soft 长度引导（须 NARRATIVE_ENGINE=1）；"
+            "代码默认关。仅影响无 prose 的生成路径。",
+            danger=False),
+    Setting("SCRIBE3_SOFT_FULFILL", "flags", "bool", False, "hot",
+            "写后 soft 履约对照",
+            "开=full_check 对 drive 做 advisory soft_fulfill（永不 blocking/park）；代码默认关。",
+            danger=False),
+    Setting("SCRIBE3_DRIVE_PROSE_DRIFT", "flags", "bool", False, "hot",
+            "Drive–Prose 漂移 soft",
+            "开=draft skip/full_check 检测合同 core 相对 stamp 漂移（advisory only，不自动清稿）；代码默认关。",
+            danger=False),
+    Setting("SCRIBE3_SOFT_FULFILL_RESTEER", "flags", "bool", False, "hot",
+            "soft 组合 gap 可选扩写清稿",
+            "开=对白低且过短且开篇无外力时可 clear 再生成（路径 D）；代码默认关=质量模式亦不默认开。",
+            danger=True),
     # ── gateway(Hermes 网关;地址类 restart)──
     Setting("HERMES_API", "gateway", "str", "http://127.0.0.1:8642/v1", "restart", "速答网关(default)"),
     Setting("HERMES_RESPONSES_API", "gateway", "str", "http://127.0.0.1:8643/v1", "restart", "agentic 读网关"),

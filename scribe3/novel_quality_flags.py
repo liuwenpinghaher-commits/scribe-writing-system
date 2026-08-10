@@ -47,6 +47,11 @@ FLAG_EVENT_DRIVE_GATE = "SCRIBE3_EVENT_DRIVE_GATE"
 FLAG_EVENT_LED_DETECT = "SCRIBE3_EVENT_LED_DETECT"
 FLAG_OPENER_SOFT_TRACE = "SCRIBE3_OPENER_SOFT_TRACE"
 FLAG_METAPHOR_SOFT_PER_1K = "SCRIBE3_METAPHOR_SOFT_PER_1K"
+# 执行合同层（代码默认关）
+FLAG_DEFAULT_DRAMA_STEER = "SCRIBE3_DEFAULT_DRAMA_STEER"
+FLAG_SOFT_FULFILL = "SCRIBE3_SOFT_FULFILL"
+FLAG_DRIVE_PROSE_DRIFT = "SCRIBE3_DRIVE_PROSE_DRIFT"
+FLAG_SOFT_FULFILL_RESTEER = "SCRIBE3_SOFT_FULFILL_RESTEER"
 
 # REGISTRY 内 novel-quality 旗键序（派生 CODE_DEFAULTS / 对齐检查用）
 NQ_FLAG_KEYS: tuple[str, ...] = (
@@ -64,6 +69,10 @@ NQ_FLAG_KEYS: tuple[str, ...] = (
     FLAG_EVENT_LED_DETECT,
     FLAG_OPENER_SOFT_TRACE,
     FLAG_METAPHOR_SOFT_PER_1K,
+    FLAG_DEFAULT_DRAMA_STEER,
+    FLAG_SOFT_FULFILL,
+    FLAG_DRIVE_PROSE_DRIFT,
+    FLAG_SOFT_FULFILL_RESTEER,
 )
 
 
@@ -93,6 +102,11 @@ QUALITY_MODE_TARGETS: dict[str, object] = {
     FLAG_EVENT_LED_DETECT: False,
     FLAG_OPENER_SOFT_TRACE: False,
     FLAG_METAPHOR_SOFT_PER_1K: 0,
+    # 执行合同：质量模式推荐开 STEER/FULFILL/DRIFT；RESTEER 仍关（KD-EC-4/11）
+    FLAG_DEFAULT_DRAMA_STEER: True,
+    FLAG_SOFT_FULFILL: True,
+    FLAG_DRIVE_PROSE_DRIFT: True,
+    FLAG_SOFT_FULFILL_RESTEER: False,
 }
 
 # 质量模式完整 env 另需的 PDC 半边（未进本 REGISTRY；os.environ 直读，见 pressure_drive）
@@ -285,6 +299,26 @@ def metaphor_soft_per_1k() -> float:
         return 0.0
 
 
+def default_drama_steer_enabled() -> bool:
+    """默认首写戏剧执行合同。代码默认 False。"""
+    return _bool(FLAG_DEFAULT_DRAMA_STEER)
+
+
+def soft_fulfill_enabled() -> bool:
+    """写后 soft 履约。代码默认 False。永不 blocking。"""
+    return _bool(FLAG_SOFT_FULFILL)
+
+
+def drive_prose_drift_enabled() -> bool:
+    """Drive–Prose 漂移 soft。代码默认 False。"""
+    return _bool(FLAG_DRIVE_PROSE_DRIFT)
+
+
+def soft_fulfill_resteer_enabled() -> bool:
+    """路径 D 可选扩写清稿。代码默认 False（危险）。"""
+    return _bool(FLAG_SOFT_FULFILL_RESTEER)
+
+
 def quality_enforcement_on() -> bool:
     """质量执法复合条件（设计真值表）。
 
@@ -324,5 +358,9 @@ def novel_quality_flags_snapshot() -> dict[str, Any]:
         FLAG_EVENT_LED_DETECT: event_led_detect_enabled(),
         FLAG_OPENER_SOFT_TRACE: opener_soft_trace_enabled(),
         FLAG_METAPHOR_SOFT_PER_1K: metaphor_soft_per_1k(),
+        FLAG_DEFAULT_DRAMA_STEER: default_drama_steer_enabled(),
+        FLAG_SOFT_FULFILL: soft_fulfill_enabled(),
+        FLAG_DRIVE_PROSE_DRIFT: drive_prose_drift_enabled(),
+        FLAG_SOFT_FULFILL_RESTEER: soft_fulfill_resteer_enabled(),
         LOG_FIELD_QUALITY_ENFORCEMENT: quality_enforcement_on(),
     }
