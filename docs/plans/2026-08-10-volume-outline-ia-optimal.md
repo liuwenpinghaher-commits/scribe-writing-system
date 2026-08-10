@@ -5,13 +5,14 @@
 | **文档标题** | 铜炉卷层 IA：无卷一等公民 · 卷信息 vs 卷纲 · 注入与 WRITE_GATED 对齐 |
 | **作者** | Grok Design（系统架构） |
 | **日期** | 2026-08-10 |
-| **状态** | **Draft · rev.2**（吸收 design review f760d399） |
+| **状态** | **Accepted · rev.2.1** · 人决：**按需后建卷（opt-in）**；**仅落仓设计，暂不实现 PR** |
 | **产品** | scribe-writing-system / scribe3（铜炉） |
 | **代码根（优先）** | `/home/admin/projects/scribe-ia-verify-wt/scribe3/` |
 | **对齐前序** | `docs/plans/2026-08-10-chapter-writing-ia-optimal.md`（章 IA · Accepted rev.3.1） |
 | **会话 scratch** | `/tmp/grok-1000/grok-design-doc-f760d399.md` |
+| **耐久真源** | `docs/plans/2026-08-10-volume-outline-ia-optimal.md`（与 scratch 同步） |
 | **验收环境** | demo 已部署栈 `https://www.qing.blue`；**禁止**默认再起第二 Surreal；Grok 运行机不做全量 npm/pytest/本机 Surreal |
-| **明确不做的宣称** | **不**删 proposition；**不**混 scene_truth 与世界真相；**不**把五阶段合成单字段；**不**因本方案宣称文学 ≥9.5 |
+| **明确不做的宣称** | **不**删 proposition；**不**混 scene_truth 与世界真相；**不**把五阶段合成单字段；**不**因本方案宣称文学 ≥9.5；**不**默认先建卷；**不**把建卷当 GATE-B |
 
 ---
 
@@ -37,7 +38,7 @@
 
 **一句话方案：**
 
-> **无卷默认合法**；`volume` 实体保留为 **Binder 容器 + 可选卷纲（`intro`）**；写路径仅在「有归属且 intro 非空」时注入 `volume_intro`（≤400 字，不得覆盖本章大纲/场景真相）；**不**平行造一套卷级五阶段；跨弧 / 多卷导航压力出现时 **软提示建卷**，永不因缺卷阻断存正文。
+> **按需后建卷（opt-in）为主**——默认未分卷写章，**禁止**开书强制先建卷；`volume` 实体保留为 **Binder 容器 + 可选卷纲（`intro`）**；写路径仅在「有归属且 intro 非空」时注入 `volume_intro`（≤400 字，不得覆盖本章大纲/场景真相）；**不**平行造一套卷级五阶段；作者主动或跨弧压力明显时再建卷；PR-4 章数软提示仅是「后建卷后的整理提醒」可选层，**永不**因缺卷阻断存正文或冒充 GATE-B。
 
 ---
 
@@ -189,7 +190,7 @@
 
 1. **钉死心智**：书 / 卷 / 章 SSOT；卷信息（元数据）≠ 卷纲（叙事骨架）≠ 章信息 / 五阶段。  
 2. **无卷合法**：短中篇默认不建卷；验收不因无卷失败。  
-3. **渐进启用**：跨卷 / 跨弧张力时软提示；永不因缺卷硬拦正文。  
+3. **按需后建卷（KD-VOL-17）**：默认未分卷写章；先建卷仅作者 opt-in；永不因缺卷硬拦正文；PR-4 仅为后建后整理可选层。  
 4. **写路径合同**：`volume_intro` 注入条件、预算、相对 outline/brief 去重职责。  
 5. **写入铁律**：与 WRITE_GATED / 无 form-wall 对齐；**合同化正式卷改 intro 的作者 UX**（本地草稿缓冲 + 点名 `s3_patch_volume` 种子，见 §2.5 / KD-VOL-13/14）；哪些键可本地改、哪些必主编审批。  
 6. **与章 IA 对齐**：不合并五阶段；不双写 synopsis/beats；密度键仅 localStorage。  
@@ -201,8 +202,8 @@
 |--------|------|
 | 卷级五阶段（卷大纲/卷节拍/卷演绎…） | 与章 IA 爆炸重复；ROI 低 |
 | 新建 `volume.synopsis` / `volume.beats` 第二权威 | 双写陷阱 |
-| 强制所有作品至少一卷 | 违背无卷一等公民 |
-| 缺卷 → craft gate 硬拦 | 假门闩伤害短篇 |
+| 强制所有作品至少一卷 / **开书强制先建卷** | 违背无卷一等公民与 **KD-VOL-17 后建卷** |
+| 缺卷 → craft gate / **GATE-B 齐套** 硬拦 | 假门闩伤害短篇；建卷≠齐套 |
 | 删 proposition / 混 scene_truth | 铁律 |
 | Scrivener 级 Binder 大爆炸重构 | 现网树已够用 |
 | 本机全量 npm / Surreal 验收 | 主机规则 |
@@ -272,44 +273,67 @@ flowchart TB
 
 ## 方案设计
 
-### 1. 总原则：渐进启用（Progressive Volume）
+### 1. 总原则：按需后建卷（Progressive / Opt-in Volume）· **人决 KD-VOL-17**
+
+**先建卷还是后建卷？——最优答案：后建卷为主（按需 opt-in）。**
+
+| 策略 | 含义 | 本产品立场 |
+|------|------|------------|
+| **后建卷（默认）** | 未分卷写章 → 需要导航/卷弧时再 `s3_add_volume` 并归属 | **主路径 · 正确**（单弧/短中篇/炉灰记类） |
+| **先建卷（opt-in）** | 开笔前或早期主动建卷 + 可选 intro | **仅当**作者已规划多卷长篇，或跨弧导航压力明显（主动 / 对话建卷） |
+| **强制先建卷** | 开书向导/齐套要求必须先有 volume | **禁止** |
 
 ```mermaid
 stateDiagram-v2
-  [*] --> NoVolume: 新建作品默认
-  NoVolume --> NoVolume: 短中篇持续写作\n章五阶段即可
-  NoVolume --> SoftSuggest: 触发条件见下
-  SoftSuggest --> HasVolume: 作者建卷+可选填 intro
-  SoftSuggest --> NoVolume: 忽略提示仍合法
-  HasVolume --> HasIntro: 填写卷纲
-  HasVolume --> HasVolume: intro 空亦可\n仅导航
-  HasIntro --> Inject: 写本章时 volume_intro
+  [*] --> NoVolume: 新建作品默认·后建卷
+  NoVolume --> NoVolume: 单弧/短中篇持续写章\n章五阶段即可
+  NoVolume --> AuthorOptIn: 作者主动/对话\n已规划多卷或跨弧
+  AuthorOptIn --> HasVolume: s3_add_volume
+  NoVolume --> SoftSuggest: PR-4 可选·后建后整理提醒
+  SoftSuggest --> HasVolume: 作者接受建卷
+  SoftSuggest --> NoVolume: 忽略仍合法
+  HasVolume --> HasIntro: 可选填卷纲
+  HasVolume --> HasVolume: intro 空亦可·仅导航
+  HasIntro --> Inject: 写本章 volume_intro
   HasVolume --> Inject: intro 空 → 跳过注入
 ```
 
-#### 1.1 何时 **可省略** 卷（默认）
+#### 1.1 默认路径：后建卷（可省略卷）
 
-- 作品预期 **单弧** 或 **≤ ~15–20 章** 且无「第 X 卷」出版结构。  
-- 作者心智是「一本书的连续章节」，Binder 未分卷组足够。  
-- 写前契约只需章级 synopsis/beats/scene_truth。
+- **默认合法且推荐**：全程未分卷写章；Binder「未分卷」为一等公民。  
+- 适用：单弧、短中篇、炉灰记类、「心里只有一本书的连续章节」。  
+- 写前契约只需章级 synopsis/beats/scene_truth——**不**含 volume。  
+- 与 KD-VOL-1 / 无卷一等公民 **同一判断**。
 
-#### 1.2 何时 **建议** 建卷（软，非门闩）
+#### 1.2 何时 **先建卷 / 主动建卷**（opt-in，非门闩）
 
-> **范围钉死：** 下表是**产品心智**（PR-1 文档即交付）。**UI 阈值横幅 / 自动软提示引擎 = PR-4 可选后置**，**不是** PR-1…3 MVP。实现者**禁止**在 PR-2 夹带章数横幅。对话侧建卷：catalog `structure.volume` **现网已支持**关键词，无需等 PR-4。
+| 条件 | 行为 |
+|------|------|
+| 作者已规划多卷长篇（明确「第×卷」结构） | 可开笔前或早期 `s3_add_volume`；**自愿** |
+| 跨弧导航压力明显（多主角弧并行、需 Binder 分区） | 作者主动建卷作容器 |
+| 对话出现分卷意图 | catalog `structure.volume` 现网可提议建卷 |
 
-| 信号（心智） | 提示文案方向 | 何时实现 |
-|--------------|--------------|----------|
-| 章数 ≥ N 且仍全部未分卷 | 「章数已多，可用分卷整理 Binder」 | **PR-4 可选**；N 默认倾向 12，**未人决**（Open Q1） |
-| 作者对话出现「第×卷 / 卷末 / 下半部」 | 主编可提议 `s3_add_volume` | **现网** catalog，非本方案新 UI |
-| 跨大跨度伏笔超期（**KR4 / volume_review**） | 「可按卷复盘伏笔」 | PR-3 可选挂 full 密度只读；非写门 |
-| 明确多主角弧并行需分区导航 | 建卷作容器 | 作者主动 / Binder，非自动 |
+**不是**「章数到 N 必须先建」——章数与「是否先建」无关。
 
-#### 1.3 何时 **不要** 要求卷
+#### 1.3 何时 **软建议** 建卷（后建卷之后的整理层 · PR-4 可选）
 
-- 存实质正文 / **GATE-B**（章脚手架）齐套。  
+> **范围钉死：** 下表是**产品心智**。**UI 阈值横幅 = PR-4 可选后置**，**不是** MVP，**不是**「先建卷」。实现者**禁止**在 PR-2 夹带章数横幅。  
+> **N 本身不在本 rev 人决**——PR-4 若做，再定可配置阈值；人决的是**策略（后建为主）**，不是数字 12。
+
+| 信号（心智） | 提示文案方向 | 何时实现 | 与先/后建关系 |
+|--------------|--------------|----------|----------------|
+| 章数偏多且仍全部未分卷 | 「章数已多，可用分卷**整理** Binder」 | **PR-4 可选**；N 未定、可配置 | **后建卷提醒**，非强制先建 |
+| 作者对话「第×卷 / 卷末」 | 主编可提议 `s3_add_volume` | **现网** catalog | 主动 opt-in |
+| 跨大跨度伏笔超期（**KR4 / volume_review**） | 「可按卷复盘伏笔」 | PR-3 可选 UI | 复盘，非写门 |
+| 多主角弧并行需分区 | 建卷作容器 | 作者主动 / Binder | opt-in |
+
+#### 1.4 何时 **不要** 要求卷（硬禁区）
+
+- 存实质正文 / **GATE-B**（章脚手架）齐套——**禁止**把建卷当齐套门。  
 - essential 密度下的章工作台主路径。  
+- 开书写之前的强制向导「必须先建卷」。  
 - 单测 / 冒烟「无卷作品能写章」。  
-- **禁止**把 **KR4 / volume_review** 信号当成 GATE-B 或「缺卷阻断」。
+- **禁止**把 **KR4 / volume_review** 当成 GATE-B 或「缺卷阻断」。
 
 ### 2. 卷信息 vs 卷纲：产品与 UI
 
@@ -694,7 +718,7 @@ P-Vol-Signals-UI 的修复是 **UI 串联**，不是缺 store/端点。
 | **KD-VOL-4** | 写路径仅当「有 volume 且 intro 非空且 flag 开」注入；预算 **400**（常量与 clip 字面同值）；顺序在 outline 之后 | 现网已实现；本方案合同化 |
 | **KD-VOL-5** | 卷/章结构写 **全部 WRITE_GATED**；UI 无 form-wall REST 叙事直写 | 与铜炉世界写铁律一致 |
 | **KD-VOL-6** | 缺卷 **永不**进入 craft/**GATE-B** 硬拦；**KR4 ≠ GATE-B** | 与齐套字段正交 |
-| **KD-VOL-7** | 渐进启用 = **软提示**；**UI 阈值仅 PR-4**；忽略仍合法 | 尊重炉灰记类路径；防 PR-2 夹带 |
+| **KD-VOL-7** | 渐进启用 = **软提示**；**UI 阈值仅 PR-4**；忽略仍合法；软提示 = **后建后整理**，≠ 先建卷 | 尊重炉灰记类路径；防 PR-2 夹带；对齐 KD-VOL-17 |
 | **KD-VOL-8** | essential：`volumeMetaPeekVisible=false`；Binder 卷节点保留 | 对齐 KD-IA-13；补 density helper |
 | **KD-VOL-9** | 采用 **方案 A**；拒绝强制分卷与卷级五阶段作默认；B 有 reopen 条件 | ROI + IA 克制 |
 | **KD-VOL-10** | 验收 = **demo 冒烟** S1–S7 为主；CI 增量测；非文学分；非本机 Surreal/全量 vitest | 主机与验证规则 |
@@ -704,20 +728,39 @@ P-Vol-Signals-UI 的修复是 **UI 串联**，不是缺 store/端点。
 | **KD-VOL-14** | 正式卷种子 **必须点名** `s3_patch_volume(volume_id=…)`（S4 锁锚） | 与 delete/reorder/建卷及 catalog `match_force` 一致 |
 | **KD-VOL-15** | 卷信号 **只**复用 `GET /volume/review`；禁止新 signals 路由 | 防双路由；P-Vol-Signals-UI=UI 串联 |
 | **KD-VOL-16** | PR-3 注入矩阵 **必须**含「有卷·intro 空」；修 docstring 假覆盖 | 防 S2 假绿 |
+| **KD-VOL-17** | **按需后建卷（opt-in volume）为主**；默认未分卷写章；**先建卷 = 作者主动 opt-in**（已规划多卷 / 跨弧导航压力）；**禁止**开书强制先建卷；**禁止**建卷当 GATE-B/齐套门；PR-4 章数提示 = 后建后整理可选层，**不是**先建卷策略 | 人决 2026-08-10；炉灰记路径；与 KD-VOL-1 同构 |
+| **KD-VOL-18** | **本轮仅落仓设计**，暂不实现 PR-2…PR-4 运行时改动；GLOSSARY 可与文档同批或后续 | 人决 2026-08-10 |
+
+---
+
+## Open Questions（已决议）
+
+| # | 原问题 | **决议** | 落点 |
+|---|--------|----------|------|
+| **Q1** | 软提示章数阈值 N=12？先建还是后建？ | **不拍 N=12。** 人决策略 = **按需后建卷为主**（KD-VOL-17）。先建卷仅作者主动 opt-in。章数软提示属 PR-4 可选「后建后整理」，N 若实现再可配置，**本 rev 不定数字**。 | §1 · KD-VOL-17 · KD-VOL-7 |
+| **Q2** | ChapterMeta 卷纲预览是否进 essential？ | **否**：`volumeMetaPeekVisible(essential)=false`；standard+ 展 | §2.4 · KD-VOL-8 |
+| **Q3** | intro 与 synopsis 相似度 lint？ | **后置**；先靠模板教育 | KD-VOL-11 |
+| **Q4** | KR4 是否进 VolumeDetailPane full？ | **可选**（实现时）；**复用** `/volume/review`；本轮不实现 | KD-VOL-15 · KD-VOL-18 |
+| **Q5** | 库字段 rename intro→outline？ | **不**；GLOSSARY alias | KD-VOL-12 |
+| **Q6**（新增） | 本轮是否开工 PR 实现？ | **否：只落仓设计**；PR Plan 保留为未来切片 | KD-VOL-18 |
+
+**未决数字：** PR-4 若做，阈值 N 仍开放配置（默认值届时再定）——**不**阻塞 Accepted。
 
 ---
 
 ## PR Plan
+
+> **人决（KD-VOL-18）：本轮只落仓本文档，暂不实现下列 PR 的代码改动。** 切片保留供日后开工。
 
 ### PR-1 · docs: 卷信息/卷纲 IA 落仓与 GLOSSARY
 
 | 项 | 内容 |
 |----|------|
 | **标题** | `docs: volume meta vs volume outline (intro) IA + glossary` |
-| **文件** | monorepo **`docs/plans/2026-08-10-volume-ia-optimal.md`**（与章 IA 同级，非 `scribe3/docs/`）；`scribe3/GLOSSARY.md`（卷信息 / 卷纲=`intro` / 未分卷 / domain `volume_intro` / **GATE-B≠KR4** / 链 044 与 `_volume_intro_block`） |
+| **文件** | monorepo **`docs/plans/2026-08-10-volume-outline-ia-optimal.md`**（本文件耐久真源；与章 IA 同级）；可选后续 `scribe3/GLOSSARY.md`（卷信息 / 卷纲=`intro` / 未分卷 / domain `volume_intro` / **GATE-B≠KR4** / **按需后建卷** / 链 044 与 `_volume_intro_block`） |
 | **依赖** | 无 |
-| **简述** | 固化 KD-VOL-1…16、无卷一等、注入合同、非目标；**不改**运行时；**不含**章数横幅 |
-| **验收** | 文档可检索；GLOSSARY 可检索「卷纲」「volume_intro」「未分卷」 |
+| **简述** | 固化 KD-VOL-1…18、后建卷策略、注入合同、非目标；**本轮仅文档落仓** |
+| **验收** | 仓库可检索本文件；策略句「按需后建卷」可检索 |
 
 ### PR-2 · fe: 正式卷草稿 + 点名 patch 种子 + density peek
 
@@ -744,10 +787,10 @@ P-Vol-Signals-UI 的修复是 **UI 串联**，不是缺 store/端点。
 | 项 | 内容 |
 |----|------|
 | **标题** | `fe: soft suggest create volume when chapter count high` |
-| **文件** | `ContainerOutline.jsx` / 未分卷区；可配置 N（Q1） |
+| **文件** | `ContainerOutline.jsx` / 未分卷区；可配置 N（**届时再定**，非本 Accepted 的 12） |
 | **依赖** | PR-1/2 |
-| **简述** | 章数阈值软横幅 + 一键种子建卷；可忽略；**绝不**硬拦；**非** PR-1…3 范围 |
-| **验收** | 低于阈值无横幅；高于可忽略并继续写作 |
+| **简述** | 章数软横幅 = **后建卷后的整理提醒**（KD-VOL-17），**不是**先建卷；一键种子建卷；可忽略；**绝不**硬拦；**非** 先建卷向导 |
+| **验收** | 低于阈值无横幅；高于可忽略并继续写作；文案不得暗示「必须先建卷才能写」 |
 
 ### 依赖图
 
@@ -771,4 +814,10 @@ flowchart LR
   - 点名注入测 **有卷空 intro** 缺口与回归矩阵（KD-VOL-16 / R-Vol-5）。  
   - `volumeMetaPeekVisible` 签名与 listVolumes 数据源（§2.4）。  
   - §1.2 / PR-4 范围钉死；GATE-B vs KR4 消歧；验收分层防 Grok 全量 vitest；clip 常量同值；方案 B reopen 条件。  
-  - Key Decisions 扩至 KD-VOL-16。
+  - Key Decisions 扩至 KD-VOL-16。  
+- **rev.2.1 Accepted** 2026-08-10（人决）：  
+  - **按需后建卷为主**（KD-VOL-17）：默认未分卷写章；先建卷 = 作者主动 opt-in；禁止强制先建卷 / 建卷当 GATE-B。  
+  - **不定 N=12**；PR-4 仅后建后整理可选层。  
+  - **仅落仓、暂不实现 PR**（KD-VOL-18）。  
+  - Open Questions → **已决议表**（Q1–Q6）。  
+  - 耐久真源：`docs/plans/2026-08-10-volume-outline-ia-optimal.md`。
