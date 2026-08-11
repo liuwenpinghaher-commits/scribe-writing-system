@@ -1,3 +1,9 @@
+> **总 PASS 协议（现行）**：[v6.3.4 真书·对话驱动·全能力](../e2e-director-journey-v634-true-chat-full-capability.md)
+> 本文档降为：**记忆子集 / 纪律附录**，单独跑完 **不得** 宣称铜炉 v6.3.4 总 PASS。
+> WCG SSOT：`scripts/v4_world_complete_gate.py`
+> 体验路径：SPA 对话 + 点批/工作台；禁止脚本灌章冒充。
+> 工程对照：`scripts/v632_true_chat_journey.py` ≠ SPA PASS。
+
 # 铜炉 v6.3.3 · 变更复验与小说质量增益评估方案
 
 | 项 | 值 |

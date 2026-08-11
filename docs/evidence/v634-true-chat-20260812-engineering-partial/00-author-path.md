@@ -1,0 +1,20 @@
+# 00-author-path · v6.3.4
+- slug / 书名 / 新建时间（须 ∈ 证据窗）：**未新建**（本会话无真人 SPA；无验收新书 slug）
+- 作者是否真人坐浏览器：**否**
+- 通道使用：无 discuss / world_write / prose_write / ChangePack 作者旅程
+- 是否仅对话+白名单 UI：**否**（未执行 SPA 旅程）
+- v632/v633/pilot：未作体验主路径；仅工程脚手架与只读 baseline
+- 每章开写 chat：seq → message_id（1..5）：**全缺**
+  - ch1: —
+  - ch2: —
+  - ch3: —
+  - ch4: —
+  - ch5: —
+- 每章 UI 点批截图路径：ch01..ch05：**全缺**（screenshots/ 无 Must 截图）
+  - ch1: —
+  - ch2: —
+  - ch3: —
+  - ch4: —
+  - ch5: —
+- EMERGENCY / safe_beats / 离线灌库：**0 次**
+- 硬门结论：主编线 FAIL；**不得**体验总 PASS；最高 **engineering PARTIAL**

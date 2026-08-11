@@ -1,0 +1,886 @@
+{
+  "version": "v6.3.4",
+  "slug": null,
+  "wave": "none",
+  "items": [
+    {
+      "id": "J1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "health API ok but no browser login screenshot this session"
+    },
+    {
+      "id": "J2",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "J3",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "J4",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "J5",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "C1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "C2",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "C3",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "C4",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "C5",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "API+UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "C6",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "C7",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "C8",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "M0",
+      "priority": "Must",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "00-env-lockdown.md",
+        "00-runtime-baseline.json"
+      ],
+      "skip_reason": "",
+      "notes": "capabilities.flags.memory_fabric_v1=true"
+    },
+    {
+      "id": "M1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "M2",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "M3",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "M4",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "API+UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "M5",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "M6",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "I1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "I2",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "I3",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "I4",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "I5",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "I6",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "Drm1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "Drm2",
+      "priority": "Must-if-triggered",
+      "status": "N/A",
+      "evidence_type": "UI+API",
+      "evidence_path": [
+        "00-stop-log.md"
+      ],
+      "skip_reason": "not triggered",
+      "notes": "not triggered this session"
+    },
+    {
+      "id": "Drm3",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "Drm4",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "Drm5",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could not required for total PASS; not exercised",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "H1",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Hermes gateway reachable on docker bridge (ok); parallel path not exercised this session"
+    },
+    {
+      "id": "H2",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Hermes gateway reachable on docker bridge (ok); parallel path not exercised this session"
+    },
+    {
+      "id": "H3",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "Could not required for total PASS; not exercised",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "H4",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "H5",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could not required for total PASS; not exercised",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "H6",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could not required for total PASS; not exercised",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "H7",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "Could not required for total PASS; not exercised",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "H8",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "Could not required for total PASS; not exercised",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "H9",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could not required for total PASS; not exercised",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "H10",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "H11",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "soft path not fully exercised this session"
+    },
+    {
+      "id": "Q1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "Q2",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "Q3",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "Q4",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "Q5",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "Q6",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "Q7",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "Q8",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "Could not required for total PASS; not exercised",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "K1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "K2",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "K3",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "K4",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "K5",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "K6",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "P1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "P2",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "P3",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "P4",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could not required for total PASS; not exercised",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "P5",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "P6",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could not required for total PASS; not exercised",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Ch1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "Ch2",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "Ch3",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could not required for total PASS; not exercised",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Ch4",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could not required for total PASS; not exercised",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Ch5",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "SH1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "SH2",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "SH3",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "SH4",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could not required for total PASS; not exercised",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "SH5",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could not required for total PASS; not exercised",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "G1",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "G2",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "G3",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "G4",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "Could not required for total PASS; not exercised",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "G5",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "X1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "X2",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "X3",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "X4",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "V1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "V2",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "V3",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "V4",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "V5",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "V6",
+      "priority": "Must",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "00-runtime-baseline.md",
+        "00-runtime-baseline.json"
+      ],
+      "skip_reason": "",
+      "notes": "public health/ready + backend flags"
+    },
+    {
+      "id": "V7",
+      "priority": "Should",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "Wave B not completed"
+    },
+    {
+      "id": "QL1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "QL2",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "QL3",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "SPA journey not executed; author_human=false"
+    },
+    {
+      "id": "QL4",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "Could not required for total PASS; not exercised",
+      "notes": "TEMPLATE: fill during journey"
+    }
+  ],
+  "should_rate": 0.0,
+  "must_failed": [
+    "C1",
+    "C2",
+    "C3",
+    "C4",
+    "C5",
+    "C8",
+    "Ch1",
+    "Ch2",
+    "Drm1",
+    "Drm3",
+    "H11",
+    "I1",
+    "I2",
+    "I6",
+    "J1",
+    "J2",
+    "J3",
+    "J4",
+    "J5",
+    "K1",
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6",
+    "P1",
+    "P2",
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q7",
+    "QL1",
+    "QL2",
+    "QL3",
+    "SH1",
+    "V1",
+    "X1"
+  ],
+  "author_human": false,
+  "verdict_hint": "PARTIAL"
+}

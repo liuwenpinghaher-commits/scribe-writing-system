@@ -1,0 +1,68 @@
+{
+  "entry_primary_protocol": "https://tonglu.qing.blue",
+  "entry_working_from_grok_host": "https://qing.blue",
+  "captured_at_utc": "2026-08-11T16:51:07Z",
+  "evidence_window": {
+    "start_utc": "2026-08-12T00:00:00Z",
+    "end_utc": "2026-08-11T16:51:07Z"
+  },
+  "health": {
+    "ok": true,
+    "ns": "scribe3",
+    "db": "ok",
+    "changefeed": {
+      "enabled": true,
+      "alive": true,
+      "started_at": 1786466995.6652515,
+      "last_ok_at": null,
+      "last_error": null,
+      "poll_count": 7,
+      "invalidate_count": 0,
+      "cursors": {
+        "cache_watch": 117077665283309568
+      },
+      "work": "main"
+    },
+    "locks": {
+      "distributed": true,
+      "db_inflight": true
+    },
+    "surreal_flags": {
+      "hybrid_search_native": true,
+      "changefeed_cache": true,
+      "db_inflight_lock": true,
+      "db_knowledge_frame": true,
+      "stats_view": true,
+      "live_granular": true,
+      "distributed_lock": true
+    }
+  },
+  "ready": {},
+  "capabilities_flags": {
+    "snapshot_v1": true,
+    "editorial_thread_v1": true,
+    "memory_fabric_v1": true,
+    "context_inspector_v1": true,
+    "assembler_v1": true,
+    "emergency_rest_write": false,
+    "ingest_lease": true,
+    "ingest_policy": true,
+    "mcp_craft_gate": true
+  },
+  "asserts": {
+    "memory_fabric_v1": true,
+    "emergency_rest_write": true
+  },
+  "hermes": {
+    "status": "ok_on_docker_bridge",
+    "preview": "http://172.18.0.1:8646/health → 200",
+    "deduce": "http://172.18.0.1:8645/health → 200",
+    "host_ports": "8645/8646 not published on host 127.0.0.1",
+    "policy": "H* SKIP not justified; unexercised → FAIL"
+  },
+  "notes": [
+    "tonglu.qing.blue timed out from Grok runner; qing.blue/api/health+ready used as public entry",
+    "capabilities captured via demo prod-backend-1 after session login (no second stack)",
+    "No SPA human journey in this session → engineering PARTIAL only"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "pass": false,
+  "slug": null,
+  "reason": "no new book slug in evidence window; WCG not run against fake book",
+  "ssot": "scripts/v4_world_complete_gate.py"
+}

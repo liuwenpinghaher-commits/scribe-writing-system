@@ -1,0 +1,838 @@
+{
+  "version": "v6.3.4",
+  "slug": "book_REPLACE_ME",
+  "wave": "all",
+  "items": [
+    {
+      "id": "J1",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "J2",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "J3",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "J4",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "J5",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "C1",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "C2",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "C3",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "C4",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "C5",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "API+UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "C6",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "C7",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "C8",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "M0",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "M1",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "M2",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "M3",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "M4",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "API+UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "M5",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "M6",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "I1",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "I2",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "I3",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "I4",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "I5",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "I6",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Drm1",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Drm2",
+      "priority": "Must-if-triggered",
+      "status": "",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Drm3",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Drm4",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Drm5",
+      "priority": "Could",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "H1",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "H2",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "H3",
+      "priority": "Could",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "H4",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "H5",
+      "priority": "Could",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "H6",
+      "priority": "Could",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "H7",
+      "priority": "Could",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "H8",
+      "priority": "Could",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "H9",
+      "priority": "Could",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "H10",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "H11",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Q1",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Q2",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Q3",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Q4",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Q5",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Q6",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Q7",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Q8",
+      "priority": "Could",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "K1",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "K2",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "K3",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "K4",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "K5",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "K6",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "P1",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "P2",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "P3",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "P4",
+      "priority": "Could",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "P5",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "P6",
+      "priority": "Could",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Ch1",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Ch2",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Ch3",
+      "priority": "Could",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Ch4",
+      "priority": "Could",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "Ch5",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "SH1",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "SH2",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "SH3",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "SH4",
+      "priority": "Could",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "SH5",
+      "priority": "Could",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "G1",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "G2",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "G3",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "G4",
+      "priority": "Could",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "G5",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "X1",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "X2",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "X3",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "X4",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "V1",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "V2",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "V3",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "V4",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "V5",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "V6",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "V7",
+      "priority": "Should",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "QL1",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "QL2",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "QL3",
+      "priority": "Must",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "QL4",
+      "priority": "Could",
+      "status": "",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "TEMPLATE: fill during journey"
+    }
+  ],
+  "should_rate": 0.0,
+  "must_failed": [],
+  "author_human": false
+}

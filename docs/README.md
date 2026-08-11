@@ -7,11 +7,22 @@
 | 文档 | 用途 |
 |------|------|
 | [SESSION.md](./SESSION.md) | **跨会话滚动状态**（新会话与 AGENTS.md 一起读；结束前更新） |
+| **[v6.3.4 真书·对话驱动·全能力](./e2e-director-journey-v634-true-chat-full-capability.md)** | **主验收协议（唯一体验总 PASS）**；WCG=`scripts/v4_world_complete_gate.py` |
 | [CURRENT_ARCHITECTURE.md](./CURRENT_ARCHITECTURE.md) | **当前架构唯一入口**（栈、路径、写通道、文档优先级） |
 | [ARCHITECTURE_SPLIT_ROADMAP.md](./ARCHITECTURE_SPLIT_ROADMAP.md) | `app.py` / `store.py` 分阶段拆分 |
 | [PR_TEST_BASELINE.md](./PR_TEST_BASELINE.md) | PR / 本地最低验证命令 |
 | [`scribe3/README.md`](../scribe3/README.md) | 主线代码怎么跑 |
 | [`scribe3/AGENTIC_BOUNDARY_DECISION.md`](../scribe3/AGENTIC_BOUNDARY_DECISION.md) | 对话驱动写 / 禁表单直填决策 |
+
+### 验收附录（不得单独宣称 v6.3.4 总 PASS）
+
+| 文档 | 角色 |
+|------|------|
+| [e2e-director-journey-2w-memory.md](./e2e-director-journey-2w-memory.md) | 记忆子集 / 6.3.x 附录 |
+| [e2e-director-journey-5w.md](./e2e-director-journey-5w.md) | 纪律与正典闭环底本 |
+| [plans/2026-08-10-v633-revalidation-quality-delta.md](./plans/2026-08-10-v633-revalidation-quality-delta.md) | 变更复验 F 项 |
+| [evidence/v634-true-chat-TEMPLATE/](./evidence/v634-true-chat-TEMPLATE/) | 证据包模板 + matrix ID 预填 |
+| `scripts/v634_evidence_checklist.py` | 证据内容校验（非写书） |
 
 ## 其它子树
 

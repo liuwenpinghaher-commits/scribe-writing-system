@@ -4,16 +4,38 @@
 
 ---
 
+## 主验收协议（现行）
+
+| 项 | 值 |
+|----|-----|
+| **总 PASS 协议** | **v6.3.4** · [`e2e-director-journey-v634-true-chat-full-capability.md`](./e2e-director-journey-v634-true-chat-full-capability.md) |
+| **WCG SSOT** | `scripts/v4_world_complete_gate.py`（exit 0 / `pass=true`） |
+| **体验路径** | SPA 对话驱动 + 点批/工作台裁决；**禁止**脚本灌章 / EMERGENCY / fabric-off 刷绿冒充总 PASS |
+| **工程对照** | `scripts/v632_true_chat_journey.py` · v6.3.2 记忆子集 · v6.3.3 变更复验 → **≠** 体验总 PASS |
+| **证据清单** | `scripts/v634_evidence_checklist.py` |
+| **证据模板** | `docs/evidence/v634-true-chat-TEMPLATE/` |
+| **公式** | 总 PASS ⇔ Wave A ∧ Wave B；仅 Wave A 或 `author_human=false` → 最高 **PARTIAL** |
+
+---
+
 ## 新会话开场（复制粘贴）
 
 ```
 继续 https://github.com/liuwenpinghaher-commits/scribe-writing-system
 先读 AGENTS.md 和 docs/SESSION.md，再继续。
+主验收协议 = v6.3.4（docs/e2e-director-journey-v634-true-chat-full-capability.md）。
 ```
 
 ---
 
 ## 当前状态
+
+### v6.3.4 验收脚手架（2026-08-12）
+
+- **协议**：`docs/e2e-director-journey-v634-true-chat-full-capability.md`（rev.2）为唯一体验总 PASS  
+- **指针**：2w-memory / 5w / v633 文首 PR-Doc-2 五行李  
+- **清单脚本**：`scripts/v634_evidence_checklist.py` + pure tests  
+- **本轮执行**：工程脚手架 + demo runtime baseline；**无真人 SPA → 不得总 PASS**（见 evidence 包结案 PARTIAL）
 
 ### 控制面活地图（2026-08-10）
 

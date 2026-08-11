@@ -1,0 +1,19 @@
+# 00-author-path · v6.3.4
+- slug / 书名 / 新建时间（须 ∈ 证据窗）：
+- 作者是否真人坐浏览器：（填写 是 或 否；否 → 最高 engineering PARTIAL）
+- 通道使用：discuss / world_write 审批 / prose_write / ChangePack（勾选实际用过的）：
+- 是否仅对话+白名单 UI：是 / 否（列例外）：
+- v632/v633/pilot：用途（禁止/对照）：
+- 每章开写 chat：seq → message_id 或时间戳（1..5 全填）：
+  - ch1:
+  - ch2:
+  - ch3:
+  - ch4:
+  - ch5:
+- 每章 UI 点批截图路径：ch01..ch05：
+  - ch1:
+  - ch2:
+  - ch3:
+  - ch4:
+  - ch5:
+- EMERGENCY / safe_beats / 离线灌库：0 次
