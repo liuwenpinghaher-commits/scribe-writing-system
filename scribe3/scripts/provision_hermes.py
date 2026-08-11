@@ -55,6 +55,9 @@ _PROFILES = {
     "scribe3_plan": ("overlay.scribe3_plan.yaml",
                      "profiles/scribe3_plan/config.yaml", True,
                      "SOUL.scribe3_write.md"),
+    "scribe3_draft": ("overlay.scribe3_draft.yaml",
+                      "profiles/scribe3_draft/config.yaml", True,
+                      "SOUL.scribe3_write.md"),
 }
 
 # Hermes 会注册 profile config 中的全部 MCP server；platform_toolsets 只是请求标签，
@@ -65,6 +68,7 @@ _PROFILE_MCP_SERVERS = {
     "scribe3_deduce": ("scribe3_deduce_read", "scribe3_deduce_write"),
     "scribe3_deduce_preview": ("scribe3_deduce_read",),
     "scribe3_plan": ("scribe3_plan_read", "scribe3_plan_write"),
+    "scribe3_draft": ("scribe3_draft_read", "scribe3_draft_write"),
 }
 
 

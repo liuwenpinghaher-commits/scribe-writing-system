@@ -12,6 +12,7 @@ HERMES_DEDUCE_PREVIEW_RUNS = os.environ.get(
     "HERMES_DEDUCE_PREVIEW_RUNS_API", "http://127.0.0.1:8646/v1",
 )
 HERMES_PLAN_RUNS = os.environ.get("HERMES_PLAN_RUNS_API", "http://127.0.0.1:8647/v1")
+HERMES_DRAFT_RUNS = os.environ.get("HERMES_DRAFT_RUNS_API", "http://127.0.0.1:8648/v1")
 
 
 def hermes_runs_api_base_for_env(api_env: str) -> str:
@@ -23,6 +24,7 @@ def hermes_runs_api_base_for_env(api_env: str) -> str:
         "HERMES_DEDUCE_RUNS_API": HERMES_DEDUCE_RUNS,
         "HERMES_DEDUCE_PREVIEW_RUNS_API": HERMES_DEDUCE_PREVIEW_RUNS,
         "HERMES_PLAN_RUNS_API": HERMES_PLAN_RUNS,
+        "HERMES_DRAFT_RUNS_API": HERMES_DRAFT_RUNS,
         "HERMES_RUNS_API": HERMES_RUNS,
     }
     return mapping[api_env]

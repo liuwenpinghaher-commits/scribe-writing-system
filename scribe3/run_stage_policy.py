@@ -119,6 +119,43 @@ _POLICIES = {
         max_tool_calls=12,
         required_tools=frozenset({"s3_patch_chapter_plan"}),
     ),
+    # 草稿：允许 save，禁止 ingest / 世界设定写
+    "draft": RunStagePolicy(
+        phase="draft",
+        profile="scribe3_draft",
+        api_env="HERMES_DRAFT_RUNS_API",
+        allowed_tools=frozenset({
+            "s3_get_chapter",
+            "s3_list_chapters",
+            "s3_project_frame",
+            "s3_character_state",
+            "s3_list_promises",
+            "s3_list_entity_relations",
+            "s3_list_world_rules",
+            "s3_save_chapter",
+            "s3_patch_chapter_plan",
+        }),
+        max_tool_calls=20,
+        required_tools=frozenset(),
+    ),
+    "final": RunStagePolicy(
+        phase="final",
+        profile="scribe3_draft",
+        api_env="HERMES_DRAFT_RUNS_API",
+        allowed_tools=frozenset({
+            "s3_get_chapter",
+            "s3_list_chapters",
+            "s3_project_frame",
+            "s3_character_state",
+            "s3_list_promises",
+            "s3_list_entity_relations",
+            "s3_list_world_rules",
+            "s3_save_chapter",
+            "s3_patch_chapter_plan",
+        }),
+        max_tool_calls=20,
+        required_tools=frozenset(),
+    ),
 }
 
 
@@ -132,7 +169,9 @@ def scaffold_tools_exclude_save(policy: RunStagePolicy | None) -> bool:
 
 # 脚手架阶段：即使「世界写」启发式命中，也必须带 chapter:N:<phase> run_scope，
 # 走 scribe3_plan / deduce 受限 profile，禁止静默落到全写（含 save/ingest）。
-SCAFFOLD_PHASES = frozenset({"outline", "beats", "plan", "deduce", "deduce_preview"})
+SCAFFOLD_PHASES = frozenset({
+    "outline", "beats", "plan", "deduce", "deduce_preview", "draft", "final",
+})
 
 
 def normalize_scaffold_phase(phase: str | None) -> str | None:

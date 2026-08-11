@@ -51,6 +51,51 @@ BLOCK_BUDGETS_NOVEL: dict[str, int] = {
 NOVEL_ENVELOPE_TOKEN_BUDGET = 22_000
 assert sum(BLOCK_BUDGETS_NOVEL.values()) == NOVEL_ENVELOPE_TOKEN_BUDGET
 
+# ── literary / epic（设计 §3 整数表 · 与 V2 并存 · 由 FIDELITY 旗选择）──
+BLOCK_BUDGETS_LITERARY: dict[str, int] = {
+    "focus": 1100,
+    "global": 2000,
+    "canonical": 4500,
+    "recent": 4500,
+    "procedural": 1000,
+    "reference": 1200,
+    "uncertainty": 700,
+    "provenance": 0,  # 默认不进模型（容量归 0；trace 仍可有）
+}
+LITERARY_ENVELOPE_TOKEN_BUDGET = 15_000
+assert sum(BLOCK_BUDGETS_LITERARY.values()) == LITERARY_ENVELOPE_TOKEN_BUDGET
+
+BLOCK_BUDGETS_EPIC: dict[str, int] = {
+    "focus": 1200,
+    "global": 2400,
+    "canonical": 5500,
+    "recent": 5500,
+    "procedural": 1100,
+    "reference": 1400,
+    "uncertainty": 900,
+    "provenance": 0,
+}
+EPIC_ENVELOPE_TOKEN_BUDGET = 18_000
+assert sum(BLOCK_BUDGETS_EPIC.values()) == EPIC_ENVELOPE_TOKEN_BUDGET
+
+# 场景自适应（P1 · 默认关）：同总额重配，禁止砍半 envelope
+SCENE_BUDGET_PROFILES: dict[str, dict[str, int]] = {
+    "dialogue_heavy": {
+        "focus": 1200, "global": 1400, "canonical": 6200, "recent": 4800,
+        "procedural": 1000, "reference": 1400, "uncertainty": 800, "provenance": 1200,
+    },
+    "action_heavy": {
+        "focus": 1400, "global": 1600, "canonical": 6000, "recent": 5000,
+        "procedural": 1200, "reference": 1200, "uncertainty": 800, "provenance": 800,
+    },
+    "exposition": {
+        "focus": 800, "global": 2000, "canonical": 7200, "recent": 3600,
+        "procedural": 1000, "reference": 1800, "uncertainty": 800, "provenance": 800,
+    },
+}
+for _name, _tbl in SCENE_BUDGET_PROFILES.items():
+    assert sum(_tbl.values()) == 18_000, _name
+
 DEFAULT_CODEX_INJECT_CAP = 4_500
 DEFAULT_SUPPLEMENTAL_SOFT = 14_000
 DEFAULT_SUPPLEMENTAL_HARD = 18_000
@@ -92,20 +137,59 @@ def _env_truthy(name: str, default: str = "0") -> bool:
 
 
 def envelope_v2_enabled() -> bool:
-    """生产默认关：仅接线后仍 10k，直至物理序+L2 同列车打开。"""
-    return _env_truthy("SCRIBE3_ENVELOPE_V2_ENABLE", "0")
+    """生产默认关：仅接线后仍 10k，直至物理序+L2 同列车打开。
+
+    literary/epic/novel 保真档隐含启用 V2 物理序与 L2（仍须显式 FIDELITY 或 V2 旗）。
+    """
+    if _env_truthy("SCRIBE3_ENVELOPE_V2_ENABLE", "0"):
+        return True
+    fid = (os.environ.get("SCRIBE3_CONTEXT_FIDELITY") or "").strip().lower()
+    return fid in ("literary", "epic", "novel", "v2")
 
 
 def novel_envelope_enabled() -> bool:
     return _env_truthy("SCRIBE3_ENVELOPE_NOVEL", "0")
 
 
-def get_block_budgets() -> dict[str, int]:
+def context_fidelity() -> str:
+    """compat | v2 | literary | epic | novel — 默认 compat。"""
+    raw = (os.environ.get("SCRIBE3_CONTEXT_FIDELITY") or "").strip().lower()
+    if raw in ("compat", "v1", "literary", "epic", "novel", "v2"):
+        if raw == "v1":
+            return "compat"
+        return raw
     if novel_envelope_enabled() and envelope_v2_enabled():
-        return dict(BLOCK_BUDGETS_NOVEL)
+        return "novel"
     if envelope_v2_enabled():
-        return dict(BLOCK_BUDGETS_V2)
-    return dict(BLOCK_BUDGETS_V1)
+        return "v2"
+    return "compat"
+
+
+def scene_budget_profile() -> str | None:
+    """SCRIBE3_SCENE_BUDGET_PROFILE=dialogue_heavy|action_heavy|exposition；空=关。"""
+    raw = (os.environ.get("SCRIBE3_SCENE_BUDGET_PROFILE") or "").strip().lower()
+    if raw in SCENE_BUDGET_PROFILES:
+        return raw
+    return None
+
+
+def get_block_budgets() -> dict[str, int]:
+    fid = context_fidelity()
+    if fid == "novel":
+        base = dict(BLOCK_BUDGETS_NOVEL)
+    elif fid == "literary":
+        base = dict(BLOCK_BUDGETS_LITERARY)
+    elif fid == "epic":
+        base = dict(BLOCK_BUDGETS_EPIC)
+    elif fid == "v2" or envelope_v2_enabled():
+        base = dict(BLOCK_BUDGETS_V2)
+    else:
+        base = dict(BLOCK_BUDGETS_V1)
+    # 场景重配仅在 v2/epic 同 18k 总额下
+    prof = scene_budget_profile()
+    if prof and sum(base.values()) == 18_000:
+        return dict(SCENE_BUDGET_PROFILES[prof])
+    return base
 
 
 def get_envelope_token_budget() -> int:
@@ -449,6 +533,7 @@ def generation_physical_order_names(*, v2: bool = True) -> list[str]:
         "prefix",
         "event_drive",
         "drama_contract",
+        "drama_vacuum",
         "envelope",
     ]
     if v2:
@@ -494,4 +579,23 @@ def build_budget_report(
         "l2": dict(l2_report or {}),
         "primary_metric": "signal_density_for_drama",
         "not_a_kpi": "tokens_saved",
+    }
+
+
+def signal_density_proxy(
+    domain_lengths: dict[str, int] | None = None,
+) -> dict[str, float | int]:
+    """小说向密度代理：戏剧+红线 / 总长（非 cost KPI）。"""
+    d = dict(domain_lengths or {})
+    drama_keys = (
+        "event_drive", "drama_contract", "revelation_discipline",
+        "sincerity", "final_reminder", "secret_guard",
+    )
+    num = sum(int(d.get(k) or 0) for k in drama_keys)
+    den = sum(int(v) for v in d.values()) or 1
+    return {
+        "drama_redline_tokens": num,
+        "total_tokens": den,
+        "signal_density_proxy": round(num / den, 4),
+        "primary_metric": "signal_density_for_drama",
     }

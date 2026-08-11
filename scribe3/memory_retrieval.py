@@ -77,15 +77,32 @@ def final_score(candidate: MemoryCandidate, now: datetime, focus_ids: set[str]) 
     return candidate.rrf_score * importance * confidence * decay + focus_bonus + pin_bonus
 
 
+def _heuristic_entity_attribute(text: str) -> set[tuple[str, str]]:
+    from scribe3.memory_conflict_heuristic import heuristic_entity_attribute
+    return heuristic_entity_attribute(text)
+
+
 def _conflict_keys(cand: MemoryCandidate) -> set[tuple[str, str]]:
     """从候选 provenance 提取 (entity, attribute) 冲突键(与 context_assembler 同口径,
-    保证正典压制在检索层与组装层裁决一致)。"""
+    保证正典压制在检索层与组装层裁决一致)。
+
+    缺 provenance 键时尝试文本弱推断（SCRIBE3_CANON_SUPPRESS_HEURISTIC 默认开）。
+    """
     keys: set[tuple[str, str]] = set()
     for p in (cand.provenance or []):
         e, a = p.get("entity"), p.get("attribute")
         if e and a:
             keys.add((e, a))
-    return keys
+    if keys:
+        return keys
+    import os
+    raw = (os.environ.get("SCRIBE3_CANON_SUPPRESS_HEURISTIC") or "1").strip().lower()
+    if raw in ("0", "false", "off", "no"):
+        return keys
+    text = getattr(cand, "text", None) or getattr(cand, "content", None) or ""
+    if not text and isinstance(getattr(cand, "payload", None), dict):
+        text = str((cand.payload or {}).get("text") or "")
+    return _heuristic_entity_attribute(str(text))
 
 
 def _suppress_by_canonical(cands: list[MemoryCandidate]) -> list[RejectedCandidate]:

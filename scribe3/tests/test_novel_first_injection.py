@@ -225,7 +225,8 @@ def test_scaffold_policy_and_run_scope():
         assert scaffold_run_scope(3, phase) == f"chapter:3:{phase}"
         assert scaffold_forces_stage_profile(phase, world_write=True) is True
     assert scaffold_run_scope(None, "outline") is None
-    assert scaffold_run_scope(2, "draft") is None
+    assert scaffold_run_scope(2, "draft") == "chapter:2:draft"
+    assert scaffold_run_scope(2, "chat") is None
 
 
 def test_hermes_plan_runtime_mapping():
@@ -335,6 +336,99 @@ def test_chiefdock_scaffold_run_scope_source():
     assert "scaffoldPhase" in src or "isScaffoldPhase" in src
 
 
+
+def test_literary_and_epic_tables():
+    from scribe3.context_budget import (
+        BLOCK_BUDGETS_LITERARY, BLOCK_BUDGETS_EPIC,
+        LITERARY_ENVELOPE_TOKEN_BUDGET, EPIC_ENVELOPE_TOKEN_BUDGET,
+        SCENE_BUDGET_PROFILES,
+    )
+    assert sum(BLOCK_BUDGETS_LITERARY.values()) == LITERARY_ENVELOPE_TOKEN_BUDGET == 15_000
+    assert sum(BLOCK_BUDGETS_EPIC.values()) == EPIC_ENVELOPE_TOKEN_BUDGET == 18_000
+    for n, t in SCENE_BUDGET_PROFILES.items():
+        assert sum(t.values()) == 18_000, n
+
+
+def test_fidelity_literary_enables_v2_order():
+    from importlib import reload
+    import os
+    import scribe3.context_budget as cb
+    os.environ.pop("SCRIBE3_ENVELOPE_V2_ENABLE", None)
+    os.environ["SCRIBE3_CONTEXT_FIDELITY"] = "literary"
+    try:
+        reload(cb)
+        assert cb.envelope_v2_enabled() is True
+        assert cb.get_envelope_token_budget() == 15_000
+        assert cb.get_block_budgets()["recent"] == 4500
+    finally:
+        os.environ.pop("SCRIBE3_CONTEXT_FIDELITY", None)
+        reload(cb)
+
+
+def test_drama_vacuum_and_reminder_core():
+    from scribe3.drama_beats import format_drama_vacuum_warn, DRAMA_VACUUM_WARN_TEXT
+    import os
+    os.environ["SCRIBE3_DRAMA_VACUUM_WARN"] = "1"
+    assert "禁" in format_drama_vacuum_warn() or "真空" in format_drama_vacuum_warn()
+    os.environ["SCRIBE3_DRAMA_VACUUM_WARN"] = "0"
+    from importlib import reload
+    import scribe3.drama_beats as db
+    reload(db)
+    assert db.format_drama_vacuum_warn() == ""
+    os.environ["SCRIBE3_DRAMA_VACUUM_WARN"] = "1"
+    reload(db)
+    from scribe3.api.services.prompt_blocks import _final_reminder, _final_reminder_core
+    os.environ["SCRIBE3_FINAL_REMINDER_CORE"] = "1"
+    assert "短核" in _final_reminder() or len(_final_reminder()) < len(DRAMA_VACUUM_WARN_TEXT) + 500
+    assert "PROPOSAL" in _final_reminder_core()
+    os.environ.pop("SCRIBE3_FINAL_REMINDER_CORE", None)
+
+
+def test_draft_policy_allows_save_not_ingest():
+    from scribe3.run_stage_policy import resolve_run_stage_policy
+    from scribe3.hermes_runs_env import hermes_runs_api_base_for_env, HERMES_DRAFT_RUNS
+    pol = resolve_run_stage_policy("chapter:1:draft")
+    assert pol.profile == "scribe3_draft"
+    assert "s3_save_chapter" in pol.allowed_tools
+    assert "s3_ingest_chapter" not in pol.allowed_tools
+    assert hermes_runs_api_base_for_env(pol.api_env) == HERMES_DRAFT_RUNS
+    assert "8648" in HERMES_DRAFT_RUNS
+
+
+def test_event_graph_and_concurrency():
+    from scribe3.event_graph import build_event_adjacency, graph_one_hop
+    from scribe3.concurrency_obs import inflight_enter, inflight_leave, inflight_snapshot
+    g = build_event_adjacency(
+        events=[{"id": "e1"}, {"id": "e2", "leads_to": "e3"}],
+        promises=[{"id": "p1", "event_id": "e1"}],
+    )
+    assert g["edge_count"] >= 1
+    hop = graph_one_hop(g, ["e1"])
+    assert isinstance(hop, list)
+    assert inflight_enter("loop", "ch1") is True
+    assert inflight_enter("loop", "ch1") is False
+    inflight_leave("loop", "ch1")
+    snap = inflight_snapshot()
+    assert "loop" in snap
+
+
+def test_density_trace_registry():
+    from scribe3.injection_registry import density_trace_for_segments, registry_mode
+    tr = density_trace_for_segments(
+        domain_lengths={"drama_contract": 100, "envelope": 900, "codex": 500},
+        order_indices={"drama_contract": 1},
+    )
+    assert tr["by_tier"]["L0"] == 100
+    assert tr["primary_metric"] == "signal_density_for_drama"
+    assert registry_mode() in ("shadow", "off", "active")
+
+
+def test_canon_suppress_heuristic():
+    from scribe3.memory_conflict_heuristic import heuristic_entity_attribute as _heuristic_entity_attribute
+    keys = _heuristic_entity_attribute("张三的刀法很强")
+    assert any(k[0] == "张三" for k in keys)
+
+
 if __name__ == "__main__":
     import traceback
     failed = []
@@ -350,3 +444,4 @@ if __name__ == "__main__":
             failed.append(name)
     print("SUMMARY failed=", failed)
     raise SystemExit(1 if failed else 0)
+

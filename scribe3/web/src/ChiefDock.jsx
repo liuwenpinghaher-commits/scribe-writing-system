@@ -752,7 +752,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
     // 非世界写仍走下方 /chat/write（WRITE_PHASE 映射）。
     const chForScope = seq ?? ctxSeq
     const isScaffoldPhase = phase === 'outline' || phase === 'beats' || phase === 'plan'
-      || phase === 'deduce'
+      || phase === 'deduce' || phase === 'draft' || phase === 'final'
     let runPhase = ''
     if (chForScope != null && isScaffoldPhase) {
       runPhase = phase

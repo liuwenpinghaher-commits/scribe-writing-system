@@ -1,0 +1,13 @@
+# 草稿写 profile：允许 save_chapter + 读工具；禁 ingest 与世界设定写（设计 I4）。
+# 端口 :8648
+platform_toolsets:
+  api_server:
+    - scribe3_draft_read
+    - scribe3_draft_write
+mcp_discovery_timeout: 10.0
+agent:
+  tool_use_enforcement: true
+platforms:
+  api_server:
+    port: 8648
+    host: 127.0.0.1

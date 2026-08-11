@@ -395,9 +395,8 @@ def _revelation_discipline_block(focalizer: str | None) -> str:
     )
 
 
-def _final_reminder() -> str:
-    """末尾强化提醒(recency 效应):把三条非谈判性约束放在 instructions 最后,
-    对抗多块拼接后关键规则被稀释的注意力漂移。不含新信息,仅复述最高优先级约束。"""
+def _final_reminder_full() -> str:
+    """完整 11 条尾注（默认）。"""
     return (
         "\n\n（再次强调:① 动稿必须用 ⟦PROPOSAL scope=...⟧ 围栏包正文;"
         "② 文风贴乱世铜炉志怪笔记体——古白话、冷笔、世界密度,忌现代翻译腔与用力比喻;"
@@ -425,6 +424,24 @@ def _final_reminder() -> str:
         "半截话、威胁与试探(彼此心知故不必说全),解释性台词一律删去——话越省读者越急,真相留在场外让读者和不知情者一样够不着。"
         "——通篇紧贴《乱世铜炉》志怪笔记体:实得密、诡得克、半懂着往下沉。）"
     )
+
+
+def _final_reminder_core() -> str:
+    """短核尾注（SCRIBE3_FINAL_REMINDER_CORE=1）。"""
+    return (
+        "\n\n（硬纪律·短核:① ⟦PROPOSAL⟧ 围栏;② 志怪笔记体禁翻译腔;"
+        "③ 情感只写动作/生理;④ 限知不自悟真相;⑤ 一章单一焦点者;"
+        "⑥ 禁 as-you-know-Bob 与廉价偷听交底。）"
+    )
+
+
+def _final_reminder() -> str:
+    """末尾强化提醒。默认全文;CORE 旗开则短核。"""
+    import os
+    raw = (os.environ.get("SCRIBE3_FINAL_REMINDER_CORE") or "0").strip().lower()
+    if raw in ("1", "true", "yes", "on", "core"):
+        return _final_reminder_core()
+    return _final_reminder_full()
 
 
 def _verbatim_deduction_fallback(source: str, character_id: str) -> str:

@@ -1225,6 +1225,20 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         _dr_raw = _drama_block(st, chapter, focalizer=focalizer or "")
         if not (_dr_raw or "").strip():
             record_write_soft_fail("empty_drama")
+            try:
+                from scribe3.drama_beats import format_drama_vacuum_warn
+                _vac = format_drama_vacuum_warn()
+                if _vac:
+                    _push(
+                        "drama_vacuum",
+                        "redline",
+                        _domain_input(
+                            f"chapter:{chapter}:drama-vacuum", "drama_vacuum",
+                            _vac,
+                        ),
+                    )
+            except Exception:
+                pass
         _dr = _domain_input(
             f"chapter:{chapter}:drama-contract", "drama_contract",
             _dr_raw,
@@ -1447,12 +1461,20 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             }
         except Exception:
             pass
-        # novel-first：外露 budget_report（长度/物理序；非 tokens_saved KPI）
+        # novel-first：外露 budget_report + density_trace（非 tokens_saved KPI）
         try:
             _br = _budget_report_holder.get("report") or get_last_write_budget_report()
             if _br:
                 envelope_trace["budget_report"] = _br
                 envelope_trace["soft_fail_counters"] = get_write_soft_fail_counters()
+                try:
+                    from scribe3.injection_registry import density_trace_for_segments
+                    envelope_trace["density_trace"] = density_trace_for_segments(
+                        domain_lengths=_br.get("domain_lengths"),
+                        order_indices=_br.get("order_indices"),
+                    )
+                except Exception:
+                    pass
         except Exception:
             logging.getLogger("scribe3").debug(
                 "budget_report envelope_trace attach fail-soft", exc_info=True,
