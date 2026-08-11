@@ -232,6 +232,8 @@ class ChaptersMixin:
         except Exception as _e:
             logging.getLogger("scribe3.store").warning(
                 "style_profile 计算/落库失败(存稿不受影响): %s", _e)
+        # S-2：章正文写 → 真表 CDC + cache_watch 双写（LIVE/缓存）
+        _emit_cache_invalidation("chapter", getattr(self, "db_name", None), store=self)
         # fail-soft:记账失败绝不阻断存稿(统计是锦上添花,存稿是命门)
         try:
             self._record_daily_progress(seq, today=_today)
@@ -1018,6 +1020,7 @@ class ChaptersMixin:
         self._execute_write(
             f"UPDATE type::record('chapter', $seq) SET {', '.join(set_parts)}",
             params)
+        _emit_cache_invalidation("chapter", getattr(self, "db_name", None), store=self)
         return True
 
     # ── 章后统一分析缓存（跨进程；与 chapter_analysis 进程内缓存双写）──

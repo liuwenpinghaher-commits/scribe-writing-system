@@ -53,6 +53,8 @@ class EventsMixin:
                 from scribe3.knowledge import see_event
                 see_event(self, ev, ingest_seq=ingest_seq)
         self._invalidate_chapter_quality_cache(ev.story_time)
+        # S-2：事件图写 → event 表 CDC（因果链/召回缓存）
+        _emit_cache_invalidation("event", getattr(self, "db_name", None), store=self)
         return ev
 
     def append_ai_run_trace_event(self, run_id: str, event: dict) -> None:

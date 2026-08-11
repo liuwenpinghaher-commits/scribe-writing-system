@@ -149,6 +149,32 @@ def test_a3_factory_dual_write():
         set_cache_watch_store_factory(None)
 
 
+def test_emit_coverage_call_sites_in_source():
+    """工程加强：关键写路径须 emit（源码合同）。"""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    pairs = [
+        ("store/facts_knowledge.py", 'proposition'),
+        ("store/chapters.py", "chapter"),
+        ("store/events.py", "event"),
+        ("store/characters.py", "character"),
+        ("store/materials.py", "material"),
+    ]
+    for rel, table in pairs:
+        text = (root / rel).read_text(encoding="utf-8")
+        assert f'_emit_cache_invalidation("{table}"' in text, rel
+
+
+def test_engineering_smoke_module_exists():
+    from pathlib import Path
+    p = Path(__file__).resolve().parents[1] / "tools" / "surreal_engineering_smoke.py"
+    assert p.is_file()
+    text = p.read_text(encoding="utf-8")
+    assert "rrf.object_lists" in text
+    assert "cdc.proposition_show_changes" in text
+    assert "locks.chapter_double_busy" in text
+
+
 def test_s2_invalidate_by_table_drops_cache():
     from scribe3.context_cache import TTLCache, emit_invalidation, invalidate_by_table
 

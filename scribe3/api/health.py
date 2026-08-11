@@ -35,16 +35,32 @@ def health(request: Request):
             }
     except Exception as e:
         out["changefeed"] = {"enabled": False, "alive": False, "error": str(e)[:80]}
-    # lock flags
+    # lock / Surreal deep flags（观测，不改 ok 语义）
     try:
         from scribe3.concurrency_lock import distributed_lock_enabled
-        from scribe3.surreal_flags import db_inflight_lock
+        from scribe3.surreal_flags import (
+            db_inflight_lock,
+            hybrid_search_native,
+            changefeed_cache,
+            db_knowledge_frame,
+            stats_view_read,
+            live_granular,
+        )
         out["locks"] = {
             "distributed": bool(distributed_lock_enabled()),
             "db_inflight": bool(db_inflight_lock()),
         }
+        out["surreal_flags"] = {
+            "hybrid_search_native": bool(hybrid_search_native()),
+            "changefeed_cache": bool(changefeed_cache()),
+            "db_inflight_lock": bool(db_inflight_lock()),
+            "db_knowledge_frame": bool(db_knowledge_frame()),
+            "stats_view": bool(stats_view_read()),
+            "live_granular": bool(live_granular()),
+            "distributed_lock": bool(distributed_lock_enabled()),
+        }
     except Exception:
-        out["locks"] = {}
+        out["locks"] = out.get("locks") or {}
     return out
 
 

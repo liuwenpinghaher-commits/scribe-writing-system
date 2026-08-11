@@ -33,6 +33,9 @@ class CharactersMixin:
         elif e.kind == "place":
             self._execute_write("CREATE type::record('place', $local) SET name=$name",
                                 {"local": local, "name": e.name})
+        # S-2：角色/地点节点写 → 对应表 CDC
+        if e.kind == "character":
+            _emit_cache_invalidation("character", getattr(self, "db_name", None), store=self)
         return e
 
     def entity(self, oid: str) -> Entity | None:
