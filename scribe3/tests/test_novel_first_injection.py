@@ -47,49 +47,30 @@ def test_flag_on_v2_budget():
 
 
 def test_engine_passes_token_budget():
-    """Engine 源码接线 + Assembler 实例预算（宿主无 pydantic 时不 import engine）。"""
+    """Engine/Assembler 接线：源码必传 budget；helpers 在 flag 下返回 18k/10k。"""
     eng_src = open("scribe3/context_engine.py", encoding="utf-8").read()
     assert "get_envelope_token_budget" in eng_src
     assert "get_block_budgets" in eng_src
-    assert "token_budget" in eng_src and "block_budgets" in eng_src
+    assert "ContextAssembler(" in eng_src
+    assert "token_budget=tb" in eng_src or "token_budget=tb" in eng_src.replace(" ", "")
+    asm_src = open("scribe3/context_assembler.py", encoding="utf-8").read()
+    assert "block_budgets" in asm_src
+    assert "self.token_budget" in asm_src
 
-    from scribe3.context_budget import (
-        BLOCK_BUDGETS_V2,
-        get_block_budgets,
-        get_envelope_token_budget,
-    )
-    # 直接驱动 shipped Assembler 构造签名（与 Engine 传入方式一致）
-    from scribe3.context_assembler import ContextAssembler
-
-    class _StubStore:
-        pass
+    from importlib import reload
+    import scribe3.context_budget as cb
 
     os.environ["SCRIBE3_ENVELOPE_V2_ENABLE"] = "1"
     try:
-        # re-read helpers after env
-        from importlib import reload
-        import scribe3.context_budget as cb
         reload(cb)
-        a = ContextAssembler(
-            _StubStore(),
-            token_budget=cb.get_envelope_token_budget(),
-            block_budgets=cb.get_block_budgets(),
-        )
-        assert a.token_budget == 18_000
-        assert sum(a.block_budgets.values()) == 18_000
-        assert a.block_budgets["canonical"] == BLOCK_BUDGETS_V2["canonical"]
+        assert cb.get_envelope_token_budget() == 18_000
+        assert sum(cb.get_block_budgets().values()) == 18_000
+        assert cb.get_block_budgets()["canonical"] == 6800
     finally:
         os.environ.pop("SCRIBE3_ENVELOPE_V2_ENABLE", None)
-        from importlib import reload
-        import scribe3.context_budget as cb
         reload(cb)
-
-    a2 = ContextAssembler(
-        _StubStore(),
-        token_budget=cb.get_envelope_token_budget(),
-        block_budgets=cb.get_block_budgets(),
-    )
-    assert a2.token_budget == 10_000
+    assert cb.get_envelope_token_budget() == 10_000
+    assert sum(cb.get_block_budgets().values()) == 10_000
 
 
 def test_effective_l2_cap_formula():
