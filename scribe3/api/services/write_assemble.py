@@ -1347,6 +1347,23 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                     brief.text,
                 )
                 _push("reference_craft", "supplemental", _rf)
+            # PR-5：Benchmark advisory 注入（旗默认关 · L2 可裁 · 不写 prose）
+            try:
+                from scribe3.benchmark_lib import (
+                    build_benchmark_inject_segment,
+                    benchmark_inject_enabled,
+                )
+                if benchmark_inject_enabled():
+                    _bm_txt = build_benchmark_inject_segment(str(work or "main"))
+                    if _bm_txt.strip():
+                        _bm = _domain_input(
+                            f"chapter:{chapter}:benchmark-advisory",
+                            "benchmark_advisory",
+                            "\n\n" + _bm_txt,
+                        )
+                        _push("benchmark_advisory", "supplemental", _bm)
+            except Exception:
+                pass
             for ordinal, (source_id, source_kind, text) in enumerate(
                 _deduction_context_segments(st, chapter)
             ):

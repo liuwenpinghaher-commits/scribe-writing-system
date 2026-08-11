@@ -119,10 +119,62 @@ def load_cron_catalog(path: Path | None = None) -> list[dict[str, Any]]:
             en = _OVERRIDES.get(name, True)
             row = dict(j)
             row["enabled"] = en
+            row["catalog_enabled"] = en
+            row["hermes"] = None  # Phase2 per-job；Phase1 恒 null
             row["source"] = str(p)
             row["override_path"] = str(default_overrides_path())
             out.append(row)
         return out
+
+
+_HERMES_CRON_CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
+_HERMES_CRON_TTL = 45.0
+
+
+def load_hermes_cron_aggregate(*, force: bool = False) -> dict[str, Any]:
+    """Phase1：复用 _hermes_cron_status 聚合；缓存 45s；失败 checked=false 不抛。"""
+    now = __import__("time").time()
+    if (
+        not force
+        and _HERMES_CRON_CACHE.get("data") is not None
+        and (now - float(_HERMES_CRON_CACHE.get("ts") or 0)) < _HERMES_CRON_TTL
+    ):
+        return dict(_HERMES_CRON_CACHE["data"])
+    out: dict[str, Any] = {
+        "checked": False,
+        "gateway_running": False,
+        "active_jobs": None,
+        "scribe3_qc": {"present": False, "active": False, "last_status": None},
+        "note": "aggregate only; per-job match is phase2",
+    }
+    try:
+        from scribe3.api.services.hermes_status import _hermes_cron_status
+        raw = _hermes_cron_status("scribe3")
+        if isinstance(raw, dict):
+            out.update(raw)
+            out["note"] = "aggregate only; per-job match is phase2"
+    except Exception as e:
+        out["error"] = str(e)[:160]
+        out["checked"] = False
+    _HERMES_CRON_CACHE["ts"] = now
+    _HERMES_CRON_CACHE["data"] = dict(out)
+    return dict(out)
+
+
+def build_agent_crons_response() -> dict[str, Any]:
+    """GET /agent-crons 完整响应（Phase1）。"""
+    jobs = load_cron_catalog()
+    hermes = load_hermes_cron_aggregate()
+    return {
+        "jobs": jobs,
+        "hermes_cron": hermes,
+        "enabled_flag": agent_cron_ui_enabled(),
+        "note_zh": (
+            "启停覆盖仅影响产品目录；真正 timer 以 crons.yaml + provision_hermes/systemd 为准"
+        ),
+        "mutates_hermes_timer": False,
+        "surface": "agent_crons.list",
+    }
 
 
 def set_cron_enabled(name: str, enabled: bool) -> dict[str, Any]:
@@ -139,6 +191,7 @@ def set_cron_enabled(name: str, enabled: bool) -> dict[str, Any]:
         "enabled": bool(enabled),
         "persisted": persisted,
         "path": path,
+        "mutates_hermes_timer": False,
     }
 
 

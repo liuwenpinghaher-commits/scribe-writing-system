@@ -1272,6 +1272,54 @@ def maybe_event_led_detect(
     return finding
 
 
+def detect_event_led_llm(
+    prose: str | None,
+    drive: dict | None = None,
+) -> dict[str, Any]:
+    """L1 可选 LLM advisory（默认关 · 永不 blocking）。
+
+    使用 hermes_complete 无工具；失败 → degraded。
+    """
+    l0 = detect_event_led(prose, drive)
+    anchors = _drive_anchor_phrases(drive)
+    prompt = (
+        "你是小说事件驱动顾问（advisory only）。根据正文与驱动合同，"
+        "用中文简短列出：1) 是否可感外力/对立；2) 缺口；3) 一句改写建议。"
+        "禁止打分、禁止要求重写全书。\n"
+        f"驱动：{anchors}\n"
+        f"L0 gaps：{l0.get('gaps')}\n"
+        f"正文节选：{(prose or '')[:1800]}\n"
+    )
+    text = ""
+    try:
+        from scribe3.llm import hermes_complete
+        text = str(hermes_complete(prompt, max_tokens=400) or "").strip()
+    except Exception as e1:
+        try:
+            # alternate import shapes
+            from scribe3 import llm as _llm
+            if hasattr(_llm, "complete"):
+                text = str(_llm.complete(prompt) or "").strip()
+            else:
+                raise e1
+        except Exception as e2:
+            return {
+                "severity": "advisory",
+                "status": "degraded",
+                "error": str(e2)[:200],
+                "l0_gaps": l0.get("gaps"),
+                "note": "L1 LLM unavailable",
+            }
+    return {
+        "severity": "advisory",
+        "status": "ok" if text else "degraded",
+        "advisory_notes": text[:2000] if text else "（空响应）",
+        "l0_gaps": l0.get("gaps"),
+        "detector": "event_led_llm",
+        "note": "advisory only · 不硬停",
+    }
+
+
 # ── OI-5 · 开篇 soft 痕迹（净新建；与 EVENT_LED 互补）──────────────────────
 
 _OPENER_FORCE_LEX: tuple[str, ...] = (

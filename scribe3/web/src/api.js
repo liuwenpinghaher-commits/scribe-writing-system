@@ -558,8 +558,12 @@ export const api = {
   benchmarkUpsert: (body) => post('/benchmarks', body || {}),
   benchmarkDelete: (bid) => del(`/benchmarks/${enc(bid)}`),
   softPrecheck: (body, work) => post('/soft-precheck', body || {}, work),
+  softEventLed: (body, work) => post('/soft/event-led', body || {}, work),
   literaryDistill: (body, work) => post('/literary-distill', body || {}, work),
   injectionTrace: () => j('/debug/injection-trace'),
+  budgetProbe: (body) => post('/debug/budget-probe', body || {}),
+  debugLocks: () => j('/debug/locks'),
+  benchmarkAdvisoryPreview: (bid) => post(`/benchmarks/${enc(bid)}/advisory-preview`, {}),
 
   chapters: () => j('/chapters'),
   archivedChapters: () => j('/chapters/archived'),

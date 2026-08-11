@@ -949,7 +949,147 @@ def get_injection_trace():
         "registry_mode": last.get("registry_mode") or reg,
         "fidelity": last.get("fidelity") or context_fidelity(),
         "budget_report": last,
-        "note": "进程内最近写路径；重启后空",
+        "note": "进程内最近写路径；重启后空；与 budget-probe 同权（登录作者）",
+    }
+
+
+def budget_probe_ep(req: dict | None = None):
+    """PR-7：预算头寸探针。默认 mode=config；assemble 显式且只返回数字。
+
+    与 injection-trace 同权（登录作者）。永不回传完整 prompt。
+    注意：本函数可能被 rebind 到 app_impl 全局命名空间，勿依赖本模块 module-level 可变全局。
+    """
+    payload = req if isinstance(req, dict) else {}
+    mode = str(payload.get("mode") or "config").strip().lower()
+
+    from scribe3.context_budget import (
+        build_budget_report,
+        get_envelope_token_budget,
+        get_prompt_hard,
+        context_fidelity,
+    )
+    beat = payload.get("beat_type")
+    rep = build_budget_report(beat_type=str(beat) if beat else None)
+    env = int(rep.get("envelope_token_budget") or get_envelope_token_budget())
+    hard = int(rep.get("prompt_hard") or get_prompt_hard())
+    l2_room = max(0, hard - env)
+    out = {
+        "mode": "config",
+        "fidelity": rep.get("fidelity") or context_fidelity(),
+        "L1_envelope": env,
+        "prompt_hard": hard,
+        "effective_L2_est": l2_room,
+        "adaptive_profile": rep.get("adaptive_profile"),
+        "registry_mode": rep.get("registry_mode"),
+        "block_sum": sum((rep.get("block_budgets") or {}).values()),
+        "event_graph_k": (rep.get("event_graph") or {}).get("k"),
+        "surface": "debug.budget_probe",
+        "note": "进程内配置快照，非跨副本；与 injection-trace 同权；永不回传完整 prompt",
+    }
+    if mode == "assemble":
+        # 轻量：仅 domain_lengths 数字；禁止 instructions 全文
+        domain_lengths = {}
+        dropped = []
+        try:
+            work = str(payload.get("work") or "main")
+            seq = int(payload.get("seq") or payload.get("chapter") or 0)
+            if seq > 0:
+                from scribe3.api import app_impl as core
+                st = core._store_for(work)
+                ch = st.get_chapter(seq) or {}
+                # 粗估各域长度（不跑完整 LLM assemble）
+                for k, v in (
+                    ("synopsis", ch.get("synopsis")),
+                    ("beats", ch.get("beats")),
+                    ("scene_truth", ch.get("scene_truth")),
+                    ("prose", (ch.get("prose") or "")[:2000]),
+                    ("draft", (ch.get("draft") or "")[:2000]),
+                ):
+                    if v is None:
+                        continue
+                    domain_lengths[k] = max(1, len(str(v)) // 2)
+            else:
+                dropped.append("no_seq")
+        except Exception as e:
+            dropped.append(f"assemble_soft:{type(e).__name__}")
+        out["mode"] = "assemble"
+        out["domain_lengths"] = domain_lengths
+        out["L0_note"] = "redline never full-drop"
+        out["L1_from_domains"] = sum(domain_lengths.values())
+        out["L2_room_est"] = l2_room
+        out["dropped"] = dropped
+        out["note"] = (
+            "assemble 档仅数字/域名；无 instructions 全文；"
+            "进程内；与 injection-trace 同权"
+        )
+    return out
+
+
+def get_debug_locks():
+    """PR-8：进程内 inflight + chapter lock 旗（只读）。"""
+    from scribe3.concurrency_obs import inflight_snapshot
+    from scribe3.chapter_lock import CHAPTER_OPS
+    try:
+        from scribe3.concurrency_lock import distributed_lock_enabled
+        dist = bool(distributed_lock_enabled())
+    except Exception:
+        dist = False
+    return {
+        "surface": "debug.locks",
+        "chapter_ops": list(CHAPTER_OPS),
+        "distributed_lock": dist,
+        "inflight": inflight_snapshot(),
+        "note": "进程内快照；ingest_lease/approval_idempotency 独立表面见 lock-kinds 文档",
+    }
+
+
+def soft_event_led_ep(req: dict | None = None, work: str = "main"):
+    """PR-4：EVENT_LED 唯一入口。Body include_llm 才跑 L1（旗默认关）。"""
+    import os
+    payload = req if isinstance(req, dict) else {}
+    prose = str(payload.get("prose") or "")
+    seq = payload.get("seq") or payload.get("chapter")
+    drive = payload.get("drive") if isinstance(payload.get("drive"), dict) else None
+    if not prose and seq is not None:
+        try:
+            from scribe3.api import app_impl as core
+            st = core._store_for(str(payload.get("work") or work or "main"))
+            ch = st.get_chapter(int(seq)) or {}
+            prose = str(ch.get("prose") or ch.get("draft") or "")
+            if drive is None and isinstance(ch.get("narrative_drive"), dict):
+                drive = ch.get("narrative_drive")
+        except Exception:
+            pass
+    from scribe3.narrative_drive import detect_event_led
+    l0 = detect_event_led(prose, drive)
+    l1 = None
+    include_llm = payload.get("include_llm") in (True, 1, "1", "true", "yes")
+    if include_llm:
+        llm_on = (os.environ.get("SCRIBE3_EVENT_LED_LLM") or "0").strip().lower() in (
+            "1", "true", "yes", "on",
+        )
+        if llm_on:
+            try:
+                from scribe3.narrative_drive import detect_event_led_llm
+                l1 = detect_event_led_llm(prose, drive)
+            except Exception as e:
+                l1 = {
+                    "severity": "advisory",
+                    "status": "degraded",
+                    "error": str(e)[:200],
+                    "note": "L1 soft fail",
+                }
+        else:
+            l1 = {
+                "severity": "advisory",
+                "status": "skipped",
+                "note": "SCRIBE3_EVENT_LED_LLM off",
+            }
+    return {
+        "l0": l0,
+        "l1": l1,
+        "severity": "advisory",
+        "surface": "soft.event_led",
     }
 
 
@@ -1139,6 +1279,9 @@ def _bind_and_register() -> None:
     router.add_api_route('/debug/injection-trace', _re, methods=['GET'], name='get_injection_trace')
 
     for _name, _path, _methods in (
+        ('budget_probe_ep', '/debug/budget-probe', ['POST']),
+        ('get_debug_locks', '/debug/locks', ['GET']),
+        ('soft_event_led_ep', '/soft/event-led', ['POST']),
         ('soft_precheck_ep', '/soft-precheck', ['POST']),
         ('literary_distill_ep', '/literary-distill', ['POST']),
         ('event_graph_ep', '/event-graph', ['POST']),

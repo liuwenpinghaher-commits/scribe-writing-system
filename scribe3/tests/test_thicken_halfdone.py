@@ -215,11 +215,83 @@ def test_structure_ui_api_files_exist():
         "web/src/settings/CronPanel.jsx",
         "parallel_deduce.py",
         "tools/sample_budget_report.py",
+        "scripts/smoke_scribe3_thicken.sh",
     ):
         assert (root / rel).is_file(), rel
     api = (root / "web/src/api.js").read_text(encoding="utf-8")
     for name in (
         "chapterStage", "parallelDeduce", "storylineInjectPreview",
         "agentCrons", "softPrecheck", "injectionTrace",
+        "softEventLed", "budgetProbe", "debugLocks",
     ):
         assert name in api, name
+
+
+def test_pr3_agent_crons_response_shape(monkeypatch):
+    from scribe3.agent_crons import build_agent_crons_response, clear_cron_overrides_for_tests
+    monkeypatch.setattr(
+        "scribe3.agent_crons.load_hermes_cron_aggregate",
+        lambda force=False: {"checked": False, "note": "mock"},
+    )
+    clear_cron_overrides_for_tests()
+    r = build_agent_crons_response()
+    assert r["mutates_hermes_timer"] is False
+    assert "note_zh" in r
+    assert "hermes_cron" in r
+    assert isinstance(r["jobs"], list)
+
+
+def test_pr4_soft_event_led_l0_only():
+    from scribe3.api.routers.misc_routes import soft_event_led_ep
+    r = soft_event_led_ep({
+        "prose": "债主堵在门槛上逼他还清。「你还想逃？」对峙升级。",
+        "include_llm": False,
+        "drive": {
+            "inciting_force": {"summary": "讨债上门"},
+            "opposition": {"who_or_what": "债主", "wants": "逼还清"},
+        },
+    })
+    assert r["severity"] == "advisory"
+    assert r["l0"]["detector"] == "event_led_detect"
+    assert r["l1"] is None
+
+
+def test_pr5_benchmark_advisory_and_inject_flag_off(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCRIBE3_BENCHMARK_PATH", str(tmp_path / "b.json"))
+    monkeypatch.setenv("SCRIBE3_BENCHMARK_INJECT", "0")
+    from scribe3 import benchmark_lib as bl
+    bl.clear_benchmarks_for_tests()
+    row = bl.upsert_benchmark({"title": "节奏", "notes": "对白抬张力", "reference_work_id": "rw1"})
+    prev = bl.build_advisory_preview(row["id"])
+    assert prev["ok"] is True
+    assert prev["advisory_only"] is True
+    assert "禁止仿写" in prev["text"] or prev["text"]
+    assert bl.build_benchmark_inject_segment() == ""
+
+
+def test_pr5_benchmark_inject_on(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCRIBE3_BENCHMARK_PATH", str(tmp_path / "b2.json"))
+    monkeypatch.setenv("SCRIBE3_BENCHMARK_INJECT", "1")
+    from scribe3 import benchmark_lib as bl
+    bl.clear_benchmarks_for_tests()
+    bl.upsert_benchmark({"title": "t", "notes": "抬 recent 对白"})
+    text = bl.build_benchmark_inject_segment()
+    assert text
+    assert "禁止仿写" in text or "对照" in text
+
+
+def test_pr7_budget_probe_config():
+    from scribe3.api.routers.misc_routes import budget_probe_ep
+    r = budget_probe_ep({"mode": "config", "beat_type": "dialogue"})
+    assert r["mode"] == "config"
+    assert r["L1_envelope"] >= 10000
+    assert "prompt_hard" in r
+    assert "完整" not in str(r.get("note") or "") or "永不" in r["note"]
+
+
+def test_pr8_debug_locks():
+    from scribe3.api.routers.misc_routes import get_debug_locks
+    r = get_debug_locks()
+    assert r["surface"] == "debug.locks"
+    assert "run" in r["chapter_ops"]
+    assert "inflight" in r

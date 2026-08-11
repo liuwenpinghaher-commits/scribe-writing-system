@@ -165,17 +165,13 @@ def parallel_deduce_plan_ep(seq: int, req: dict | None = None, work: str = "main
 
 
 def agent_crons_list_ep():
-    """O23：cron 目录。"""
-    from scribe3.agent_crons import load_cron_catalog, agent_cron_ui_enabled
-    return {
-        "jobs": load_cron_catalog(),
-        "enabled_flag": agent_cron_ui_enabled(),
-        "surface": "agent_crons.list",
-    }
+    """O23：cron 目录 + Hermes 聚合（Phase1 · 不 mutate timer）。"""
+    from scribe3.agent_crons import build_agent_crons_response
+    return build_agent_crons_response()
 
 
 def agent_crons_enable_ep(name: str, req: dict | None = None):
-    """O23：启停覆盖（进程内）。"""
+    """O23：启停覆盖（仅 catalog · 不改 Hermes timer）。"""
     from scribe3.agent_crons import set_cron_enabled
     payload = req if isinstance(req, dict) else {}
     en = payload.get("enabled")
@@ -202,6 +198,12 @@ def benchmarks_upsert_ep(req: dict | None = None):
 def benchmarks_delete_ep(bid: str):
     from scribe3.benchmark_lib import delete_benchmark
     return {"id": bid, "deleted": delete_benchmark(bid)}
+
+
+def benchmarks_advisory_preview_ep(bid: str):
+    """Benchmark advisory 预览（不写正文）。"""
+    from scribe3.benchmark_lib import build_advisory_preview
+    return build_advisory_preview(bid)
 
 
 def storyline_inject_preview_ep(req: dict | None = None):
@@ -238,6 +240,7 @@ def _bind_and_register() -> None:
         ("benchmarks_list_ep", "/benchmarks", ["GET"]),
         ("benchmarks_upsert_ep", "/benchmarks", ["POST"]),
         ("benchmarks_delete_ep", "/benchmarks/{bid}", ["DELETE"]),
+        ("benchmarks_advisory_preview_ep", "/benchmarks/{bid}/advisory-preview", ["POST"]),
         ("storyline_inject_preview_ep", "/storyline/inject-preview", ["POST"]),
     ]
     for name, path, methods in routes:

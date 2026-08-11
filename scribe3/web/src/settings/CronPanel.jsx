@@ -10,6 +10,8 @@ export function CronPanel() {
   const [err, setErr] = useState('')
   const [flag, setFlag] = useState(true)
   const [busy, setBusy] = useState('')
+  const [hermes, setHermes] = useState(null)
+  const [noteZh, setNoteZh] = useState('')
 
   const load = async () => {
     setErr('')
@@ -22,6 +24,8 @@ export function CronPanel() {
       }
       setJobs(r?.jobs || [])
       setFlag(r?.enabled_flag !== false)
+      setHermes(r?.hermes_cron || null)
+      setNoteZh(r?.note_zh || '')
     } catch (e) {
       setErr(e?.body?.detail || e?.message || '加载 cron 失败')
     }
@@ -52,11 +56,22 @@ export function CronPanel() {
           <h3 className="text-f13 font-medium">Agent Cron</h3>
           <p className="text-f11 text-faint">
             启停覆盖落盘；schedule/script 真源仍是 crons.yaml / provision_hermes。
-            {!flag && '（产品旗 SCRIBE3_AGENT_CRON_UI 关）'}
+            不改 Hermes timer。{!flag && '（产品旗 SCRIBE3_AGENT_CRON_UI 关）'}
           </p>
         </div>
         <Btn size="sm" onClick={load}>刷新</Btn>
       </div>
+      {noteZh && <div className="text-f11 text-faint" data-testid="cron-note-zh">{noteZh}</div>}
+      {hermes && (
+        <div className="rounded-md border border-line bg-soft/40 px-2 py-1.5 text-f11" data-testid="cron-hermes-agg">
+          Hermes 聚合：
+          {hermes.checked ? '已检查' : '未检查'}
+          {hermes.gateway_running != null && ` · gateway ${hermes.gateway_running ? '运行' : '未运行'}`}
+          {hermes.active_jobs != null && ` · active ${hermes.active_jobs}`}
+          {hermes.scribe3_qc?.present && ` · 体检 present${hermes.scribe3_qc?.active ? '/active' : ''}`}
+          {hermes.note && <span className="text-faint"> · {hermes.note}</span>}
+        </div>
+      )}
       {err && <div className="text-warn text-f12">{err}</div>}
       <ul className="divide-y divide-line border border-line rounded-lg">
         {(jobs || []).length === 0 && (

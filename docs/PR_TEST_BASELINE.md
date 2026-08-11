@@ -70,3 +70,13 @@ scribe3/.venv/bin/python -m scribe3.tools.craft_gate_cli --work book_b4e72480 --
 ## 文档改动
 
 若改栈/端口/主路径：同步 [`CURRENT_ARCHITECTURE.md`](./CURRENT_ARCHITECTURE.md)。
+
+## 章节写路径锁纪律（人工清单 · 非阻塞 CI）
+
+新章级写路径（loop / ingest / repair / run / 并行 deduce execute）必须经：
+
+- `chapter_lock.acquire_chapter_lock` 或 `app_impl._acquire_op_mutex`
+
+**保留独立表面（勿强并）**：`ingest_lease`、`approval_idempotency`、settings/sqlite busy。  
+清单真源：[`guides/2026-08-11-lock-kinds.md`](./guides/2026-08-11-lock-kinds.md)。  
+本条为 **PR 自检 NOTE**，**不加** grep 阻塞门禁。

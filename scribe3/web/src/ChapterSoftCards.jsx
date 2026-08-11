@@ -21,6 +21,7 @@ export function ChapterSoftCards({ seq, work, synopsis, beats }) {
   const [precheck, setPrecheck] = useState(null)
   const [distill, setDistill] = useState(null)
   const [inject, setInject] = useState(null)
+  const [eventLed, setEventLed] = useState(null)
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
 
@@ -72,6 +73,29 @@ export function ChapterSoftCards({ seq, work, synopsis, beats }) {
     }
   }
 
+  const runEventLed = async (includeLlm = false) => {
+    setBusy(includeLlm ? 'event-led-llm' : 'event-led')
+    setErr('')
+    try {
+      const body = {
+        seq: Number(seq),
+        include_llm: !!includeLlm,
+        synopsis: synopsis || '',
+      }
+      let r
+      if (typeof api.softEventLed === 'function') {
+        r = await api.softEventLed(body, work)
+      } else {
+        r = await api.post('/soft/event-led', body)
+      }
+      setEventLed(r)
+    } catch (e) {
+      setErr(e?.body?.detail || e?.message || 'event-led 失败')
+    } finally {
+      setBusy('')
+    }
+  }
+
   const runInject = async () => {
     setBusy('inject')
     setErr('')
@@ -98,7 +122,7 @@ export function ChapterSoftCards({ seq, work, synopsis, beats }) {
     <div className="space-y-2" data-testid="chapter-soft-cards">
       <div className="text-f12 font-medium text-faint">质量 soft · 预检 / 蒸馏 / 故事线注入</div>
       {err && <div className="text-f11 text-warn">{err}</div>}
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <Card title="Soft 预检" testId="soft-card-precheck">
           <Btn size="sm" disabled={!!busy} onClick={runPrecheck} data-testid="soft-precheck-run">
             {busy === 'precheck' ? '…' : '运行'}
@@ -126,6 +150,21 @@ export function ChapterSoftCards({ seq, work, synopsis, beats }) {
           {inject && (
             <pre className="text-f11 text-faint whitespace-pre-wrap max-h-32 overflow-auto">
               {(inject.text || inject.segment || JSON.stringify(inject)).toString().slice(0, 600)}
+            </pre>
+          )}
+        </Card>
+        <Card title="事件履约 soft" testId="soft-card-event-led">
+          <div className="flex flex-wrap gap-1">
+            <Btn size="sm" disabled={!!busy} onClick={() => runEventLed(false)} data-testid="soft-event-led-run">
+              {busy === 'event-led' ? '…' : 'L0'}
+            </Btn>
+            <Btn size="sm" disabled={!!busy} onClick={() => runEventLed(true)} data-testid="soft-event-led-llm">
+              {busy === 'event-led-llm' ? '…' : '深评 L1'}
+            </Btn>
+          </div>
+          {eventLed && (
+            <pre className="text-f11 text-faint whitespace-pre-wrap max-h-32 overflow-auto">
+              {JSON.stringify(eventLed.l0 || eventLed, null, 0).slice(0, 500)}
             </pre>
           )}
         </Card>

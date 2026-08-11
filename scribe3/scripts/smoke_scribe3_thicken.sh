@@ -112,5 +112,38 @@ else
   log "skip parallel execute (EXECUTE_PARALLEL=0 default)"
 fi
 
+# 9 agent-crons
+log "agent-crons"
+RAW=$(curl_json GET "/api/agent-crons" || true)
+split_body_code "$RAW"
+[[ "$CODE" == "200" || "$CODE" == "401" ]] || log "agent-crons $CODE (soft)"
+if [[ "$CODE" == "200" ]]; then
+  echo "$BODY" | grep -q 'note_zh\|mutates_hermes_timer\|hermes_cron\|jobs' || log "crons body soft"
+fi
+
+# 10 benchmarks
+log "benchmarks"
+RAW=$(curl_json GET "/api/benchmarks" || true)
+split_body_code "$RAW"
+[[ "$CODE" == "200" || "$CODE" == "401" ]] || log "benchmarks $CODE (soft)"
+
+# 11 budget-probe config
+log "budget-probe config"
+RAW=$(curl_json POST "/api/debug/budget-probe" '{"mode":"config"}' || true)
+split_body_code "$RAW"
+[[ "$CODE" == "200" || "$CODE" == "401" ]] || log "budget-probe $CODE (soft)"
+
+# 12 debug locks
+log "debug/locks"
+RAW=$(curl_json GET "/api/debug/locks" || true)
+split_body_code "$RAW"
+[[ "$CODE" == "200" || "$CODE" == "401" || "$CODE" == "404" ]] || log "locks $CODE (soft)"
+
+# 13 soft/event-led L0
+log "soft/event-led"
+RAW=$(curl_json POST "/api/soft/event-led" '{"prose":"债主堵门「还清」","include_llm":false}' || true)
+split_body_code "$RAW"
+[[ "$CODE" == "200" || "$CODE" == "401" ]] || log "event-led $CODE (soft)"
+
 log "OK thicken smoke (zero-mutate defaults)"
 exit 0
