@@ -1405,9 +1405,23 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             pass
         # 统一 join（V2：L2 有序裁剪；禁止 rendered[:hard] 尾截）
         joined, bud_rep = join_generation_segments(segs, v2=_v2)
+        bud_rep = dict(bud_rep)
         if _budget_report_holder.get("activation"):
-            bud_rep = dict(bud_rep)
             bud_rep["soft_activation"] = _budget_report_holder["activation"]
+        # P2 residual：写路径挂事件图一跳（共享 novel_first_surface，非平行实现）
+        try:
+            from scribe3.novel_first_surface import event_graph_from_store_chapter
+            _eg = event_graph_from_store_chapter(st, int(chapter))
+            bud_rep["event_graph"] = {
+                "version": _eg.get("version"),
+                "edge_count": (_eg.get("graph") or {}).get("edge_count"),
+                "nodes": (_eg.get("graph") or {}).get("nodes"),
+                "one_hop": _eg.get("one_hop"),
+                "sample_pair": _eg.get("sample_pair"),
+                "surface": _eg.get("surface"),
+            }
+        except Exception:
+            pass
         _budget_report_holder["report"] = bud_rep
         _store_write_budget_report(bud_rep)
         return joined, tuple(supplemental_sources)

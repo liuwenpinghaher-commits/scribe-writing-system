@@ -263,6 +263,25 @@ def _db_lock_on() -> bool:
         return False
 
 
+def _chapter_op_busy(work: str, seq: int, op: str = "loop") -> bool:
+    """只读忙检：优先 chapter_lock 快照，并回看遗留 _loop_inflight / repair set。
+
+    作者路径「生成在途」护栏与 loop 互斥共用真相源（P2 residual）。
+    """
+    try:
+        from scribe3.novel_first_surface import is_chapter_op_busy
+        if is_chapter_op_busy(op, work, int(seq)):
+            return True
+    except Exception:
+        pass
+    key = (work, int(seq))
+    if op == "repair":
+        with _chapter_repair_lock:
+            return key in _chapter_repair_inflight
+    with _loop_inflight_lock:
+        return key in _loop_inflight
+
+
 def _acquire_op_mutex(work: str, seq: int, op: str, *, detail: str) -> None:
     """S-3 + P2：统一章节锁表面；DB 旗开走 inflight 表，否则 chapter_lock 进程内。
 

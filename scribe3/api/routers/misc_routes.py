@@ -387,13 +387,11 @@ def tension_check(seq: int, work: str = "main"):
     return {"items": items, "rubric": rep, "cache_hit": cache_hit}
 
 def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "main"):
-    # 遗留处置 1-B:同章生成在途(loop/选择环)时拒绝手动存稿——数分钟长请求期间
-    # 手改再存会与自动落库互踩静默覆盖。409 不丢编辑(正文仍在前端编辑器里)。
-    with _loop_inflight_lock:
-        if (work, req.seq) in _loop_inflight:
-            raise HTTPException(status_code=409, detail=(
-                f"第 {req.seq} 章生成在途(loop/选择环),完成后再存——"
-                "你的编辑不会丢,可先复制正文"))
+    # 遗留处置 1-B:同章生成在途时拒绝手动存稿（_chapter_op_busy → chapter_lock 快照）
+    if _chapter_op_busy(work, req.seq, "loop"):
+        raise HTTPException(status_code=409, detail=(
+            f"第 {req.seq} 章生成在途(loop/选择环),完成后再存——"
+            "你的编辑不会丢,可先复制正文"))
     _guard_pilot_busy(work, req.seq)   # R2-3:pilot 非 loop 步在途/连写中也拦(防挂旧稿)
     st = _store_for(work)
     # 工艺优先:实质正文须过 GATE-A(首篇)/GATE-B;见 verify_craft_compliance.evaluate_save_craft_gate
@@ -593,12 +591,10 @@ def dedup_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
     C-1(正文覆写三路对称):真改写正文后,与 /save-chapter 对称——落 final 版本(补版本历史断链)
     + 排后台 ingest(内容变了理应重抽知识账本;经 _enqueue_ingest 与 P0-1 同章去重护栏协同,
     若该章已有 ingest 在途则跳过,不产生双份)。"""
-    # 批次一审查 P1-2:与 /save-chapter 同款在途护栏——loop/选择环期间 dedup 改写落库
-    # 会与自动落库互踩(1-B 堵了手动存稿这个门,这里是同一风险的另一个门)。
-    with _loop_inflight_lock:
-        if (work, seq) in _loop_inflight:
-            raise HTTPException(status_code=409, detail=(
-                f"第 {seq} 章生成在途(loop/选择环),完成后再去重"))
+    # 批次一审查 P1-2:与 /save-chapter 同款在途护栏（chapter_lock 只读）
+    if _chapter_op_busy(work, seq, "loop"):
+        raise HTTPException(status_code=409, detail=(
+            f"第 {seq} 章生成在途(loop/选择环),完成后再去重"))
     _guard_pilot_busy(work, seq)   # R2-3:pilot 非 loop 步在途/连写中也拦
     st = _store_for(work)
     ch = st.get_chapter(seq)
@@ -657,10 +653,9 @@ def polish_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
     治不到。同源哲学'确定性扫描+定向改写'——不靠 prompt 记住禁令,只精准改犯规句,改写器强约束
     保限知(绝不点破未揭示悬念)。幂等:无章内硬伤则原样返回、不调 LLM(不落版、不排 ingest)。
     三路对称(落 final 版 + 排后台 ingest)与 /save-chapter、/dedup-chapter 一致。"""
-    with _loop_inflight_lock:
-        if (work, seq) in _loop_inflight:
-            raise HTTPException(status_code=409, detail=(
-                f"第 {seq} 章生成在途(loop/选择环),完成后再精修"))
+    if _chapter_op_busy(work, seq, "loop"):
+        raise HTTPException(status_code=409, detail=(
+            f"第 {seq} 章生成在途(loop/选择环),完成后再精修"))
     _guard_pilot_busy(work, seq)
     st = _store_for(work)
     ch = st.get_chapter(seq)
@@ -911,6 +906,44 @@ def get_debug_flags():
     return {"flags": get_all_flags()}
 
 
+def soft_precheck_ep(req: dict | None = None):
+    """P2 residual：大纲/节拍软预检 API → soft_precheck_plan（advisory）。
+
+    Body: plan/beats/outline 任意 JSON；默认 hard_park=false。
+    """
+    from scribe3.novel_first_surface import soft_precheck_surface
+    payload = req if isinstance(req, dict) else {}
+    return soft_precheck_surface(payload)
+
+
+def literary_distill_ep(req: dict | None = None):
+    """P2 residual：文学蒸馏 API → literary_distill（bullets+raw）。
+
+    Body: {\"recap\"|\"text\": \"...\"}；不读 tokens_saved。
+    """
+    from scribe3.novel_first_surface import literary_distill_surface
+    payload = req if isinstance(req, dict) else {}
+    return literary_distill_surface(
+        recap=str(payload.get("recap") or ""),
+        text=payload.get("text"),
+        max_bullets=int(payload.get("max_bullets") or 12),
+    )
+
+
+def event_graph_ep(req: dict | None = None):
+    """P2 residual：事件图一跳预览 API（与写路径共用 surface）。
+
+    Body: {events?, promises?, seed_id?} 或空则空图结构。
+    """
+    from scribe3.novel_first_surface import event_graph_surface
+    payload = req if isinstance(req, dict) else {}
+    return event_graph_surface(
+        events=payload.get("events"),
+        promises=payload.get("promises"),
+        seed_id=payload.get("seed_id"),
+    )
+
+
 def _bind_and_register() -> None:
     """Rebind handlers onto app_impl globals so monkeypatch keeps working."""
     from scribe3.api import app_impl as core
@@ -1047,5 +1080,20 @@ def _bind_and_register() -> None:
     setattr(core, 'get_debug_flags', _re)
     g['get_debug_flags'] = _re
     router.add_api_route('/debug/flags', _re, methods=['GET'], name='get_debug_flags')
+
+    for _name, _path, _methods in (
+        ('soft_precheck_ep', '/soft-precheck', ['POST']),
+        ('literary_distill_ep', '/literary-distill', ['POST']),
+        ('event_graph_ep', '/event-graph', ['POST']),
+    ):
+        _fn = g[_name]
+        _re = types.FunctionType(
+            _fn.__code__, core.__dict__, _name, _fn.__defaults__, _fn.__closure__,
+        )
+        if _fn.__annotations__:
+            _re.__annotations__ = dict(_fn.__annotations__)
+        setattr(core, _name, _re)
+        g[_name] = _re
+        router.add_api_route(_path, _re, methods=_methods, name=_name)
 
 _bind_and_register()

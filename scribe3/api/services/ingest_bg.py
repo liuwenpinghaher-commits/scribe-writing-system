@@ -165,6 +165,11 @@ def _bg_ingest(work: str, seq: int) -> None:
         pend, plock = _pending_pair()
         with plock:
             pend.discard((work, seq))
+        try:
+            from scribe3.chapter_lock import release_chapter_lock
+            release_chapter_lock("ingest", work, int(seq))
+        except Exception:
+            pass
         if st is not None:
             try:
                 st.close()
@@ -174,11 +179,27 @@ def _bg_ingest(work: str, seq: int) -> None:
 
 
 def _enqueue_ingest_raw(background: BackgroundTasks, work: str, seq: int) -> bool:
-    """底层排队：进程内去重 set + BackgroundTasks。策略层请走 schedule_ingest。"""
+    """底层排队：统一 chapter_lock(ingest) + 进程内去重 set + BackgroundTasks。
+
+    策略层请走 schedule_ingest。锁失败 → 视为已在途（False）。
+    """
     key = (work, seq)
+    # P2 residual：ingest 与 loop/repair 同一 chapter_lock 表面
+    try:
+        from scribe3.chapter_lock import acquire_chapter_lock
+        clr = acquire_chapter_lock("ingest", work, int(seq))
+        if not clr.ok:
+            return False
+    except Exception:
+        pass
     pend, plock = _pending_pair()
     with plock:
         if key in pend:
+            try:
+                from scribe3.chapter_lock import release_chapter_lock
+                release_chapter_lock("ingest", work, int(seq))
+            except Exception:
+                pass
             return False
         pend.add(key)
     background.add_task(_bg_ingest, work, seq)

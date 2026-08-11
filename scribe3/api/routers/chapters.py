@@ -281,11 +281,10 @@ def restore_chapter_version(
         prose = ver.get("prose") or ""
     if not prose.strip():
         raise HTTPException(status_code=422, detail="恢复正文为空")
-    # 在途生成护栏与 save-chapter 对称
-    with _loop_inflight_lock:
-        if (work, seq) in _loop_inflight:
-            raise HTTPException(status_code=409, detail=(
-                f"第 {seq} 章生成在途,完成后再恢复存档"))
+    # 在途生成护栏与 save-chapter 对称（chapter_lock 只读 + 遗留 set）
+    if _chapter_op_busy(work, seq, "loop"):
+        raise HTTPException(status_code=409, detail=(
+            f"第 {seq} 章生成在途,完成后再恢复存档"))
     _guard_pilot_busy(work, seq)
     title = ch.get("title") or ""
     focalizer = ch.get("focalizer") or None
@@ -565,11 +564,11 @@ def select_chapter(req: SelectChapterReq, work: str = "main"):
         raise HTTPException(status_code=429, detail=(
             f"LLM 日帽剩余不足:选择环约需 {_sel_est} 发,当前剩 {_remaining} 发。"
             f"次日 0 点重置,或调大 SCRIBE3_DAILY_CALL_CAP"))
-    _skey = (work, req.chapter)
-    with _loop_inflight_lock:   # 与修复环共用同章互斥(同章不得同时 loop 与选择)
-        if _skey in _loop_inflight:
-            raise HTTPException(status_code=409, detail=f"chapter {req.chapter} 已有生成在途")
-        _loop_inflight.add(_skey)
+    # 与 loop/repair 共用 chapter_lock 表面（_acquire_op_mutex）
+    _acquire_op_mutex(
+        work, req.chapter, "loop",
+        detail=f"chapter {req.chapter} 已有生成在途",
+    )
     # P2门审查 P2-1:journal 构造放锁后 try 内(构造抛异常曾致锁永不释放、该章全 409);
     # 且只替换**文件名**(str.replace 全路径会把含 loop_ch 的目录段也改写)。
     try:
@@ -577,8 +576,7 @@ def select_chapter(req: SelectChapterReq, work: str = "main"):
         jp = jp.with_name(jp.name.replace("loop_ch", "select_ch", 1))
         journal = PipelineJournal(jp)
     except Exception:
-        with _loop_inflight_lock:
-            _loop_inflight.discard(_skey)
+        _release_op_mutex(work, req.chapter, "loop")
         raise
 
     def _generate(strategy: dict) -> str:
@@ -662,8 +660,7 @@ def select_chapter(req: SelectChapterReq, work: str = "main"):
                                profile_fn=chapter_style_profile, judge_fn=_judge,
                                journal=journal, save_result=_save_result)
     finally:
-        with _loop_inflight_lock:
-            _loop_inflight.discard(_skey)
+        _release_op_mutex(work, req.chapter, "loop")
     result["journal_path"] = str(jp)
     result["key_chapter"] = is_key_chapter(meta)
     return result
@@ -673,12 +670,10 @@ def select_finalize(req: SelectFinalizeReq, background: BackgroundTasks, work: s
     (蓝图:理由是沉淀环最贵的输入;强制一句,轴+自由文本双格式)。"""
     if not (req.reason_text or "").strip():
         raise HTTPException(status_code=422, detail="终选必须留一句理由(入 lesson 流)")
-    # P2门审查 P1-3:同章 loop/选择在途时禁止终选——否则 loop pass 的 save+ingest
-    # 与终选落库互踩(正文与知识表错位)。检查即可,不持锁。
-    with _loop_inflight_lock:
-        if (work, req.chapter) in _loop_inflight:
-            raise HTTPException(status_code=409,
-                                detail=f"chapter {req.chapter} 有生成在途,完成后再终选")
+    # P2门审查 P1-3:同章 loop/选择在途时禁止终选——检查即可,不持锁。
+    if _chapter_op_busy(work, req.chapter, "loop"):
+        raise HTTPException(status_code=409,
+                            detail=f"chapter {req.chapter} 有生成在途,完成后再终选")
     _guard_pilot_busy(work, req.chapter)   # R2-3:pilot 非 loop 步在途/连写中也拦
     st = _store_for(work)
     ver = st.get_chapter_version(req.version_id)
@@ -784,17 +779,15 @@ def select_light(req: SelectLightReq, work: str = "main"):
     if _remaining is not None and _remaining < _l1_est:
         raise HTTPException(status_code=429, detail=(
             f"LLM 日帽剩余不足:L1 轻选择约需 {_l1_est} 发,当前剩 {_remaining} 发"))
-    _skey = (work, req.chapter)
-    with _loop_inflight_lock:
-        if _skey in _loop_inflight:
-            raise HTTPException(status_code=409, detail=f"chapter {req.chapter} 已有生成在途")
-        _loop_inflight.add(_skey)
+    _acquire_op_mutex(
+        work, req.chapter, "loop",
+        detail=f"chapter {req.chapter} 已有生成在途",
+    )
     try:
         jp = _select_l1_result_path(work, req.chapter)
         journal = PipelineJournal(jp)
     except Exception:
-        with _loop_inflight_lock:
-            _loop_inflight.discard(_skey)
+        _release_op_mutex(work, req.chapter, "loop")
         raise
 
     def _generate(strategy: dict) -> str:
@@ -843,8 +836,7 @@ def select_light(req: SelectLightReq, work: str = "main"):
             chapter=req.chapter, generate=_generate, persist_variant=_persist,
             journal=journal, save_result=_save_result, max_chars=L1_MAX_CHARS)
     finally:
-        with _loop_inflight_lock:
-            _loop_inflight.discard(_skey)
+        _release_op_mutex(work, req.chapter, "loop")
     result["journal_path"] = str(jp)
     result["strategies"] = [s["key"] for s in L1_STRATEGIES]
     result["tier_note"] = (
