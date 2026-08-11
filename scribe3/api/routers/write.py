@@ -242,6 +242,7 @@ def check_prose(req: CheckReq, seq: int | None = Query(default=None), work: str 
         allow_pats = st.allow_patterns() if hasattr(st, "allow_patterns") else None
     except Exception as e:
         logging.getLogger("scribe3").warning("check 取 craft 豁免失败: %s", e)
+    from scribe3.qc_product_keys import product_qc_breakdown_from_flags, product_qc_total
     qf = quality_flags(req.prose, extra, allow_words, allow_pats)
     # U-011(作者要 fail-loud):find_leaks/quality_issues 失败此前静默返空——停笔静默检查面板
     # 显示"零泄露/零问题",与真干净的稿子无法区分=招牌能力(限知泄露检测)静默失效。
@@ -268,21 +269,26 @@ def check_prose(req: CheckReq, seq: int | None = Query(default=None), work: str 
     except Exception as e:
         logging.getLogger("scribe3").error("check quality_issues 失败", exc_info=True)
         issues_error = str(e)[:120]
-    # 追加 leak issues
+    # 追加 leak issues（meta 携带 knowers 富化，与 top-level leaks 同源）
     for lk in leaks:
         issues.append({
             "type": "leak",
             "message": f"限知泄露:视角角色不该知道「{lk['marker']}」",
             "text": lk["marker"],
             "range": lk["range"],
-            "meta": {"fact_id": lk["fact_id"], "subject": lk["subject"]},
+            "meta": {
+                "fact_id": lk.get("fact_id"),
+                "subject": lk.get("subject"),
+                "knowers": lk.get("knowers") or [],
+                "knowers_status": lk.get("knowers_status"),
+                "knowers_count": lk.get("knowers_count"),
+                "proposition_local": lk.get("proposition_local"),
+            },
         })
 
-    resp = {"qc": {"repetition": len(qf["repetition"]),
-                   "structural": len(qf["structural"]),
-                   "purple": len(qf["purple"]),
-                   "ai_tics": len(qf["ai_tics"]),
-                   "oversaturation": len(qf["oversaturation"])},
+    qc = product_qc_breakdown_from_flags(qf)
+    qc["total"] = product_qc_total(qc)
+    resp = {"qc": qc,
             "leaks": leaks, "leaks_error": leaks_error,
             "issues": issues, "issues_error": issues_error}
     # 方案A任务8:整章 AI 味定档聚合,fail-soft(异常时不给该字段,不 500)。
@@ -439,14 +445,21 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
         logging.getLogger("scribe3").warning("post_check quality_issues 失败: %s", e)
         degraded = True
         degraded_stages.append("quality_issues")
-    # leak issues
+    # leak issues（meta 携带 knowers 富化，与 top-level leaks 同源）
     for lk in leaks:
         issues.append({
             "type": "leak",
             "message": f"限知泄露:视角角色不该知道「{lk['marker']}」",
             "text": lk["marker"],
             "range": lk["range"],
-            "meta": {"fact_id": lk["fact_id"], "subject": lk["subject"]},
+            "meta": {
+                "fact_id": lk.get("fact_id"),
+                "subject": lk.get("subject"),
+                "knowers": lk.get("knowers") or [],
+                "knowers_status": lk.get("knowers_status"),
+                "knowers_count": lk.get("knowers_count"),
+                "proposition_local": lk.get("proposition_local"),
+            },
         })
     # 纪律违规 issue(遗留处置 1-A)。violations 即报——此前 cut_after 为空时违规被
     # 静默吞;cut_after 只负责定位。severity 三重防误杀:单次 LLM 判默认 S2(advisory);

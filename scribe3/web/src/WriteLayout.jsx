@@ -347,7 +347,12 @@ export function WriteLayout({ work, seq, sceneIdx }) {
   const chars = entities.filter((e) => e.kind === 'character')
   const focName = (chars.find((c) => c.id === focalizer) || {}).name || '—'
   const wordCount = prose.replace(/\s/g, '').length
-  const qcN = qc ? (qc.repetition?.length || qc.repetition || 0) + (qc.structural?.length || qc.structural || 0) + (qc.purple?.length || qc.purple || 0) : 0
+  const qcN = qc
+    ? (typeof qc.total === 'number'
+      ? qc.total
+      : ['repetition', 'structural', 'purple', 'ai_tics', 'oversaturation', 'god_view', 'degeneration', 'filler', 'rule_of_three']
+        .reduce((s, k) => s + (qc[k]?.length || qc[k] || 0), 0))
+    : 0
   // U-011:检测器故障(后端 detector_errors)——"QC 0"可能是真没问题、也可能是检测器炸了没检。
   // 有 detector_errors 就红字标出"本次未检",不让假绿蒙混。
   const qcErrNames = qc?.detector_errors ? Object.keys(qc.detector_errors) : []
@@ -501,8 +506,15 @@ export function WriteLayout({ work, seq, sceneIdx }) {
     try {
       const cnt = (x) => Array.isArray(x) ? x.length : (x || 0)
       // 审查 P2-13:补齐 6 键(此前漏 cross_repetition/duplicate_lines/emotion_telling)
-      const qcn = r.qc ? cnt(r.qc.repetition) + cnt(r.qc.structural) + cnt(r.qc.purple)
-        + cnt(r.qc.cross_repetition) + cnt(r.qc.duplicate_lines) + cnt(r.qc.emotion_telling) : 0
+      const qcn = r.qc
+        ? (typeof r.qc.total === 'number'
+          ? r.qc.total
+          : cnt(r.qc.repetition) + cnt(r.qc.structural) + cnt(r.qc.purple)
+            + cnt(r.qc.ai_tics) + cnt(r.qc.oversaturation)
+            + cnt(r.qc.god_view) + cnt(r.qc.degeneration)
+            + cnt(r.qc.filler) + cnt(r.qc.rule_of_three)
+            + cnt(r.qc.cross_repetition) + cnt(r.qc.duplicate_lines) + cnt(r.qc.emotion_telling))
+        : 0
       const lk = r.leaks || 0
       const spokeKey = `s3.spoke.${work || 'main'}.${chapter}.postsave`
       if ((qcn > 0 || lk > 0) && localStorage.getItem(spokeKey) !== '1'
@@ -666,7 +678,12 @@ export function WriteLayout({ work, seq, sceneIdx }) {
       <div className="flex items-center gap-2 shrink-0">
         {/* 护栏芯片 */}
         {(() => {
-          const qcTotal = (guard.qc.repetition || 0) + (guard.qc.structural || 0) + (guard.qc.purple || 0) + (guard.qc.ai_tics || 0) + (guard.qc.oversaturation || 0)
+          // 与 PRODUCT_QC_LIST_KEYS 对齐：优先 total；否则对数值键求和（含 god_view 等扩维）
+          const qcTotal = (typeof guard.qc.total === 'number')
+            ? guard.qc.total
+            : Object.entries(guard.qc || {}).reduce((s, [k, v]) => (
+              k === 'total' || typeof v !== 'number' ? s : s + (v || 0)
+            ), 0)
           const guardTone = !guardOn ? 'faint' : (focalizer && guard.leaks.length > 0 ? 'danger' : (qcTotal > 0 ? 'warn' : 'ok'))
           const issueCount = (focalizer ? guard.leaks.length : 0) + qcTotal
           return (

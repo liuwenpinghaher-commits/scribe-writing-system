@@ -108,3 +108,48 @@ def test_a1_structure_outline_projects_extended_keys():
     assert set(out) == set(PRODUCT_QC_LIST_KEYS)
     assert out["god_view"] == 1
     assert "extra_noise" not in out
+
+
+def test_a1_check_prose_source_uses_product_breakdown():
+    """Fail if /check still hand-builds five-key qc without SSOT."""
+    import inspect
+    from scribe3.api.routers import write as write_mod
+    src = inspect.getsource(write_mod.check_prose)
+    assert "product_qc_breakdown_from_flags" in src
+    assert "product_qc_total" in src
+    # five-key-only literal construction must not be the response shape
+    assert 'qc": {"repetition": len(qf["repetition"])' not in src
+
+
+def test_a1_check_prose_qc_shape_includes_extended_keys():
+    """Simulate check_prose qc assembly with shipped helpers (god_view-only hits)."""
+    from scribe3.qc_product_keys import (
+        PRODUCT_QC_LIST_KEYS,
+        product_qc_breakdown_from_flags,
+        product_qc_total,
+    )
+    qf = {k: [] for k in list(PRODUCT_QC_LIST_KEYS) + ["rhythm", "adverb"]}
+    qf["god_view"] = [{"kind": "god_spoiler", "phrase": "其实他知道"}]
+    qf["degeneration"] = [{"kind": "loop"}]
+    qc = product_qc_breakdown_from_flags(qf)
+    qc["total"] = product_qc_total(qc)
+    for k in PRODUCT_QC_LIST_KEYS:
+        assert k in qc
+    assert qc["god_view"] == 1
+    assert qc["degeneration"] == 1
+    assert qc["total"] == 2
+    # five-key-only would report total 0 — this must not happen
+    five = sum(qc[k] for k in ("repetition", "structural", "purple", "ai_tics", "oversaturation"))
+    assert five == 0
+    assert qc["total"] > five
+
+
+def test_a2_check_and_post_check_leak_issue_meta_knowers_in_source():
+    """issue.meta must copy knowers from enrich_leak_payload in check + post_check."""
+    import inspect
+    from scribe3.api.routers import write as write_mod
+    check_src = inspect.getsource(write_mod.check_prose)
+    post_src = inspect.getsource(write_mod.post_check)
+    for src, name in ((check_src, "check_prose"), (post_src, "post_check")):
+        assert "knowers" in src and "knowers_status" in src, name
+        assert "enrich_leak_payload" in src, name
