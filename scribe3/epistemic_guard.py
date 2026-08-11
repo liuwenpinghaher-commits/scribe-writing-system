@@ -173,6 +173,21 @@ def scrub_secrets_from_text(text: str, hits: list[dict[str, Any]]) -> str:
     return out
 
 
+class EpistemicLeakError(RuntimeError):
+    """限知出口守卫 fail-loud：帧外 secret 明文进入写 prompt。"""
+
+    def __init__(self, message: str, hits: list[dict[str, Any]] | None = None):
+        super().__init__(message)
+        self.hits = list(hits or [])
+
+
+def epistemic_fail_loud_enabled() -> bool:
+    """SCRIBE3_EPISTEMIC_FAIL_LOUD=1 时命中帧外 secret 直接抛 EpistemicLeakError。"""
+    import os
+    raw = (os.environ.get("SCRIBE3_EPISTEMIC_FAIL_LOUD") or "0").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
 def guard_write_instructions(
     instructions: str,
     store,
@@ -180,10 +195,13 @@ def guard_write_instructions(
     focalizer: str = "",
     chapter: int | None = None,
     scrub: bool = True,
+    fail_loud: bool | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     """写路径出口守卫。返回 (可能已擦除的 instructions, hits)。
 
-    hits 非空时记 warning；scrub=True 时擦除后放行（不静默吞事故：调用方可读 hits）。
+    hits 非空时记 error；默认 scrub=True 擦除后放行。
+    ``fail_loud=True`` 或 env ``SCRIBE3_EPISTEMIC_FAIL_LOUD=1`` 时改为抛
+    :class:`EpistemicLeakError`（O17；默认关以免阻断 demo 写路径）。
     """
     hits = scan_prompt_for_off_frame_secrets(
         instructions, store, focalizer=focalizer, chapter=chapter,
@@ -195,6 +213,13 @@ def guard_write_instructions(
             len(hits), focalizer, chapter,
             [h.get("marker") for h in hits][:5],
         )
+        loud = epistemic_fail_loud_enabled() if fail_loud is None else bool(fail_loud)
+        if loud:
+            raise EpistemicLeakError(
+                f"epistemic leak: {len(hits)} off-frame secret(s) in write prompt "
+                f"focalizer={focalizer!r} chapter={chapter}",
+                hits=hits,
+            )
         if scrub:
             instructions = scrub_secrets_from_text(instructions, hits)
             instructions += (

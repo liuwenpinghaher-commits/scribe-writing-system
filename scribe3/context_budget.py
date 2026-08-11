@@ -125,10 +125,89 @@ L0_NEVER_CUT: frozenset[str] = frozenset({
     "identity", "write_protocol", "revision", "anti_slop",
     "continue_snapshot", "secret_guard", "request_position",
     "tool_scope", "craft_skills_index", "focalizer",
-    "event_drive", "drama_contract", "envelope",
+    "event_drive", "drama_contract", "drama_vacuum", "envelope",
     "revelation_discipline", "sincerity", "final_reminder",
     "deduction_final", "scene_truth_proj",
 })
+
+# O1 全域硬顶：默认跟 PROMPT_HARD；SCRIBE3_TOTAL_BUDGET=999999 禁用
+DEFAULT_TOTAL_PROMPT_BUDGET = 42_000
+
+
+def get_total_prompt_budget() -> int:
+    """全局 prompt 硬顶（token 估算口径同 estimate_tokens）。
+
+    env ``SCRIBE3_TOTAL_BUDGET``：正整数；``>=900000`` 视为关闭全域裁剪。
+    未设时回落 ``get_prompt_hard()``（与 L2 总顶一致）。
+    """
+    raw = (os.environ.get("SCRIBE3_TOTAL_BUDGET") or "").strip()
+    if raw.isdigit():
+        return int(raw)
+    try:
+        return get_prompt_hard()
+    except Exception:
+        return DEFAULT_TOTAL_PROMPT_BUDGET
+
+
+def enforce_total_prompt_budget(
+    segments: list[dict[str, Any]],
+    *,
+    budget: int | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """全域预算裁剪：红线/L0 永不整段丢；优先砍 supplemental（按 L2_DROP_PRIORITY）。
+
+    **禁止**对最终 joined 串 ``rendered[:budget]`` 尾截。
+    """
+    segs = [dict(s) for s in segments if (s.get("text") or "")]
+    cap = get_total_prompt_budget() if budget is None else int(budget)
+    before = sum(estimate_tokens(s.get("text")) for s in segs)
+    report: dict[str, Any] = {
+        "total_budget": cap,
+        "enabled": 0 < cap < 900_000,
+        "dropped": [],
+        "before_est": before,
+    }
+    if not report["enabled"]:
+        report["after_est"] = before
+        report["over_budget"] = False
+        return segs, report
+
+    def _total() -> int:
+        return sum(estimate_tokens(s.get("text")) for s in segs)
+
+    def _victim_idx() -> int | None:
+        best_i, best_pri = None, -1
+        for i, s in enumerate(segs):
+            name = str(s.get("name") or "")
+            layer = str(s.get("layer") or "")
+            if name in L0_NEVER_CUT or layer == "redline":
+                continue
+            if layer == "envelope":
+                pri = 12
+            else:
+                pri = int(L2_DROP_PRIORITY.get(name, 55))
+            if pri > best_pri:
+                best_pri = pri
+                best_i = i
+        return best_i
+
+    while _total() > cap:
+        vi = _victim_idx()
+        if vi is None:
+            break
+        name = str(segs[vi].get("name") or "?")
+        text = segs[vi].get("text") or ""
+        if len(text) > 200:
+            segs[vi]["text"] = text[: len(text) // 2] + "…"
+            report["dropped"].append(f"{name}:total_half")
+        else:
+            report["dropped"].append(f"{name}:total_drop")
+            segs.pop(vi)
+
+    after = _total()
+    report["after_est"] = after
+    report["over_budget"] = after > cap
+    return segs, report
 
 
 def _env_truthy(name: str, default: str = "0") -> bool:
@@ -298,40 +377,30 @@ def join_generation_segments(
     v2: bool = True,
     supplemental_hard: int | None = None,
     prompt_hard: int | None = None,
+    total_budget: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """生产路径用的段 join：V2 走 L2 裁剪；V1 直接拼接。返回 (joined, report)。"""
+    """生产路径用的段 join：V2 走 L2 裁剪；随后 O1 全域硬顶；V1 仅全域硬顶可选。
+
+    返回 (joined, report)。**禁止**对最终 joined 串尾截。
+    """
     segs = ordered_generation_segments(pieces, v2=v2)
-    if not v2:
-        joined = "".join(str(s.get("text") or "") for s in segs)
-        order_idx: dict[str, int] = {}
-        for i, s in enumerate(segs):
-            n = str(s.get("name") or "")
-            if n in physical_order_markers() and n not in order_idx:
-                order_idx[n] = i
-        rep = build_budget_report(
-            domain_lengths={
-                str(s.get("name")): estimate_tokens(s.get("text")) for s in segs
-            },
-            order_indices=order_idx,
-            l2_report={},
+    l2_rep: dict[str, Any] = {}
+    if v2:
+        _joined_l2, l2_rep = apply_l2_trim(
+            segs,
+            supplemental_hard=supplemental_hard,
+            prompt_hard=prompt_hard,
         )
-        return joined, rep
-    joined, l2_rep = apply_l2_trim(
-        segs,
-        supplemental_hard=supplemental_hard,
-        prompt_hard=prompt_hard,
-    )
-    order_idx = {}
+        del _joined_l2
+        segs = list(l2_rep.get("segments") or segs)
+
+    segs, total_rep = enforce_total_prompt_budget(segs, budget=total_budget)
+    joined = "".join(str(s.get("text") or "") for s in segs)
+    order_idx: dict[str, int] = {}
     for i, s in enumerate(segs):
         n = str(s.get("name") or "")
         if n in physical_order_markers() and n not in order_idx:
             order_idx[n] = i
-    # L2 可能改 segs 内容；用 l2 report 的 segment_names 重建序
-    names = list(l2_rep.get("segment_names") or [s.get("name") for s in segs])
-    order_idx = {}
-    for i, n in enumerate(names):
-        if n in physical_order_markers() and n not in order_idx:
-            order_idx[str(n)] = i
     rep = build_budget_report(
         domain_lengths={
             str(s.get("name")): estimate_tokens(s.get("text")) for s in segs
@@ -339,6 +408,10 @@ def join_generation_segments(
         order_indices=order_idx,
         l2_report=l2_rep,
     )
+    rep["total_enforce"] = total_rep
+    # 校验 final_reminder 仍在
+    names = [str(s.get("name") or "") for s in segs]
+    rep["final_reminder_kept"] = "final_reminder" in names
     return joined, rep
 
 
@@ -521,6 +594,7 @@ def apply_l2_trim(
         "soft_exceeded": soft_exceeded,
         "dropped": dropped,
         "segment_names": [s.get("name") for s in segs],
+        "segments": segs,  # 供 join 继续 O1 全域硬顶（副本列表）
         "envelope_v2": envelope_v2_enabled(),
         "signal_density_note": "primary metric is drama signal density, not tokens_saved",
     }

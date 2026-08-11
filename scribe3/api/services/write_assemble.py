@@ -1552,10 +1552,20 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     rendered = compiled.rendered_input
     if focalizer:
         try:
-            from scribe3.epistemic_guard import guard_write_instructions
+            from scribe3.epistemic_guard import (
+                EpistemicLeakError,
+                guard_write_instructions,
+            )
             rendered, _hits = guard_write_instructions(
                 rendered, st, focalizer=focalizer, chapter=chapter, scrub=True,
             )
+            if _hits:
+                # 有命中但已 scrub：仍记 soft 计数（可观测，非成本 KPI）
+                record_write_soft_fail("epistemic_guard")
+        except EpistemicLeakError:
+            # O17 fail-loud：向上抛，不吞
+            record_write_soft_fail("epistemic_guard")
+            raise
         except Exception:
             record_write_soft_fail("epistemic_guard")
             logging.getLogger("scribe3").warning(
