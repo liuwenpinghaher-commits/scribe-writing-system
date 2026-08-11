@@ -48,7 +48,13 @@ def project_quality_dim_advisory(
     *,
     chapter: int,
 ) -> list[dict]:
-    """Project ten-dim scores as S3/S4 advisory only (never blocking)."""
+    """Project ten-dim **1–5** system scores as S3/S4 advisory only (never blocking).
+
+    Thresholds (aligned with QualityJudgment.score ge=1 le=5):
+    - score <= 3 → surface weak dim
+    - score <= 2 → S3; score == 3 → S4
+    - score >= 4 → omit (healthy enough)
+    """
     if not scores:
         return []
     raw = []
@@ -57,21 +63,21 @@ def project_quality_dim_advisory(
             num = float(val)
         except (TypeError, ValueError):
             continue
-        if num >= 7.0:
-            continue  # only surface weak dims
-        sev = "S3" if num < 5.0 else "S4"
+        if num > 3.0:
+            continue  # only surface weak dims on 1–5 scale
+        sev = "S3" if num <= 2.0 else "S4"
         raw.append({
-            "id": f"issue:quality_dim:{chapter}:{idx}",
+            "id": f"issue:quality_dim:{chapter}:{idx}:{dim}",
             "source": "quality_dim",
             "type": "quality_dim",
             "kind": str(dim),
             "severity": sev,
             "title": f"十维·{dim}",
-            "reason": f"维度 {dim} 得分 {num}（advisory，不进 blocking）",
-            "message": f"{dim}={num}",
+            "reason": f"维度 {dim} 得分 {num}/5（advisory，不进 blocking）",
+            "message": f"{dim}={num}/5",
             "chapter": chapter,
             "range": [0, 0],
-            "meta": {"severity": sev, "track": "L", "score": num},
+            "meta": {"severity": sev, "track": "L", "score": num, "scale": "1-5"},
             "suggested_action": "参考十维短评改进，不自动回炉。",
         })
     return normalize_issues(raw, chapter=chapter)

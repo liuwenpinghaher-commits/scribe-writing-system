@@ -109,19 +109,59 @@ def run_chapter_review(
             if name not in reviewers_skipped:
                 reviewers_skipped.append(name)
 
+    # A3: ten-dim quality_dim advisory from completed evaluation (read-only, no LLM)
+    dim_note = ""
+    if mode in ("full", "semantic"):
+        try:
+            from scribe3.quality.dim_scores import (
+                load_chapter_dim_scores,
+                quality_dim_advisory_enabled,
+            )
+            from scribe3.review.m5_projection import project_quality_dim_advisory
+
+            if not quality_dim_advisory_enabled():
+                if "quality_dim" not in reviewers_skipped:
+                    reviewers_skipped.append("quality_dim")
+            else:
+                scores = load_chapter_dim_scores(store, work, seq)
+                if scores:
+                    issues.extend(project_quality_dim_advisory(scores, chapter=seq))
+                    if "quality_dim" not in reviewers_run:
+                        reviewers_run.append("quality_dim")
+                else:
+                    if "quality_dim" not in reviewers_skipped:
+                        reviewers_skipped.append("quality_dim")
+                    dim_note = "无十维分数"
+        except Exception as e:
+            degraded.append({"source": "quality_dim", "chapter": seq, "reason": str(e)[:200]})
+            if "quality_dim" not in reviewers_skipped:
+                reviewers_skipped.append("quality_dim")
+    else:
+        if "quality_dim" not in reviewers_skipped:
+            reviewers_skipped.append("quality_dim")
+
     norm = normalize_issues(issues, chapter=seq)
     cov_mode = "full" if mode == "full" and "llm_review_l1" in reviewers_run else (
         "semantic" if mode == "full" else "deterministic"
     )
     if mode == "full" and "llm_review_l1" not in reviewers_run:
         cov_mode = "partial"
+    has_l = any(
+        x.startswith("llm") or x in ("discipline_l0", "quality_dim")
+        for x in reviewers_run
+    )
+    note_parts = []
+    if reviewers_skipped and mode == "full":
+        note_parts.append("partial")
+    if dim_note:
+        note_parts.append(dim_note)
     coverage = {
         "mode": cov_mode,
-        "tracks": ["D"] + (["L"] if any(x.startswith("llm") or x == "discipline_l0" for x in reviewers_run) else []),
+        "tracks": ["D"] + (["L"] if has_l else []),
         "reviewers_run": reviewers_run,
         "reviewers_skipped": reviewers_skipped,
         "prose_fp": fp,
-        "note": "partial" if reviewers_skipped and mode == "full" else "",
+        "note": "；".join(note_parts),
     }
     out = {
         "ok": True,
@@ -139,13 +179,13 @@ def run_chapter_review(
         "coverage": coverage,
         "post": post,
     }
-    # snapshot write only when enabled (M4a)
+    # snapshot write only when enabled (M4a); quality_dim has meta.track=L
     if persist_enabled() and mode in ("full", "semantic", "deterministic"):
         save_chapter_review(store, work=work, seq=seq, payload={
             "prose_fp": fp,
             "mode": cov_mode,
             "issues": [i for i in norm if (i.get("meta") or {}).get("track") == "L"
-                       or i.get("source") in ("llm_review", "discipline")],
+                       or i.get("source") in ("llm_review", "discipline", "quality_dim")],
             "coverage": coverage,
             "degraded": degraded,
         })

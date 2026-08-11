@@ -303,6 +303,43 @@ def issue_ledger(chapter: int | None = Query(default=None, ge=1), work: str = "m
         except Exception as e:
             degraded.append({"source": "snapshot", "chapter": seq, "reason": str(e)[:200]})
 
+        # A3: read-only quality_dim from completed evaluation (no LLM; left-bar safe)
+        try:
+            from scribe3.quality.dim_scores import load_chapter_dim_scores
+            from scribe3.review.m5_projection import project_quality_dim_advisory
+
+            skipped = list(coverage.get("sources_skipped") or [])
+            run = list(coverage.get("sources_run") or [])
+            scores = load_chapter_dim_scores(st, work, seq)
+            if scores:
+                existing = {
+                    (i.get("kind") or i.get("id"))
+                    for i in issues
+                    if i.get("source") == "quality_dim" or i.get("type") == "quality_dim"
+                }
+                for qi in project_quality_dim_advisory(scores, chapter=seq):
+                    key = qi.get("kind") or qi.get("id")
+                    if key in existing:
+                        continue
+                    issues.append(qi)
+                    existing.add(key)
+                if "quality_dim" in skipped:
+                    skipped = [s for s in skipped if s != "quality_dim"]
+                if "quality_dim" not in run:
+                    run.append("quality_dim")
+                tracks = list(coverage.get("tracks") or ["D"])
+                if "L" not in tracks:
+                    tracks.append("L")
+                coverage["tracks"] = tracks
+                note = (coverage.get("note") or "").strip()
+                addon = "含十维弱维 advisory（只读已有评价）"
+                if addon not in note:
+                    coverage["note"] = f"{note}；{addon}".strip("；") if note else addon
+            coverage["sources_skipped"] = skipped
+            coverage["sources_run"] = run
+        except Exception as e:
+            degraded.append({"source": "quality_dim", "chapter": seq, "reason": str(e)[:200]})
+
         all_issues.extend(issues)
         all_degraded.extend(degraded)
         coverages.append({"chapter": seq, **coverage})

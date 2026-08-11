@@ -16,6 +16,7 @@ export const ISSUE_LABEL = {
   setting: '设定校验',
   pressure: '压力节奏',
   faction_consistency: '势力一致',
+  quality_dim: '十维',
 }
 
 export function issueLabel(type) {
@@ -39,6 +40,7 @@ export const ISSUE_DOT = {
   setting: 'bg-warn',
   pressure: 'bg-brand',
   faction_consistency: 'bg-indigo-500',
+  quality_dim: 'bg-sky-500',
 }
 
 export function issueDot(type) {
