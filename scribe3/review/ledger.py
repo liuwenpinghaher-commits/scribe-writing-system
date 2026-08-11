@@ -104,14 +104,17 @@ def collect_causal_issues(causal_result: dict, seq: int) -> list[dict]:
 
 
 def collect_leak_issues(prose: str, store, seq: int, focalizer: str | None) -> tuple[list[dict], list[dict]]:
-    """Returns (issues, degraded_sources). No LLM."""
+    """Returns (issues, degraded_sources). No LLM. Leaks carry knowers enrichment in meta."""
     degraded = []
     issues = []
     if not prose or not focalizer:
         return issues, degraded
     try:
-        from scribe3.verify import find_leaks_for_chapter
+        from scribe3.verify import find_leaks_for_chapter, enrich_leak_payload
         for idx, lk in enumerate(find_leaks_for_chapter(prose, store, focalizer, seq)):
+            enr = enrich_leak_payload(lk, store, seq)
+            kn_n = int(enr.get("knowers_count") or 0)
+            kn_note = f"；知情者 {kn_n} 人" if kn_n else "；知情者未列出/空"
             issues.append({
                 "id": f"issue:leaks:{seq}:{idx}",
                 "source": "leaks",
@@ -119,8 +122,8 @@ def collect_leak_issues(prose: str, store, seq: int, focalizer: str | None) -> t
                 "kind": "leak",
                 "severity": "S1",
                 "title": "限知泄露",
-                "reason": f"破绽词「{lk.marker}」",
-                "message": f"限知泄露:「{lk.marker}」",
+                "reason": f"破绽词「{lk.marker}」{kn_note}",
+                "message": f"限知泄露:「{lk.marker}」{kn_note}",
                 "chapter": seq,
                 "range": list(lk.range) if lk.range else [0, 0],
                 "text": lk.marker,
@@ -130,6 +133,10 @@ def collect_leak_issues(prose: str, store, seq: int, focalizer: str | None) -> t
                     "subject": lk.subject,
                     "detector": "find_leaks",
                     "track": "D",
+                    "knowers": enr.get("knowers") or [],
+                    "knowers_status": enr.get("knowers_status"),
+                    "knowers_count": kn_n,
+                    "proposition_local": enr.get("proposition_local"),
                 },
                 "suggested_action": "删破绽词或以误判/物象暗示私密。",
             })
@@ -137,6 +144,48 @@ def collect_leak_issues(prose: str, store, seq: int, focalizer: str | None) -> t
         _log.warning("collect_leak_issues failed seq=%s: %s", seq, e)
         degraded.append({"source": "leaks", "chapter": seq, "reason": str(e)[:200]})
     return issues, degraded
+
+
+def collect_faction_issues(store) -> list[dict]:
+    """全书势力一致性 → advisory issues（meta.scope=work · 禁止 chapter=0）。"""
+    issues: list[dict] = []
+    try:
+        from scribe3.codex_validate import validate_faction_consistency
+        findings = validate_faction_consistency(store) or []
+    except Exception as e:
+        _log.warning("collect_faction_issues: %s", e)
+        return issues
+    for idx, f in enumerate(findings):
+        if not isinstance(f, dict):
+            continue
+        sev = str(f.get("severity") or "low").lower()
+        # soft product: map to warning/info
+        product_sev = "error" if sev in ("high", "error", "blocking") else "warning"
+        fac = f.get("faction") or ""
+        detail = f.get("detail") or f.get("kind") or "势力一致性"
+        issues.append({
+            "id": f"issue:faction:{idx}:{fac or idx}",
+            "source": "faction",
+            "type": "faction_consistency",
+            "kind": str(f.get("kind") or "faction_consistency"),
+            "severity": product_sev,
+            "title": "势力一致性",
+            "reason": str(detail),
+            "message": str(detail),
+            "chapter": None,  # work-scope · never 0
+            "range": [0, 0],
+            "text": "",
+            "meta": {
+                "severity": "advisory",
+                "scope": "work",
+                "faction": fac,
+                "track": "D",
+                "raw_severity": sev,
+            },
+            "suggested_action": "核对势力关系与 power_share，在 Codex 修正后再扫。",
+            "target_node": {"type": "work", "label": "全书"},
+        })
+    return issues
 
 
 def collect_secret_without_markers(store, seq: int) -> list[dict]:
@@ -241,4 +290,21 @@ def build_phase_a_ledger(
         "issues": issues,
         "degraded_sources": degraded,
         "coverage": coverage,
+    }
+
+
+def build_work_scope_faction_ledger(store) -> dict[str, Any]:
+    """全书势力 advisory 包（供 issue_ledger 全书扫描附加一次）。"""
+    raw = collect_faction_issues(store)
+    # normalize without forcing chapter=0
+    issues = []
+    for it in raw:
+        row = dict(it)
+        if row.get("chapter") == 0:
+            row["chapter"] = None
+        issues.append(row)
+    return {
+        "issues": issues,
+        "sources_run": ["faction"],
+        "coverage_note": "势力一致性为全书 scope（advisory）",
     }

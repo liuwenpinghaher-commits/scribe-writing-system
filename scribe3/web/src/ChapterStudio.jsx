@@ -668,6 +668,8 @@ function DraftTab({ seq, work, meta, onAdopt, onGoDeduce }) {
             const bits = [
               ['复读', cnt(q.repetition)], ['排比', cnt(q.structural)], ['升华', cnt(q.purple)],
               ['AI腔', cnt(q.ai_tics)], ['过饱和', cnt(q.oversaturation)],
+              ['全知', cnt(q.god_view)], ['退化', cnt(q.degeneration)],
+              ['水字', cnt(q.filler)], ['三连', cnt(q.rule_of_three)],
               ['整行重复', cnt(checkRes.duplicate_lines)], ['情感直说', cnt(checkRes.emotion_telling)],
               ['泄露预览', cnt(checkRes.leaks)],
             ].filter(([, n]) => n > 0)

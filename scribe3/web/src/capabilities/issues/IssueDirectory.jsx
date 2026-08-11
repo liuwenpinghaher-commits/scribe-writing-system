@@ -68,6 +68,19 @@ export function IssueDirectory({ seq, onSelectItem }) {
                 未做语义深检（打开本栏不触发 LLM）。需要时用「全量体检」或 POST /review/chapter。
               </div>
             )}
+            {Array.isArray(coverage?.sources_skipped) && coverage.sources_skipped.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1" data-testid="issue-sources-skipped">
+                <span className="shrink-0">未跑源：</span>
+                {coverage.sources_skipped.map((s) => (
+                  <span
+                    key={s}
+                    className="rounded border border-line/70 bg-canvas px-1 text-f11 text-faint"
+                  >
+                    {s}
+                  </span>
+                ))}
+              </div>
+            )}
             {covNote && !isDetOnly && <div className="mt-0.5">{covNote}</div>}
           </div>
         )}
@@ -105,7 +118,11 @@ export function IssueDirectory({ seq, onSelectItem }) {
                 <DirectoryRow
                   key={issue.id}
                   title={issue.title || issue.id}
-                  meta={`第 ${issue.chapter} 章 · ${issue.source}`}
+                  meta={
+                    issue.chapter == null || issue.meta?.scope === 'work'
+                      ? `全书 · ${issue.source || 'faction'}`
+                      : `第 ${issue.chapter} 章 · ${issue.source}`
+                  }
                   onClick={() => onSelectItem?.(toNode(issue))}
                   aria-label={issue.title || issue.id}
                 />

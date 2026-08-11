@@ -174,9 +174,9 @@ def _deterministic_post(store, work: str, seq: int, prose: str, focalizer: str |
     leaks_degraded = False
     if focalizer and prose:
         try:
+            from scribe3.verify import enrich_leak_payload
             leaks = [
-                {"fact_id": lk.fact_id, "marker": lk.marker, "subject": lk.subject,
-                 "range": list(lk.range) if lk.range else None}
+                enrich_leak_payload(lk, store, seq)
                 for lk in find_leaks_for_chapter(prose, store, focalizer, seq)
             ]
             for lk in leaks:
@@ -185,7 +185,14 @@ def _deterministic_post(store, work: str, seq: int, prose: str, focalizer: str |
                     "message": f"限知泄露:「{lk['marker']}」",
                     "text": lk["marker"],
                     "range": lk["range"],
-                    "meta": {"severity": "S1", "fact_id": lk["fact_id"], "subject": lk["subject"]},
+                    "meta": {
+                        "severity": "S1",
+                        "fact_id": lk["fact_id"],
+                        "subject": lk["subject"],
+                        "knowers": lk.get("knowers") or [],
+                        "knowers_status": lk.get("knowers_status"),
+                        "knowers_count": lk.get("knowers_count"),
+                    },
                 })
         except Exception:
             leaks_degraded = True

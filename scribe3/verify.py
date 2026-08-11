@@ -110,6 +110,73 @@ def find_leaks_for_chapter(
     )
 
 
+def proposition_local_id(fact_id: str | None) -> str:
+    """归一命题本地 id：fact:治眼 / proposition:治眼 / 治眼 → 治眼。"""
+    s = str(fact_id or "").strip()
+    if not s:
+        return ""
+    if ":" in s:
+        prefix, rest = s.split(":", 1)
+        if prefix in ("fact", "proposition", "prop"):
+            return rest.strip()
+    return s
+
+
+def enrich_leak_payload(
+    leak: Leak | dict,
+    store,
+    chapter: int,
+) -> dict:
+    """序列化层：Leak → dict + knowers 富化（不改 Leak dataclass / 不改检测合同）。
+
+    knowers 失败 → ``knowers=[]`` + ``knowers_status=error|unavailable``，永不抛穿。
+    """
+    if isinstance(leak, Leak):
+        row = {
+            "fact_id": leak.fact_id,
+            "marker": leak.marker,
+            "subject": leak.subject,
+            "range": list(leak.range) if leak.range else None,
+        }
+    else:
+        row = {
+            "fact_id": (leak or {}).get("fact_id"),
+            "marker": (leak or {}).get("marker"),
+            "subject": (leak or {}).get("subject"),
+            "range": (leak or {}).get("range"),
+        }
+    plocal = proposition_local_id(row.get("fact_id"))
+    knowers: list = []
+    status = "ok"
+    if not plocal:
+        status = "no_prop"
+    elif not hasattr(store, "list_knowers_for_proposition"):
+        status = "unavailable"
+    else:
+        try:
+            knowers = list(store.list_knowers_for_proposition(plocal, int(chapter)) or [])
+            # 不泄露 value；仅 id/name 等
+            slim = []
+            for k in knowers:
+                if not isinstance(k, dict):
+                    continue
+                slim.append({
+                    "id": k.get("id"),
+                    "name": k.get("name"),
+                    "since_chapter": k.get("since_chapter"),
+                })
+            knowers = slim
+        except Exception:
+            knowers = []
+            status = "error"
+    row["knowers"] = knowers
+    row["knowers_status"] = status
+    row["proposition_local"] = plocal
+    # 交叉：焦点者是否在 knowers（仅提示，不改 S1）
+    row["knowers_count"] = len(knowers)
+    return row
+
+
 def causal_complete(world: World, chapter: int) -> list[CausalViolation]:
     """每事件须 motivated_by_goal 非空；非首事件须有因果入边，或有可审计的新场景根理由。"""
     evs = sorted(world.events_at(chapter), key=lambda e: e.id)

@@ -7,10 +7,15 @@ export const ISSUE_LABEL = {
   purple: '升华/抒情',
   ai_tics: 'AI腔',
   oversaturation: '过饱和',
+  god_view: '全知口吻',
+  degeneration: '模型退化',
+  filler: '水字数',
+  rule_of_three: '三连套路',
   leak: '穿帮泄露',
   discipline: '纪律违规',
   setting: '设定校验',
   pressure: '压力节奏',
+  faction_consistency: '势力一致',
 }
 
 export function issueLabel(type) {
@@ -25,10 +30,15 @@ export const ISSUE_DOT = {
   purple: 'bg-purple-500',
   ai_tics: 'bg-gray-400',
   oversaturation: 'bg-orange-500',
+  god_view: 'bg-violet-500',
+  degeneration: 'bg-danger',
+  filler: 'bg-stone-400',
+  rule_of_three: 'bg-teal-500',
   leak: 'bg-danger',
   discipline: 'bg-danger',
   setting: 'bg-warn',
   pressure: 'bg-brand',
+  faction_consistency: 'bg-indigo-500',
 }
 
 export function issueDot(type) {

@@ -245,7 +245,7 @@ def issue_ledger(chapter: int | None = Query(default=None, ge=1), work: str = "m
     Phase A：qc（全可映射键含 god_view/degeneration）+ leaks + causal + secret_without_markers。
     Phase B：若 chapter_review 旁表 prose_fp 匹配，合并 L 轨 findings。
     """
-    from scribe3.review.ledger import build_phase_a_ledger
+    from scribe3.review.ledger import build_phase_a_ledger, build_work_scope_faction_ledger
     from scribe3.review.normalize import normalize_issues
     from scribe3.review.snapshot import load_chapter_review
 
@@ -264,6 +264,14 @@ def issue_ledger(chapter: int | None = Query(default=None, ge=1), work: str = "m
 
     def _causal(seq: int):
         return causal(seq, work)
+
+    # 全书 scope：势力一致性只扫一次（不按章重复、不用 chapter=0）
+    if chapter is None:
+        try:
+            fac = build_work_scope_faction_ledger(st)
+            all_issues.extend(fac.get("issues") or [])
+        except Exception as e:
+            all_degraded.append({"source": "faction", "reason": str(e)[:200]})
 
     for seq in seqs:
         led = build_phase_a_ledger(store=st, seq=seq, qc_fn=_qc, causal_fn=_causal)

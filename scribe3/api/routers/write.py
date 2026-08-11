@@ -251,10 +251,11 @@ def check_prose(req: CheckReq, seq: int | None = Query(default=None), work: str 
     leaks_error = None
     if req.focalizer:
         try:
-            from scribe3.verify import find_leaks_for_chapter as find_leaks
-            leaks = [{"fact_id": lk.fact_id, "marker": lk.marker, "subject": lk.subject,
-                      "range": list(lk.range) if lk.range else None}
-                     for lk in find_leaks(req.prose, st, req.focalizer, seq)]
+            from scribe3.verify import find_leaks_for_chapter as find_leaks, enrich_leak_payload
+            leaks = [
+                enrich_leak_payload(lk, st, seq)
+                for lk in find_leaks(req.prose, st, req.focalizer, seq)
+            ]
         except Exception as e:
             logging.getLogger("scribe3").error("check find_leaks 失败", exc_info=True)
             leaks_error = str(e)[:120]
@@ -355,10 +356,11 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
     leaks_degraded = False
     if req.focalizer:
         try:
-            from scribe3.verify import find_leaks_for_chapter as find_leaks
-            leaks = [{"fact_id": lk.fact_id, "marker": lk.marker, "subject": lk.subject,
-                      "range": list(lk.range) if lk.range else None}
-                     for lk in find_leaks(req.prose, st, req.focalizer, seq)]
+            from scribe3.verify import find_leaks_for_chapter as find_leaks, enrich_leak_payload
+            leaks = [
+                enrich_leak_payload(lk, st, seq)
+                for lk in find_leaks(req.prose, st, req.focalizer, seq)
+            ]
         except Exception as e:
             logging.getLogger("scribe3").warning("post_check find_leaks 失败: %s", e)
             leaks_degraded = True
