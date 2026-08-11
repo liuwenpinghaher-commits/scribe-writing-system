@@ -233,12 +233,73 @@ def test_pr3_agent_crons_response_shape(monkeypatch):
         "scribe3.agent_crons.load_hermes_cron_aggregate",
         lambda force=False: {"checked": False, "note": "mock"},
     )
+    monkeypatch.setattr(
+        "scribe3.agent_crons.load_hermes_cron_jobs",
+        lambda force=False: {},
+    )
     clear_cron_overrides_for_tests()
     r = build_agent_crons_response()
     assert r["mutates_hermes_timer"] is False
     assert "note_zh" in r
     assert "hermes_cron" in r
     assert isinstance(r["jobs"], list)
+
+
+def test_pr3b_parse_hermes_cron_list_and_match():
+    from scribe3.agent_crons import parse_hermes_cron_list, match_job_hermes, build_agent_crons_response
+    sample = """
+  dc4bd8e87938 [active]
+    Name:      scribe3-体检
+    Schedule:  every 360m
+    Last run:  2026-07-10T00:03:07.173673+08:00  ok
+  aabbccddee01 [paused]
+    Name:      scribe3-daily-digest
+    Schedule:  0 8 * * *
+"""
+    parsed = parse_hermes_cron_list(sample)
+    assert parsed["scribe3-体检"]["present"] is True
+    assert parsed["scribe3-体检"]["active"] is True
+    assert parsed["scribe3-体检"]["last_status"] == "ok"
+    assert parsed["scribe3-daily-digest"]["present"] is True
+    assert parsed["scribe3-daily-digest"]["active"] is False
+
+    exact = match_job_hermes("scribe3-daily-digest", parsed)
+    assert exact["present"] is True
+    assert exact["match"] == "exact"
+    missing = match_job_hermes("no-such-job", parsed)
+    assert missing["present"] is False
+
+
+def test_pr3b_build_response_attaches_hermes(monkeypatch):
+    from scribe3 import agent_crons as ac
+    ac.clear_cron_overrides_for_tests()
+    monkeypatch.setattr(
+        ac,
+        "load_cron_catalog",
+        lambda path=None: [
+            {"name": "scribe3-daily-digest", "schedule": "0 8 * * *", "enabled": True, "catalog_enabled": True},
+            {"name": "other-job", "schedule": "0 0 * * *", "enabled": True, "catalog_enabled": True},
+        ],
+    )
+    monkeypatch.setattr(
+        ac,
+        "load_hermes_cron_aggregate",
+        lambda force=False: {"checked": True, "active_jobs": 1},
+    )
+    monkeypatch.setattr(
+        ac,
+        "load_hermes_cron_jobs",
+        lambda force=False: {
+            "scribe3-daily-digest": {"present": True, "active": True, "last_status": "ok"},
+        },
+    )
+    r = ac.build_agent_crons_response()
+    assert r["phase"] == "2"
+    by = {j["name"]: j for j in r["jobs"]}
+    assert by["scribe3-daily-digest"]["hermes"]["present"] is True
+    assert by["scribe3-daily-digest"]["hermes"]["active"] is True
+    assert by["other-job"]["hermes"]["present"] is False
+
 
 
 def test_pr4_soft_event_led_l0_only():

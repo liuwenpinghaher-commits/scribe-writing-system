@@ -84,6 +84,17 @@ export function CronPanel() {
               <div className="text-f11 text-faint truncate">
                 {j.schedule || '—'} · {j.script || ''}
               </div>
+              {j.hermes && (
+                <div className="text-f11 text-faint" data-testid={`cron-hermes-${j.name}`}>
+                  Hermes：
+                  {j.hermes.present ? '在册' : '未在册'}
+                  {j.hermes.present && (j.hermes.active ? ' · 活跃' : ' · 非活跃')}
+                  {j.hermes.last_status && ` · last ${j.hermes.last_status}`}
+                  {j.hermes.match === 'fuzzy' && j.hermes.matched_name && (
+                    <span> · 匹配 {j.hermes.matched_name}</span>
+                  )}
+                </div>
+              )}
             </div>
             <label className="flex items-center gap-1.5 shrink-0 cursor-pointer">
               <input
