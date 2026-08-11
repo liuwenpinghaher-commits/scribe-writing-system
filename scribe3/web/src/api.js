@@ -544,6 +544,23 @@ export const api = {
   canonChangePack: (body) => post('/canon/change-pack', body),
   canonApplyPack: (body) => post('/canon/change-pack/apply', body),
   recall: (text, k = 6) => j(`/recall?q=${enc(text)}&k=${k}`),
+
+  // ── 延期产品 / 做厚表面（H3–H7 · 命名方法避免裸 fetch 脆弱）──
+  storylineGantt: (work) => j('/storyline/gantt', work),
+  storylineEmotion: (work) => j('/storyline/emotion-curve', work),
+  storylineInjectPreview: (body, work) => post('/storyline/inject-preview', body || {}, work),
+  chapterStage: (seq, work) => j(`/chapters/${enc(seq)}/stage`, work),
+  chapterStageAdvance: (seq, body, work) => post(`/chapters/${enc(seq)}/stage/advance`, body || {}, work),
+  parallelDeduce: (seq, body, work) => post(`/chapters/${enc(seq)}/deduce/parallel`, body || {}, work),
+  agentCrons: () => j('/agent-crons'),
+  agentCronEnable: (name, body) => post(`/agent-crons/${enc(name)}/enable`, body || {}),
+  benchmarks: () => j('/benchmarks'),
+  benchmarkUpsert: (body) => post('/benchmarks', body || {}),
+  benchmarkDelete: (bid) => del(`/benchmarks/${enc(bid)}`),
+  softPrecheck: (body, work) => post('/soft-precheck', body || {}, work),
+  literaryDistill: (body, work) => post('/literary-distill', body || {}, work),
+  injectionTrace: () => j('/debug/injection-trace'),
+
   chapters: () => j('/chapters'),
   archivedChapters: () => j('/chapters/archived'),
   createChapter: (body = {}) => post('/chapters', body),

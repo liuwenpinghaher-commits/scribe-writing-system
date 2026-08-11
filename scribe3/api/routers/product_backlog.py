@@ -77,29 +77,35 @@ def chapter_stage_advance_ep(seq: int, req: dict | None = None, work: str = "mai
     result = transition(cur, action)
     # soft 持久化 next 到 stage_state（fail-soft）
     if result.get("next") and not result.get("blocked"):
+        persisted = "skipped"
         try:
             from scribe3.api import app_impl as core
             st = core._store_for(work)
-            if hasattr(st, "update_chapter_meta") or hasattr(st, "patch_chapter"):
-                # 最小：若有 set 字段 API
-                pass
-            if hasattr(st, "_execute_write"):
+            ss = {"phase": result["next"]}
+            if hasattr(st, "update_chapter_meta"):
+                ok = st.update_chapter_meta(int(seq), {"stage_state": ss})
+                persisted = "ok" if ok else "skipped"
+            elif hasattr(st, "_execute_write"):
                 st._execute_write(
                     "UPDATE type::record('chapter',$seq) SET stage_state=$ss",
-                    {"seq": int(seq), "ss": {"phase": result["next"]}},
+                    {"seq": int(seq), "ss": ss},
                 )
+                persisted = "ok"
         except Exception:
-            result["persist"] = "skipped"
-        else:
-            result["persist"] = "ok"
+            persisted = "skipped"
+        result["persist"] = persisted
     result["seq"] = int(seq)
     result["work"] = work
     return result
 
 
 def parallel_deduce_plan_ep(seq: int, req: dict | None = None, work: str = "main"):
-    """O22：并行演绎 dry-run plan。"""
-    from scribe3.parallel_deduce import build_parallel_deduce_plan
+    """O22：并行演绎 plan；body.execute=true 时真跑（限并发 · soft 失败）。"""
+    from scribe3.parallel_deduce import (
+        build_parallel_deduce_plan,
+        execute_parallel_deduce,
+        parallel_deduce_enabled,
+    )
     payload = req if isinstance(req, dict) else {}
     focals = payload.get("focalizers") or payload.get("viewpoints") or []
     if isinstance(focals, str):
@@ -110,13 +116,26 @@ def parallel_deduce_plan_ep(seq: int, req: dict | None = None, work: str = "main
         max_parallel=int(payload.get("max_parallel") or 2),
         work=work,
     )
-    # 可选占锁探测
-    if payload.get("lock_probe"):
+    # 可选占锁探测（dry）
+    if payload.get("lock_probe") and not payload.get("execute"):
         from scribe3.chapter_lock import acquire_chapter_lock, release_chapter_lock
         r = acquire_chapter_lock("run", work, int(seq))
         plan["lock"] = r.as_dict()
         if r.ok:
             release_chapter_lock("run", work, int(seq))
+    # 显式 execute=true 才真跑；默认 dry-run
+    if payload.get("execute") in (True, 1, "1", "true", "yes"):
+        if not parallel_deduce_enabled():
+            plan["execute"] = False
+            plan["error"] = "PARALLEL_DEDUCE_disabled"
+            return plan
+        timeout_s = float(payload.get("timeout_s") or 120)
+        use_lock = payload.get("lock", True) not in (False, 0, "0", "false")
+        return execute_parallel_deduce(
+            plan,
+            lock=use_lock,
+            timeout_s=timeout_s,
+        )
     return plan
 
 

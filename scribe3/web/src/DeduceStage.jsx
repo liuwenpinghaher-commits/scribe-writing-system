@@ -33,6 +33,11 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
   const [busy, setBusy] = useState(false)
   const [approval, setApproval] = useState(null)
   const [roleToAdd, setRoleToAdd] = useState('')
+  // H3：并行多视角
+  const [parallelFocals, setParallelFocals] = useState('')
+  const [parallelPlan, setParallelPlan] = useState(null)
+  const [parallelResults, setParallelResults] = useState(null)
+  const [parallelBusy, setParallelBusy] = useState(false)
   const generationRef = useRef(null)
   const chars = meta?.chars || []
   const cur = selected === 'truth'
@@ -313,6 +318,33 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
     run.timer = setTimeout(() => stopGeneration('演绎审批等待超过 6 分钟，未批准内容不会写入。'), GENERATE_TIMEOUT_MS)
   }
 
+  const runParallelPlan = async (execute = false) => {
+    setParallelBusy(true)
+    setParallelResults(null)
+    try {
+      const focals = parallelFocals.split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean)
+      const body = {
+        focalizers: focals.length ? focals : (chars.slice(0, 2).map((c) => c.name || c.id)),
+        max_parallel: 2,
+        execute: !!execute,
+      }
+      const r = typeof api.parallelDeduce === 'function'
+        ? await api.parallelDeduce(seq, body, work)
+        : await api.post(`/chapters/${seq}/deduce/parallel`, body)
+      if (execute) {
+        setParallelResults(r)
+        setParallelPlan(r?.plan || null)
+      } else {
+        setParallelPlan(r)
+      }
+      toast(execute ? '并行演绎已结束（soft）' : '已生成并行 plan（dry-run）', { tone: 'ok' })
+    } catch (e) {
+      toast(e?.body?.detail || e?.message || '并行演绎失败', { tone: 'danger' })
+    } finally {
+      setParallelBusy(false)
+    }
+  }
+
   const hasChapter = Number.isInteger(Number(seq)) && Number(seq) >= 1
   if (!hasChapter) return (
     <div data-testid="deduce-stage-missing-chapter" className="p-6 text-f13 text-faint">
@@ -325,6 +357,44 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
       data-testid="deduce-stage"
       className="w-full max-w-[min(1120px,calc(100%-48px))] mx-auto px-6 py-6 h-full flex flex-col min-h-0"
     >
+      <div
+        className="mb-3 rounded-lg border border-line/60 bg-surface/50 px-3 py-2 space-y-2"
+        data-testid="parallel-deduce-panel"
+      >
+        <div className="text-f12 font-medium text-ink">多视角并行演绎</div>
+        <p className="text-f11 text-faint">默认 dry-run 预览 plan；确认执行才打 LLM（限并发 · 章锁 · soft 失败）。</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            className="h-8 min-w-[12rem] flex-1 rounded-lg border border-line bg-canvas px-2 text-f12"
+            placeholder="视角名，逗号分隔（可空=角色前两名）"
+            value={parallelFocals}
+            onChange={(e) => setParallelFocals(e.target.value)}
+            data-testid="parallel-deduce-focals"
+          />
+          <Btn size="sm" disabled={parallelBusy} onClick={() => runParallelPlan(false)} data-testid="parallel-deduce-plan">
+            {parallelBusy ? '…' : '预览 plan'}
+          </Btn>
+          <Btn size="sm" variant="primary" disabled={parallelBusy} onClick={() => runParallelPlan(true)} data-testid="parallel-deduce-execute">
+            确认执行
+          </Btn>
+        </div>
+        {parallelPlan && (
+          <pre className="text-f11 text-faint max-h-24 overflow-auto whitespace-pre-wrap" data-testid="parallel-deduce-plan-out">
+            {JSON.stringify(parallelPlan.runs || parallelPlan, null, 0).slice(0, 800)}
+          </pre>
+        )}
+        {parallelResults?.results && (
+          <ul className="text-f12 space-y-1" data-testid="parallel-deduce-results">
+            {parallelResults.results.map((r, i) => (
+              <li key={i} className="border-b border-line/40 py-1">
+                <strong>{r.focalizer || '_default'}</strong>
+                <span className="text-faint"> · {r.status}</span>
+                <div className="text-f11 text-faint truncate">{(r.summary || r.error || '').slice(0, 200)}</div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <h3 className="type-section text-ink">{selected === 'truth' ? '场景真相 · 全知' : `${cur.character_name} · 限知投影`}</h3>
         {chars.length > 0 && (

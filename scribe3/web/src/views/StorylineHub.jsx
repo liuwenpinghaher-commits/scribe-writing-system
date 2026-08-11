@@ -16,8 +16,8 @@ export function StorylineHub({ work }) {
     setLoading(true)
     setErr('')
     Promise.all([
-      api.get?.('/storyline/gantt').catch(() => api.request?.('GET', '/storyline/gantt')),
-      api.get?.('/storyline/emotion-curve').catch(() => api.request?.('GET', '/storyline/emotion-curve')),
+      (typeof api.storylineGantt === 'function' ? api.storylineGantt() : api.get?.('/storyline/gantt')).catch(() => null),
+      (typeof api.storylineEmotion === 'function' ? api.storylineEmotion() : api.get?.('/storyline/emotion-curve')).catch(() => null),
     ])
       .then(async () => {
         // 兼容 api.js 形态：优先命名方法，否则 fetch

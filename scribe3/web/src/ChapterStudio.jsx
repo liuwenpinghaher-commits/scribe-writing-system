@@ -32,6 +32,7 @@ import {
   executionSoftSummary,
 } from './lib/chapterContractGate.js'
 import { loadIaDensity, saveIaDensity, auxVisibleForDensity } from './lib/iaDensity.js'
+import { StageBoard } from './StageBoard.jsx'
 
 // 章五阶段(Task 7):大纲→节拍→演绎→草稿→正文。字段分列禁止合并(IA KD-IA-1)。
 // 辅助面:简报/关联/评分卡/经验复盘——读着写,不参与阶段时钟。
@@ -1002,6 +1003,14 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
           data-testid="phase-duty-line"
         >
           {(PHASES.find((p) => p.key === phase) || {}).duty || ''}
+          <div className="mt-1.5" data-testid="chapter-studio-stage-board">
+            <StageBoard
+              seq={seq}
+              work={work}
+              localPhase={phase}
+              onPhaseChange={(p) => setPhaseP(p)}
+            />
+          </div>
         </div>
       )}
       {showChapterMeta ? (

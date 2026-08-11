@@ -1033,15 +1033,20 @@ def _pilot_executor(work: str) -> dict:
         prose = (ch.get("prose") or "").strip()
         if not prose:
             return {"pilot_park": "正文为空,无从体检(上游未交稿——若在等 advisory 裁决请先处理)"}
-        # OI-5/6：soft 日志 only（永不 park / 永不进 S1）
+        # OI-5/6 + H2 EVENT_LED：soft 日志 only（永不 park / 永不进 S1）
         _drive = ch.get("narrative_drive") if isinstance(ch.get("narrative_drive"), dict) else {}
         try:
             from scribe3.narrative_drive import (
+                maybe_event_led_detect,
                 maybe_log_metaphor_soft,
                 maybe_log_opener_soft_trace,
             )
             maybe_log_opener_soft_trace(prose, _drive, seq=seq)
             maybe_log_metaphor_soft(prose, seq=seq)
+            _eld = maybe_event_led_detect(prose, _drive, seq=seq)
+            if _eld is not None:
+                # 暂存，下方与 soft_fulfill 一并 merge pilot_card
+                ch["_event_led_detect_tmp"] = _eld
         except Exception as e:
             logging.getLogger("scribe3").debug("soft narrative traces fail-soft: %s", e)
         # EC-2：soft_fulfill advisory + merge pilot_card（永不 blocking）
@@ -1057,6 +1062,15 @@ def _pilot_executor(work: str) -> dict:
                 summarize_soft_fulfill,
             )
             _patch: dict = {}
+            _eld_card = ch.pop("_event_led_detect_tmp", None) if isinstance(ch, dict) else None
+            if isinstance(_eld_card, dict):
+                _patch["event_led_detect"] = {
+                    "ok_soft": _eld_card.get("ok_soft"),
+                    "gaps": list(_eld_card.get("gaps") or [])[:12],
+                    "hits": list(_eld_card.get("hits") or [])[:12],
+                    "note": _eld_card.get("note"),
+                    "severity": "advisory",
+                }
             if soft_fulfill_enabled():
                 _ful = soft_fulfill_drive(prose, _drive)
                 logging.getLogger("scribe3").info(

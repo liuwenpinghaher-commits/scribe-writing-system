@@ -1,0 +1,187 @@
+"""做厚半截能力：H1 adaptive×novel · H2 event_led · H3 parallel execute · H6/H7 落盘 · H9 report。"""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _clean_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("SCRIBE3_ENVELOPE_V2_ENABLE", "1")
+    monkeypatch.setenv("SCRIBE3_ENVELOPE_NOVEL", "1")
+    monkeypatch.setenv("SCRIBE3_ADAPTIVE_BUDGET", "1")
+    monkeypatch.delenv("SCRIBE3_SCENE_BUDGET_PROFILE", raising=False)
+    monkeypatch.delenv("SCRIBE3_CONTEXT_FIDELITY", raising=False)
+    monkeypatch.setenv("SCRIBE3_BENCHMARK_PATH", str(tmp_path / "benchmarks.json"))
+    monkeypatch.setenv("SCRIBE3_CRON_OVERRIDES_PATH", str(tmp_path / "cron_overrides.json"))
+    yield
+
+
+def test_h1_novel_adaptive_dialogue_sum_22k_not_18k():
+    from scribe3.context_budget import (
+        BLOCK_BUDGETS_NOVEL,
+        NOVEL_ENVELOPE_TOKEN_BUDGET,
+        SCENE_BUDGET_PROFILES,
+        SCENE_BUDGET_PROFILES_NOVEL,
+        get_block_budgets,
+    )
+    for name, tbl in SCENE_BUDGET_PROFILES_NOVEL.items():
+        assert sum(tbl.values()) == NOVEL_ENVELOPE_TOKEN_BUDGET, name
+    bb = get_block_budgets(beat_type="dialogue")
+    assert sum(bb.values()) == 22_000
+    # 不得静默落到 18k 场景表
+    assert bb != SCENE_BUDGET_PROFILES["dialogue_heavy"]
+    # 与 novel 基表至少一块不同（重配）
+    assert bb != BLOCK_BUDGETS_NOVEL
+    assert bb["recent"] != BLOCK_BUDGETS_NOVEL["recent"]
+
+
+def test_h1_v2_adaptive_still_18k(monkeypatch):
+    monkeypatch.setenv("SCRIBE3_ENVELOPE_NOVEL", "0")
+    monkeypatch.setenv("SCRIBE3_CONTEXT_FIDELITY", "v2")
+    from scribe3.context_budget import get_block_budgets, SCENE_BUDGET_PROFILES
+    bb = get_block_budgets(beat_type="dialogue")
+    assert sum(bb.values()) == 18_000
+    assert bb == SCENE_BUDGET_PROFILES["dialogue_heavy"]
+
+
+def test_h2_event_led_detect_empty_and_aligned():
+    from scribe3.narrative_drive import detect_event_led
+    drive = {
+        "inciting_force": {"summary": "讨债上门三日为期"},
+        "opposition": {"who_or_what": "债主", "wants": "逼还清"},
+        "end_hook": "门闩一响",
+        "scene_turn": "对峙升级",
+    }
+    empty = detect_event_led("", drive)
+    assert empty["ok_soft"] is False
+    assert "empty_prose" in empty["gaps"] or "missing_inciting_trace" in empty["gaps"]
+    assert empty["severity"] == "advisory"
+
+    prose = (
+        "债主堵在门槛上，逼他还清。三日为期的讨债声还在耳边。"
+        "「你还想逃？」他怒道。对峙升级，门闩一响。"
+    )
+    ok = detect_event_led(prose, drive)
+    assert ok["ok_soft"] is True or "missing_inciting_trace" not in ok["gaps"]
+    assert ok["has_dialogue"] is True
+    assert ok["detector"] == "event_led_detect"
+
+
+def test_h2_event_led_flag_off_returns_none(monkeypatch):
+    monkeypatch.setenv("SCRIBE3_EVENT_LED_DETECT", "0")
+    from scribe3.narrative_drive import maybe_event_led_detect
+    assert maybe_event_led_detect("有债有对白「不」", {"inciting_force": {"summary": "债"}}) is None
+
+
+def test_h3_parallel_execute_mock_two_ok():
+    from scribe3.parallel_deduce import build_parallel_deduce_plan, execute_parallel_deduce
+
+    plan = build_parallel_deduce_plan(3, ["甲", "乙"], max_parallel=2, work="t")
+    assert plan["dry_run"] is True
+    assert len(plan["runs"]) == 2
+
+    def complete(spec):
+        return {
+            "status": "ok",
+            "summary": f"ok:{spec.get('focalizer')}",
+            "tool_trace_ok": True,
+        }
+
+    out = execute_parallel_deduce(plan, complete_fn=complete, lock=False)
+    assert out["execute"] is True
+    assert out["ok_count"] == 2
+    assert [r["focalizer"] for r in out["results"]] == ["甲", "乙"]
+
+
+def test_h3_parallel_busy_lock():
+    from scribe3.chapter_lock import acquire_chapter_lock, release_chapter_lock
+    from scribe3.parallel_deduce import build_parallel_deduce_plan, execute_parallel_deduce
+
+    work, seq = "locktest", 99
+    r = acquire_chapter_lock("run", work, seq)
+    assert r.ok
+    try:
+        plan = build_parallel_deduce_plan(seq, ["甲"], work=work)
+        out = execute_parallel_deduce(
+            plan,
+            complete_fn=lambda s: {"status": "ok", "summary": "x"},
+            lock=True,
+        )
+        assert out.get("error") == "chapter_busy" or out.get("ok_count", 1) == 0
+    finally:
+        release_chapter_lock("run", work, seq)
+
+
+def test_h6_benchmark_disk_persist(tmp_path, monkeypatch):
+    path = tmp_path / "benchmarks.json"
+    monkeypatch.setenv("SCRIBE3_BENCHMARK_PATH", str(path))
+    from scribe3 import benchmark_lib as bl
+    bl.clear_benchmarks_for_tests()
+    row = bl.upsert_benchmark({"title": "金瓶梅节奏", "notes": "advisory"})
+    assert path.is_file()
+    bl.clear_benchmarks_for_tests()
+    # 重新加载
+    items = bl.list_benchmarks()
+    assert any(i.get("id") == row["id"] for i in items)
+
+
+def test_h7_cron_override_disk(tmp_path, monkeypatch):
+    path = tmp_path / "cron_overrides.json"
+    monkeypatch.setenv("SCRIBE3_CRON_OVERRIDES_PATH", str(path))
+    from scribe3 import agent_crons as ac
+    ac.clear_cron_overrides_for_tests()
+    r = ac.set_cron_enabled("nightly_backup", False)
+    assert r["persisted"] == "disk"
+    assert path.is_file()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data.get("nightly_backup") is False
+    ac.clear_cron_overrides_for_tests()
+    # 再 load 应仍从盘恢复（clear 后 _LOADED False 再读）
+    # 因 clear 对 test path 会 unlink，重建
+    path.write_text(json.dumps({"nightly_backup": False}), encoding="utf-8")
+    jobs = ac.load_cron_catalog()
+    # yaml 可能有/无该 name；覆盖表已加载
+    assert ac.default_overrides_path() == path
+
+
+def test_h9_budget_report_observability_fields():
+    from scribe3.context_budget import build_budget_report
+    rep = build_budget_report(beat_type="dialogue")
+    for k in ("registry_mode", "adaptive_profile", "fidelity", "prompt_hard", "event_graph"):
+        assert k in rep, k
+    assert rep["fidelity"] == "novel"
+    assert rep["prompt_hard"] >= 48_000
+    assert isinstance(rep["event_graph"], dict)
+    assert "k" in rep["event_graph"]
+
+
+def test_h11_sample_script_runs(tmp_path):
+    from scribe3.tools.sample_budget_report import sample_local, main
+    data = sample_local(beat_type="dialogue")
+    assert data["block_sum"] == 22_000
+    assert "conclusion" in data
+    out = tmp_path / "budget_sample.json"
+    assert main(["--out", str(out), "--beat-type", "dialogue"]) == 0
+    assert out.is_file()
+
+
+def test_structure_ui_api_files_exist():
+    root = Path(__file__).resolve().parents[1]
+    for rel in (
+        "web/src/StageBoard.jsx",
+        "web/src/ChapterSoftCards.jsx",
+        "web/src/settings/CronPanel.jsx",
+        "parallel_deduce.py",
+        "tools/sample_budget_report.py",
+    ):
+        assert (root / rel).is_file(), rel
+    api = (root / "web/src/api.js").read_text(encoding="utf-8")
+    for name in (
+        "chapterStage", "parallelDeduce", "storylineInjectPreview",
+        "agentCrons", "softPrecheck", "injectionTrace",
+    ):
+        assert name in api, name

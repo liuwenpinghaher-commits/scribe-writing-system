@@ -931,6 +931,28 @@ def get_debug_flags():
     return {"flags": get_all_flags()}
 
 
+def get_injection_trace():
+    """H9：最近一次写路径 budget_report / density（进程内 · 只读）。"""
+    from scribe3.api.services.write_assemble import get_last_write_budget_report
+    from scribe3.context_budget import build_budget_report, context_fidelity
+    try:
+        from scribe3.injection_registry import registry_mode
+        reg = registry_mode()
+    except Exception:
+        reg = "off"
+    last = get_last_write_budget_report() or {}
+    # 若尚无写路径，返回当前配置快照
+    if not last:
+        last = build_budget_report()
+    return {
+        "surface": "debug.injection_trace",
+        "registry_mode": last.get("registry_mode") or reg,
+        "fidelity": last.get("fidelity") or context_fidelity(),
+        "budget_report": last,
+        "note": "进程内最近写路径；重启后空",
+    }
+
+
 def soft_precheck_ep(req: dict | None = None):
     """P2 residual：大纲/节拍软预检 API → soft_precheck_plan（advisory）。
 
@@ -1107,6 +1129,14 @@ def _bind_and_register() -> None:
     setattr(core, 'get_debug_flags', _re)
     g['get_debug_flags'] = _re
     router.add_api_route('/debug/flags', _re, methods=['GET'], name='get_debug_flags')
+
+    _fn = g['get_injection_trace']
+    _re = types.FunctionType(_fn.__code__, core.__dict__, 'get_injection_trace', _fn.__defaults__, _fn.__closure__)
+    if _fn.__annotations__:
+        _re.__annotations__ = dict(_fn.__annotations__)
+    setattr(core, 'get_injection_trace', _re)
+    g['get_injection_trace'] = _re
+    router.add_api_route('/debug/injection-trace', _re, methods=['GET'], name='get_injection_trace')
 
     for _name, _path, _methods in (
         ('soft_precheck_ep', '/soft-precheck', ['POST']),

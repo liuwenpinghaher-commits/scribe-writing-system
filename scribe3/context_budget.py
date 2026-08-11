@@ -78,7 +78,8 @@ BLOCK_BUDGETS_EPIC: dict[str, int] = {
 EPIC_ENVELOPE_TOKEN_BUDGET = 18_000
 assert sum(BLOCK_BUDGETS_EPIC.values()) == EPIC_ENVELOPE_TOKEN_BUDGET
 
-# 场景自适应（P1 · 默认关）：同总额重配，禁止砍半 envelope
+# 场景自适应：同总额重配，禁止砍半 envelope
+# V2/epic 档（18k）
 SCENE_BUDGET_PROFILES: dict[str, dict[str, int]] = {
     "dialogue_heavy": {
         "focus": 1200, "global": 1400, "canonical": 6200, "recent": 4800,
@@ -95,6 +96,29 @@ SCENE_BUDGET_PROFILES: dict[str, dict[str, int]] = {
 }
 for _name, _tbl in SCENE_BUDGET_PROFILES.items():
     assert sum(_tbl.values()) == 18_000, _name
+
+# Novel 档（22k）：相对 NOVEL 基表重配 recent/canonical/procedural，禁止砍总额
+SCENE_BUDGET_PROFILES_NOVEL: dict[str, dict[str, int]] = {
+    "dialogue_heavy": {
+        # 对白重：抬 recent（近文/对白节奏），略压 canonical
+        "focus": 1100, "global": 1600, "canonical": 7600, "recent": 6600,
+        "procedural": 1300, "reference": 1700, "uncertainty": 800, "provenance": 1300,
+    },
+    "action_heavy": {
+        # 动作重：抬 focus + recent，略压 reference
+        "focus": 1300, "global": 1700, "canonical": 7800, "recent": 6200,
+        "procedural": 1500, "reference": 1500, "uncertainty": 800, "provenance": 1200,
+    },
+    "exposition": {
+        # 说明/世界：抬 canonical + global，压 recent
+        "focus": 900, "global": 2200, "canonical": 9200, "recent": 4800,
+        "procedural": 1300, "reference": 2000, "uncertainty": 800, "provenance": 800,
+    },
+}
+for _name, _tbl in SCENE_BUDGET_PROFILES_NOVEL.items():
+    assert sum(_tbl.values()) == NOVEL_ENVELOPE_TOKEN_BUDGET, (
+        f"SCENE_BUDGET_PROFILES_NOVEL[{_name}] sum={sum(_tbl.values())}"
+    )
 
 DEFAULT_CODEX_INJECT_CAP = 4_500
 DEFAULT_SUPPLEMENTAL_SOFT = 14_000
@@ -271,7 +295,8 @@ def adaptive_budget_enabled() -> bool:
 def scene_budget_profile() -> str | None:
     """SCRIBE3_SCENE_BUDGET_PROFILE=dialogue_heavy|action_heavy|exposition；空=关。"""
     raw = (os.environ.get("SCRIBE3_SCENE_BUDGET_PROFILE") or "").strip().lower()
-    if raw in SCENE_BUDGET_PROFILES:
+    # 名称在 18k / novel 表均可
+    if raw in SCENE_BUDGET_PROFILES or raw in SCENE_BUDGET_PROFILES_NOVEL:
         return raw
     return None
 
@@ -284,9 +309,16 @@ def select_budget_profile(beat_type: str | None = None) -> str | None:
     if not adaptive_budget_enabled():
         return None
     key = BEAT_TYPE_TO_SCENE_PROFILE.get((beat_type or "").strip().lower())
-    if key and key in SCENE_BUDGET_PROFILES:
+    if key and (key in SCENE_BUDGET_PROFILES or key in SCENE_BUDGET_PROFILES_NOVEL):
         return key
     return None
+
+
+def _scene_table_for_fidelity(fid: str) -> dict[str, dict[str, int]]:
+    """按保真档选场景重配表：novel→22k 表；其余有 18k 表的用 V2 表。"""
+    if fid == "novel":
+        return SCENE_BUDGET_PROFILES_NOVEL
+    return SCENE_BUDGET_PROFILES
 
 
 def get_block_budgets(*, beat_type: str | None = None) -> dict[str, int]:
@@ -301,13 +333,27 @@ def get_block_budgets(*, beat_type: str | None = None) -> dict[str, int]:
         base = dict(BLOCK_BUDGETS_V2)
     else:
         base = dict(BLOCK_BUDGETS_V1)
-    # 场景重配：仅 18k 总额档（v2/epic 或 profile 表本身）
+
     prof = select_budget_profile(beat_type)
-    if prof and sum(base.values()) == 18_000:
-        return dict(SCENE_BUDGET_PROFILES[prof])
-    if prof and prof in SCENE_BUDGET_PROFILES and envelope_v2_enabled():
-        # force profile table when V2 on even if base was V1 somehow
-        return dict(SCENE_BUDGET_PROFILES[prof])
+    if not prof:
+        return base
+
+    # novel 必须用 22k 场景表，禁止被 18k 表静默覆盖
+    if fid == "novel":
+        tbl = SCENE_BUDGET_PROFILES_NOVEL.get(prof)
+        if tbl:
+            return dict(tbl)
+        return base
+
+    # literary 暂无场景重配（总额 15k 无对应表）
+    if fid == "literary":
+        return base
+
+    # v2 / epic / compat+V2：18k 场景表
+    if prof in SCENE_BUDGET_PROFILES:
+        # 仅当基表总额为 18k，或 V2 已开（兼容旧 force 路径但不再盖 novel）
+        if sum(base.values()) == 18_000 or envelope_v2_enabled():
+            return dict(SCENE_BUDGET_PROFILES[prof])
     return base
 
 
@@ -707,11 +753,28 @@ def build_budget_report(
     domain_lengths: dict[str, int] | None = None,
     order_indices: dict[str, int] | None = None,
     l2_report: dict[str, Any] | None = None,
+    beat_type: str | None = None,
+    event_graph_k: int | None = None,
 ) -> dict[str, Any]:
-    """观测报告（不含成本 KPI）。"""
+    """观测报告（不含成本 KPI）。固定含 registry/fidelity/prompt_hard 等可观测字段。"""
+    fid = context_fidelity()
+    prof = select_budget_profile(beat_type)
+    reg_mode = "off"
+    try:
+        from scribe3.injection_registry import registry_mode
+        reg_mode = str(registry_mode() or "off")
+    except Exception:
+        pass
+    eg_k = event_graph_k
+    if eg_k is None:
+        try:
+            raw_k = (os.environ.get("SCRIBE3_EVENT_GRAPH_K") or "2").strip()
+            eg_k = int(raw_k) if raw_k.isdigit() else 2
+        except Exception:
+            eg_k = 2
     return {
         "envelope_token_budget": get_envelope_token_budget(),
-        "block_budgets": get_block_budgets(),
+        "block_budgets": get_block_budgets(beat_type=beat_type),
         "envelope_v2_enabled": envelope_v2_enabled(),
         "codex_inject_cap": get_codex_inject_cap(),
         "domain_lengths": dict(domain_lengths or {}),
@@ -719,6 +782,14 @@ def build_budget_report(
         "l2": dict(l2_report or {}),
         "primary_metric": "signal_density_for_drama",
         "not_a_kpi": "tokens_saved",
+        # H9 可观测
+        "registry_mode": reg_mode,
+        "adaptive_profile": prof,
+        "fidelity": fid,
+        "prompt_hard": get_prompt_hard(),
+        "event_graph": {"k": int(eg_k or 0)},
+        "novel_envelope": novel_envelope_enabled(),
+        "adaptive_budget": adaptive_budget_enabled(),
     }
 
 

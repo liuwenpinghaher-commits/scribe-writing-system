@@ -974,7 +974,8 @@ class ChaptersMixin:
                    "purpose_text", "deltas",
                    "pressure_drive",   # PDC 压力驱动合同 JSON 串
                    "beats_meta",       # 节拍 v2 元数据 JSON 串（schema/source/drama_validation）
-                   "narrative_drive"}  # 章级冲突/事件驱动合同 JSON 串
+                   "narrative_drive",  # 章级冲突/事件驱动合同 JSON 串
+                   "stage_state"}      # O19 阶段机 {phase} JSON 串
         # volume 需单独处理(record link 不能传字符串参数)
         volume_id = _UNSET  # 哨兵:区分"未传 volume"与"传了 None(清空)"
         plain: dict = {}
@@ -1002,7 +1003,7 @@ class ChaptersMixin:
             elif k in ("beats", "deltas"):
                 # list 字段存为 JSON 串(绕 SCHEMAFULL 嵌套校验,同 scene_meta);读时还原。
                 plain[k] = json.dumps(v if v is not None else [], ensure_ascii=False)
-            elif k in ("pressure_drive", "beats_meta", "narrative_drive"):
+            elif k in ("pressure_drive", "beats_meta", "narrative_drive", "stage_state"):
                 # JSON 合同：dict → JSON 串；已是 str 则原样；None → 清字段
                 if v is None:
                     plain[k] = None

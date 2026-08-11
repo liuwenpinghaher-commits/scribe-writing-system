@@ -5,16 +5,18 @@ import { GatewaySection } from './GatewaySection'
 import { BookSection } from './BookSection'
 import { PrefsSection } from './PrefsSection'
 import { AuditSection } from './AuditSection'
+import { CronPanel } from './CronPanel.jsx'
 import { ConfirmDialog } from '../ui/Dialog.jsx'
 
 // 七分区 + 审计:connection/llm/craft/flags/gateway 由 /settings 元数据驱动;
-// book/prefs/audit 为前端本地分区(Task 15 充实)。
+// book/prefs/audit/crons 为前端本地分区(Task 15 充实 + H7 Cron)。
 const SECTIONS = [
   { key: 'connection', label: '连接与服务' },
   { key: 'llm', label: '模型与用量' },
   { key: 'craft', label: '工艺阈值' },
   { key: 'flags', label: '灰度开关' },
   { key: 'gateway', label: 'Hermes 网关' },
+  { key: 'crons', label: 'Agent Cron' },
   { key: 'book', label: '本书设置' },
   { key: 'prefs', label: '个人偏好' },
   { key: 'audit', label: '变更历史' },
@@ -158,6 +160,7 @@ export function SettingsView({ work }) {
       <div className="flex-1 min-w-0 overflow-auto p-6">
         <div className="mx-auto max-w-3xl">
           {section === 'gateway' && <GatewaySection items={byCat('gateway')} onChanged={onChanged} />}
+          {section === 'crons' && <CronPanel />}
           {section === 'book' && <BookSection work={work} />}
           {section === 'prefs' && <PrefsSection work={work} />}
           {section === 'audit' && <AuditSection />}

@@ -16,6 +16,8 @@ import {
 } from './lib/chapterContractGate.js'
 import { softGateIssues } from './lib/deduceGate.js'
 import { loadIaDensity, volumeMetaPeekVisible } from './lib/iaDensity.js'
+import { ChapterSoftCards } from './ChapterSoftCards.jsx'
+import { StageBoard } from './StageBoard.jsx'
 
 /** 本地三行摘要（chapter.narrative_drive 直读；与后端 format_drive_three_lines 同形） */
 function driveThreeFromChapter(drive) {
@@ -211,6 +213,23 @@ export function ChapterMetaPane({
         </div>
         <Btn variant="ghost" size="sm" onClick={onClose}>返回写作</Btn>
       </div>
+
+      <section className="mb-4" data-testid="chapter-meta-stage-board">
+        <StageBoard
+          seq={seq}
+          work={work}
+          onPhaseChange={(p) => goPhase(p)}
+        />
+      </section>
+
+      <section className="mb-4">
+        <ChapterSoftCards
+          seq={seq}
+          work={work}
+          synopsis={synopsis}
+          beats={beats}
+        />
+      </section>
 
       {showVolPeek && (
         <section

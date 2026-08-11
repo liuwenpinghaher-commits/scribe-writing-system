@@ -1,7 +1,8 @@
 /**
- * Benchmark 参考库（O32 · advisory 模板 · 不自动写正文）
+ * Benchmark 参考库（O32 · advisory 模板 · 落盘持久 · 不自动写正文）
  */
 import { useEffect, useState } from 'react'
+import { api } from '../api'
 import { Btn } from '../ui.jsx'
 
 export function BenchmarkLibrary() {
@@ -13,12 +14,12 @@ export function BenchmarkLibrary() {
   const load = async () => {
     setErr('')
     try {
-      const res = await fetch('/api/benchmarks', { credentials: 'include' })
-      if (!res.ok) throw new Error(res.status === 401 ? '请先登录' : `HTTP ${res.status}`)
-      const j = await res.json()
+      const j = typeof api.benchmarks === 'function'
+        ? await api.benchmarks()
+        : await api.get('/benchmarks')
       setItems(j.items || [])
     } catch (e) {
-      setErr(e?.message || '加载失败')
+      setErr(e?.body?.detail || e?.message || '加载失败')
     }
   }
 
@@ -26,18 +27,16 @@ export function BenchmarkLibrary() {
 
   const add = async () => {
     try {
-      const res = await fetch('/api/benchmarks', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, notes, tags: ['advisory'] }),
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (typeof api.benchmarkUpsert === 'function') {
+        await api.benchmarkUpsert({ title, notes, tags: ['advisory'] })
+      } else {
+        await api.post('/benchmarks', { title, notes, tags: ['advisory'] })
+      }
       setTitle('')
       setNotes('')
       load()
     } catch (e) {
-      setErr(e?.message || '保存失败')
+      setErr(e?.body?.detail || e?.message || '保存失败')
     }
   }
 

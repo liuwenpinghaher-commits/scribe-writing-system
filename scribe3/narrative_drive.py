@@ -1070,7 +1070,209 @@ def ensure_narrative_drive_range(
     return stats
 
 
-# ── OI-5 · 开篇 soft 痕迹（净新建；非 EVENT_LED）──────────────────────────
+# ── H2 · EVENT_LED 写后检测（完整 soft findings · 非仅 opener）────────────
+
+_DIALOGUE_MARK_RE = re.compile(r"[「」『』""\"']")
+_CONFLICT_LEX: tuple[str, ...] = (
+    "对峙", "冲突", "逼", "威胁", "对立", "反抗", "拒绝", "争夺", "交锋",
+    "质问", "怒", "抗", "阻", "拦", "夺", "讨债", "违约", "代价",
+)
+
+
+def _drive_anchor_phrases(drive: dict | None) -> dict[str, str]:
+    """从 drive 抽出 inciting / opposition / hook 短语。"""
+    d = drive if isinstance(drive, dict) else {}
+    inc = d.get("inciting_force") if isinstance(d.get("inciting_force"), dict) else {}
+    opp = d.get("opposition") if isinstance(d.get("opposition"), dict) else {}
+    return {
+        "inciting": _s(inc.get("summary")),
+        "opposition_who": _s(opp.get("who_or_what")),
+        "opposition_wants": _s(opp.get("wants")),
+        "scene_turn": _s(d.get("scene_turn")),
+        "end_hook": _s(d.get("end_hook")),
+        "stakes_line": _s(d.get("stakes_line")),
+    }
+
+
+def _phrase_in_prose(phrase: str, prose: str, *, min_len: int = 2) -> bool:
+    p = _s(phrase)
+    if len(p) < min_len:
+        return False
+    # 整句或前缀片段命中
+    if p in prose:
+        return True
+    if len(p) >= 4 and p[:4] in prose:
+        return True
+    if len(p) >= 6 and p[:6] in prose:
+        return True
+    # 空格/标点切词后 token 命中
+    tokens = [t for t in re.split(r"[\s，。；、：:！？,.!?;]+", p) if len(t) >= 2]
+    if tokens:
+        hits = sum(1 for t in tokens if t in prose)
+        if hits >= max(1, min(2, (len(tokens) + 1) // 2)):
+            return True
+    # 中文连续 2～3 字窗口：任一命中即认为有痕迹（soft 对齐，非精确引用）
+    windows = set()
+    for n in (3, 2):
+        if len(p) < n:
+            continue
+        for i in range(0, len(p) - n + 1):
+            w = p[i : i + n]
+            if re.search(r"[\u4e00-\u9fff]", w):
+                windows.add(w)
+    hit_w = sum(1 for w in windows if w in prose)
+    # 至少 2 个窗口命中，或短语短时 1 个即可
+    need = 1 if len(p) <= 4 else 2
+    return hit_w >= need
+
+
+def detect_event_led(
+    prose: str | None,
+    drive: dict | None = None,
+) -> dict[str, Any]:
+    """写后事件驱动对齐检测（advisory only · 永不 blocking）。
+
+    对 drive 的 inciting / opposition / hook 与正文做轻量词面/对白/冲突句对齐。
+    与 soft_opener_event_trace 互补：本函数看全文事件履约，非仅开篇 15%。
+    """
+    text = prose or ""
+    prose_cn = len(re.sub(r"\s+", "", text))
+    anchors = _drive_anchor_phrases(drive)
+    gaps: list[str] = []
+    quotes: list[str] = []
+    hits: list[str] = []
+
+    has_drive_core = bool(
+        anchors["inciting"] or anchors["opposition_who"] or anchors["opposition_wants"]
+        or anchors["scene_turn"] or anchors["end_hook"]
+    )
+
+    if not text.strip():
+        if has_drive_core:
+            gaps.extend(["empty_prose", "missing_inciting_trace", "missing_opposition_trace"])
+        else:
+            gaps.append("empty_prose")
+        return {
+            "ok_soft": False,
+            "gaps": gaps,
+            "quotes": quotes,
+            "hits": hits,
+            "advisory": True,
+            "severity": "advisory",
+            "detector": "event_led_detect",
+            "type": "event_led_detect",
+            "prose_cn": prose_cn,
+            "anchors_present": has_drive_core,
+            "note": "无正文可对齐事件驱动（advisory）",
+        }
+
+    # 对白痕迹
+    has_dialogue = bool(_DIALOGUE_MARK_RE.search(text)) or text.count("说") >= 2
+    if has_dialogue:
+        hits.append("dialogue_marks")
+        quotes.append("dialogue")
+
+    # 冲突词
+    conflict_hits = [w for w in _CONFLICT_LEX if w in text]
+    if conflict_hits:
+        hits.append("conflict_lex")
+        quotes.extend(conflict_hits[:4])
+
+    # 外力/威胁词（复用全局 _THREAT_LEX）
+    threat_hits = [w for w in _THREAT_LEX if w in text]
+    if threat_hits:
+        hits.append("threat_lex")
+
+    # drive 锚对齐
+    if anchors["inciting"]:
+        if _phrase_in_prose(anchors["inciting"], text):
+            hits.append("inciting_aligned")
+            quotes.append(anchors["inciting"][:24])
+        else:
+            gaps.append("missing_inciting_trace")
+    elif has_drive_core:
+        pass  # 无 inciting 字段不硬 gap
+
+    opp_blob = " ".join(
+        x for x in (anchors["opposition_who"], anchors["opposition_wants"]) if x
+    )
+    if opp_blob:
+        if (
+            _phrase_in_prose(anchors["opposition_who"], text)
+            or _phrase_in_prose(anchors["opposition_wants"], text)
+            or any(w in text for w in conflict_hits[:3])
+        ):
+            hits.append("opposition_aligned")
+        else:
+            # 有对白+威胁词也可 soft 过对立
+            if has_dialogue and threat_hits:
+                hits.append("opposition_soft_via_dialogue_threat")
+            else:
+                gaps.append("missing_opposition_trace")
+
+    if anchors["end_hook"] or anchors["scene_turn"]:
+        hook_ok = (
+            _phrase_in_prose(anchors["end_hook"], text)
+            or _phrase_in_prose(anchors["scene_turn"], text)
+        )
+        if hook_ok:
+            hits.append("hook_or_turn_aligned")
+        elif prose_cn >= 200 and not (has_dialogue or threat_hits or conflict_hits):
+            gaps.append("missing_hook_or_turn_trace")
+
+    # 无 drive 时：仅检查正文是否有事件感
+    if not has_drive_core:
+        if not (has_dialogue or threat_hits or conflict_hits):
+            gaps.append("no_event_signal_in_prose")
+        hits.append("no_drive_advisory")
+
+    ok_soft = not gaps
+    note_bits = []
+    if ok_soft:
+        note_bits.append("事件驱动 soft 对齐可过")
+    else:
+        note_bits.append("事件驱动对齐有缺口：" + "、".join(gaps))
+    return {
+        "ok_soft": ok_soft,
+        "gaps": gaps,
+        "quotes": quotes[:12],
+        "hits": hits[:16],
+        "advisory": True,
+        "severity": "advisory",
+        "detector": "event_led_detect",
+        "type": "event_led_detect",
+        "prose_cn": prose_cn,
+        "anchors_present": has_drive_core,
+        "has_dialogue": has_dialogue,
+        "note": "；".join(note_bits) + "（advisory only，不硬停）",
+    }
+
+
+def maybe_event_led_detect(
+    prose: str | None,
+    drive: dict | None = None,
+    *,
+    seq: int | None = None,
+) -> dict[str, Any] | None:
+    """旗 SCRIBE3_EVENT_LED_DETECT 开时跑 detect；关则 None。永不 park。"""
+    try:
+        from scribe3.novel_quality_flags import event_led_detect_enabled
+        if not event_led_detect_enabled():
+            return None
+    except Exception:
+        return None
+    finding = detect_event_led(prose, drive)
+    _log.info(
+        "event_led_detect seq=%s ok_soft=%s gaps=%s hits=%s",
+        seq,
+        finding.get("ok_soft"),
+        finding.get("gaps"),
+        finding.get("hits"),
+    )
+    return finding
+
+
+# ── OI-5 · 开篇 soft 痕迹（净新建；与 EVENT_LED 互补）──────────────────────
 
 _OPENER_FORCE_LEX: tuple[str, ...] = (
     "债", "禁", "讨", "到期", "若不", "否则", "逼", "胁", "钥", "匙",
