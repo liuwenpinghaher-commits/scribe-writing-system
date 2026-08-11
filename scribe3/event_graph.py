@@ -97,6 +97,63 @@ def graph_one_hop(adjacency: dict[str, Any], seed_ids: list[str]) -> list[str]:
     return out
 
 
+def graph_k_hop(
+    adjacency: dict[str, Any],
+    seed_ids: list[str],
+    *,
+    k: int = 2,
+    max_nodes: int = 64,
+) -> dict[str, Any]:
+    """多跳 BFS（O18）。k=1 等价多次 one_hop 聚合；切断环；截断 max_nodes。
+
+    返回 {seeds, k, layers: [[ids], ...], nodes, edges:[{src,dst,rel}], truncated}。
+    """
+    g = adjacency or {}
+    adj = g.get("adjacency") if isinstance(g.get("adjacency"), dict) else g
+    if not isinstance(adj, dict):
+        adj = {}
+    kk = max(1, min(8, int(k or 1)))
+    cap = max(1, int(max_nodes or 64))
+    seeds = [str(s) for s in (seed_ids or []) if s]
+    seen: set[str] = set(seeds)
+    layers: list[list[str]] = [list(seeds)]
+    edges: list[dict[str, str]] = []
+    truncated = False
+    frontier = list(seeds)
+    for _depth in range(kk):
+        nxt: list[str] = []
+        for sid in frontier:
+            node = adj.get(sid) or {}
+            if not isinstance(node, dict):
+                continue
+            for rel in ("leads_to", "enables", "related_promises"):
+                for x in node.get(rel) or []:
+                    xs = str(x)
+                    edges.append({"src": sid, "dst": xs, "rel": rel})
+                    if xs in seen:
+                        continue
+                    if len(seen) >= cap:
+                        truncated = True
+                        continue
+                    seen.add(xs)
+                    nxt.append(xs)
+        if not nxt:
+            break
+        layers.append(nxt)
+        frontier = nxt
+        if truncated:
+            break
+    return {
+        "seeds": seeds,
+        "k": kk,
+        "layers": layers,
+        "nodes": sorted(seen),
+        "edges": edges,
+        "truncated": truncated,
+        "version": "event_graph.v0",
+    }
+
+
 def graph_linked_pair(
     adjacency: dict[str, Any],
     a: str,

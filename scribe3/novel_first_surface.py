@@ -34,10 +34,17 @@ def event_graph_surface(
     promises: list[dict[str, Any]] | None = None,
     *,
     seed_id: str | None = None,
+    k: int = 1,
+    max_nodes: int = 64,
 ) -> dict[str, Any]:
-    """写/检索共享：邻接 + 一跳 + 可选 linked_pair 样例。"""
+    """写/检索共享：邻接 + 一跳/多跳 + 可选 linked_pair 样例。
+
+    k>1 且旗 SCRIBE3_MULTI_HOP_GRAPH 开时返回 multi_hop；否则强制 k=1。
+    """
+    import os
     from scribe3.event_graph import (
         build_event_adjacency,
+        graph_k_hop,
         graph_linked_pair,
         graph_one_hop,
     )
@@ -45,6 +52,15 @@ def event_graph_surface(
     nodes = list(g.get("nodes") or [])
     seed = seed_id or (nodes[0] if nodes else "")
     hop: list[str] = graph_one_hop(g, [seed]) if seed else []
+    multi = None
+    kk = max(1, int(k or 1))
+    multi_flag = (os.environ.get("SCRIBE3_MULTI_HOP_GRAPH") or "0").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+    if kk > 1 and not multi_flag:
+        kk = 1
+    if seed and kk >= 1:
+        multi = graph_k_hop(g, [seed], k=kk, max_nodes=max_nodes)
     pair: dict[str, Any] | None = None
     # 找一对 leads_to / enables 边作诚实样例
     adj = g.get("adjacency") or {}
@@ -66,6 +82,8 @@ def event_graph_surface(
         "graph": g,
         "seed": seed,
         "one_hop": hop,
+        "multi_hop": multi,
+        "k": kk,
         "sample_pair": pair,
         "surface": "novel_first.event_graph",
         "version": g.get("version") or "event_graph.v0",

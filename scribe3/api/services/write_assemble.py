@@ -1422,6 +1422,22 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             }
         except Exception:
             pass
+        # O33：故事线 polish 短段（旗关则 text 空；不挡 redline）
+        try:
+            from scribe3.storyline_inject_polish import (
+                build_storyline_inject_segment,
+                storyline_inject_enabled,
+            )
+            if storyline_inject_enabled():
+                _seg = build_storyline_inject_segment(focus_seq=int(chapter))
+                if (_seg.get("text") or "").strip():
+                    joined = joined + str(_seg["text"])
+                    bud_rep["storyline_inject"] = {
+                        "applied": True,
+                        "audit": _seg.get("audit"),
+                    }
+        except Exception:
+            pass
         _budget_report_holder["report"] = bud_rep
         _store_write_budget_report(bud_rep)
         return joined, tuple(supplemental_sources)

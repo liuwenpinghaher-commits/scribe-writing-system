@@ -931,9 +931,9 @@ def literary_distill_ep(req: dict | None = None):
 
 
 def event_graph_ep(req: dict | None = None):
-    """P2 residual：事件图一跳预览 API（与写路径共用 surface）。
+    """事件图预览 API（一跳/多跳 · 与写路径共用 surface）。
 
-    Body: {events?, promises?, seed_id?} 或空则空图结构。
+    Body: {events?, promises?, seed_id?, k?}。
     """
     from scribe3.novel_first_surface import event_graph_surface
     payload = req if isinstance(req, dict) else {}
@@ -941,6 +941,8 @@ def event_graph_ep(req: dict | None = None):
         events=payload.get("events"),
         promises=payload.get("promises"),
         seed_id=payload.get("seed_id"),
+        k=int(payload.get("k") or 1),
+        max_nodes=int(payload.get("max_nodes") or 64),
     )
 
 

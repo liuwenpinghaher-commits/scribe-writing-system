@@ -32,6 +32,7 @@ from scribe3.api.routers.ingest_import import router as ingest_import_router
 from scribe3.api.routers.materials import router as materials_router
 from scribe3.api.routers.memory import router as memory_router
 from scribe3.api.routers.misc_routes import router as misc_routes_router
+from scribe3.api.routers.product_backlog import router as product_backlog_router
 from scribe3.api.routers.pilot_inbox import router as pilot_inbox_router
 from scribe3.api.routers.quality import router as quality_router
 from scribe3.api.routers.settings_gateway import router as settings_gateway_router
@@ -78,6 +79,7 @@ _DOMAIN_ROUTERS = (
     experience_router,
     director_router,
     misc_routes_router,
+    product_backlog_router,
     canon_loop_router,
     auth_router,
     admin_router,
