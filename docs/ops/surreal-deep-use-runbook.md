@@ -47,13 +47,33 @@ docker exec -e PYTHONPATH=/app prod-backend-1 \
 # 期望 7+/N ok=True：rrf、CDC、dual-write、locks、hybrid、emit 合同
 ```
 
-## Demo 种子
+## Demo 种子（世界 + 可写章）
 
 ```bash
+# 世界本体（角色/命题/事件）+ 第 1 章五阶段字段
 docker exec -e PYTHONPATH=/app prod-backend-1 \
-  python3 -m scribe3.seed_demo
-# NS=scribe3 db=main：焦三/老道乱岗 + 反讽点
+  python3 -m scribe3.seed_demo --db main
+
+# 已有章也强制覆写大纲/节拍/草稿/正文
+docker exec -e PYTHONPATH=/app prod-backend-1 \
+  python3 -m scribe3.seed_demo --db main --force-chapter
 ```
+
+验收（容器内）：
+
+```bash
+docker exec -e PYTHONPATH=/app prod-backend-1 python3 -c "
+from scribe3.store import SurrealStore
+st=SurrealStore(db='main')
+ch=st.get_chapter(1)
+assert ch and (ch.get('synopsis') or '').strip()
+assert ch.get('beats') and (ch.get('prose') or '').strip()
+print('writable_ok', ch.get('title'), ch.get('focalizer'), len(ch.get('prose') or ''))
+"
+```
+
+- **世界**：焦三 / 老道 / 乱岗；私密「治眼」+ 读者知「追索」反讽点  
+- **可写章**：synopsis、beats、scene_truth、draft、prose、focalizer=`role:焦三`
 
 ## 健康检查
 
