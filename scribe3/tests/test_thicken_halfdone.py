@@ -83,6 +83,8 @@ def test_h3_parallel_execute_mock_two_ok():
     plan = build_parallel_deduce_plan(3, ["甲", "乙"], max_parallel=2, work="t")
     assert plan["dry_run"] is True
     assert len(plan["runs"]) == 2
+    assert plan["profile"] == "scribe3_deduce_preview"
+    assert plan["runs"][0]["api_env"] == "HERMES_DEDUCE_PREVIEW_RUNS_API"
 
     def complete(spec):
         return {
@@ -95,6 +97,42 @@ def test_h3_parallel_execute_mock_two_ok():
     assert out["execute"] is True
     assert out["ok_count"] == 2
     assert [r["focalizer"] for r in out["results"]] == ["甲", "乙"]
+
+
+def test_h3_plan_mode_deduce_full_profile():
+    from scribe3.parallel_deduce import build_parallel_deduce_plan
+    plan = build_parallel_deduce_plan(1, ["甲"], mode="deduce")
+    assert plan["profile"] == "scribe3_deduce"
+    assert plan["api_env"] == "HERMES_DEDUCE_RUNS_API"
+    assert plan["runs"][0]["profile"] == "scribe3_deduce"
+
+
+def test_h3_stub_not_in_ok_count():
+    from scribe3.parallel_deduce import build_parallel_deduce_plan, execute_parallel_deduce
+    plan = build_parallel_deduce_plan(1, ["甲", "乙"], max_parallel=2)
+    out = execute_parallel_deduce(
+        plan,
+        complete_fn=lambda s: {"status": "stub", "summary": "fake", "tool_trace_ok": False},
+        lock=False,
+    )
+    assert out["ok_count"] == 0
+    assert out["all_stub"] is True
+    assert out["stub_count"] == 2
+
+
+def test_pr0_emergency_bypass_soft_paths():
+    from scribe3.chapter_gcd_rest import is_emergency_bypass_chapter_path
+    assert is_emergency_bypass_chapter_path("/chapters/1/deduce/parallel") is True
+    assert is_emergency_bypass_chapter_path("/chapters/2/stage") is True
+    assert is_emergency_bypass_chapter_path("/chapters/2/stage/advance") is True
+    assert is_emergency_bypass_chapter_path("/chapters/2/prose") is False
+
+
+def test_stage_soft_set_action():
+    from scribe3.chapter_stage import transition, normalize_phase
+    r = transition("final", "set")
+    assert r["next"] == "final"
+    assert "soft_set" in r.get("advisories", [])
 
 
 def test_h3_parallel_busy_lock():

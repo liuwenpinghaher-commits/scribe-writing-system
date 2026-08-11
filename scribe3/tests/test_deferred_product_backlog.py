@@ -115,7 +115,8 @@ def test_parallel_deduce_and_crons():
     )
     plan = build_parallel_deduce_plan(3, ["甲", "乙", "丙"], max_parallel=2)
     assert len(plan["runs"]) == 2
-    assert plan["runs"][0]["profile"] == "scribe3_deduce"
+    assert plan["runs"][0]["profile"] == "scribe3_deduce_preview"
+    assert plan["runs"][0]["api_env"] == "HERMES_DEDUCE_PREVIEW_RUNS_API"
     assert plan["dry_run"] is True
     assert plan["execute"] is False
 

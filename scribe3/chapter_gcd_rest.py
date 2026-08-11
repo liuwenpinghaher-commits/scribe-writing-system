@@ -72,17 +72,29 @@ def normalize_beats_for_store(new_beats: Any) -> list:
 def is_emergency_bypass_chapter_path(path: str) -> bool:
     """是否 emergency 世界写闸旁路的章节子路径（无 FastAPI）。
 
-    与 ``app_impl._is_rest_world_write_path`` 白名单一致：
-    archive|restore|restore-version|gcd-fields|beats-fields。
+    闸外白名单：
+    - archive|restore|restore-version|gcd-fields|beats-fields（正典运维）
+    - stage / stage/advance（阶段机 soft · 非正典世界写）
+    - deduce/parallel（并行演绎 plan/execute soft · 不直写 prose）
     """
     if not path.startswith("/chapters/"):
         return False
     rest = path[len("/chapters/"):]
     parts = [p for p in rest.split("/") if p]
-    if len(parts) == 2 and parts[0].isdigit() and parts[1] in (
+    if not parts or not parts[0].isdigit():
+        return False
+    # /chapters/{seq}/archive|restore|...
+    if len(parts) == 2 and parts[1] in (
         "archive", "restore", "restore-version",
         "gcd-fields", "beats-fields",
+        "stage",
     ):
+        return True
+    # /chapters/{seq}/stage/advance
+    if len(parts) == 3 and parts[1] == "stage" and parts[2] == "advance":
+        return True
+    # /chapters/{seq}/deduce/parallel
+    if len(parts) == 3 and parts[1] == "deduce" and parts[2] == "parallel":
         return True
     return False
 

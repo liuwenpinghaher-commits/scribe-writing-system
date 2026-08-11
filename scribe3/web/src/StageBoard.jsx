@@ -62,6 +62,38 @@ export function StageBoard({
     }
   }
 
+  /** soft set：把当前本地 phase 同步到服务端 stage_state */
+  const syncLocalToServer = async () => {
+    if (typeof api.chapterStageAdvance !== 'function') {
+      setErr('阶段 API 不可用')
+      return
+    }
+    const phase = localPhase || current
+    if (!phase) return
+    setBusy(true)
+    setErr('')
+    try {
+      const r = await api.chapterStageAdvance(seq, { action: 'set', phase, current: remote?.phase }, work)
+      if (r?.blocked) {
+        setErr(r.reason || '同步被拦')
+      } else {
+        setRemote((prev) => ({ ...(prev || {}), phase: r?.next || phase }))
+        load()
+      }
+    } catch (e) {
+      setErr(e?.body?.detail || e?.message || '同步失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const adoptServer = () => {
+    if (remote?.phase) onPhaseChange?.(remote.phase)
+  }
+
+  const localVsServer =
+    localPhase && remote?.phase && localPhase !== remote.phase
+
   return (
     <div
       className={`flex flex-col gap-1.5 ${className}`}
@@ -101,7 +133,22 @@ export function StageBoard({
         >
           {busy ? '…' : '推进'}
         </Btn>
+        {localVsServer && (
+          <>
+            <Btn size="sm" variant="ghost" disabled={busy} onClick={adoptServer} data-testid="stage-adopt-server">
+              采用服务端
+            </Btn>
+            <Btn size="sm" variant="ghost" disabled={busy} onClick={syncLocalToServer} data-testid="stage-sync-local">
+              同步本地到服务端
+            </Btn>
+          </>
+        )}
       </div>
+      {localVsServer && (
+        <div className="text-f11 text-warn" data-testid="stage-conflict">
+          本地 {localPhase} ≠ 服务端 {remote.phase}
+        </div>
+      )}
       {err && (
         <div className="text-f11 text-warn" data-testid="stage-board-err">{err}</div>
       )}

@@ -60,9 +60,12 @@ def chapter_stage_get_ep(seq: int, work: str = "main"):
 
 
 def chapter_stage_advance_ep(seq: int, req: dict | None = None, work: str = "main"):
-    """O19：推进阶段（默认 soft）。"""
+    """O19：推进阶段（默认 soft）。
+
+    action=set + phase=…：soft 写任意合法 phase（作者 local 同步）。
+    """
     from scribe3.chapter_stage import (
-        transition, stage_from_chapter_dict, stage_machine_hard,
+        transition, stage_from_chapter_dict, stage_machine_hard, normalize_phase, PHASES,
     )
     payload = req if isinstance(req, dict) else {}
     action = str(payload.get("action") or "advance")
@@ -74,7 +77,27 @@ def chapter_stage_advance_ep(seq: int, req: dict | None = None, work: str = "mai
     except Exception:
         ch = {}
     cur = payload.get("current") or stage_from_chapter_dict(ch)
-    result = transition(cur, action)
+    # soft set：next = payload.phase（须合法）
+    if action.strip().lower() == "set":
+        tgt = normalize_phase(str(payload.get("phase") or payload.get("next") or ""))
+        if tgt not in PHASES:
+            return {
+                "ok": False,
+                "blocked": False,
+                "current": cur,
+                "next": cur,
+                "action": "set",
+                "advisories": ["invalid_phase"],
+                "severity": "advisory",
+                "seq": int(seq),
+                "work": work,
+                "phases": list(PHASES),
+            }
+        result = transition(tgt, "set")
+        result["current"] = cur
+        result["next"] = tgt
+    else:
+        result = transition(cur, action)
     # soft 持久化 next 到 stage_state（fail-soft）
     if result.get("next") and not result.get("blocked"):
         persisted = "skipped"
@@ -110,11 +133,13 @@ def parallel_deduce_plan_ep(seq: int, req: dict | None = None, work: str = "main
     focals = payload.get("focalizers") or payload.get("viewpoints") or []
     if isinstance(focals, str):
         focals = [focals]
+    mode = str(payload.get("mode") or "preview")
     plan = build_parallel_deduce_plan(
         int(seq),
         list(focals),
         max_parallel=int(payload.get("max_parallel") or 2),
         work=work,
+        mode=mode,
     )
     # 可选占锁探测（dry）
     if payload.get("lock_probe") and not payload.get("execute"):

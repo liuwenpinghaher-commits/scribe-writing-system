@@ -77,6 +77,36 @@ def transition(
     act = (action or "").strip().lower()
     cur = normalize_phase(current)
     advisories: list[str] = []
+    # soft set：显式 phase 写（作者 localStorage 同步）；仍 advisory
+    if act == "set":
+        # phase 由调用方经 action 附带？用 current 的 next 目标：
+        # 约定：transition(current, "set") 无效；需 action=set 且 payload phase 在上层注入
+        # 本函数：若 current 已是合法 phase 且 action=set，则 next=current（上层传 target 作 current）
+        tgt = cur
+        if tgt is None:
+            return {
+                "ok": False,
+                "blocked": use_hard,
+                "current": cur,
+                "next": cur,
+                "action": act,
+                "advisories": ["set_missing_phase"],
+                "severity": "advisory",
+                "hard_park": False,
+            }
+        advisories.append("soft_set")
+        return {
+            "ok": True,
+            "soft_ok": True,
+            "blocked": False,
+            "current": cur,
+            "next": tgt,
+            "action": "set",
+            "advisories": advisories,
+            "severity": "advisory",
+            "hard_park": False,
+            "phases": list(PHASES),
+        }
     if act == "advance" or act == "":
         tgt = next_phase(cur)
     elif act in _ACTIONS and _ACTIONS[act]:

@@ -33,8 +33,9 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
   const [busy, setBusy] = useState(false)
   const [approval, setApproval] = useState(null)
   const [roleToAdd, setRoleToAdd] = useState('')
-  // H3：并行多视角
+  // H3：并行多视角（preview | deduce 并列）
   const [parallelFocals, setParallelFocals] = useState('')
+  const [parallelMode, setParallelMode] = useState('preview') // preview | deduce
   const [parallelPlan, setParallelPlan] = useState(null)
   const [parallelResults, setParallelResults] = useState(null)
   const [parallelBusy, setParallelBusy] = useState(false)
@@ -326,6 +327,7 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
       const body = {
         focalizers: focals.length ? focals : (chars.slice(0, 2).map((c) => c.name || c.id)),
         max_parallel: 2,
+        mode: parallelMode === 'deduce' ? 'deduce' : 'preview',
         execute: !!execute,
       }
       const r = typeof api.parallelDeduce === 'function'
@@ -334,10 +336,15 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
       if (execute) {
         setParallelResults(r)
         setParallelPlan(r?.plan || null)
+        if (r?.all_stub || (r?.ok_count === 0 && (r?.results || []).length)) {
+          toast('并行结束：无成功路（stub 不计成功）', { tone: 'warn' })
+        } else {
+          toast(`并行演绎结束 · ok ${r?.ok_count ?? 0}/${(r?.results || []).length}`, { tone: 'ok' })
+        }
       } else {
         setParallelPlan(r)
+        toast(`已生成 plan（${body.mode} · dry-run）`, { tone: 'ok' })
       }
-      toast(execute ? '并行演绎已结束（soft）' : '已生成并行 plan（dry-run）', { tone: 'ok' })
     } catch (e) {
       toast(e?.body?.detail || e?.message || '并行演绎失败', { tone: 'danger' })
     } finally {
@@ -362,8 +369,28 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
         data-testid="parallel-deduce-panel"
       >
         <div className="text-f12 font-medium text-ink">多视角并行演绎</div>
-        <p className="text-f11 text-faint">默认 dry-run 预览 plan；确认执行才打 LLM（限并发 · 章锁 · soft 失败）。</p>
+        <p className="text-f11 text-faint">
+          preview（:8646 只读）与 deduce（:8645）并列；默认 dry-run；确认执行才打 LLM（限并发 · 章锁 · soft）。
+        </p>
         <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-lg border border-line overflow-hidden text-f11" role="group" aria-label="并行模式">
+            <button
+              type="button"
+              data-testid="parallel-mode-preview"
+              className={`h-8 px-2 cursor-pointer ${parallelMode === 'preview' ? 'bg-brand/15 text-brand' : 'bg-canvas text-faint'}`}
+              onClick={() => setParallelMode('preview')}
+            >
+              preview
+            </button>
+            <button
+              type="button"
+              data-testid="parallel-mode-deduce"
+              className={`h-8 px-2 cursor-pointer border-l border-line ${parallelMode === 'deduce' ? 'bg-brand/15 text-brand' : 'bg-canvas text-faint'}`}
+              onClick={() => setParallelMode('deduce')}
+            >
+              deduce
+            </button>
+          </div>
           <input
             className="h-8 min-w-[12rem] flex-1 rounded-lg border border-line bg-canvas px-2 text-f12"
             placeholder="视角名，逗号分隔（可空=角色前两名）"
