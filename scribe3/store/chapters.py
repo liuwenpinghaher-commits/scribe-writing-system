@@ -296,6 +296,20 @@ class ChaptersMixin:
             "UPSERT type::record('chapter',$seq) SET seq=$seq, draft=$draft RETURN NONE",
             {"seq": seq, "draft": draft})
 
+    def set_craft_compliance(self, seq: int, report: dict | None) -> None:
+        """P2：落 C-Det / 工艺合规摘要（fail-soft 调用方捕获）。"""
+        import json
+        payload = report if isinstance(report, dict) else {}
+        try:
+            raw = json.dumps(payload, ensure_ascii=False)
+        except Exception:
+            raw = "{}"
+        self._execute_write(
+            "UPDATE type::record('chapter', $seq) SET "
+            "craft_compliance=$c, craft_compliance_at=time::now() RETURN NONE",
+            {"seq": int(seq), "c": payload if isinstance(payload, dict) else {}},
+        )
+
     def get_chapter(self, seq: int) -> dict | None:
         """单章身份 + 四阶段内容(synopsis/beats/draft/prose)。
         beats 存为 JSON 串,读时解析为 list;缺失降级为 []。"""

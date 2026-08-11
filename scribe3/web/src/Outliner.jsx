@@ -71,9 +71,29 @@ function Row({ chapter, idx, colorMode, onOpen, onPatchSynopsis, onPatchLabel })
         </span>
       </td>
       <td className="px-2 py-2 align-top whitespace-nowrap text-f12">
-        {qc > 0
-          ? <span className="inline-flex items-center gap-0.5 text-warn tnum"><TriangleAlert size={12} className="shrink-0" />{qc}</span>
-          : <Check size={13} className="text-ok" />}
+        <span className="inline-flex items-center gap-1.5">
+          {chapter.hook_structured ? (
+            <span
+              className="inline-flex items-center rounded px-1 py-0.5 text-meta bg-ok/10 text-ok"
+              title={chapter.hook_preview || '钩子已结构化'}
+              data-testid="outliner-hook-badge"
+            >
+              钩
+            </span>
+          ) : null}
+          {chapter.craft_compliance && chapter.craft_compliance.ok === false ? (
+            <span
+              className="inline-flex items-center rounded px-1 py-0.5 text-meta bg-danger/10 text-danger"
+              title={chapter.craft_compliance.detail || 'C-Det 未通过'}
+              data-testid="outliner-compliance-fail"
+            >
+              合规
+            </span>
+          ) : null}
+          {qc > 0
+            ? <span className="inline-flex items-center gap-0.5 text-warn tnum"><TriangleAlert size={12} className="shrink-0" />{qc}</span>
+            : <Check size={13} className="text-ok" />}
+        </span>
       </td>
     </tr>
   )
@@ -114,7 +134,7 @@ function LaneTable({ lane, colorMode, onOpen, onPatchSynopsis, onPatchLabel }) {
               <th className="text-left font-medium px-2 py-1.5">字数</th>
               <th className="text-left font-medium px-2 py-1.5 whitespace-nowrap" title={POV_HINT}>视角</th>
               <th className="text-left font-medium px-2 py-1.5">状态</th>
-              <th className="text-left font-medium px-2 py-1.5">QC</th>
+              <th className="text-left font-medium px-2 py-1.5" title="钩=钩子已结构化；合规=C-Det 未过；数字=QC">标记</th>
             </tr>
           </thead>
           <SortableContext items={seqs.map((s) => `row-${s}`)} strategy={verticalListSortingStrategy}>

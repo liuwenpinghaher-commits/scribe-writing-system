@@ -22,6 +22,15 @@ export function shouldShowVolumeOrganizeHint({
   return n >= th
 }
 
+/** 跨弧 soft-suggest：超期伏笔 ≥1 时提示按卷复盘（≠ GATE-B） */
+export function shouldShowCrossArcVolumeHint({
+  overduePromiseCount = 0,
+  dismissed = false,
+} = {}) {
+  if (dismissed) return false
+  return (Number(overduePromiseCount) || 0) >= 1
+}
+
 export function loadVolumeSoftHintDismissed(work) {
   try {
     const k = work ? `${VOLUME_SOFT_HINT_DISMISS_KEY}:${work}` : VOLUME_SOFT_HINT_DISMISS_KEY

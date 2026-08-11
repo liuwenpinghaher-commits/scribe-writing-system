@@ -182,6 +182,22 @@ def test_engineering_smoke_module_exists():
     assert "locks.chapter_double_busy" in text
 
 
+def test_product_longline_contracts():
+    """钩子 SSOT + 合规字段 + 迁移 127。"""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    assert (root / "chapter_hooks.py").is_file()
+    assert "def resolve_chapter_hook" in (root / "chapter_hooks.py").read_text(encoding="utf-8")
+    assert (root / "migrations" / "127_craft_compliance.surql").is_file()
+    ch = (root / "store" / "chapters.py").read_text(encoding="utf-8")
+    assert "def set_craft_compliance" in ch
+    st = (root / "store" / "structure.py").read_text(encoding="utf-8")
+    assert "hook_structured" in st
+    assert "craft_compliance" in st
+    mr = (root / "api" / "routers" / "misc_routes.py").read_text(encoding="utf-8")
+    assert "audit_chapter_det" in mr
+
+
 def test_s2_invalidate_by_table_drops_cache():
     from scribe3.context_cache import TTLCache, emit_invalidation, invalidate_by_table
 

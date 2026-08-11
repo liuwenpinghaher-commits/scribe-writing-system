@@ -6,6 +6,7 @@ import {
 } from './liveRefresh.js'
 import {
   shouldShowVolumeOrganizeHint,
+  shouldShowCrossArcVolumeHint,
   VOLUME_SOFT_HINT_DEFAULT_N,
 } from './volumeSoftHint.js'
 
@@ -44,5 +45,13 @@ describe('volumeSoftHint', () => {
     expect(shouldShowVolumeOrganizeHint({ unassignedCount: 12, threshold: 12 })).toBe(true)
     expect(shouldShowVolumeOrganizeHint({ unassignedCount: 20, dismissed: true })).toBe(false)
     expect(VOLUME_SOFT_HINT_DEFAULT_N).toBe(12)
+  })
+})
+
+describe('crossArcVolumeHint', () => {
+  it('shows when overdue >= 1', () => {
+    expect(shouldShowCrossArcVolumeHint({ overduePromiseCount: 0 })).toBe(false)
+    expect(shouldShowCrossArcVolumeHint({ overduePromiseCount: 1 })).toBe(true)
+    expect(shouldShowCrossArcVolumeHint({ overduePromiseCount: 3, dismissed: true })).toBe(false)
   })
 })

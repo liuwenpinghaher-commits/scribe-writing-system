@@ -171,11 +171,13 @@ class StructureMixin:
             "SELECT seq, sort_order, title, synopsis, focalizer, "
             "(IF volume THEN meta::id(volume) ELSE NONE END) AS volume, label, "
             "qc_word_count AS word_count, qc_issues, qc_causal, qc_breakdown, qc_cache_revision, "
-            "scene_count, scene_meta "
+            "scene_count, scene_meta, beats, beats_meta, "
+            "craft_compliance, craft_compliance_at "
             "FROM chapter:.. WHERE archived = NONE OR archived != true")
         # Python 侧排序:sort_order 为 None 时回退 seq
         rows.sort(key=lambda r: (r.get("sort_order") if r.get("sort_order") is not None else r["seq"]))
         import json
+        from scribe3.chapter_hooks import resolve_chapter_hook
         chapters = []
         for r in rows:
             raw_meta = r.pop("scene_meta", None)
@@ -183,7 +185,6 @@ class StructureMixin:
                 meta = json.loads(raw_meta) if raw_meta else []
             except (ValueError, TypeError):
                 meta = []
-            # qc_breakdown 缓存为 JSON 串;解析失败/缺失降级为零拆分(字段恒在,向后兼容)。
             raw_bd = r.pop("qc_breakdown", None)
             try:
                 breakdown = json.loads(raw_bd) if raw_bd else {}
@@ -191,10 +192,33 @@ class StructureMixin:
                 breakdown = {}
             breakdown = {k: breakdown.get(k, 0) for k in
                          ("repetition", "structural", "purple", "ai_tics", "oversaturation")}
-            # scene_count 缓存优先;缺失(存量未回填)回退 scene_meta 长度,再不济 0。
             sc = r.get("scene_count")
             if sc is None:
                 sc = len(meta)
+            raw_beats = r.pop("beats", None)
+            try:
+                beats = json.loads(raw_beats) if isinstance(raw_beats, str) else (raw_beats or [])
+            except (ValueError, TypeError):
+                beats = []
+            if not isinstance(beats, list):
+                beats = []
+            raw_bm = r.pop("beats_meta", None)
+            try:
+                beats_meta = json.loads(raw_bm) if isinstance(raw_bm, str) else (raw_bm or {})
+            except (ValueError, TypeError):
+                beats_meta = {}
+            if not isinstance(beats_meta, dict):
+                beats_meta = {}
+            hook = resolve_chapter_hook(
+                {"synopsis": r.get("synopsis"), "beats": beats, "beats_meta": beats_meta},
+                beats_meta=beats_meta, beats=beats, synopsis=r.get("synopsis") or "",
+            )
+            raw_cc = r.pop("craft_compliance", None)
+            if isinstance(raw_cc, str):
+                try:
+                    raw_cc = json.loads(raw_cc)
+                except (ValueError, TypeError):
+                    raw_cc = None
             chapters.append({
                 **r,
                 "scene_count": sc,
@@ -202,7 +226,11 @@ class StructureMixin:
                 "scenes": [{"idx": i, "title": m.get("title", ""),
                             "char_count": m.get("char_count", 0)}
                            for i, m in enumerate(meta)],
+                "hook_structured": bool(hook),
+                "hook_preview": (hook or "")[:40],
+                "craft_compliance": raw_cc if isinstance(raw_cc, dict) else None,
             })
+
         unassigned = [c["seq"] for c in chapters if not c.get("volume")]
         return {"volumes": vols, "chapters": chapters, "unassigned_chapters": unassigned}
 
@@ -229,6 +257,13 @@ class StructureMixin:
             badges = [_wc_badge(c.get("word_count"))]
             if c.get("focalizer"):
                 badges.append({"kind": "pov", "value": c["focalizer"]})
+            if c.get("hook_structured"):
+                badges.append({"kind": "hook", "value": "钩", "tone": "ok",
+                               "title": c.get("hook_preview") or "钩子已结构化"})
+            cc = c.get("craft_compliance") or {}
+            if isinstance(cc, dict) and cc.get("ok") is False:
+                badges.append({"kind": "compliance", "value": "合规", "tone": "danger",
+                               "title": cc.get("detail") or "C-Det 未通过"})
             qc_n = c.get("qc_issues") or 0
             if qc_n:
                 badges.append({"kind": "qc", "value": qc_n, "tone": "warn"})

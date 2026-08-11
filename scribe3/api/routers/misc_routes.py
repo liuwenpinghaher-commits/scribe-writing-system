@@ -470,6 +470,30 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
         logging.getLogger("scribe3").warning(
             "strict scene 评估失败(忽略,不拦) work=%s: %s", work, e)
     st.save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
+    # P2 产品门闩：实质正文落库后跑 C-Det，结果写 craft_compliance（仪表盘可见）
+    craft_compliance_out = None
+    try:
+        if len((req.prose or "").strip()) >= 80:
+            from scribe3.verify_craft_compliance import audit_chapter_det
+            rep = audit_chapter_det(
+                st, req.seq, req.prose, focalizer=req.focalizer or None)
+            payload = {
+                "ok": bool(rep.ok),
+                "gate": "C",
+                "detail": "C-Det pass" if rep.ok else "C-Det fail",
+                "root_causes": list(rep.root_causes or []),
+                "fails": [
+                    c.id for c in (rep.checks or [])
+                    if getattr(c, "hard", True) and getattr(c, "verdict", "") == "fail"
+                ][:12],
+            }
+            if hasattr(st, "set_craft_compliance"):
+                st.set_craft_compliance(req.seq, payload)
+            craft_compliance_out = payload
+    except Exception as e:
+        import logging
+        logging.getLogger("scribe3").warning(
+            "P2 C-Det 落库失败(存稿不受影响) work=%s seq=%s: %s", work, req.seq, e)
     # 四阶段(Phase0-BE2):存正文自动留 final 版(快照存稿瞬间)。fail-soft:留版失败不阻断存稿。
     # 审计 P2-1:内容与最新 final 版相同则不重复落版(自动存稿风暴刷屏版本史)。
     try:
@@ -564,6 +588,7 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
             "leaks": leaks, "leak_error": leak_error,
             "qc_errors": qc_errs or None, "ingesting": bool(enqueued),
             "ingest_enqueued": bool(enqueued),
+            "craft_compliance": craft_compliance_out,
             "ingest": {
                 "action": _ing.get("action"),
                 "reason": _ing.get("reason"),

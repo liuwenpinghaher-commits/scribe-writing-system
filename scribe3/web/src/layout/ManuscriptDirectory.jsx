@@ -7,6 +7,7 @@ import { DirectoryRow, DirectorySectionLabel, DIR_SHELL } from './DirectoryRow'
 import { Btn } from '../ui.jsx'
 import {
   shouldShowVolumeOrganizeHint,
+  shouldShowCrossArcVolumeHint,
   loadVolumeSoftHintDismissed,
   saveVolumeSoftHintDismissed,
   VOLUME_SOFT_HINT_DEFAULT_N,
@@ -271,11 +272,30 @@ export function ManuscriptDirectory({
 
   const workKey = work || (typeof api.getWork === 'function' ? api.getWork() : '') || 'default'
   const [hintDismissed, setHintDismissed] = useState(() => loadVolumeSoftHintDismissed(workKey))
+  const [arcDismissed, setArcDismissed] = useState(() => {
+    try { return localStorage.getItem(`s3.volume.cross_arc_dismissed:${workKey}`) === '1' } catch { return false }
+  })
+  const [overdueN, setOverdueN] = useState(0)
   useEffect(() => { setHintDismissed(loadVolumeSoftHintDismissed(workKey)) }, [workKey])
+  useEffect(() => {
+    let alive = true
+    api.promises?.()
+      ?.then((p) => {
+        if (!alive) return
+        const arr = Array.isArray(p) ? p : []
+        setOverdueN(arr.filter((x) => x?.overdue && x?.status === 'open').length)
+      })
+      .catch(() => { if (alive) setOverdueN(0) })
+    return () => { alive = false }
+  }, [workKey, chapterTotal])
   const showVolHint = shouldShowVolumeOrganizeHint({
     unassignedCount,
     threshold: VOLUME_SOFT_HINT_DEFAULT_N,
     dismissed: hintDismissed,
+  })
+  const showArcHint = shouldShowCrossArcVolumeHint({
+    overduePromiseCount: overdueN,
+    dismissed: arcDismissed,
   })
 
   return (
@@ -319,6 +339,29 @@ export function ManuscriptDirectory({
               知道了
             </button>
           </div>
+        </div>
+      )}
+      {showArcHint && (
+        <div
+          className="mx-2 mt-2 rounded-md border border-warn/30 bg-warn/5 px-2.5 py-2 text-f12 text-ink"
+          data-testid="volume-cross-arc-soft-hint"
+          role="status"
+        >
+          <p className="leading-snug">
+            有 <strong>{overdueN}</strong> 条超期伏笔。可按卷打开复盘（KR4），
+            <strong>不挡存写</strong>、≠ GATE-B。
+          </p>
+          <button
+            type="button"
+            className="mt-1.5 text-meta text-faint hover:text-ink cursor-pointer"
+            data-testid="volume-cross-arc-dismiss"
+            onClick={() => {
+              try { localStorage.setItem(`s3.volume.cross_arc_dismissed:${workKey}`, '1') } catch { /* */ }
+              setArcDismissed(true)
+            }}
+          >
+            知道了
+          </button>
         </div>
       )}
       <div data-testid="manuscript-volume-list" className="flex-1 min-h-0 overflow-auto px-2 py-2">

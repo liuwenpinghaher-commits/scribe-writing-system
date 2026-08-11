@@ -37,8 +37,13 @@ export function volumeMetaPeekVisible(density) {
   return d === 'standard' || d === 'full'
 }
 
-/** full 密度可挂 GET /volume/review 只读摘要（可选） */
+/** standard/full 可挂 GET /volume/review（跨弧 soft-suggest / KR4） */
 export function volumeReviewVisible(density) {
   const d = density || loadIaDensity()
-  return d === 'full'
+  return d === 'standard' || d === 'full'
+}
+
+/** essential 也显示一行「跨弧伏笔」软提示（非 full 复盘面板） */
+export function volumeCrossArcSoftVisible(density) {
+  return true // 全密度可 soft；不挡写
 }
