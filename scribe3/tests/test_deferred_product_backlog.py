@@ -147,6 +147,13 @@ def test_routes_and_ui_artifacts():
         "docs/guides/2026-08-11-deferred-product-backlog.md",
     ):
         assert Path(f).is_file(), f
+    # 导航接线：DetailPane + AppRail + Overview
+    dp = Path("scribe3/web/src/DetailPane.jsx").read_text(encoding="utf-8")
+    assert "storyline" in dp and "benchmarks" in dp and "event-graph" in dp
+    rail = Path("scribe3/web/src/AppRail.jsx").read_text(encoding="utf-8")
+    assert "storyline" in rail
+    ov = Path("scribe3/web/src/views/OverviewView.jsx").read_text(encoding="utf-8")
+    assert "overview-open-storyline" in ov
 
 
 if __name__ == "__main__":

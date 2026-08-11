@@ -116,6 +116,9 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
     }
     if (k === 'settings') return <div className="p-8 text-f13 text-faint" data-testid="settings-moved">设置已迁至顶栏「系统中心」（全页）。请点齿轮打开。</div>
     if (k === 'progress') return <InsightView key={`${work}-progress`} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} focus="progress" />  // 仪表盘聚焦码字进度面板
+    if (k === 'storyline') return <StorylineHub key={`${work}-storyline`} work={work} />
+    if (k === 'benchmarks') return <BenchmarkLibrary key={`${work}-benchmarks`} />
+    if (k === 'event-graph') return <EventGraphPanel key={`${work}-event-graph`} work={work} />
     return <div className="p-8 text-faint">未实现的视图:{k}</div>
   }
 

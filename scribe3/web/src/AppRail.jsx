@@ -1,4 +1,4 @@
-import { Sun, Moon, BookOpen, ChevronDown, Network, Activity, Clock, Search, Settings, Compass, Shield, LogOut } from 'lucide-react'
+import { Sun, Moon, BookOpen, ChevronDown, Network, Activity, Clock, Search, Settings, Compass, Shield, LogOut, GitBranch } from 'lucide-react'
 import { PC_LAYOUT } from './layout/tokens'
 import { BrandMark } from './BrandMark'
 
@@ -8,6 +8,7 @@ export const VIEWS = [
   { key: 'journey', label: '旅程', icon: Compass },
   { key: 'atlas', label: '图谱', icon: Network },
   { key: 'timeline', label: '时间线', icon: Clock },
+  { key: 'storyline', label: '故事线', icon: GitBranch },
   { key: 'insight', label: '仪表盘', icon: Activity },
 ]
 

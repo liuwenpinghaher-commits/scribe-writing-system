@@ -134,6 +134,7 @@ export function FourPaneShell({
   // 横切浏览视图（图谱/时间线/仪表盘等）：默认收起右侧聊天，把宽留给图/表
   const CROSS_VIEW_COLLAPSE_CHAT = new Set([
     'atlas', 'timeline', 'insight', 'overview', 'progress', 'journey',
+    'storyline', 'benchmarks', 'event-graph',
   ])
   const viewKeyNow = isView
     ? (effectiveSel?.viewKey

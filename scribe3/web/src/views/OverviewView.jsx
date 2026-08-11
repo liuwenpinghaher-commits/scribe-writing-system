@@ -52,9 +52,23 @@ export function OverviewView({ onJumpChapter, onOpenView }) {
   return (
     <div className="h-full overflow-y-auto bg-canvas">
       <div className="max-w-5xl mx-auto px-6 py-6 md:px-8 md:py-8">
-        <div className="flex items-center gap-2 mb-5">
+        <div className="flex items-center gap-2 mb-5 flex-wrap">
           <BookText size={18} className="text-brand" />
           <h1 className="type-page prose-serif text-ink">概览</h1>
+          <div className="ml-auto flex flex-wrap gap-2 text-f12">
+            <button type="button" onClick={() => onOpenView?.('storyline')}
+              className="text-brand hover:underline cursor-pointer" data-testid="overview-open-storyline">
+              故事线 Gantt
+            </button>
+            <button type="button" onClick={() => onOpenView?.('event-graph')}
+              className="text-brand hover:underline cursor-pointer" data-testid="overview-open-event-graph">
+              事件图
+            </button>
+            <button type="button" onClick={() => onOpenView?.('benchmarks')}
+              className="text-brand hover:underline cursor-pointer" data-testid="overview-open-benchmarks">
+              Benchmark 库
+            </button>
+          </div>
         </div>
 
         {/* 规模 */}
