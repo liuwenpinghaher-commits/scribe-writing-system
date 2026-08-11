@@ -8,7 +8,7 @@ from typing import Any, Protocol
 
 
 def distributed_lock_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_DISTRIBUTED_LOCK") or "0").strip().lower()
+    raw = (os.environ.get("SCRIBE3_DISTRIBUTED_LOCK") or "1").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 

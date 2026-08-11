@@ -16,8 +16,8 @@
   PR-6a 已接 ``PARK_STROLL_BLOCKING``（``pressure_metrics`` severity + ``park_stroll`` + triage buckets）；
   PR-6b 已接 ``PILOT_SOFT_PRESSURE`` / ``PILOT_SOFT_AI_GRADE``（``full_check`` 动态 soft 集合）；
   PR-6c 已接 deliver ``pilot_card.buckets``（redline/story/style 计数；full_check 暂存 + UI 交付卡）。
-  叙事引擎（rev.2.3 引导优先）：``NARRATIVE_ENGINE`` ensure+注入；
-  ``EVENT_DRIVE_GATE`` / ``EVENT_LED_DETECT`` 可选硬拦，代码默认关。
+  叙事引擎（rev.2.3 引导优先）：``NARRATIVE_ENGINE`` ensure+注入默认开；
+  ``EVENT_DRIVE_GATE`` 硬拦仍默认关；``EVENT_LED_DETECT`` / opener soft 默认开。
 - 设置 UI：已接线旗改值立即影响对应路径；未接线旗改值暂无运行时效果。
 
 读取路径：``settings.get_setting``（DB 覆盖 → env → REGISTRY 默认）。
@@ -99,9 +99,9 @@ QUALITY_MODE_TARGETS: dict[str, object] = {
     # 引导优先：质量模式开 ENGINE 注入；GATE/DETECT 硬拦仍可选（rev.2.3 默认不跟刑典）
     FLAG_NARRATIVE_ENGINE: True,
     FLAG_EVENT_DRIVE_GATE: False,
-    FLAG_EVENT_LED_DETECT: False,
-    FLAG_OPENER_SOFT_TRACE: False,
-    FLAG_METAPHOR_SOFT_PER_1K: 0,
+    FLAG_EVENT_LED_DETECT: True,
+    FLAG_OPENER_SOFT_TRACE: True,
+    FLAG_METAPHOR_SOFT_PER_1K: 6,
     # 执行合同：质量模式推荐开 STEER/FULFILL/DRIFT；RESTEER 仍关（KD-EC-4/11）
     FLAG_DEFAULT_DRAMA_STEER: True,
     FLAG_SOFT_FULFILL: True,

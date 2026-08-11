@@ -12,19 +12,22 @@ from typing import Any
 
 
 def registry_mode() -> str:
-    """off | shadow | active。默认 shadow 当 DENSITY_TRACE 开，否则 off。"""
-    raw = (os.environ.get("SCRIBE3_INJECTION_REGISTRY") or "").strip().lower()
+    """off | shadow | active。默认 active（质量优先参与 join）。"""
+    raw = (os.environ.get("SCRIBE3_INJECTION_REGISTRY")
+           if "SCRIBE3_INJECTION_REGISTRY" in os.environ
+           else "active").strip().lower()
     if raw in ("1", "true", "yes", "on", "active"):
         return "active"
     if raw in ("0", "false", "off", "no"):
         return "off"
     if raw == "shadow":
         return "shadow"
-    # 默认：观测开则 shadow
+    if raw == "":
+        return "active"
     dens = (os.environ.get("SCRIBE3_DENSITY_TRACE") or "1").strip().lower()
     if dens in ("0", "false", "off", "no"):
         return "off"
-    return "shadow"
+    return "active"
 
 
 @dataclass(frozen=True)

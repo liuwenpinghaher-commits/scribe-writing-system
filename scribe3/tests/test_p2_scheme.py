@@ -14,21 +14,25 @@ def test_chapter_lock_contention_and_release():
     )
     from scribe3.concurrency_lock import distributed_lock_enabled
 
-    work, seq = "main", 42
-    r1 = acquire_chapter_lock("loop", work, seq)
-    assert r1.ok and r1.status == "acquired"
-    assert r1.chapter_key == chapter_target(work, seq)
-    r2 = acquire_chapter_lock("loop", work, seq)
-    assert not r2.ok and r2.status == "busy"
-    release_chapter_lock("loop", work, seq)
-    r3 = acquire_chapter_lock("loop", work, seq)
-    assert r3.ok
-    release_chapter_lock("loop", work, seq)
+    # 进程内路径（显式关 distributed，避免默认 on 干扰）
+    os.environ["SCRIBE3_DISTRIBUTED_LOCK"] = "0"
+    try:
+        work, seq = "main", 42
+        r1 = acquire_chapter_lock("loop", work, seq)
+        assert r1.ok and r1.status == "acquired"
+        assert r1.chapter_key == chapter_target(work, seq)
+        r2 = acquire_chapter_lock("loop", work, seq)
+        assert not r2.ok and r2.status == "busy"
+        release_chapter_lock("loop", work, seq)
+        r3 = acquire_chapter_lock("loop", work, seq)
+        assert r3.ok
+        release_chapter_lock("loop", work, seq)
 
-    # ingest / repair kinds
-    assert acquire_chapter_lock("ingest", work, 7).ok
-    assert not acquire_chapter_lock("ingest", work, 7).ok
-    release_chapter_lock("ingest", work, 7)
+        assert acquire_chapter_lock("ingest", work, 7).ok
+        assert not acquire_chapter_lock("ingest", work, 7).ok
+        release_chapter_lock("ingest", work, 7)
+    finally:
+        os.environ.pop("SCRIBE3_DISTRIBUTED_LOCK", None)
 
     # store-backed when distributed flag on
     os.environ["SCRIBE3_DISTRIBUTED_LOCK"] = "1"
@@ -45,10 +49,14 @@ def test_chapter_lock_contention_and_release():
         os.environ.pop("SCRIBE3_DISTRIBUTED_LOCK", None)
 
     # flag-off process-local still refuses re-entry
-    assert not distributed_lock_enabled()
-    assert acquire_chapter_lock("loop", "x", 9).ok
-    assert not acquire_chapter_lock("loop", "x", 9).ok
-    release_chapter_lock("loop", "x", 9)
+    os.environ["SCRIBE3_DISTRIBUTED_LOCK"] = "0"
+    try:
+        assert not distributed_lock_enabled()
+        assert acquire_chapter_lock("loop", "x", 9).ok
+        assert not acquire_chapter_lock("loop", "x", 9).ok
+        release_chapter_lock("loop", "x", 9)
+    finally:
+        os.environ.pop("SCRIBE3_DISTRIBUTED_LOCK", None)
 
 
 def test_soft_activation_drops_soft_keeps_redline():

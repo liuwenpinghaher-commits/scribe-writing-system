@@ -195,7 +195,7 @@ def _craft_novel() -> bool:
         return bool(craft_novel_enabled())
     except Exception:
         # fail-soft：模块不可用时回落 env，与 PDC 直读口径一致
-        v = (os.environ.get("SCRIBE3_CRAFT_NOVEL") or "0").strip().lower()
+        v = (os.environ.get("SCRIBE3_CRAFT_NOVEL") or "1").strip().lower()
         return v in ("1", "true", "yes", "on")
 
 

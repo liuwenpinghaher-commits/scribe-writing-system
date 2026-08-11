@@ -1,4 +1,4 @@
-"""Surreal 深度利用 feature flags（S-1…S-8）。默认关，探活绿后再开。"""
+"""Surreal 深度利用 feature flags（S-1…S-8）。质量/一致性默认开。"""
 from __future__ import annotations
 
 import os
@@ -6,7 +6,7 @@ import os
 _TRUE = {"1", "true", "yes", "on"}
 
 
-def _env_bool(key: str, default: bool = False) -> bool:
+def _env_bool(key: str, default: bool = True) -> bool:
     raw = os.environ.get(key)
     if raw is None or raw == "":
         try:
@@ -21,23 +21,23 @@ def _env_bool(key: str, default: bool = False) -> bool:
 
 
 def hybrid_search_native() -> bool:
-    return _env_bool("SCRIBE3_HYBRID_SEARCH_NATIVE", False)
+    return _env_bool("SCRIBE3_HYBRID_SEARCH_NATIVE", True)
 
 
 def changefeed_cache() -> bool:
-    return _env_bool("SCRIBE3_CHANGEFEED_CACHE", False)
+    return _env_bool("SCRIBE3_CHANGEFEED_CACHE", True)
 
 
 def db_inflight_lock() -> bool:
-    return _env_bool("SCRIBE3_DB_INFLIGHT_LOCK", False)
+    return _env_bool("SCRIBE3_DB_INFLIGHT_LOCK", True)
 
 
 def db_knowledge_frame() -> bool:
-    return _env_bool("SCRIBE3_DB_KNOWLEDGE_FRAME", False)
+    return _env_bool("SCRIBE3_DB_KNOWLEDGE_FRAME", True)
 
 
 def stats_view_read() -> bool:
-    return _env_bool("SCRIBE3_STATS_VIEW", False)
+    return _env_bool("SCRIBE3_STATS_VIEW", True)
 
 
 def live_granular() -> bool:

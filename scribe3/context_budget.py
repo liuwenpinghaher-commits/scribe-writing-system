@@ -264,8 +264,8 @@ BEAT_TYPE_TO_SCENE_PROFILE: dict[str, str] = {
 
 
 def adaptive_budget_enabled() -> bool:
-    """SCRIBE3_ADAPTIVE_BUDGET=1 时允许 beat_type 自动选 profile。"""
-    return _env_truthy("SCRIBE3_ADAPTIVE_BUDGET", "0")
+    """SCRIBE3_ADAPTIVE_BUDGET=1 时允许 beat_type 自动选 profile（默认开）。"""
+    return _env_truthy("SCRIBE3_ADAPTIVE_BUDGET", "1")
 
 
 def scene_budget_profile() -> str | None:
