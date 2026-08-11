@@ -33,10 +33,10 @@ def changefeed_cache_enabled() -> bool:
 def apply_changes_to_cache(changes: list[dict], work: str | None = None) -> set[str]:
     """将 changefeed 行应用到缓存失效。返回触及的表名集合。
 
-    支持：
-    - cache_watch 行：value.table_name / table_name
-    - 其它表：id 前缀
-    不向 cache_watch 再双写（避免环）。
+    支持 Surreal 3.2 SHOW CHANGES 形态::
+      { versionstamp, changes: [ {update: {...}} | {create: {...}} | {id: ...} ] }
+
+    cache_watch 行：payload.table_name → 目标表；不向 cache_watch 再双写（避免环）。
     """
     from scribe3.context_cache import emit_invalidation
 
@@ -49,6 +49,25 @@ def apply_changes_to_cache(changes: list[dict], work: str | None = None) -> set[
         emit_invalidation(t, w if w is not None else work)
         touched.add(t)
 
+    def _from_payload(val: dict) -> bool:
+        if not isinstance(val, dict):
+            return False
+        # 跳过 DDL define_table 等
+        if "define_table" in val or "define_field" in val:
+            return False
+        tn = val.get("table_name") or val.get("table")
+        ww = val.get("work")
+        if tn:
+            _touch(str(tn), str(ww) if ww not in (None, "") else work)
+            return True
+        vid = val.get("id")
+        if vid is not None:
+            s = str(vid)
+            if ":" in s:
+                _touch(s.split(":", 1)[0], work)
+                return True
+        return False
+
     for ch in changes or []:
         if not isinstance(ch, dict):
             continue
@@ -57,15 +76,19 @@ def apply_changes_to_cache(changes: list[dict], work: str | None = None) -> set[
             for inner in ch.get("changes") or []:
                 if not isinstance(inner, dict):
                     continue
-                # create/update payload
-                val = inner.get("value") or inner.get("after") or inner
-                if isinstance(val, dict):
-                    tn = val.get("table_name") or val.get("table")
-                    ww = val.get("work")
-                    if tn:
-                        _touch(str(tn), str(ww) if ww else work)
-                        continue
-                vid = inner.get("id") or (val.get("id") if isinstance(val, dict) else None)
+                # 3.2 常见：{"update": row} / {"create": row} / {"delete": {...}}
+                handled = False
+                for key in ("update", "create", "value", "after"):
+                    if key in inner and isinstance(inner.get(key), dict):
+                        handled = _from_payload(inner[key]) or handled
+                if handled:
+                    continue
+                if "define_table" in inner or "define_field" in inner:
+                    continue
+                # 扁平 id / table_name
+                if _from_payload(inner):
+                    continue
+                vid = inner.get("id")
                 if vid is not None:
                     s = str(vid)
                     if ":" in s:
@@ -80,14 +103,32 @@ def apply_changes_to_cache(changes: list[dict], work: str | None = None) -> set[
 def poll_table_changes(store: Any, table: str, since: str | int | None = None) -> list:
     """SHOW CHANGES FOR TABLE … — 返回原始行列表。
 
-    Surreal 3.2 要求 ``SINCE``（不可仅 LIMIT）；无 cursor 时用 ``SINCE 0``。
+    Surreal 3.2 要求 ``SINCE``（不可仅 LIMIT）；**不接受参数绑定** ``$since``，
+    须字面 versionstamp / 0 / datetime。无 cursor 时用 ``SINCE 0``。
     """
     try:
-        if since is None or since == "" :
-            since = 0
-        # 语法：SHOW CHANGES FOR TABLE name SINCE <versionstamp|0> [LIMIT n]
-        q = f"SHOW CHANGES FOR TABLE {table} SINCE $since LIMIT 50;"
-        return store._query(q, {"since": since}) or []
+        if since is None or since == "":
+            since_lit = "0"
+        elif isinstance(since, bool):
+            since_lit = "0"
+        elif isinstance(since, int):
+            since_lit = str(int(since))
+        else:
+            s = str(since).strip()
+            # 仅允许数字 versionstamp 或 d"…" 日期字面量，防注入
+            if s.isdigit() or (s.startswith("d\"") and s.endswith("\"")):
+                since_lit = s
+            else:
+                # 尝试纯数字 versionstamp 字符串
+                try:
+                    since_lit = str(int(s))
+                except Exception:
+                    since_lit = "0"
+        # 表名白名单形态：字母数字下划线
+        if not str(table).replace("_", "").isalnum():
+            return []
+        q = f"SHOW CHANGES FOR TABLE {table} SINCE {since_lit} LIMIT 50;"
+        return store._query(q) or []
     except Exception as e:
         _log.debug("poll %s: %s", table, e)
         return []

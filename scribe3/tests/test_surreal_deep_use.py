@@ -86,11 +86,16 @@ def test_s2_cache_watch_apply_and_no_loop():
     c = TTLCache(60, maxsize=8, name="t2b", tables={"proposition"})
     c.set("y", 2, work="book")
     before = invalidation_counts().get("proposition", 0)
+    # Surreal 3.2 实网形态：{"update": {table_name, work, id}}
     touched = apply_changes_to_cache(
         [{
-            "versionstamp": 1,
+            "versionstamp": 117075989302083584,
             "changes": [{
-                "value": {"table_name": "proposition", "work": "book", "id": "cache_watch:1"},
+                "update": {
+                    "table_name": "proposition",
+                    "work": "book",
+                    "id": "cache_watch:1",
+                },
             }],
         }],
         work="book",
@@ -99,6 +104,15 @@ def test_s2_cache_watch_apply_and_no_loop():
     assert "cache_watch" not in touched
     assert c.get("y") is None
     assert invalidation_counts().get("proposition", 0) >= before + 1
+
+
+def test_s2_poll_since_is_literal_not_param():
+    """SHOW CHANGES 不得用 $since 参数（Surreal 3.2 Parse error）。"""
+    from pathlib import Path
+    text = Path(__file__).resolve().parents[1].joinpath("changefeed_consumer.py").read_text(
+        encoding="utf-8")
+    assert "SINCE $since" not in text
+    assert "SINCE {since_lit}" in text or "SINCE 0" in text
 
 
 def test_s2_emit_dual_write_cache_watch():
