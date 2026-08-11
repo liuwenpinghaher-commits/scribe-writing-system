@@ -1,0 +1,31 @@
+{
+  "ok": true,
+  "ns": "scribe3",
+  "db": "ok",
+  "changefeed": {
+    "enabled": true,
+    "alive": true,
+    "started_at": 1786466995.6652515,
+    "last_ok_at": 1786467928.025541,
+    "last_error": null,
+    "poll_count": 62,
+    "invalidate_count": 14,
+    "cursors": {
+      "cache_watch": 117077718289940480
+    },
+    "work": "main"
+  },
+  "locks": {
+    "distributed": true,
+    "db_inflight": true
+  },
+  "surreal_flags": {
+    "hybrid_search_native": true,
+    "changefeed_cache": true,
+    "db_inflight_lock": true,
+    "db_knowledge_frame": true,
+    "stats_view": true,
+    "live_granular": true,
+    "distributed_lock": true
+  }
+}

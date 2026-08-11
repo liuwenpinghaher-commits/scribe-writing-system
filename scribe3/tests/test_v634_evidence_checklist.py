@@ -42,6 +42,10 @@ def test_parse_wordcount_and_human():
     assert WC_ok is not None and 18000 <= WC_ok <= 24000
     assert _author_path_says_human("- 作者是否真人坐浏览器：是\n") is True
     assert _author_path_says_human("- 作者是否真人坐浏览器：否\n") is False
+    # markdown bold (shipped evidence package style)
+    assert _author_path_says_human("- 作者是否真人坐浏览器：**否**\n") is False
+    assert _author_path_says_human("- 作者是否真人坐浏览器：**是**\n") is True
+    assert _author_path_says_human("- 作者是否真人坐浏览器： **否** \n") is False
 
 
 def test_empty_matrix_fails(tmp_path: Path):

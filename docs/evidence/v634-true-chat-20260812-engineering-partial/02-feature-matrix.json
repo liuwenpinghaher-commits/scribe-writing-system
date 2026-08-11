@@ -10,7 +10,7 @@
       "evidence_type": "API",
       "evidence_path": [],
       "skip_reason": "",
-      "notes": "health API ok but no browser login screenshot this session"
+      "notes": "API health/ready ok (see baseline) but no browser login UI screenshot this session"
     },
     {
       "id": "J2",
@@ -789,10 +789,12 @@
       "evidence_type": "API",
       "evidence_path": [
         "00-runtime-baseline.md",
-        "00-runtime-baseline.json"
+        "00-runtime-baseline.json",
+        "13-capability-audit/health.json",
+        "13-capability-audit/ready.json"
       ],
       "skip_reason": "",
-      "notes": "public health/ready + backend flags"
+      "notes": "health: public qing.blue/api/health ok=true; ready: demo docker /ready ready=true"
     },
     {
       "id": "V7",

@@ -2,48 +2,30 @@
 
 - entry (protocol): https://tonglu.qing.blue
 - entry (working from executor host): https://qing.blue
-- captured_at_utc: 2026-08-11T16:51:07Z
-- evidence window: 2026-08-12T00:00:00Z → 2026-08-11T16:51:07Z
+- captured_at_utc: 2026-08-11T17:06:21Z
+- evidence window: 2026-08-11T16:00:00Z → 2026-08-11T17:06:21Z (start ≤ end)
 
 ## GET https://qing.blue/api/health
+- HTTP 200
+- body.ok: **True**
 ```json
 {
   "ok": true,
   "ns": "scribe3",
-  "db": "ok",
-  "changefeed": {
-    "enabled": true,
-    "alive": true,
-    "started_at": 1786466995.6652515,
-    "last_ok_at": null,
-    "last_error": null,
-    "poll_count": 7,
-    "invalidate_count": 0,
-    "cursors": {
-      "cache_watch": 117077665283309568
-    },
-    "work": "main"
-  },
-  "locks": {
-    "distributed": true,
-    "db_inflight": true
-  },
-  "surreal_flags": {
-    "hybrid_search_native": true,
-    "changefeed_cache": true,
-    "db_inflight_lock": true,
-    "db_knowledge_frame": true,
-    "stats_view": true,
-    "live_granular": true,
-    "distributed_lock": true
-  }
+  "db": "ok"
 }
 ```
+Full: `13-capability-audit/health.json`
 
-## GET https://qing.blue/api/ready
+## GET /ready (prod-backend-1 → 127.0.0.1:3321/ready)
+- HTTP 200
+- body.ready: **True**
 ```json
-{}
+{
+  "ready": true
+}
 ```
+Full: `13-capability-audit/ready.json`
 
 ## GET /capabilities (demo backend session; flags)
 ```json
@@ -60,16 +42,18 @@
 }
 ```
 
-## Asserts
-- memory_fabric_v1 == true → **True**
-- emergency_rest_write == false → **False**
-- ingest_lease → True
-- context_inspector_v1 → True
+## Asserts (boolean checks, not raw flag values)
+| check | required | observed |
+|-------|----------|----------|
+| health_ok | true | **True** |
+| ready_ok (body.ready===true) | true | **True** |
+| memory_fabric_v1 is true | true | **True** (flag=True) |
+| emergency_rest_write is false | true | **True** (flag=False) |
 
 ## Hermes
-- docker bridge 172.18.0.1:8646/8645 → **200 ok**
+- docker bridge 172.18.0.1:8646/8645 → 200 ok
 - host 127.0.0.1:8645/8646 → not published
-- H* **not SKIP** (gateway available); unexercised parallel → FAIL
+- H* not SKIP (gateway available); unexercised parallel → FAIL
 
 ## deploy
 - stack: prod-backend-1 / prod-surreal-1 on 82.157.130.140

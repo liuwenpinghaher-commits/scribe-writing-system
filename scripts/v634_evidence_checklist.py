@@ -58,11 +58,17 @@ def _parse_wordcount(text: str) -> int | None:
 
 
 def _author_path_says_human(text: str) -> bool | None:
-    """Parse 真人坐浏览器：是/否. None if unparsable."""
-    m = re.search(r"真人坐浏览器[：:]\s*(是|否)", text)
+    """Parse 真人坐浏览器：是/否 (optional markdown **bold** around 是/否).
+
+    None if unparsable. Accepts: 是 | 否 | **是** | **否**.
+    """
+    # optional ** around answer; allow spaces
+    pat_ans = r"\*{0,2}\s*(是|否)\s*\*{0,2}"
+    m = re.search(rf"真人坐浏览器[：:]\s*{pat_ans}", text)
     if not m:
-        # template forms
-        m = re.search(r"是否真人[^\n]*[：:]\s*(是|否)", text)
+        m = re.search(rf"是否真人[^\n]*[：:]\s*{pat_ans}", text)
+    if not m:
+        m = re.search(rf"作者是否真人坐浏览器[：:]\s*{pat_ans}", text)
     if not m:
         return None
     return m.group(1) == "是"
