@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
 import { Btn } from './ui.jsx'
 import { uiStatusLabel, LETTER_STATUS_CN } from './lib/statusLabels'
+import { liveTouchesChapter, liveTouchesTable } from './lib/liveRefresh.js'
 
 const GRID_CELLS = [
   ['goal', '目标'],
@@ -50,6 +51,20 @@ export function ExperiencePressurePanel({ seq }) {
   }, [seq])
 
   useEffect(() => { loadAll() }, [loadAll])
+  // S-8: 本章或经验/压力相关表 LIVE 时重拉（他章跳过）
+  useEffect(() => {
+    const onLive = (e) => {
+      const d = e?.detail
+      if (
+        liveTouchesChapter(d, seq)
+        || liveTouchesTable(d, ['chapter', 'pressure_drive', 'revision_letter', 'scene_grid', 'lesson'])
+      ) {
+        loadAll()
+      }
+    }
+    window.addEventListener('s3-live', onLive)
+    return () => window.removeEventListener('s3-live', onLive)
+  }, [loadAll, seq])
 
   const onWaive = async (itemId, status) => {
     setBusy(`letter:${itemId}`)

@@ -7,6 +7,7 @@ import { useSelection } from './selectionContext'
 import { Empty, SectionTitle } from './ui'
 import { seedChiefNarrativeWrite } from './lib/chiefSeed.js'
 import { isStaleDeduction, normalizeRoleId, truthRevision } from './lib/deduceGate.js'
+import { liveTouchesChapter, liveTouchesTable } from './lib/liveRefresh.js'
 
 // 演绎树:根「场景真相」+ 涉及角色(已演打勾/未演)。选中驱动中区 DeduceStage。
 export function DeduceTree({ seq }) {
@@ -22,7 +23,24 @@ export function DeduceTree({ seq }) {
   const [inferredInvolved, setInferredInvolved] = useState([])
   const [syncingInferred, setSyncingInferred] = useState(false)
   const [syncError, setSyncError] = useState('')
-  useEffect(() => { if (seq == null) return; api.chapter(seq).then(setCh).catch(() => {}); api.entities().then((es) => setChars(es.filter((e) => e.kind === 'character'))).catch(() => {}) }, [seq])
+  useEffect(() => {
+    if (seq == null) return undefined
+    let ignore = false
+    const pullCh = () => api.chapter(seq).then((c) => { if (!ignore) setCh(c) }).catch(() => {})
+    const pullChars = () => api.entities().then((es) => {
+      if (!ignore) setChars((Array.isArray(es) ? es : []).filter((e) => e.kind === 'character'))
+    }).catch(() => {})
+    pullCh()
+    pullChars()
+    // S-8: 本章 chapter 或角色表变更才刷新演绎树
+    const onLive = (e) => {
+      const d = e?.detail || {}
+      if (liveTouchesTable(d, ['character', 'entity'])) pullChars()
+      if (liveTouchesChapter(d, seq)) pullCh()
+    }
+    window.addEventListener('s3-live', onLive)
+    return () => { ignore = true; window.removeEventListener('s3-live', onLive) }
+  }, [seq])
   // 涉及角色智能建议:查看演绎树必须只读,只给出本地建议;写入必须由用户点击确认。
   useEffect(() => {
     if (!ch || (ch.involved_characters || []).length > 0 || chars.length === 0) {

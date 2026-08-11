@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { liveTouchesChapter, liveTouchesTable } from './lib/liveRefresh.js'
 import { ScrollText, GitBranch, Bookmark, TriangleAlert, Layers, Activity, DatabaseZap } from 'lucide-react'
 import { api } from './api'
 import { SectionTitle, Empty, Skeleton, Tag } from './ui'
@@ -68,10 +69,25 @@ export function BriefPanel({ seq }) {
   useEffect(() => {
     if (seq == null) { setBrief(null); return }
     let ignore = false
+    const pullBrief = () => {
+      api.chapterBrief(seq).then((b) => { if (!ignore) setBrief(b && typeof b === 'object' ? b : null) }).catch(() => { if (!ignore) setBrief(null) })
+    }
+    const pullProms = () => {
+      api.promises().then((p) => { if (!ignore) setProms(Array.isArray(p) ? p : []) }).catch(() => { if (!ignore) setProms([]) })
+    }
     setBrief(undefined)
-    api.chapterBrief(seq).then((b) => { if (!ignore) setBrief(b && typeof b === 'object' ? b : null) }).catch(() => { if (!ignore) setBrief(null) })
-    api.promises().then((p) => { if (!ignore) setProms(Array.isArray(p) ? p : []) }).catch(() => { if (!ignore) setProms([]) })
-    return () => { ignore = true }
+    pullBrief()
+    pullProms()
+    // S-8: 章/伏笔相关 LIVE 才重拉，避免他表刷爆简报
+    const onLive = (e) => {
+      const d = e?.detail
+      if (liveTouchesChapter(d, seq) || liveTouchesTable(d, ['promise', 'foreshadow', 'chapter'])) {
+        pullBrief()
+      }
+      if (liveTouchesTable(d, ['promise', 'foreshadow'])) pullProms()
+    }
+    window.addEventListener('s3-live', onLive)
+    return () => { ignore = true; window.removeEventListener('s3-live', onLive) }
   }, [seq])
 
   if (seq == null) return <div><SectionTitle icon={ScrollText}>章前简报</SectionTitle><Empty>选一章查看本章创作简报</Empty></div>

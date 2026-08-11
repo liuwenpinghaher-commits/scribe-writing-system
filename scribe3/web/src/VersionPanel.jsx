@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from './api'
 import { Empty } from './ui'
 import { AsyncState } from './ui/AsyncState.jsx'
+import { liveTouchesChapter, liveTouchesTable } from './lib/liveRefresh.js'
 
 // 存档点历史(改造④):作者命名里程碑;回看只读 + 恢复 + R1-6 多选并排对比(needs_human 三稿裁决)。
 export function VersionPanel({ seq, refreshKey, onRestore }) {
@@ -13,8 +14,26 @@ export function VersionPanel({ seq, refreshKey, onRestore }) {
   const [compare, setCompare] = useState([])   // R1-6:并排对比集合 [{id,label,prose}]
   const [showCompare, setShowCompare] = useState(false)
   useEffect(() => {
-    setList(undefined)
-    api.chapterVersions(seq).then((l) => setList(Array.isArray(l) ? l : [])).catch(() => setList(null))
+    let ignore = false
+    const pull = () => {
+      setList(undefined)
+      api.chapterVersions(seq).then((l) => {
+        if (!ignore) setList(Array.isArray(l) ? l : [])
+      }).catch(() => { if (!ignore) setList(null) })
+    }
+    pull()
+    // S-8: 本章或版本表变更才重拉存档列表
+    const onLive = (e) => {
+      const d = e?.detail
+      if (liveTouchesChapter(d, seq) || liveTouchesTable(d, ['chapter_version', 'chapter'])) {
+        pull()
+      }
+    }
+    window.addEventListener('s3-live', onLive)
+    return () => {
+      ignore = true
+      window.removeEventListener('s3-live', onLive)
+    }
   }, [seq, refreshKey, retryTick])
   useEffect(() => { setCompare([]); setShowCompare(false) }, [seq])   // 切章清空对比集
   // children 在 JSX 构造期即求值(AsyncState 只是选择性渲染),加载/失败期以空数组兜底防 .map 崩

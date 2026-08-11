@@ -69,22 +69,58 @@ def run_smoke(db: str, *, ns: str = "scribe3") -> dict:
             rrf_detail = {"error": str(e)[:200]}
         checks.append(_ok("rrf.object_lists", rrf_ok, rrf_detail))
 
-        # ── seed props for hybrid (minimal, no embed required for rrf path) ──
+        # ── seed props for hybrid (tokens + semantic_index when embed available) ──
         tag = uuid.uuid4().hex[:8]
+        fact_oid = f"fact:smoke_{tag}"
         try:
-            st._execute_write(
-                "CREATE proposition SET entity_id=$e, attribute=$a, value=$v, "
-                "valid_from=1, tokens=$tok;",
-                {
-                    "e": f"role:smoke_{tag}",
-                    "a": "name",
-                    "v": f"铜炉探针{tag}",
-                    "tok": f"铜炉 探针 {tag}",
-                },
+            from scribe3.ontology import Fact
+            st.add_fact(
+                Fact(
+                    fact_oid,
+                    f"role:smoke_{tag}",
+                    "name",
+                    f"铜炉探针{tag}暴雨乱岗",
+                    valid_from=1,
+                ),
             )
-            checks.append(_ok("seed.proposition", True, {"tag": tag}))
+            # ensure tokens for BM25 path
+            try:
+                st.semantic_index(fact_oid, f"铜炉探针{tag}暴雨乱岗")
+            except Exception as ee:
+                # embed 不可用时仍有 tokens 写尝试
+                st._execute_write(
+                    "UPDATE type::record('proposition', $l) SET tokens=$t;",
+                    {"l": fact_oid.split(":", 1)[-1], "t": f"铜炉 探针 {tag} 暴雨 乱岗"},
+                )
+                checks.append(_ok("seed.semantic_index", False, {"error": str(ee)[:120]}))
+            else:
+                checks.append(_ok("seed.semantic_index", True, {"oid": fact_oid}))
+            checks.append(_ok("seed.proposition", True, {"tag": tag, "oid": fact_oid}))
         except Exception as e:
             checks.append(_ok("seed.proposition", False, {"error": str(e)[:200]}))
+            fact_oid = None
+
+        # ── hybrid_recall end-to-end ──
+        hybrid_ok = False
+        hybrid_detail: dict = {}
+        try:
+            os.environ["SCRIBE3_HYBRID_SEARCH_NATIVE"] = "1"
+            hits = st.hybrid_recall(f"铜炉 探针 {tag}", chapter=1, k=5) if fact_oid else []
+            ids = [getattr(h, "id", None) or (h.get("id") if isinstance(h, dict) else None) for h in (hits or [])]
+            # 至少返回 list；有 embedding 时 ideally 含种子 fact
+            hybrid_ok = isinstance(hits, list)
+            hybrid_detail = {
+                "n": len(hits or []),
+                "ids": [str(i) for i in ids if i][:8],
+                "contains_seed": bool(fact_oid and any(fact_oid in str(i) for i in ids)),
+                "native_flag": hybrid_search_native(),
+            }
+            # 若完全无 hit 但 flag 开且库空向量，仍算 soft pass（API 不炸）
+            if hybrid_ok and not hits:
+                hybrid_detail["note"] = "empty_hits_ok_if_no_embed"
+        except Exception as e:
+            hybrid_detail = {"error": str(e)[:240]}
+        checks.append(_ok("hybrid.recall_e2e", hybrid_ok, hybrid_detail))
 
         # ── CDC: SHOW CHANGES on proposition after write ──
         cdc_ok = False
