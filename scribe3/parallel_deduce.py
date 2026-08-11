@@ -19,7 +19,7 @@ CompleteFn = Callable[[dict[str, Any]], dict[str, Any]]
 
 _TERMINAL_OK = frozenset({"completed", "complete", "succeeded", "success", "done"})
 _TERMINAL_FAIL = frozenset({"failed", "error", "cancelled", "canceled", "timeout", "expired"})
-_FOCAL_SLUG_RE = re.compile(r"[^a-zA-Z0-9_\u4e00-\u9fff]+")
+_FOCAL_SLUG_RE = re.compile(r"[^a-zA-Z0-9_]+")
 
 
 def parallel_deduce_enabled() -> bool:
@@ -121,8 +121,18 @@ def build_parallel_deduce_plan(
 
 
 def _focal_slug(focal: str) -> str:
-    s = _FOCAL_SLUG_RE.sub("_", (focal or "default").strip()) or "default"
-    return s[:48]
+    """HTTP session_key 必须 latin-1 安全：中文视角 → 短 hash，禁止入 header。"""
+    import hashlib
+    raw = (focal or "default").strip() or "default"
+    ascii_part = _FOCAL_SLUG_RE.sub("_", raw)
+    # 若含非 ASCII 或清洗后为空，用 hash 保证 header 安全
+    if not ascii_part.isascii() or not ascii_part or ascii_part == "_" or any(
+        ord(c) > 127 for c in raw
+    ):
+        h = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+        prefix = re.sub(r"[^a-zA-Z0-9]", "", ascii_part)[:8] or "f"
+        return f"{prefix}_{h}"[:48]
+    return ascii_part[:48]
 
 
 def _extract_summary(status: dict[str, Any], events: list[dict[str, Any]] | None = None) -> str:

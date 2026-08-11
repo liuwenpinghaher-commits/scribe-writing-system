@@ -107,6 +107,14 @@ def test_h3_plan_mode_deduce_full_profile():
     assert plan["runs"][0]["profile"] == "scribe3_deduce"
 
 
+def test_h3_focal_slug_ascii_for_headers():
+    from scribe3.parallel_deduce import _focal_slug
+    s = _focal_slug("甲")
+    assert s.isascii()
+    assert len(s) >= 4
+    assert _focal_slug("Alice") == "Alice" or _focal_slug("Alice").startswith("Alice")
+
+
 def test_h3_stub_not_in_ok_count():
     from scribe3.parallel_deduce import build_parallel_deduce_plan, execute_parallel_deduce
     plan = build_parallel_deduce_plan(1, ["甲", "乙"], max_parallel=2)
