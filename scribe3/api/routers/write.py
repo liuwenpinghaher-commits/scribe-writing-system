@@ -344,16 +344,11 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
         degraded = True
         degraded_stages.append("inherited_open")
 
-    # 1. 确定性五类 QC
+    # 1. 确定性产品 QC 合计（PRODUCT_QC_LIST_KEYS · 扩维后含 god_view 等）
+    from scribe3.qc_product_keys import product_qc_breakdown_from_flags, product_qc_total
     qf = quality_flags(req.prose, extra, allow_words, allow_pats)
-    qc_breakdown = {
-        "repetition": len(qf["repetition"]),
-        "structural": len(qf["structural"]),
-        "purple": len(qf["purple"]),
-        "ai_tics": len(qf["ai_tics"]),
-        "oversaturation": len(qf["oversaturation"]),
-    }
-    qc_total = sum(qc_breakdown.values())
+    qc_breakdown = product_qc_breakdown_from_flags(qf)
+    qc_total = product_qc_total(qc_breakdown)
 
     # 2. 限知泄露(有 focalizer 才跑)
     leaks: list[dict] = []

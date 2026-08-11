@@ -62,7 +62,8 @@ _OPEN_CHAPTER = 9999    # graph()/无界查询的"到当前为止"哨兵
 _ALL_CHAPTERS = 99999   # _editor_system 取全部已确立事实
 # 质量缓存的算法版本。每次改变 quality_flags/因果判定口径时递增；旧章不会被
 # 静默当作当前结果，而是由质量面板明确提示作者刷新派生缓存。
-QUALITY_CACHE_REVISION = 1
+# 2：产品 QC 合计扩维（god_view/degeneration/filler/rule_of_three）；见 qc_product_keys
+QUALITY_CACHE_REVISION = 2
 # 通用"未传参"哨兵:区分"调用方显式传了 None/False"与"根本没传"。
 # 用处:update_chapter_meta(未传 volume vs 传了 None)、add_faction(未传字段不进 MERGE 内容,
 # 否则会用默认值覆盖库中已有值,违背部分更新语义)。

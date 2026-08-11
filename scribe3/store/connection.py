@@ -441,9 +441,8 @@ class ConnectionMixin:
             qf = precomputed_flags if precomputed_flags is not None else quality_flags(prose)
             g = aggregate_ai_grade(qf, prose)
             advisory["ai_grade"] = {"grade": g.get("grade"), "gates_hit": g.get("gates_hit")}
-            advisory["qc_breakdown"] = {k: len(qf.get(k) or []) for k in
-                                        ("repetition", "structural", "purple",
-                                         "ai_tics", "oversaturation")}
+            from scribe3.qc_product_keys import product_qc_breakdown_from_flags
+            advisory["qc_breakdown"] = product_qc_breakdown_from_flags(qf)
         except Exception:
             degraded.append("ai_grade")
             advisory["ai_grade"] = None

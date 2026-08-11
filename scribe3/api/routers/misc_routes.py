@@ -823,31 +823,28 @@ def semantic_repair(seq: int, background: BackgroundTasks, work: str = "main"):
 
 def draft_check(req: DraftCheckReq, seq: int = 0, work: str = "main"):
     """块四b(§5.4):草稿阶段轻量确定性分析。对**任意草稿文本**跑确定性检测器
-    (quality_flags 五类 + 整行复读 + 排比 + 情感直说)+ 限知泄露预览(可选,只读)。
+    (quality_flags 产品合计键 + 整行复读 + 排比 + 情感直说)+ 限知泄露预览(可选,只读)。
     与 /post-check 共用同一批确定性聚合,但入参是草稿文本、**不读章、不写库**:
     绝不跑 LLM ingest、绝不写 proposition/knows/台账/任何库——纯计算 + 只读预览。
     注册为 read-only POST(见 KNOWN_REST_WRITE_ROUTES)。各检测器 fail-soft。"""
     import logging
     from scribe3.critique import (quality_flags, find_duplicate_lines,
                                   find_parallelism, find_emotion_telling)
+    from scribe3.qc_product_keys import (
+        product_qc_breakdown_from_flags, product_qc_total, project_product_qc_breakdown,
+    )
     degraded_stages: list[str] = []
 
     # Minor:quality_flags 也 fail-soft(与其余检测器一致)——抛错时降级归零而非整个端点 500。
     try:
         qf = quality_flags(req.prose)
-        quality = {
-            "repetition": len(qf["repetition"]),
-            "structural": len(qf["structural"]),
-            "purple": len(qf["purple"]),
-            "ai_tics": len(qf["ai_tics"]),
-            "oversaturation": len(qf["oversaturation"]),
-        }
-        quality["total"] = sum(quality.values())
+        quality = product_qc_breakdown_from_flags(qf)
+        quality["total"] = product_qc_total(quality)
     except Exception as e:
         logging.getLogger("scribe3").warning("draft_check quality_flags 失败: %s", e)
         degraded_stages.append("quality_flags")
-        quality = {"repetition": 0, "structural": 0, "purple": 0,
-                   "ai_tics": 0, "oversaturation": 0, "total": 0}
+        quality = project_product_qc_breakdown({})
+        quality["total"] = 0
 
     dup_lines: list[dict] = []
     try:

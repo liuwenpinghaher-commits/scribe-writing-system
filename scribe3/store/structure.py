@@ -190,8 +190,8 @@ class StructureMixin:
                 breakdown = json.loads(raw_bd) if raw_bd else {}
             except (ValueError, TypeError):
                 breakdown = {}
-            breakdown = {k: breakdown.get(k, 0) for k in
-                         ("repetition", "structural", "purple", "ai_tics", "oversaturation")}
+            from scribe3.qc_product_keys import project_product_qc_breakdown
+            breakdown = project_product_qc_breakdown(breakdown)
             sc = r.get("scene_count")
             if sc is None:
                 sc = len(meta)

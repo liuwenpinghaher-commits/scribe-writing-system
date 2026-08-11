@@ -163,11 +163,8 @@ def _deterministic_post(store, work: str, seq: int, prose: str, focalizer: str |
     except Exception:
         qf = {}
         degraded_stages.append("quality_flags")
-    qc_breakdown = {
-        k: len(v) if isinstance(v, list) else (1 if v else 0)
-        for k, v in (qf or {}).items()
-        if k not in ("rhythm", "adverb")
-    }
+    from scribe3.qc_product_keys import product_qc_breakdown_from_flags, product_qc_total
+    qc_breakdown = product_qc_breakdown_from_flags(qf)
     issues = []
     try:
         issues = quality_issues(prose or "")
@@ -198,6 +195,6 @@ def _deterministic_post(store, work: str, seq: int, prose: str, focalizer: str |
         "leaks": leaks,
         "leaks_degraded": leaks_degraded,
         "degraded_stages": degraded_stages,
-        "quality": {"total": sum(qc_breakdown.values()), **qc_breakdown},
+        "quality": {"total": product_qc_total(qc_breakdown), **qc_breakdown},
         "ai_grade": None,
     }

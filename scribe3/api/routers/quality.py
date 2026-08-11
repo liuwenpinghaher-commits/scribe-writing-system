@@ -82,6 +82,7 @@ def quality(work: str = "main"):
     Phase0-BE1(千万字基座):**改读 outline() 章级缓存列**(qc_word_count/qc_issues/qc_causal/
     qc_breakdown),不再逐章 get_chapter 全文 + quality_flags 重算 + 逐章查因果图(数千章=分钟级)。
     缓存由 save_chapter 写时落库;若版本戳过期，响应明确标注而不把旧值伪装为当前结论。"""
+    from scribe3.qc_product_keys import project_product_qc_breakdown
     st = _store_for(work)
     out = st.outline()
     per = []
@@ -94,9 +95,7 @@ def quality(work: str = "main"):
             "seq": c["seq"], "title": c.get("title", ""),
             "word_count": c.get("word_count") or 0,
             "qc_issues": c.get("qc_issues") or 0,
-            "qc_breakdown": c.get("qc_breakdown") or {
-                "repetition": 0, "structural": 0, "purple": 0,
-                "ai_tics": 0, "oversaturation": 0},
+            "qc_breakdown": project_product_qc_breakdown(c.get("qc_breakdown") or {}),
             "causal": c.get("qc_causal") or 0,
             "cache_stale": cache_stale,
         })

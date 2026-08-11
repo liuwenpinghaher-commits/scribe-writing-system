@@ -101,7 +101,8 @@ class ChaptersMixin:
         """算章级缓存,返回 {scene_count, scene_meta, qc_issues, qc_causal, qc_breakdown}。
         供 save_chapter 落库 + backfill 回填复用。纯计算,不写库。
         - 场景:_split_scenes(prose) → scene_count + [{title, char_count}, ...](序列化为 JSON 串)。
-        - QC问题:critique.quality_flags(prose) 五类计数之和(纯文本,无需图);拆分存 qc_breakdown JSON。
+        - QC问题:critique.quality_flags(prose) → PRODUCT_QC_LIST_KEYS 计数之和
+          （纯文本；含 god_view/degeneration/filler/rule_of_three）；拆分存 qc_breakdown JSON。
         - 因果违规:verify.causal_complete(self, seq) 违规条数(查该章事件图,O(本章事件))。
           事件图变更后由 refresh_chapter_cache() 重算；质量面板用版本戳标识未刷新缓存。
         """
@@ -111,15 +112,10 @@ class ChaptersMixin:
             [{"title": s["title"], "char_count": s["chars"]} for s in scenes],
             ensure_ascii=False)
         from scribe3.critique import quality_flags
+        from scribe3.qc_product_keys import product_qc_breakdown_from_flags, product_qc_total
         qf = quality_flags(prose)
-        breakdown = {
-            "repetition": len(qf["repetition"]),
-            "structural": len(qf["structural"]),
-            "purple": len(qf["purple"]),
-            "ai_tics": len(qf["ai_tics"]),
-            "oversaturation": len(qf["oversaturation"]),
-        }
-        qc_n = sum(breakdown.values())
+        breakdown = product_qc_breakdown_from_flags(qf)
+        qc_n = product_qc_total(breakdown)
         try:
             from scribe3.verify import causal_complete
             # 批D P1-5 假绿止血:本章无落库事件时写 -1 哨兵(无事件数据),
