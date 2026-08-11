@@ -55,6 +55,24 @@ DEDUCE_ALLOWED_TOOLS = frozenset({
 
 DEDUCE_PREVIEW_ALLOWED_TOOLS = DEDUCE_ALLOWED_TOOLS - {"s3_patch_chapter_plan"}
 
+# 大纲/节拍脚手架：可读章 + plan 写；物理排除 save/ingest（novel-first O-5）
+PLAN_SCAFFOLD_ALLOWED_TOOLS = frozenset({
+    "s3_get_chapter",
+    "s3_list_chapters",
+    "s3_get_intent",
+    "s3_list_promises",
+    "s3_list_volumes",
+    "s3_patch_chapter_plan",
+    "s3_patch_chapter_meta",
+})
+
+# 明确禁止出现在脚手架 allowlist
+PLAN_SCAFFOLD_FORBIDDEN = frozenset({
+    "s3_save_chapter",
+    "s3_ingest_chapter",
+})
+assert not (PLAN_SCAFFOLD_ALLOWED_TOOLS & PLAN_SCAFFOLD_FORBIDDEN)
+
 
 _POLICIES = {
     "deduce": RunStagePolicy(
@@ -76,7 +94,40 @@ _POLICIES = {
         # 预览必须先读取当前章，不能以一段未联查的文字冒充基于正典的分析。
         required_tools=frozenset({"s3_get_chapter"}),
     ),
+    "outline": RunStagePolicy(
+        phase="outline",
+        profile="scribe3_plan",
+        api_env="HERMES_PLAN_RUNS_API",
+        allowed_tools=PLAN_SCAFFOLD_ALLOWED_TOOLS,
+        max_tool_calls=12,
+        required_tools=frozenset({"s3_patch_chapter_plan"}),
+    ),
+    "beats": RunStagePolicy(
+        phase="beats",
+        profile="scribe3_plan",
+        api_env="HERMES_PLAN_RUNS_API",
+        allowed_tools=PLAN_SCAFFOLD_ALLOWED_TOOLS,
+        max_tool_calls=12,
+        required_tools=frozenset({"s3_patch_chapter_plan"}),
+    ),
+    # 与 outline/beats 共用受限 plan profile
+    "plan": RunStagePolicy(
+        phase="plan",
+        profile="scribe3_plan",
+        api_env="HERMES_PLAN_RUNS_API",
+        allowed_tools=PLAN_SCAFFOLD_ALLOWED_TOOLS,
+        max_tool_calls=12,
+        required_tools=frozenset({"s3_patch_chapter_plan"}),
+    ),
 }
+
+
+def scaffold_tools_exclude_save(policy: RunStagePolicy | None) -> bool:
+    """脚手架策略不得包含 save/ingest。"""
+    if policy is None:
+        return False
+    tools = policy.allowed_tools or frozenset()
+    return not (tools & PLAN_SCAFFOLD_FORBIDDEN)
 
 
 def resolve_run_stage_policy(run_scope: str | None) -> RunStagePolicy | None:

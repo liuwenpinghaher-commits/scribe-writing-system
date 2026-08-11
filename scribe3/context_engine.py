@@ -24,8 +24,25 @@ class CreativeContextCompilation:
 class CreativeContextEngine:
     """复用既有 ``ContextAssembler`` 编译并持久化窄 Manifest。"""
 
-    def __init__(self, store, retriever=None, *, retrieval_out: dict | None = None):
-        self._assembler = ContextAssembler(store, retriever)
+    def __init__(
+        self,
+        store,
+        retriever=None,
+        *,
+        retrieval_out: dict | None = None,
+        token_budget: int | None = None,
+        block_budgets: dict | None = None,
+    ):
+        # novel-first：显式传入 envelope 预算（None → context_budget flag 默认 10k）
+        from scribe3.context_budget import (
+            get_block_budgets,
+            get_envelope_token_budget,
+        )
+        tb = token_budget if token_budget is not None else get_envelope_token_budget()
+        bb = block_budgets if block_budgets is not None else get_block_budgets()
+        self._assembler = ContextAssembler(
+            store, retriever, token_budget=tb, block_budgets=bb,
+        )
         self._context_store = ContextStore(store)
         self._retrieval_out = retrieval_out
 

@@ -175,7 +175,9 @@ def _is_rest_world_write_path(path: str) -> bool:
         rest = path[len("/chapters/"):]
         parts = [p for p in rest.split("/") if p]
         if len(parts) == 2 and parts[0].isdigit() and parts[1] in (
-                "archive", "restore", "restore-version"):
+                "archive", "restore", "restore-version",
+                # novel-first：GCD 字段微调闸外（拍数守恒+限长，见 chapter_gcd_rest）
+                "gcd-fields", "beats-fields"):
             return False
     for p in _REST_WORLD_WRITE_PREFIXES:
         if path == p or path.startswith(p + "/"):

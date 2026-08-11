@@ -446,6 +446,46 @@ def patch_chapter(seq: int, req: ChapterMetaReq, work: str = "main"):
         _resp["rehearse_degraded"] = True   # P2-2:预演故障放行须对调用方可见
     return _resp
 
+
+class GcdFieldsReq(BaseModel):
+    """GCD 字段微调：仅 beats，拍数守恒（emergency REST 闸外）。"""
+    beats: list = Field(default_factory=list)
+
+
+def patch_chapter_gcd_fields(seq: int, req: GcdFieldsReq, work: str = "main"):
+    """novel-first：作者微调节拍 GCD/text，不开放 synopsis/volume 等 meta。
+
+    路径 ``PATCH /chapters/{seq}/gcd-fields`` 不在 emergency 世界写闸内。
+    """
+    from scribe3.chapter_gcd_rest import (
+        normalize_beats_for_store,
+        validate_gcd_beats_patch,
+    )
+    st = _store_for(work)
+    ch = st.get_chapter(seq) or {}
+    if not ch and not st.get_chapter(seq):
+        # get may return {} for missing
+        pass
+    old_beats = ch.get("beats") if ch else None
+    if not ch:
+        raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
+    ok, reason = validate_gcd_beats_patch(old_beats, req.beats)
+    if not ok:
+        raise HTTPException(
+            status_code=422,
+            detail=f"GCD field patch rejected: {reason}",
+        )
+    try:
+        written = st.update_chapter_meta(
+            seq, {"beats": normalize_beats_for_store(req.beats)},
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not written:
+        raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
+    return {"status": "updated", "seq": seq, "gcd_fields": True}
+
+
 def list_volumes(work: str = "main"):
     return _store_for(work).list_volumes()
 
@@ -1057,6 +1097,20 @@ def _bind_and_register() -> None:
     setattr(core, 'patch_chapter', _re)
     g['patch_chapter'] = _re
     router.add_api_route('/chapters/{seq}', _re, methods=['PATCH'], name='patch_chapter')
+
+    _fn = g['patch_chapter_gcd_fields']
+    _re = types.FunctionType(
+        _fn.__code__, core.__dict__, 'patch_chapter_gcd_fields',
+        _fn.__defaults__, _fn.__closure__,
+    )
+    if _fn.__annotations__:
+        _re.__annotations__ = dict(_fn.__annotations__)
+    setattr(core, 'patch_chapter_gcd_fields', _re)
+    g['patch_chapter_gcd_fields'] = _re
+    router.add_api_route(
+        '/chapters/{seq}/gcd-fields', _re, methods=['PATCH'],
+        name='patch_chapter_gcd_fields',
+    )
 
     _fn = g['list_volumes']
     _re = types.FunctionType(_fn.__code__, core.__dict__, 'list_volumes', _fn.__defaults__, _fn.__closure__)

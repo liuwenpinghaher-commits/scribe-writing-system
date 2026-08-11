@@ -49,18 +49,15 @@ from scribe3.context_models import (
 _log = logging.getLogger("scribe3")
 
 # 八块固定预算(顺序即 context_models.ContextBlock 的 Literal 顺序,dict 保序)。
-# 上限之和 = 800+1200+2800+1600+900+1400+500+800 = 10_000 = 默认 token_budget:
-# 每块顶格恰好用满,所以默认预算下八块永远齐全(见模块 docstring)。
-BLOCK_BUDGETS: dict[str, int] = {
-    "focus": 800,
-    "global": 1200,
-    "canonical": 2800,
-    "recent": 1600,
-    "procedural": 900,
-    "reference": 1400,
-    "uncertainty": 500,
-    "provenance": 800,
-}
+# V1 默认 10_000；V2(18k) 见 context_budget.BLOCK_BUDGETS_V2，由 flag 切换。
+# 每块顶格恰好用满总额时八块齐全(见模块 docstring)。
+from scribe3.context_budget import (
+    BLOCK_BUDGETS_V1 as _BLOCK_BUDGETS_V1,
+    get_block_budgets as _get_block_budgets_runtime,
+    get_envelope_token_budget as _get_envelope_token_budget_runtime,
+)
+
+BLOCK_BUDGETS: dict[str, int] = dict(_BLOCK_BUDGETS_V1)
 
 # 各块标题:进正文也计入预算(estimate_tokens 含标题),空块不渲染标题(见 _render_block)。
 _HEADERS: dict[str, str] = {
@@ -353,10 +350,28 @@ class ContextAssembler:
     token_budget:总预算(默认 10_000 = 八块上限之和)。
     """
 
-    def __init__(self, store, retriever=None, token_budget: int = 10_000):
+    def __init__(
+        self,
+        store,
+        retriever=None,
+        token_budget: int | None = None,
+        block_budgets: dict[str, int] | None = None,
+    ):
         self.store = store
         self.retriever = retriever
-        self.token_budget = token_budget
+        # None → 运行时读 flag（默认 V1 10k；V2 18k 须 sum==budget）
+        if block_budgets is not None:
+            self.block_budgets = dict(block_budgets)
+        else:
+            self.block_budgets = _get_block_budgets_runtime()
+        if token_budget is not None:
+            self.token_budget = int(token_budget)
+        else:
+            self.token_budget = int(
+                sum(self.block_budgets.values())
+                if block_budgets is not None
+                else _get_envelope_token_budget_runtime()
+            )
 
     # --- 对外唯一入口 ---
     def assemble(self, snapshot: ContextSnapshot, user_query: str,
@@ -540,9 +555,11 @@ class ContextAssembler:
         kept_blocks: list[ContextBlock] = []
         omitted: list[dict] = []
         used = 0
-        for name in BLOCK_BUDGETS:   # dict 保序 == 八块固定顺序
-            keep, drop = _truncate_items(_HEADERS[name], items.get(name, []),
-                                         BLOCK_BUDGETS[name])
+        budgets = getattr(self, "block_budgets", None) or BLOCK_BUDGETS
+        for name in budgets:   # dict 保序 == 八块固定顺序
+            keep, drop = _truncate_items(
+                _HEADERS[name], items.get(name, []), budgets[name],
+            )
             for it in drop:
                 omitted.append(_omit(it, name, "token_budget"))
             block = _render_block(name, keep)

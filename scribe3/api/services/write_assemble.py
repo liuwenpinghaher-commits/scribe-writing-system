@@ -1112,8 +1112,16 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     # 就消失(否则"开旗即回归")。逐字复用旧链同一函数、同一 for_generation=True 语义
     # (对照 _editor_system 内 app.py:3594 的调用形状;_editor_write_system 恒传
     # for_generation=True,唯一生成入口——v1 同样是生成路径,必须同传,漏传就是泄密)。
-    # 阶段2可把这块迁入 envelope 的专属 source(参与预算/溯源);现阶段用 instructions
-    # 块保证与旧链字节级同语义,不额外造轮子。
+    # novel-first V2：codex 移到 drama/envelope 之后（注意力）；V1 保持 prefix 兼容。
+    from scribe3.context_budget import (
+        cap_codex_text,
+        envelope_v2_enabled,
+        get_codex_inject_cap,
+        apply_l2_trim,
+        estimate_tokens,
+        build_budget_report,
+    )
+    _v2 = envelope_v2_enabled()
     codex_input = (
         "\n\n【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n"
         + (_codex_block(st, reveal=not focalizer, focalizer=focalizer,
@@ -1121,9 +1129,12 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                         request_text=request_text) or "(尚无设定)")
         + "\n"
     )
-    prefix += _domain_input(
-        f"work:{work or 'main'}:codex", "codex", codex_input,
-    )
+    if not _v2:
+        prefix += _domain_input(
+            f"work:{work or 'main'}:codex", "codex", codex_input,
+        )
+    else:
+        codex_input = cap_codex_text(codex_input, get_codex_inject_cap())
     # 统一上下文段(替代旧 avoid/voice/arc/motif/frame/recap/tail/outline/material 散点拼装)
     # B∪C：memory_trace_ctx 真 session/revision 注入 snapshot，供 TurnBind 与检查器对齐。
     snap = _write_snapshot(st, chapter=chapter, focalizer=focalizer,
@@ -1151,48 +1162,85 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         # Manifest 必须 hash 真正交给 Hermes/Qwen 官方服务的全部字节。
         # 因此 envelope 后的工艺块、强制协议和演绎终检也在 renderer 内
         # 完成，编译返回后不再追加任何 instructions。
+        # novel-first V2：段列表 + L2 裁剪；V1 保持线性拼接。
+        segs: list[dict] = []
+
+        def _push(name: str, layer: str, text: str) -> str:
+            if not text:
+                return ""
+            segs.append({"name": name, "layer": layer, "text": text})
+            return text
+
         rendered = prefix
+        _push("prefix", "redline", prefix)
         # 叙事引擎：事件驱动引导块在戏剧 GCD 之前（冲突/事件主时钟）。
         # PR-4：戏剧合同置顶、先于 envelope 重记忆；冲突时裁记忆不裁戏剧（见 must-link cap）。
         # 限知/泄露红线仍由 focalizer banner、revelation_discipline、出口 epistemic_guard 与
         # find_leaks 保障——本块附限知免责，不覆盖硬红线优先级。
-        rendered += _domain_input(
+        _ed = _domain_input(
             f"chapter:{chapter}:event-drive", "event_drive",
             _event_drive_block(st, chapter, focalizer=focalizer or ""),
         )
-        rendered += _domain_input(
+        rendered += _ed
+        _push("event_drive", "redline", _ed)
+        _dr = _domain_input(
             f"chapter:{chapter}:drama-contract", "drama_contract",
             _drama_block(st, chapter, focalizer=focalizer or ""),
         )
+        rendered += _dr
+        _push("drama_contract", "redline", _dr)
         env_text = render_envelope_text(envelope)
         if env_text:
-            rendered += "\n\n" + env_text
-        rendered += _domain_input(
+            env_chunk = "\n\n" + env_text
+            rendered += env_chunk
+            _push("envelope", "envelope", env_chunk)
+        # V2：codex 在 envelope 之后（注意力 · 防设定洪水盖住戏剧）
+        if _v2 and codex_input:
+            _cx = _domain_input(
+                f"work:{work or 'main'}:codex", "codex", codex_input,
+            )
+            rendered += _cx
+            _push("codex", "supplemental", _cx)
+        _sw = _domain_input(
             f"chapter:{chapter}:seed-words", "seed_words",
             _soak_block(seed_words),
         )
+        rendered += _sw
+        _push("seed_words", "supplemental", _sw)
         craft = build_craft_block(st.list_craft_rules() or None, short_mode=short_mode)
         if craft:
-            rendered += _domain_input(
+            _cr = _domain_input(
                 f"work:{work or 'main'}:craft", "craft", "\n\n" + craft,
             )
-        rendered += _domain_input(
+            rendered += _cr
+            _push("craft", "supplemental", _cr)
+        _pr = _domain_input(
             f"chapter:{chapter}:phase-role", "phase_role",
             _phase_role_block(phase),
         )
-        rendered += _domain_input(
+        rendered += _pr
+        _push("phase_role", "supplemental", _pr)
+        _av = _domain_input(
             f"chapter:{chapter}:avoid", "avoid",
             _avoid_directive(st, chapter),
         )
-        rendered += _domain_input(
+        rendered += _av
+        _push("avoid", "supplemental", _av)
+        _rev = _domain_input(
             f"chapter:{chapter}:revelation-discipline", "revelation_discipline",
             _revelation_discipline_block(focalizer),
         )
-        rendered += _focalizer_sincerity_block()
-        rendered += _domain_input(
+        rendered += _rev
+        _push("revelation_discipline", "redline", _rev)
+        _sinc = _focalizer_sincerity_block()
+        rendered += _sinc
+        _push("sincerity", "redline", _sinc)
+        _pu = _domain_input(
             f"chapter:{chapter}:purpose", "purpose",
             _purpose_workflow_block(st, chapter, with_tools, work),
         )
+        rendered += _pu
+        _push("purpose", "supplemental", _pu)
         # 大纲/节拍契约正文(mode=write,剥离 plan 协议尾段);domain fail-soft
         def _outline_write_domain():
             try:
@@ -1204,10 +1252,12 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                     "写路径 outline 注入失败(fail-soft): %s", e)
                 return ""
 
-        rendered += _domain_input(
+        _ol = _domain_input(
             f"chapter:{chapter}:outline", "outline",
             _outline_write_domain(),
         )
+        rendered += _ol
+        _push("outline", "supplemental", _ol)
         # 当前卷 intro 摘要(flag 默开;空 intro/无卷 → 空串)
         _vol_intro = _volume_intro_block(st, chapter, focalizer=focalizer or "")
         _vid = "none"
@@ -1216,30 +1266,40 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 _vid = str((st.get_chapter(chapter) or {}).get("volume") or "none")
             except Exception:
                 _vid = "none"
-        rendered += _domain_input(
+        _vi = _domain_input(
             f"volume:{_vid}:intro", "volume_intro", _vol_intro,
         )
+        rendered += _vi
+        _push("volume_intro", "supplemental", _vi)
         # 章前简报操作必达段(伏笔/开环/心跳/弧光/因果)——与 discussion 旧链
         # _editor_write_system 同源 assemble_chapter_brief,v1 此前漏挂。
-        rendered += _domain_input(
+        _bm = _domain_input(
             f"chapter:{chapter}:brief-must", "brief_must",
             _brief_must_sections_write_block(st, chapter, focalizer=focalizer or ""),
         )
+        rendered += _bm
+        _push("brief_must", "supplemental", _bm)
         # PDC：brief_must 之后、author_prefs 之前；flag 关或无合同 → 空串
-        rendered += _domain_input(
+        _pd = _domain_input(
             f"chapter:{chapter}:pressure-drive", "pressure_drive",
             _pressure_drive_write_block(st, chapter),
         )
+        rendered += _pd
+        _push("pressure_drive", "supplemental", _pd)
         # 跨书作者偏好(USER.md)——讨论栈走 _editor_system;写栈此前只身份块,漏挂。
-        rendered += _domain_input(
+        _ap = _domain_input(
             f"work:{work or 'main'}:author-prefs", "author_prefs",
             _author_prefs_block_safe(),
         )
+        rendered += _ap
+        _push("author_prefs", "supplemental", _ap)
         # 焦点者声音锚 + 登场对白速记(helper 早有,生产写链未调用)。
-        rendered += _domain_input(
+        _va = _domain_input(
             f"chapter:{chapter}:voice-anchor", "voice_anchor",
             _voice_anchor_block(st, focalizer or ""),
         )
+        rendered += _va
+        _push("voice_anchor", "supplemental", _va)
         normalized_phase = (phase or "").strip().lower()
         if normalized_phase in ("draft", "final"):
             # 参考作品原文永不进入生成输入：这里只消费作者批准后的安全技法投影。
@@ -1248,25 +1308,33 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             from scribe3.reference_craft import craft_briefs_for_write
             reference_craft_briefs = craft_briefs_for_write(st, str(work or "main"))
             for brief in reference_craft_briefs:
-                rendered += _domain_input(
+                _rf = _domain_input(
                     f"reference_fingerprint:{brief.fingerprint_id}", "reference_craft",
                     brief.text,
                 )
+                rendered += _rf
+                _push("reference_craft", "supplemental", _rf)
             for ordinal, (source_id, source_kind, text) in enumerate(
                 _deduction_context_segments(st, chapter)
             ):
-                rendered += _domain_input(
+                _dd = _domain_input(
                     source_id, source_kind,
                     ("\n\n" if ordinal == 0 else "") + text,
                 )
+                rendered += _dd
+                _push("deduction_final", "redline", _dd)
             # draft/final:门控素材参考(借鉴非事实);llm=None → 确定性强度排序,不阻塞网关。
-            rendered += _domain_input(
+            _mr = _domain_input(
                 f"chapter:{chapter}:material-recall", "material_recall",
                 _material_recall_block(st, chapter, phase=normalized_phase,
                                        focalizer=focalizer or "", llm=None,
                                        request_text=request_text),
             )
-        rendered += _final_reminder()
+            rendered += _mr
+            _push("material_recall", "supplemental", _mr)
+        _fr = _final_reminder()
+        rendered += _fr
+        _push("final_reminder", "redline", _fr)
         if normalized_phase == "deduce":
             truth = ((st.get_chapter(chapter) or {}).get("scene_truth") or "").strip()
             scene_truth_input = (
@@ -1277,15 +1345,47 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                   "不得补写环境细节、动作过程、人物关系、历史、心理原因或后续结果。"
                   "真相未写明时用“未能从场景真相确认。”留白，而不是推测。"
             )
-            rendered += _domain_input(
+            _st = _domain_input(
                 f"chapter:{chapter}:scene-truth", "scene_truth", scene_truth_input,
             )
+            rendered += _st
+            _push("scene_truth_proj", "redline", _st)
         if extra_instructions:
-            rendered += _domain_input(
+            _rc = _domain_input(
                 f"chapter:{chapter}:request-constraint", "request_constraint",
                 "\n\n" + extra_instructions,
             )
+            rendered += _rc
+            _push("request_constraint", "supplemental", _rc)
+
+        # V2：L2 有序裁剪后 join（禁止 rendered[:hard] 尾截）
+        if _v2:
+            joined, l2_rep = apply_l2_trim(segs)
+            try:
+                order_idx = {}
+                for i, s in enumerate(segs):
+                    n = s.get("name")
+                    if n in (
+                        "event_drive", "drama_contract", "envelope",
+                        "codex", "final_reminder",
+                    ) and n not in order_idx:
+                        order_idx[n] = i
+                _budget_report_holder["report"] = build_budget_report(
+                    domain_lengths={
+                        str(s.get("name")): estimate_tokens(s.get("text"))
+                        for s in segs
+                    },
+                    order_indices=order_idx,
+                    l2_report=l2_rep,
+                )
+            except Exception:
+                logging.getLogger("scribe3").debug(
+                    "budget_report fail-soft", exc_info=True,
+                )
+            return joined, tuple(supplemental_sources)
         return rendered, tuple(supplemental_sources)
+
+    _budget_report_holder: dict = {}
 
     import uuid
     context_request = ContextRequest(
