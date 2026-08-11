@@ -16,6 +16,31 @@ from functools import wraps
 from queue import Empty, Full, Queue
 from typing import Any, Optional
 
+
+def _listish(value) -> list[str]:
+    """Normalize platform_toolsets / tools.include to a flat list of strings.
+
+    Local copy of app_impl._listish so this module works both rebound and
+    imported directly (HERMES_HOME mount makes config parse reachable).
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        s = value.strip()
+        return [s] if s else []
+    if isinstance(value, (list, tuple, set)):
+        out: list[str] = []
+        for item in value:
+            if item is None:
+                continue
+            s = str(item).strip()
+            if s:
+                out.append(s)
+        return out
+    s = str(value).strip()
+    return [s] if s else []
+
+
 def _hermes_profile_config_summary(profile: str, home=None) -> dict:
     """Return non-secret profile tool-surface facts for runtime diagnostics."""
     from pathlib import Path
