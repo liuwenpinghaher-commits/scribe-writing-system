@@ -80,10 +80,11 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter, onWorkflowContin
   useEffect(() => {
     let timer = null
     const es = api.live((ev) => {
-      // 北极星任务10:把 /live 变更以窗口事件广播给各面板(NorthStarPanel 等),
-      // 单 SSE 连接复用——SCRIBE3_LIVE_MAX=5 配额,面板绝不自开 EventSource。
+      // 评分卡/作品意图等面板订阅 s3-live；单 SSE 复用（SCRIBE3_LIVE_MAX 配额）。
+      // S-8：透传 table/action/id，供面板按 id 精准刷新。
       try { window.dispatchEvent(new CustomEvent('s3-live', { detail: ev })) } catch { /* */ }
       clearTimeout(timer)
+      // 项目树：结构相关表全量重拉；仅带无关表时仍刷新（树聚合多表），id 留给叶子面板
       timer = setTimeout(reload, 600)
     }, {
       onGiveUp: () => showToast('实时同步已断开,改动可能不会自动刷新;刷新页面可重连。', { tone: 'danger', duration: 6000 }),

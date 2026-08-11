@@ -31,7 +31,16 @@ export function ChapterAuxPanel({ seq, initialTab, tab: tabProp, onTabChange, on
       .then((ch) => { if (!cancelled) setFocalizer(ch?.focalizer || '') })
       .catch(() => { if (!cancelled) setFocalizer('') })
     pull()
-    const onLive = (e) => { if ((e?.detail?.table || e?.detail?.tb) === 'chapter') pull() }
+    const onLive = (e) => {
+      const d = e?.detail || {}
+      if ((d.table || d.tb) !== 'chapter') return
+      // 有 id 且指向其他章 → 跳过
+      if (d.id && seq != null) {
+        const m = String(d.id).match(/chapter[:：]?(\d+)/i)
+        if (m && Number(m[1]) !== Number(seq)) return
+      }
+      pull()
+    }
     window.addEventListener('s3-live', onLive)
     return () => {
       cancelled = true

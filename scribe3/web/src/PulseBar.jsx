@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
+import { liveTouchesChapter } from './lib/liveRefresh.js'
 
 // 主编主动化 T2:六维脉搏条(方案 §三 感知层出口①)。
 // 绿=info 安 / 黄=nudge 有建议 / 红=decision 需决策——颜色自动可见,信号不再靠作者点 tab。
@@ -42,7 +43,9 @@ export function PulseBar({ seq, onChat }) {
     let dead = false
     const pull = () => api.chapterPulse(seq).then((p) => { if (!dead) setPulse(p) }).catch(() => {})
     pull()
-    const onLive = (e) => { if ((e?.detail?.table || '') === 'chapter') pull() }
+    const onLive = (e) => {
+      if (liveTouchesChapter(e?.detail, seq)) pull()
+    }
     window.addEventListener('s3-live', onLive)
     return () => { dead = true; window.removeEventListener('s3-live', onLive) }
   }, [seq])

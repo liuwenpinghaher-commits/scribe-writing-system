@@ -31,6 +31,13 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag("SCRIBE3_EMERGENCY_REST_WRITE", "0", "REST 世界写闸全开", "app_impl", "danger"),
     Flag("SCRIBE3_DISTRIBUTED_LOCK", "0", "store 背书并发锁", "concurrency_lock", "caution"),
     Flag("SCRIBE3_MEMORY_ACCESS_DECAY", "1", "访问频率衰减加成", "memory_score", "safe"),
+    # Surreal 深度利用（默认关；demo 可 env 打开）
+    Flag("SCRIBE3_HYBRID_SEARCH_NATIVE", "0", "混合召回单程 native", "recall", "caution"),
+    Flag("SCRIBE3_CHANGEFEED_CACHE", "0", "Changefeed 驱动缓存失效", "changefeed_consumer", "caution"),
+    Flag("SCRIBE3_DB_INFLIGHT_LOCK", "0", "DB inflight 章操作锁", "inflight_lock", "caution"),
+    Flag("SCRIBE3_DB_KNOWLEDGE_FRAME", "0", "fn::knowledge_frame 知识帧", "knowledge", "caution"),
+    Flag("SCRIBE3_STATS_VIEW", "0", "stats_* 聚合视图读", "stats_views", "safe"),
+    Flag("SCRIBE3_LIVE_GRANULAR", "1", "LIVE/SSE 带 action+id", "live", "safe"),
 )
 
 

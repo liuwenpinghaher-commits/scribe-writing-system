@@ -59,15 +59,21 @@ export function NorthStarPanel({ seq, scope }) {
   useEffect(() => {
     let timer = null
     const h = (e) => {
-      const t = e?.detail?.table
+      const d = e?.detail || {}
+      const t = d.table
       // 变更表已知且与面板无关 → 跳过;格式未知(无 table 字段)→ 保守重取
       if (t && !['chapter', 'chapter_scorecard', 'promise', 'lesson'].includes(t)) return
+      // 章级评分卡：有 id 且能解析出其他章号 → 跳过
+      if (t === 'chapter' && seq != null && d.id) {
+        const m = String(d.id).match(/chapter[:：]?(\d+)/i)
+        if (m && Number(m[1]) !== Number(seq)) return
+      }
       clearTimeout(timer)
       timer = setTimeout(load, 800)
     }
     window.addEventListener('s3-live', h)
     return () => { clearTimeout(timer); window.removeEventListener('s3-live', h) }
-  }, [load])
+  }, [load, seq])
 
   const c = ch?.constraints
   const a = ch?.advisory_scores

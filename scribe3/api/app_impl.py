@@ -80,9 +80,26 @@ _settings.apply_restart_overrides()   # restart 类 DB 覆盖灌 env,必须在 C
 async def _app_lifespan(_app: FastAPI):
     """统一承载启动安全守卫与退出连接回收，替代已弃用的 on_event。"""
     _startup_gateway_guard()
+    # S-2: Changefeed 缓存消费者（flag 关则 no-op）
+    try:
+        from scribe3.changefeed_consumer import ChangefeedCacheWorker, changefeed_cache_enabled
+        if changefeed_cache_enabled():
+            def _store_factory():
+                return _store_for(os.environ.get("SCRIBE3_DEFAULT_WORK") or "main")
+            _app.state.changefeed_worker = ChangefeedCacheWorker(_store_factory)
+            _app.state.changefeed_worker.start()
+            logging.getLogger("scribe3").info("changefeed cache worker started")
+    except Exception as e:
+        logging.getLogger("scribe3").warning("changefeed worker not started: %s", e)
     try:
         yield
     finally:
+        try:
+            w = getattr(_app.state, "changefeed_worker", None)
+            if w is not None:
+                w.stop()
+        except Exception:
+            pass
         _close_cached_stores()
 
 

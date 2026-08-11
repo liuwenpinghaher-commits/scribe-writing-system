@@ -5,6 +5,12 @@ import { showToast } from '../ui/Toast'
 import { DirectoryHeader } from './DirectoryHeader'
 import { DirectoryRow, DirectorySectionLabel, DIR_SHELL } from './DirectoryRow'
 import { Btn } from '../ui.jsx'
+import {
+  shouldShowVolumeOrganizeHint,
+  loadVolumeSoftHintDismissed,
+  saveVolumeSoftHintDismissed,
+  VOLUME_SOFT_HINT_DEFAULT_N,
+} from '../lib/volumeSoftHint.js'
 
 export function chapterNodeFrom(row) {
   if (row?.type === 'scene') {
@@ -222,7 +228,9 @@ function ArchiveBox({ onSelectItem, onArchivedChanged }) {
   )
 }
 
-export function ManuscriptDirectory({ entry, sel, seq, onSelectItem, onCreateChapter, onAddVolume, onArchivedChanged }) {
+export function ManuscriptDirectory({
+  entry, sel, seq, work, onSelectItem, onCreateChapter, onAddVolume, onArchivedChanged,
+}) {
   const root = entry?.source || entry
   const [liveChapters, setLiveChapters] = useState([])
   useEffect(() => {
@@ -252,6 +260,23 @@ export function ManuscriptDirectory({ entry, sel, seq, onSelectItem, onCreateCha
   const currentSeq = currentSeqOf(sel, seq)
   const currentVolume = currentVolumeOf(sel, rows)
   const chapterTotal = rows.filter((r) => r.kind === 'chapter').length
+  // PR-4：未分卷章数（volume 为 null 或挂在未分卷容器）
+  const unassignedCount = useMemo(() => rows.filter((r) => {
+    if (r.kind !== 'chapter') return false
+    const v = r.volume
+    if (v == null) return true
+    const ref = v.ref ?? v.id
+    return ref == null || ref === '' || String(ref) === 'null' || String(v.id || '').endsWith(':null')
+  }).length, [rows])
+
+  const workKey = work || (typeof api.getWork === 'function' ? api.getWork() : '') || 'default'
+  const [hintDismissed, setHintDismissed] = useState(() => loadVolumeSoftHintDismissed(workKey))
+  useEffect(() => { setHintDismissed(loadVolumeSoftHintDismissed(workKey)) }, [workKey])
+  const showVolHint = shouldShowVolumeOrganizeHint({
+    unassignedCount,
+    threshold: VOLUME_SOFT_HINT_DEFAULT_N,
+    dismissed: hintDismissed,
+  })
 
   return (
     <div data-testid="manuscript-directory" className={DIR_SHELL}>
@@ -261,6 +286,41 @@ export function ManuscriptDirectory({ entry, sel, seq, onSelectItem, onCreateCha
         primaryAction={onCreateChapter ? { label: '+ 章节', onClick: () => onCreateChapter?.(null) } : undefined}
         secondaryActions={onAddVolume ? [{ label: '+ 卷', onClick: () => onAddVolume?.() }] : []}
       />
+      {showVolHint && (
+        <div
+          className="mx-2 mt-2 rounded-md border border-brand/25 bg-brand/5 px-2.5 py-2 text-f12 text-ink"
+          data-testid="volume-organize-soft-hint"
+          role="status"
+        >
+          <p className="leading-snug">
+            已有 <strong>{unassignedCount}</strong> 章仍在「未分卷」。
+            可用分卷<strong>整理</strong> Binder（按需后建，非强制；不挡写作）。
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-2">
+            {onAddVolume && (
+              <button
+                type="button"
+                className="text-meta text-brand hover:underline cursor-pointer"
+                data-testid="volume-soft-hint-add"
+                onClick={() => onAddVolume?.()}
+              >
+                去建卷整理
+              </button>
+            )}
+            <button
+              type="button"
+              className="text-meta text-faint hover:text-ink cursor-pointer"
+              data-testid="volume-soft-hint-dismiss"
+              onClick={() => {
+                saveVolumeSoftHintDismissed(workKey, true)
+                setHintDismissed(true)
+              }}
+            >
+              知道了
+            </button>
+          </div>
+        </div>
+      )}
       <div data-testid="manuscript-volume-list" className="flex-1 min-h-0 overflow-auto px-2 py-2">
         <DirectorySectionLabel>卷章</DirectorySectionLabel>
         {rows.length === 0 ? (

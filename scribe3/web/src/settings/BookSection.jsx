@@ -74,7 +74,7 @@ export function BookSection({ work }) {
       {err && <div className="text-f13 text-danger mb-3" role="alert">{err}</div>}
       <div className="grid gap-3 mb-5">
         <div className="text-f12 text-faint rounded-lg bg-soft/50 px-3 py-2">
-          读者感受 / 情感弧 / 红线与写作台「北极星」同一份意图,禁止表单直填——请用主编审批写入。
+          读者感受 / 情感弧 / 红线与顶栏「作品意图」同一份 intent，禁止表单直填——请用主编审批写入。
         </div>
         {TEXT_FIELDS.map(([k, label]) => (
           <div key={k} data-testid={`book-narrative-${k}`}>
