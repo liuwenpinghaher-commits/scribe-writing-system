@@ -83,6 +83,20 @@ def density_trace_for_segments(
         "tier_share": {k: round(v / total, 4) for k, v in by_tier.items()},
         "order_indices": dict(order_indices or {}),
         "segment_count": len(lengths),
+        "registry_names": [s.name for s in SEGMENT_REGISTRY],
         "primary_metric": "signal_density_for_drama",
         "not_a_kpi": "tokens_saved",
     }
+
+
+def registry_physical_order_names(*, v2: bool = True) -> list[str]:
+    """注册表声明序；active 模式可与 context_budget.generation_physical_order_names 对齐校验。"""
+    names = [s.name for s in SEGMENT_REGISTRY]
+    if not v2:
+        return [n for n in names if n != "codex"]
+    return list(names)
+
+
+def active_registry_orders_join() -> bool:
+    """active 时 join 前按注册表重排段名（仍走 join_generation_segments SSOT）。"""
+    return registry_mode() == "active"

@@ -43,50 +43,18 @@ def requires_approval(name: str) -> bool:
 
 
 def commit_if_approved(name: str, accepted: bool | None,
-                       do_write: Callable[[], object]) -> dict:
+                       do_write: Callable[[], object],
+                       args: dict | None = None) -> dict:
     """写门控单一落库点:WRITE_GATED 的工具须 accepted=True 才执行 do_write
     (do_write 内部走 store 单点落库)。拒绝/过期均 fail-closed 不写，且状态分开。
 
-    防假绿:
-    - do_write 抛异常 → status=error(不谎称 written)
-    - do_write 返回 False → status=error(典型:目标行不存在/零更新)
-    - do_write 返回带 error 的 dict → 透传为 error
-    - do_write 返回其它 dict → 与 written 合并(保留业务字段)
-    - do_write 返回 None/其它真值 → status=written
+    O13：可选 ``args`` 时用审批幂等指纹，重复同 payload 返回首次 written 结果。
+    实现 SSOT：``scribe3.write_commit.commit_if_approved``（纯函数，可无 mcp SDK）。
     """
-    if name in WRITE_GATED and accepted is None:
-        return {"status": "expired", "tool": name}
-    if name in WRITE_GATED and accepted is not True:
-        return {"status": "declined", "tool": name}
-    try:
-        result = do_write()
-    except Exception as e:
-        logging.exception("commit_if_approved write failed tool=%s", name)
-        return {"status": "error", "tool": name, "error": str(e)}
-    if result is False:
-        return {
-            "status": "error",
-            "tool": name,
-            "error": "write returned false (no-op or missing target)",
-        }
-    if isinstance(result, dict):
-        if result.get("error") and result.get("status") not in ("written", "ok"):
-            out = {"status": "error", "tool": name}
-            out.update(result)
-            out["status"] = "error"
-            return out
-        out = {"status": "written", "tool": name}
-        out.update(result)
-        # 业务 dict 若未显式给 status,保持 written;若显式 declined/error 则尊重
-        if result.get("status") in ("declined", "error"):
-            out["status"] = result["status"]
-        else:
-            out["status"] = "written"
-        return out
-    out: dict = {"status": "written", "tool": name}
-    if result is not None:
-        out["result"] = result
-    return out
+    from scribe3.write_commit import commit_if_approved as _pure_commit
+    return _pure_commit(
+        name, accepted, do_write, args=args, write_gated=WRITE_GATED,
+    )
 
 
 class _Approve(BaseModel):

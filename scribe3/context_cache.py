@@ -114,12 +114,22 @@ class TTLCache:
 
     def invalidate(self, work=None):
         """work=None 清全部;否则只清该 work 的条目(过清安全,漏清危险)。"""
+        cleared = 0
         with self._lock:
             if work is None:
+                cleared = len(self._d)
                 self._d.clear()
-                return
-            for k in [k for k, (_e, w, _v) in self._d.items() if w == work]:
-                self._d.pop(k, None)
+            else:
+                keys = [k for k, (_e, w, _v) in self._d.items() if w == work]
+                for k in keys:
+                    self._d.pop(k, None)
+                cleared = len(keys)
+        # O9：可观测失效（零清除告警由 record_cache_invalidation 处理）
+        try:
+            record_cache_invalidation(self.name, cleared, work=work)
+        except Exception:
+            pass
+        return cleared
 
     def invalidate_by_table(self, table: str, work=None):
         """S-2: 表级失效入口（与 emit_invalidation 广播一致，可被 changefeed 调用）。"""
@@ -133,12 +143,41 @@ class TTLCache:
     def stats(self) -> dict:
         with self._lock:
             return {"name": self.name, "size": len(self._d),
-                    "hits": self.hits, "misses": self.misses, "ttl": self.ttl}
+                    "hits": self.hits, "misses": self.misses, "ttl": self.ttl,
+                    "invalidations": int(getattr(self, "invalidations", 0) or 0)}
 
 
 # 全体缓存登记表(表级失效事件按 tables 订阅广播)。
 _ALL_CACHES: list = []
 _REGISTRY_LOCK = threading.RLock()
+
+# O9：全局失效计数（可观测；零清除打 WARNING）
+_INVALIDATION_TOTAL = 0
+_INVALIDATION_ZERO = 0
+_INVALIDATION_LOCK = threading.Lock()
+_log_cache = __import__("logging").getLogger("scribe3")
+
+
+def record_cache_invalidation(cache_name: str, keys_cleared: int, *, work=None) -> None:
+    """记录一次失效；keys_cleared==0 时 WARNING（可能漏失效）。"""
+    global _INVALIDATION_TOTAL, _INVALIDATION_ZERO
+    n = int(keys_cleared or 0)
+    with _INVALIDATION_LOCK:
+        _INVALIDATION_TOTAL += 1
+        if n == 0:
+            _INVALIDATION_ZERO += 1
+            _log_cache.warning(
+                "cache_invalidation zero_keys cache=%s work=%s",
+                cache_name, work,
+            )
+
+
+def cache_invalidation_stats() -> dict:
+    with _INVALIDATION_LOCK:
+        return {
+            "invalidation_events": _INVALIDATION_TOTAL,
+            "zero_key_events": _INVALIDATION_ZERO,
+        }
 
 
 def _register_cache(cache: TTLCache) -> None:

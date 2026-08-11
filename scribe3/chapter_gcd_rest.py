@@ -92,6 +92,14 @@ def apply_gcd_beats_patch(
     new_beats: Any,
 ) -> tuple[bool, str, list | None]:
     """shipped 闸外写的核心：校验 + 规范化。返回 (ok, reason, normalized_or_None)。"""
+    # O15：结构校验（与 MCP 共用 beats_schema）
+    try:
+        from scribe3.beats_schema import validate_beats_payload
+        struct_ok, struct_reason, _ = validate_beats_payload(new_beats)
+        if not struct_ok:
+            return False, struct_reason, None
+    except Exception:
+        pass
     ok, reason = validate_gcd_beats_patch(old_beats, new_beats)
     if not ok:
         return False, reason, None

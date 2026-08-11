@@ -905,6 +905,11 @@ def latest_draft(seq: int, work: str = "main"):
     return v
 
 
+def get_debug_flags():
+    """O27：统一旗标控制台只读查询（当前值 + 默认 + 风险级）。"""
+    from scribe3.feature_flags import get_all_flags
+    return {"flags": get_all_flags()}
+
 
 def _bind_and_register() -> None:
     """Rebind handlers onto app_impl globals so monkeypatch keeps working."""
@@ -1034,5 +1039,13 @@ def _bind_and_register() -> None:
     setattr(core, 'latest_draft', _re)
     g['latest_draft'] = _re
     router.add_api_route('/latest-draft', _re, methods=['GET'], name='latest_draft')
+
+    _fn = g['get_debug_flags']
+    _re = types.FunctionType(_fn.__code__, core.__dict__, 'get_debug_flags', _fn.__defaults__, _fn.__closure__)
+    if _fn.__annotations__:
+        _re.__annotations__ = dict(_fn.__annotations__)
+    setattr(core, 'get_debug_flags', _re)
+    g['get_debug_flags'] = _re
+    router.add_api_route('/debug/flags', _re, methods=['GET'], name='get_debug_flags')
 
 _bind_and_register()

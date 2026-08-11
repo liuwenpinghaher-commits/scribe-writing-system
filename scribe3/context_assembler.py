@@ -374,12 +374,26 @@ class ContextAssembler:
     def assemble(self, snapshot: ContextSnapshot, user_query: str,
                  mode: str = "discussion", *,
                  retrieval_out: dict | None = None,
-                 forbidden_source_kinds: tuple[str, ...] = ()) -> ContextEnvelope:
+                 forbidden_source_kinds: tuple[str, ...] = (),
+                 beat_type: str | None = None) -> ContextEnvelope:
         # retrieval_out(Task 16 最后一厘米,可选可变收集器,缺省 None):非 None 时把本次
         # 检索的【完整 RetrievalResult】(含 rejected/channels)回填 retrieval_out["result"],
         # 供 _assemble_write_instructions_v1 落 memory_trace 给 ContextInspector 溯源。
         # 纯观测副作用——收集与否,candidates/envelope【逐字节等价】(见 _retrieve 注记),
         # 缺省 None → 其余调用方(讨论/导航路径)与接线前完全一致。
+        # O2：场景自适应预算（flag 开时按 beat_type 重配 18k 块表）
+        try:
+            from scribe3.context_budget import (
+                adaptive_budget_enabled,
+                resolve_assembler_budgets,
+                scene_budget_profile,
+            )
+            if adaptive_budget_enabled() or scene_budget_profile():
+                tb, bb = resolve_assembler_budgets(beat_type=beat_type)
+                self.token_budget = tb
+                self.block_budgets = bb
+        except Exception:
+            pass
         # 1) 拉候选(retriever 缺失→合法降级空;retriever 存在但检索抛错→异常上抛,
         #    不再静默降级,见 _retrieve。U-011,2026-07-15,作者要 fail-loud)
         candidates = self._retrieve(snapshot, user_query, retrieval_out=retrieval_out)

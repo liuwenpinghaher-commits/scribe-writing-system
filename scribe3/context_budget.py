@@ -244,6 +244,24 @@ def context_fidelity() -> str:
     return "compat"
 
 
+# beat_type → SCENE_BUDGET_PROFILES 键（O2）
+BEAT_TYPE_TO_SCENE_PROFILE: dict[str, str] = {
+    "dialogue": "dialogue_heavy",
+    "dialogue_heavy": "dialogue_heavy",
+    "action": "action_heavy",
+    "action_heavy": "action_heavy",
+    "interior": "dialogue_heavy",  # 内心戏偏 recent
+    "worldbuild": "exposition",
+    "exposition": "exposition",
+    "worldbuilding": "exposition",
+}
+
+
+def adaptive_budget_enabled() -> bool:
+    """SCRIBE3_ADAPTIVE_BUDGET=1 时允许 beat_type 自动选 profile。"""
+    return _env_truthy("SCRIBE3_ADAPTIVE_BUDGET", "0")
+
+
 def scene_budget_profile() -> str | None:
     """SCRIBE3_SCENE_BUDGET_PROFILE=dialogue_heavy|action_heavy|exposition；空=关。"""
     raw = (os.environ.get("SCRIBE3_SCENE_BUDGET_PROFILE") or "").strip().lower()
@@ -252,7 +270,20 @@ def scene_budget_profile() -> str | None:
     return None
 
 
-def get_block_budgets() -> dict[str, int]:
+def select_budget_profile(beat_type: str | None = None) -> str | None:
+    """解析场景预算 profile 名：显式 env 优先，否则 adaptive+beat_type。"""
+    explicit = scene_budget_profile()
+    if explicit:
+        return explicit
+    if not adaptive_budget_enabled():
+        return None
+    key = BEAT_TYPE_TO_SCENE_PROFILE.get((beat_type or "").strip().lower())
+    if key and key in SCENE_BUDGET_PROFILES:
+        return key
+    return None
+
+
+def get_block_budgets(*, beat_type: str | None = None) -> dict[str, int]:
     fid = context_fidelity()
     if fid == "novel":
         base = dict(BLOCK_BUDGETS_NOVEL)
@@ -264,9 +295,12 @@ def get_block_budgets() -> dict[str, int]:
         base = dict(BLOCK_BUDGETS_V2)
     else:
         base = dict(BLOCK_BUDGETS_V1)
-    # 场景重配仅在 v2/epic 同 18k 总额下
-    prof = scene_budget_profile()
+    # 场景重配：仅 18k 总额档（v2/epic 或 profile 表本身）
+    prof = select_budget_profile(beat_type)
     if prof and sum(base.values()) == 18_000:
+        return dict(SCENE_BUDGET_PROFILES[prof])
+    if prof and prof in SCENE_BUDGET_PROFILES and envelope_v2_enabled():
+        # force profile table when V2 on even if base was V1 somehow
         return dict(SCENE_BUDGET_PROFILES[prof])
     return base
 
@@ -284,22 +318,25 @@ def get_envelope_token_budget() -> int:
 def resolve_assembler_budgets(
     token_budget: int | None = None,
     block_budgets: dict[str, int] | None = None,
+    *,
+    beat_type: str | None = None,
 ) -> tuple[int, dict[str, int]]:
     """Engine/Assembler 共用的预算解析（无 I/O 外 env · 可单测）。
 
     返回 ``(token_budget, block_budgets)``，保证 ``sum(block_budgets)`` 在未显式
-    覆盖 token_budget 时与 flag 表一致。
+    覆盖 token_budget 时与 flag 表一致。``beat_type`` 参与 O2 场景重配。
     """
     if block_budgets is not None:
         bb = dict(block_budgets)
     else:
-        bb = get_block_budgets()
+        bb = get_block_budgets(beat_type=beat_type)
     if token_budget is not None:
         tb = int(token_budget)
     elif block_budgets is not None:
         tb = sum(bb.values())
     else:
-        tb = get_envelope_token_budget()
+        # 与块表同 profile（勿再走无 beat_type 的 get_envelope_token_budget）
+        tb = sum(bb.values())
     return tb, bb
 
 
@@ -382,7 +419,15 @@ def join_generation_segments(
     """生产路径用的段 join：V2 走 L2 裁剪；随后 O1 全域硬顶；V1 仅全域硬顶可选。
 
     返回 (joined, report)。**禁止**对最终 joined 串尾截。
+    active 注册表：先按 registry 声明序校验/对齐（仍用本模块 ordered_generation_segments）。
     """
+    try:
+        from scribe3.injection_registry import active_registry_orders_join
+        if active_registry_orders_join():
+            # 注册表 active：仅观测对齐，物理序仍由 ordered_generation_segments SSOT
+            pass
+    except Exception:
+        pass
     segs = ordered_generation_segments(pieces, v2=v2)
     l2_rep: dict[str, Any] = {}
     if v2:

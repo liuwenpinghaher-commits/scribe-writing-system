@@ -57,25 +57,34 @@ def reciprocal_rank_fusion(rankings: dict[str, list[str]], k: int = 60) -> dict[
 
 
 def final_score(candidate: MemoryCandidate, now: datetime, focus_ids: set[str]) -> float:
-    """最终打分(计划规格第 886-895 行,逐字):
-    canonical 恒 rrf+1.0 置顶;其余 = rrf × importance × confidence × decay + focus_bonus + pin_bonus。
-    唯一加固:observed_at 缺失时按 age=0(decay=1.0)而非崩——fail-soft,不改公式语义。"""
+    """最终打分: rrf × importance × confidence × decay × access_boost + focus + pin。
+
+    O8：access_count 加成；pin_forever 永不时间衰减（鸭子属性，缺省 0/False）。
+    """
+    from scribe3.memory_conflict_heuristic import focus_bonus as _focus_bonus_fn
+    from scribe3.memory_score import age_days_from_observed, score_with_access
+
     if candidate.source_kind == "canonical":
         return candidate.rrf_score + 1.0
-    if candidate.observed_at is None:
-        age_days = 0.0
-    else:
-        age_days = max(0.0, (now - candidate.observed_at).total_seconds() / 86400)
-    decay = 1.0 if candidate.pinned else 0.5 ** (age_days / half_life_days()[candidate.source_kind])
-    importance = 0.65 + 0.07 * candidate.importance
-    confidence = 0.75 + 0.25 * candidate.confidence
-    # I-2 依赖告警:linked_ids 由 Task 9 捕获管线回填(经验记忆提及的实体 id)。
-    #   在回填前 _experiential_candidate 产出的候选 linked_ids 恒空 → 本 bonus 恒 0,
-    #   focus 加权对真实记忆【静默不生效】。RetrievalResult.unlinked_count 记此缺口。
-    from scribe3.memory_conflict_heuristic import focus_bonus as _focus_bonus_fn
-    focus_bonus = _focus_bonus_fn(candidate.linked_ids, focus_ids)
-    pin_bonus = 0.25 if candidate.pinned else 0.0
-    return candidate.rrf_score * importance * confidence * decay + focus_bonus + pin_bonus
+    age_days = age_days_from_observed(candidate.observed_at, now)
+    hl = half_life_days().get(candidate.source_kind, 30.0)
+    access_count = int(getattr(candidate, "access_count", 0) or 0)
+    pin_forever = bool(getattr(candidate, "pin_forever", False))
+    fb = _focus_bonus_fn(candidate.linked_ids, focus_ids)
+    pin_bonus = 0.25 if candidate.pinned or pin_forever else 0.0
+    return score_with_access(
+        rrf_score=candidate.rrf_score,
+        importance=int(candidate.importance),
+        confidence=float(candidate.confidence),
+        age_days=age_days,
+        half_life=float(hl),
+        pinned=bool(candidate.pinned),
+        pin_forever=pin_forever,
+        access_count=access_count,
+        focus_bonus=fb,
+        pin_bonus=pin_bonus,
+        source_kind=str(candidate.source_kind),
+    )
 
 
 def _heuristic_entity_attribute(text: str) -> set[tuple[str, str]]:
