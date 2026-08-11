@@ -118,6 +118,146 @@ def get_envelope_token_budget() -> int:
     return total
 
 
+def resolve_assembler_budgets(
+    token_budget: int | None = None,
+    block_budgets: dict[str, int] | None = None,
+) -> tuple[int, dict[str, int]]:
+    """Engine/Assembler 共用的预算解析（无 I/O 外 env · 可单测）。
+
+    返回 ``(token_budget, block_budgets)``，保证 ``sum(block_budgets)`` 在未显式
+    覆盖 token_budget 时与 flag 表一致。
+    """
+    if block_budgets is not None:
+        bb = dict(block_budgets)
+    else:
+        bb = get_block_budgets()
+    if token_budget is not None:
+        tb = int(token_budget)
+    elif block_budgets is not None:
+        tb = sum(bb.values())
+    else:
+        tb = get_envelope_token_budget()
+    return tb, bb
+
+
+# 写路径 V2 段序 SSOT：write_assemble._render_final_input 必须经
+# ``ordered_generation_segments`` 接线，禁止另写平行序。
+GENERATION_SEGMENT_LAYERS: dict[str, str] = {
+    "prefix": "redline",
+    "event_drive": "redline",
+    "drama_contract": "redline",
+    "envelope": "envelope",
+    "codex": "supplemental",
+    "seed_words": "supplemental",
+    "craft": "supplemental",
+    "phase_role": "supplemental",
+    "avoid": "supplemental",
+    "revelation_discipline": "redline",
+    "sincerity": "redline",
+    "purpose": "supplemental",
+    "outline": "supplemental",
+    "volume_intro": "supplemental",
+    "brief_must": "supplemental",
+    "pressure_drive": "supplemental",
+    "author_prefs": "supplemental",
+    "voice_anchor": "supplemental",
+    "reference_craft": "supplemental",
+    "deduction_final": "redline",
+    "material_recall": "supplemental",
+    "final_reminder": "redline",
+    "scene_truth_proj": "redline",
+    "request_constraint": "supplemental",
+}
+
+
+def ordered_generation_segments(
+    pieces: Iterable[dict[str, Any]] | list[dict[str, Any]],
+    *,
+    v2: bool = True,
+) -> list[dict[str, Any]]:
+    """按 production 物理序整理段列表；同名多段保持相对顺序（reference_craft 等）。
+
+    每段 dict 至少含 name/text；缺 layer 时查 GENERATION_SEGMENT_LAYERS。
+    """
+    items = [dict(s) for s in pieces if (s.get("text") or "")]
+    order = generation_physical_order_names(v2=v2)
+    # generation_physical_order_names 是主干序；附加名插在 final_reminder 前
+    rank = {n: i for i, n in enumerate(order)}
+    extra_base = len(order)
+
+    def _key(s: dict[str, Any]) -> tuple[int, int]:
+        name = str(s.get("name") or "")
+        if name in rank:
+            return (rank[name], 0)
+        # 未列名：保持输入序（stable via enumerate in sort is not enough — use original idx）
+        return (extra_base + 50, 0)
+
+    # stable: decorate with original index
+    decorated = []
+    for i, s in enumerate(items):
+        name = str(s.get("name") or "")
+        if not s.get("layer"):
+            s["layer"] = GENERATION_SEGMENT_LAYERS.get(name, "supplemental")
+        if name in rank:
+            decorated.append((rank[name], i, s))
+        else:
+            # 未列名：尽量靠 final_reminder 前
+            fr = rank.get("final_reminder", extra_base)
+            decorated.append((fr - 1, i, s))
+    decorated.sort(key=lambda t: (t[0], t[1]))
+    return [t[2] for t in decorated]
+
+
+def join_generation_segments(
+    pieces: list[dict[str, Any]],
+    *,
+    v2: bool = True,
+    supplemental_hard: int | None = None,
+    prompt_hard: int | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """生产路径用的段 join：V2 走 L2 裁剪；V1 直接拼接。返回 (joined, report)。"""
+    segs = ordered_generation_segments(pieces, v2=v2)
+    if not v2:
+        joined = "".join(str(s.get("text") or "") for s in segs)
+        order_idx: dict[str, int] = {}
+        for i, s in enumerate(segs):
+            n = str(s.get("name") or "")
+            if n in physical_order_markers() and n not in order_idx:
+                order_idx[n] = i
+        rep = build_budget_report(
+            domain_lengths={
+                str(s.get("name")): estimate_tokens(s.get("text")) for s in segs
+            },
+            order_indices=order_idx,
+            l2_report={},
+        )
+        return joined, rep
+    joined, l2_rep = apply_l2_trim(
+        segs,
+        supplemental_hard=supplemental_hard,
+        prompt_hard=prompt_hard,
+    )
+    order_idx = {}
+    for i, s in enumerate(segs):
+        n = str(s.get("name") or "")
+        if n in physical_order_markers() and n not in order_idx:
+            order_idx[n] = i
+    # L2 可能改 segs 内容；用 l2 report 的 segment_names 重建序
+    names = list(l2_rep.get("segment_names") or [s.get("name") for s in segs])
+    order_idx = {}
+    for i, n in enumerate(names):
+        if n in physical_order_markers() and n not in order_idx:
+            order_idx[str(n)] = i
+    rep = build_budget_report(
+        domain_lengths={
+            str(s.get("name")): estimate_tokens(s.get("text")) for s in segs
+        },
+        order_indices=order_idx,
+        l2_report=l2_rep,
+    )
+    return joined, rep
+
+
 def get_codex_inject_cap() -> int:
     raw = (os.environ.get("SCRIBE3_CODEX_INJECT_CAP") or "").strip()
     if raw.isdigit():
@@ -304,7 +444,7 @@ def apply_l2_trim(
 
 
 def generation_physical_order_names(*, v2: bool = True) -> list[str]:
-    """目标物理序域名列表（V2）；供单测与 report 对照。"""
+    """目标物理序域名列表（V2）；与 join_generation_segments / write_assemble 同 SSOT。"""
     base = [
         "prefix",
         "event_drive",
@@ -326,7 +466,13 @@ def generation_physical_order_names(*, v2: bool = True) -> list[str]:
         "brief_must",
         "pressure_drive",
         "author_prefs",
+        "voice_anchor",
+        "reference_craft",
+        "deduction_final",
+        "material_recall",
         "final_reminder",
+        "scene_truth_proj",
+        "request_constraint",
     ])
     return base
 

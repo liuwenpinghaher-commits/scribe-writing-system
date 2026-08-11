@@ -166,8 +166,13 @@ HERMES_RESPONSES_PROFILE = os.environ.get("HERMES_RESPONSES_PROFILE", "scribe3")
 HERMES_RUNS = os.environ.get("HERMES_RUNS_API", "http://127.0.0.1:8644/v1")
 HERMES_RUNS_PROFILE = os.environ.get("HERMES_RUNS_PROFILE", "scribe3_write")
 # 演绎不能进入完整写工具网关；profile 由 run_stage_policy 固定为 scribe3_deduce。
-HERMES_DEDUCE_RUNS = os.environ.get("HERMES_DEDUCE_RUNS_API", "http://127.0.0.1:8645/v1")
-HERMES_DEDUCE_PREVIEW_RUNS = os.environ.get("HERMES_DEDUCE_PREVIEW_RUNS_API", "http://127.0.0.1:8646/v1")
+# 与 hermes_runs_env 同源默认（此模块另有 httpx 依赖；单测请 import hermes_runs_env）。
+from scribe3.hermes_runs_env import (  # noqa: E402
+    HERMES_DEDUCE_PREVIEW_RUNS,
+    HERMES_DEDUCE_RUNS,
+    HERMES_PLAN_RUNS,
+    hermes_runs_api_base_for_env,
+)
 
 
 def _stream_with_retry(make_stream, max_retries: int | None = None):

@@ -169,6 +169,7 @@ def gateway_status():
         ("runs", get_setting("HERMES_RUNS_API"), get_setting("HERMES_RUNS_PROFILE")),
         ("deduce", get_setting("HERMES_DEDUCE_RUNS_API"), "scribe3_deduce"),
         ("deduce_preview", get_setting("HERMES_DEDUCE_PREVIEW_RUNS_API"), "scribe3_deduce_preview"),
+        ("plan", get_setting("HERMES_PLAN_RUNS_API"), "scribe3_plan"),
     ]
     out = []
     for name, base, profile in targets:
@@ -219,10 +220,12 @@ def gateway_restart(req: GatewayRestartReq):
     apis = {"scribe3": get_setting("HERMES_RESPONSES_API"),
             "scribe3_write": get_setting("HERMES_RUNS_API"),
             "scribe3_deduce": get_setting("HERMES_DEDUCE_RUNS_API"),
-            "scribe3_deduce_preview": get_setting("HERMES_DEDUCE_PREVIEW_RUNS_API")}
+            "scribe3_deduce_preview": get_setting("HERMES_DEDUCE_PREVIEW_RUNS_API"),
+            "scribe3_plan": get_setting("HERMES_PLAN_RUNS_API")}
     if req.profile not in apis:
         raise HTTPException(422, "未知 profile: " + req.profile +
-                            "(仅支持 scribe3/scribe3_write/scribe3_deduce/scribe3_deduce_preview)")
+                            "(仅支持 scribe3/scribe3_write/scribe3_deduce/"
+                            "scribe3_deduce_preview/scribe3_plan)")
     hermes = os.path.expanduser(get_setting("gateway.hermes_bin"))
     log = f"/tmp/scribe3-hermes-{req.profile}.log"
     if not (os.path.isfile(hermes) and os.access(hermes, os.X_OK)):

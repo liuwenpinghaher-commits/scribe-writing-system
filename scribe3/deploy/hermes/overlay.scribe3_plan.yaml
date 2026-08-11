@@ -1,0 +1,14 @@
+# 大纲/节拍脚手架受限 profile：可读章与 intent/伏笔/卷列表 + plan/meta 写。
+# 物理排除 s3_save_chapter / s3_ingest_chapter（与 PLAN_SCAFFOLD_ALLOWED_TOOLS 对齐）。
+# 端口 :8647，避开 deduce_preview :8646。
+platform_toolsets:
+  api_server:
+    - scribe3_plan_read
+    - scribe3_plan_write
+mcp_discovery_timeout: 10.0
+agent:
+  tool_use_enforcement: true
+platforms:
+  api_server:
+    port: 8647
+    host: 127.0.0.1

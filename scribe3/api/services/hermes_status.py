@@ -273,10 +273,13 @@ def _summarize_hermes_runtime(profiles: list[dict], *, profile_configs: dict | N
 
 def _hermes_runtime_status() -> dict:
     from scribe3.hermes_runtime import HermesRuntime
-    from scribe3.llm import (
-        HERMES,
+    from scribe3.hermes_runs_env import (
         HERMES_DEDUCE_PREVIEW_RUNS,
         HERMES_DEDUCE_RUNS,
+        HERMES_PLAN_RUNS,
+    )
+    from scribe3.llm import (
+        HERMES,
         HERMES_RESPONSES,
         HERMES_RESPONSES_PROFILE,
         HERMES_RUNS,
@@ -289,6 +292,7 @@ def _hermes_runtime_status() -> dict:
         HermesRuntime(api_base=HERMES_RUNS, profile=HERMES_RUNS_PROFILE).probe(),
         HermesRuntime(api_base=HERMES_DEDUCE_RUNS, profile="scribe3_deduce").probe(),
         HermesRuntime(api_base=HERMES_DEDUCE_PREVIEW_RUNS, profile="scribe3_deduce_preview").probe(),
+        HermesRuntime(api_base=HERMES_PLAN_RUNS, profile="scribe3_plan").probe(),
     ]
     profile_configs = {
         "default": _hermes_profile_config_summary("default"),   # U-006:速答网关工具面自检需要
@@ -296,6 +300,7 @@ def _hermes_runtime_status() -> dict:
         HERMES_RUNS_PROFILE: _hermes_profile_config_summary(HERMES_RUNS_PROFILE),
         "scribe3_deduce": _hermes_profile_config_summary("scribe3_deduce"),
         "scribe3_deduce_preview": _hermes_profile_config_summary("scribe3_deduce_preview"),
+        "scribe3_plan": _hermes_profile_config_summary("scribe3_plan"),
     }
     cron = _hermes_cron_status(HERMES_RESPONSES_PROFILE)
     summary = _summarize_hermes_runtime(profiles, profile_configs=profile_configs, cron=cron)
@@ -325,15 +330,11 @@ def _hermes_runtime_status() -> dict:
 def _hermes_runs_runtime(policy=None):
     """按受控阶段策略选择 Runs gateway；调用方不能指定 profile 或 URL。"""
     from scribe3.hermes_runtime import HermesRuntime
-    from scribe3.llm import (HERMES_DEDUCE_PREVIEW_RUNS, HERMES_DEDUCE_RUNS,
-                             HERMES_RUNS, HERMES_RUNS_PROFILE)
+    from scribe3.hermes_runs_env import hermes_runs_api_base_for_env
+    from scribe3.llm import HERMES_RUNS, HERMES_RUNS_PROFILE
     if policy is not None:
-        api_base_by_env = {
-            "HERMES_DEDUCE_RUNS_API": HERMES_DEDUCE_RUNS,
-            "HERMES_DEDUCE_PREVIEW_RUNS_API": HERMES_DEDUCE_PREVIEW_RUNS,
-        }
         try:
-            api_base = api_base_by_env[policy.api_env]
+            api_base = hermes_runs_api_base_for_env(policy.api_env)
         except KeyError as exc:
             raise RuntimeError(f"unconfigured run stage policy: {policy.phase}") from exc
         return HermesRuntime(api_base=api_base, profile=policy.profile)

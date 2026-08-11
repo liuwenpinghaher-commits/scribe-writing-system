@@ -748,11 +748,25 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
     orchPkg = orch.package || null
     if (orchPkg) mut((l) => ({ ...l, orchPackage: orchPkg, orchDomain: orchPkg.domain }))
     const worldWriteRun = orch.useWorldWriteRun || shouldUseHermesRun(q)
-    const runPhase = worldWriteRun ? '' : (seq != null && Object.prototype.hasOwnProperty.call(WRITE_PHASE, phase) ? WRITE_PHASE[phase] : (phase || ''))
+    // novel-first：脚手架 phase 即使命中「世界写」也强制 run_scope（不得 phase 清空落到全写）。
+    // 非世界写仍走下方 /chat/write（WRITE_PHASE 映射）。
+    const chForScope = seq ?? ctxSeq
+    const isScaffoldPhase = phase === 'outline' || phase === 'beats' || phase === 'plan'
+      || phase === 'deduce'
+    let runPhase = ''
+    if (chForScope != null && isScaffoldPhase) {
+      runPhase = phase
+    } else if (worldWriteRun) {
+      runPhase = ''
+    } else if (chForScope != null && Object.prototype.hasOwnProperty.call(WRITE_PHASE, phase)) {
+      runPhase = WRITE_PHASE[phase]
+    } else {
+      runPhase = phase || ''
+    }
     const runFocalizer = phase === 'deduce' && deduceSel !== 'truth' ? deduceSel : ''
     if (worldWriteRun) {
       esRef.current = api.runWrite(finalMsg, {
-        chapter: seq ?? ctxSeq,
+        chapter: chForScope,
         phase: runPhase,
         focalizer: runFocalizer,
         context: bind,   // Task 13:线程模式带发起时上下文(会话/版本)→ 后端快照 origin focus 供审批重校验

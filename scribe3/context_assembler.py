@@ -360,18 +360,15 @@ class ContextAssembler:
         self.store = store
         self.retriever = retriever
         # None → 运行时读 flag（默认 V1 10k；V2 18k 须 sum==budget）
-        if block_budgets is not None:
-            self.block_budgets = dict(block_budgets)
+        from scribe3.context_budget import resolve_assembler_budgets
+        if block_budgets is not None or token_budget is not None:
+            tb, bb = resolve_assembler_budgets(token_budget, block_budgets)
+            self.token_budget = tb
+            self.block_budgets = bb
         else:
+            # 与 runtime helpers 同 flag（避免双路径）
             self.block_budgets = _get_block_budgets_runtime()
-        if token_budget is not None:
-            self.token_budget = int(token_budget)
-        else:
-            self.token_budget = int(
-                sum(self.block_budgets.values())
-                if block_budgets is not None
-                else _get_envelope_token_budget_runtime()
-            )
+            self.token_budget = int(_get_envelope_token_budget_runtime())
 
     # --- 对外唯一入口 ---
     def assemble(self, snapshot: ContextSnapshot, user_query: str,

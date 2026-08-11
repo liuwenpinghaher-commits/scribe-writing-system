@@ -34,15 +34,13 @@ class CreativeContextEngine:
         block_budgets: dict | None = None,
     ):
         # novel-first：显式传入 envelope 预算（None → context_budget flag 默认 10k）
-        from scribe3.context_budget import (
-            get_block_budgets,
-            get_envelope_token_budget,
-        )
-        tb = token_budget if token_budget is not None else get_envelope_token_budget()
-        bb = block_budgets if block_budgets is not None else get_block_budgets()
+        from scribe3.context_budget import resolve_assembler_budgets
+        tb, bb = resolve_assembler_budgets(token_budget, block_budgets)
         self._assembler = ContextAssembler(
             store, retriever, token_budget=tb, block_budgets=bb,
         )
+        self.token_budget = tb
+        self.block_budgets = bb
         self._context_store = ContextStore(store)
         self._retrieval_out = retrieval_out
 

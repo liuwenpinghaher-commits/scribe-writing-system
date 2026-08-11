@@ -130,6 +130,43 @@ def scaffold_tools_exclude_save(policy: RunStagePolicy | None) -> bool:
     return not (tools & PLAN_SCAFFOLD_FORBIDDEN)
 
 
+# 脚手架阶段：即使「世界写」启发式命中，也必须带 chapter:N:<phase> run_scope，
+# 走 scribe3_plan / deduce 受限 profile，禁止静默落到全写（含 save/ingest）。
+SCAFFOLD_PHASES = frozenset({"outline", "beats", "plan", "deduce", "deduce_preview"})
+
+
+def normalize_scaffold_phase(phase: str | None) -> str | None:
+    """UI/编排 phase → 可解析的 run_stage phase；非脚手架返回 None。"""
+    p = (phase or "").strip().lower()
+    if p in SCAFFOLD_PHASES:
+        return p
+    return None
+
+
+def scaffold_run_scope(chapter: int | None, phase: str | None) -> str | None:
+    """脚手架强制 run_scope；缺章或非脚手架 → None。
+
+    调用方（主编坞 world-write 路径）必须在 outline|beats|plan|deduce 时使用本函数
+    结果，**不得**因 useWorldWriteRun 清空 phase。
+    """
+    p = normalize_scaffold_phase(phase)
+    if p is None or chapter is None:
+        return None
+    try:
+        ch = int(chapter)
+    except (TypeError, ValueError):
+        return None
+    if ch < 1:
+        return None
+    return f"chapter:{ch}:{p}"
+
+
+def scaffold_forces_stage_profile(phase: str | None, *, world_write: bool = False) -> bool:
+    """world_write 启发式为真时，脚手架 phase 仍须走阶段 profile。"""
+    del world_write  # 显式：world_write 不得覆盖脚手架
+    return normalize_scaffold_phase(phase) is not None
+
+
 def resolve_run_stage_policy(run_scope: str | None) -> RunStagePolicy | None:
     """解析章节阶段 scope；普通 Runs 保持兼容，章节未知 phase 一律拒绝。"""
     scope = (run_scope or "").strip()

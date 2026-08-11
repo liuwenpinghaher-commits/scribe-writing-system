@@ -132,3 +132,25 @@ scribe3_deduce_write:
       - s3_patch_chapter_plan
     prompts: false
     resources: false
+# 大纲/节拍 plan profile：物理工具面（include 即能力边界；无 save/ingest）
+scribe3_plan_read:
+  command: "{{RUN_MCP}}"
+  enabled: true
+  tools:
+    include:
+      - s3_get_chapter
+      - s3_list_chapters
+      - s3_get_intent
+      - s3_list_promises
+      - s3_list_volumes
+    prompts: false
+    resources: false
+scribe3_plan_write:
+  command: "{{RUN_MCP}}"
+  enabled: true
+  tools:
+    include:
+      - s3_patch_chapter_plan
+      - s3_patch_chapter_meta
+    prompts: false
+    resources: false
