@@ -7,7 +7,10 @@ from importlib import reload
 
 def test_adaptive_budget_profile_sums_and_differs():
     from scribe3 import context_budget as cb
+    # 场景表按 18k 总额重配：用 V2 非 novel
     os.environ["SCRIBE3_ENVELOPE_V2_ENABLE"] = "1"
+    os.environ["SCRIBE3_ENVELOPE_NOVEL"] = "0"
+    os.environ["SCRIBE3_CONTEXT_FIDELITY"] = "v2"
     os.environ.pop("SCRIBE3_SCENE_BUDGET_PROFILE", None)
     os.environ["SCRIBE3_ADAPTIVE_BUDGET"] = "1"
     try:
@@ -24,11 +27,24 @@ def test_adaptive_budget_profile_sums_and_differs():
         exp = cb.get_block_budgets(beat_type="dialogue")
         assert exp["canonical"] == cb.SCENE_BUDGET_PROFILES["exposition"]["canonical"]
     finally:
-        for k in ("SCRIBE3_ENVELOPE_V2_ENABLE", "SCRIBE3_ADAPTIVE_BUDGET", "SCRIBE3_SCENE_BUDGET_PROFILE"):
+        for k in (
+            "SCRIBE3_ENVELOPE_V2_ENABLE", "SCRIBE3_ENVELOPE_NOVEL",
+            "SCRIBE3_CONTEXT_FIDELITY", "SCRIBE3_ADAPTIVE_BUDGET",
+            "SCRIBE3_SCENE_BUDGET_PROFILE",
+        ):
             os.environ.pop(k, None)
         reload(cb)
-    # flag-off empty profile → V1 10k
-    assert sum(cb.get_block_budgets().values()) == 10_000
+    # 显式关 V2/novel → V1 10k（生产默认已是 novel 22k）
+    os.environ["SCRIBE3_ENVELOPE_V2_ENABLE"] = "0"
+    os.environ["SCRIBE3_ENVELOPE_NOVEL"] = "0"
+    os.environ["SCRIBE3_CONTEXT_FIDELITY"] = "compat"
+    reload(cb)
+    try:
+        assert sum(cb.get_block_budgets().values()) == 10_000
+    finally:
+        for k in ("SCRIBE3_ENVELOPE_V2_ENABLE", "SCRIBE3_ENVELOPE_NOVEL", "SCRIBE3_CONTEXT_FIDELITY"):
+            os.environ.pop(k, None)
+        reload(cb)
 
 
 def test_registry_density_and_v2_order_under_active():
@@ -197,6 +213,8 @@ def test_beats_schema_and_approval_fingerprint():
 def test_resolve_assembler_budgets_respects_beat_type():
     from scribe3.context_budget import resolve_assembler_budgets, SCENE_BUDGET_PROFILES
     os.environ["SCRIBE3_ENVELOPE_V2_ENABLE"] = "1"
+    os.environ["SCRIBE3_ENVELOPE_NOVEL"] = "0"
+    os.environ["SCRIBE3_CONTEXT_FIDELITY"] = "v2"
     os.environ["SCRIBE3_ADAPTIVE_BUDGET"] = "1"
     os.environ.pop("SCRIBE3_SCENE_BUDGET_PROFILE", None)
     try:
@@ -208,7 +226,10 @@ def test_resolve_assembler_budgets_respects_beat_type():
         assert sum(bb.values()) == 18_000
         assert bb["recent"] == SCENE_BUDGET_PROFILES["dialogue_heavy"]["recent"]
     finally:
-        for k in ("SCRIBE3_ENVELOPE_V2_ENABLE", "SCRIBE3_ADAPTIVE_BUDGET"):
+        for k in (
+            "SCRIBE3_ENVELOPE_V2_ENABLE", "SCRIBE3_ENVELOPE_NOVEL",
+            "SCRIBE3_CONTEXT_FIDELITY", "SCRIBE3_ADAPTIVE_BUDGET",
+        ):
             os.environ.pop(k, None)
         import scribe3.context_budget as cb
         from importlib import reload

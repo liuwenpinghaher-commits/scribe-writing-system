@@ -16,8 +16,9 @@ class Flag:
 
 
 FLAG_REGISTRY: tuple[Flag, ...] = (
-    Flag("SCRIBE3_ENVELOPE_V2_ENABLE", "0", "18k envelope + V2 物理序/L2", "context_budget", "caution"),
-    Flag("SCRIBE3_CONTEXT_FIDELITY", "compat", "compat|v2|literary|epic|novel", "context_budget", "caution"),
+    Flag("SCRIBE3_ENVELOPE_V2_ENABLE", "1", "V2 物理序/L2（质量优先默认开）", "context_budget", "caution"),
+    Flag("SCRIBE3_ENVELOPE_NOVEL", "1", "novel 信封 22k + PROMPT_HARD 48k", "context_budget", "caution"),
+    Flag("SCRIBE3_CONTEXT_FIDELITY", "novel", "compat|v2|literary|epic|novel", "context_budget", "caution"),
     Flag("SCRIBE3_ADAPTIVE_BUDGET", "0", "按 beat_type 场景预算重配", "context_budget", "safe"),
     Flag("SCRIBE3_SCENE_BUDGET_PROFILE", "", "显式场景 profile 名", "context_budget", "safe"),
     Flag("SCRIBE3_TOTAL_BUDGET", "", "全域 prompt 硬顶（空=PROMPT_HARD）", "context_budget", "caution"),

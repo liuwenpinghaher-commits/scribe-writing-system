@@ -26,20 +26,45 @@ def test_block_budgets_v2_sum_18000():
 
 def test_flag_off_keeps_v1_budget():
     from scribe3 import context_budget as cb
-    os.environ.pop("SCRIBE3_ENVELOPE_V2_ENABLE", None)
-    os.environ.pop("SCRIBE3_ENVELOPE_NOVEL", None)
+    os.environ["SCRIBE3_ENVELOPE_V2_ENABLE"] = "0"
+    os.environ["SCRIBE3_ENVELOPE_NOVEL"] = "0"
+    os.environ["SCRIBE3_CONTEXT_FIDELITY"] = "compat"
+    try:
+        reload(cb)
+        assert cb.envelope_v2_enabled() is False
+        assert sum(cb.get_block_budgets().values()) == 10_000
+        assert cb.get_envelope_token_budget() == 10_000
+        tb, bb = cb.resolve_assembler_budgets()
+        assert tb == 10_000 and sum(bb.values()) == 10_000
+    finally:
+        for k in ("SCRIBE3_ENVELOPE_V2_ENABLE", "SCRIBE3_ENVELOPE_NOVEL", "SCRIBE3_CONTEXT_FIDELITY"):
+            os.environ.pop(k, None)
+        reload(cb)
+
+
+def test_default_is_novel_22k_and_prompt_hard_48k():
+    """质量优先默认：novel 信封 22k + PROMPT_HARD 48k。"""
+    from scribe3 import context_budget as cb
+    for k in ("SCRIBE3_ENVELOPE_V2_ENABLE", "SCRIBE3_ENVELOPE_NOVEL", "SCRIBE3_CONTEXT_FIDELITY"):
+        os.environ.pop(k, None)
     reload(cb)
-    assert cb.envelope_v2_enabled() is False
-    assert sum(cb.get_block_budgets().values()) == 10_000
-    assert cb.get_envelope_token_budget() == 10_000
-    tb, bb = cb.resolve_assembler_budgets()
-    assert tb == 10_000 and sum(bb.values()) == 10_000
+    assert cb.envelope_v2_enabled() is True
+    assert cb.novel_envelope_enabled() is True
+    assert cb.context_fidelity() == "novel"
+    b = cb.get_block_budgets()
+    assert sum(b.values()) == 22_000
+    assert cb.get_envelope_token_budget() == 22_000
+    assert cb.get_prompt_hard() == 48_000
+    assert b["canonical"] == cb.BLOCK_BUDGETS_NOVEL["canonical"]
+    assert b["recent"] == cb.BLOCK_BUDGETS_NOVEL["recent"]
+    assert b["canonical"] >= 6800 and b["recent"] >= 4000  # 相对 V2 抬 high-signal
 
 
 def test_flag_on_v2_budget():
     from scribe3 import context_budget as cb
     os.environ["SCRIBE3_ENVELOPE_V2_ENABLE"] = "1"
-    os.environ.pop("SCRIBE3_ENVELOPE_NOVEL", None)
+    os.environ["SCRIBE3_ENVELOPE_NOVEL"] = "0"
+    os.environ["SCRIBE3_CONTEXT_FIDELITY"] = "v2"
     try:
         reload(cb)
         assert cb.envelope_v2_enabled() is True
@@ -51,7 +76,8 @@ def test_flag_on_v2_budget():
         tb, bb = cb.resolve_assembler_budgets()
         assert tb == 18_000 and bb["canonical"] == 6800
     finally:
-        os.environ.pop("SCRIBE3_ENVELOPE_V2_ENABLE", None)
+        for k in ("SCRIBE3_ENVELOPE_V2_ENABLE", "SCRIBE3_ENVELOPE_NOVEL", "SCRIBE3_CONTEXT_FIDELITY"):
+            os.environ.pop(k, None)
         reload(cb)
 
 
@@ -69,6 +95,8 @@ def test_engine_assembler_budget_wiring():
 
     from scribe3 import context_budget as cb
     os.environ["SCRIBE3_ENVELOPE_V2_ENABLE"] = "1"
+    os.environ["SCRIBE3_ENVELOPE_NOVEL"] = "0"
+    os.environ["SCRIBE3_CONTEXT_FIDELITY"] = "v2"
     try:
         reload(cb)
         tb, bb = cb.resolve_assembler_budgets()
@@ -78,12 +106,14 @@ def test_engine_assembler_budget_wiring():
         tb2, bb2 = cb.resolve_assembler_budgets(12_000, {"focus": 100, "global": 200})
         assert tb2 == 12_000 and bb2["focus"] == 100
     finally:
-        os.environ.pop("SCRIBE3_ENVELOPE_V2_ENABLE", None)
+        for k in ("SCRIBE3_ENVELOPE_V2_ENABLE", "SCRIBE3_ENVELOPE_NOVEL", "SCRIBE3_CONTEXT_FIDELITY"):
+            os.environ.pop(k, None)
         reload(cb)
 
-    # 尽量实例化 Engine（有 pydantic 时）
+    # 尽量实例化 Engine（有 pydantic 时）— 默认 novel 22k
     try:
-        os.environ["SCRIBE3_ENVELOPE_V2_ENABLE"] = "1"
+        for k in ("SCRIBE3_ENVELOPE_V2_ENABLE", "SCRIBE3_ENVELOPE_NOVEL", "SCRIBE3_CONTEXT_FIDELITY"):
+            os.environ.pop(k, None)
         reload(cb)
         from scribe3.context_engine import CreativeContextEngine
 
@@ -91,9 +121,9 @@ def test_engine_assembler_budget_wiring():
             pass
 
         eng = CreativeContextEngine(_Stub())
-        assert eng.token_budget == 18_000
-        assert sum(eng.block_budgets.values()) == 18_000
-        assert eng._assembler.token_budget == 18_000
+        assert eng.token_budget == 22_000
+        assert sum(eng.block_budgets.values()) == 22_000
+        assert eng._assembler.token_budget == 22_000
     except ModuleNotFoundError as e:
         if "pydantic" not in str(e).lower() and "pydantic" not in repr(e).lower():
             # 其它缺依赖再抛
@@ -101,7 +131,8 @@ def test_engine_assembler_budget_wiring():
                 pass
         # 宿主无 pydantic：接线已由 resolve + 源码断言覆盖
     finally:
-        os.environ.pop("SCRIBE3_ENVELOPE_V2_ENABLE", None)
+        for k in ("SCRIBE3_ENVELOPE_V2_ENABLE", "SCRIBE3_ENVELOPE_NOVEL", "SCRIBE3_CONTEXT_FIDELITY"):
+            os.environ.pop(k, None)
         reload(cb)
 
 

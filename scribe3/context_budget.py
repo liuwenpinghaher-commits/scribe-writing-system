@@ -99,6 +99,7 @@ for _name, _tbl in SCENE_BUDGET_PROFILES.items():
 DEFAULT_CODEX_INJECT_CAP = 4_500
 DEFAULT_SUPPLEMENTAL_SOFT = 14_000
 DEFAULT_SUPPLEMENTAL_HARD = 18_000
+# 质量优先：标准 V2 回滚档仍可用 42k；生产默认 novel 时 get_prompt_hard→48k
 DEFAULT_PROMPT_HARD = 42_000
 NOVEL_PROMPT_HARD = 48_000
 
@@ -216,22 +217,27 @@ def _env_truthy(name: str, default: str = "0") -> bool:
 
 
 def envelope_v2_enabled() -> bool:
-    """生产默认关：仅接线后仍 10k，直至物理序+L2 同列车打开。
+    """生产默认开：18k/V2 物理序+L2（质量优先）。
 
-    literary/epic/novel 保真档隐含启用 V2 物理序与 L2（仍须显式 FIDELITY 或 V2 旗）。
+    关：SCRIBE3_ENVELOPE_V2_ENABLE=0 回滚 10k。
+    literary/epic/novel 保真档也隐含启用 V2。
     """
-    if _env_truthy("SCRIBE3_ENVELOPE_V2_ENABLE", "0"):
+    if _env_truthy("SCRIBE3_ENVELOPE_V2_ENABLE", "1"):
         return True
     fid = (os.environ.get("SCRIBE3_CONTEXT_FIDELITY") or "").strip().lower()
     return fid in ("literary", "epic", "novel", "v2")
 
 
 def novel_envelope_enabled() -> bool:
-    return _env_truthy("SCRIBE3_ENVELOPE_NOVEL", "0")
+    """质量优先：默认开 novel 信封 22k（须与 V2 同开，PROMPT_HARD→48k）。
+
+    关：SCRIBE3_ENVELOPE_NOVEL=0 退回标准 V2 18k。
+    """
+    return _env_truthy("SCRIBE3_ENVELOPE_NOVEL", "1")
 
 
 def context_fidelity() -> str:
-    """compat | v2 | literary | epic | novel — 默认 compat。"""
+    """compat | v2 | literary | epic | novel — 默认 novel（质量优先）。"""
     raw = (os.environ.get("SCRIBE3_CONTEXT_FIDELITY") or "").strip().lower()
     if raw in ("compat", "v1", "literary", "epic", "novel", "v2"):
         if raw == "v1":
