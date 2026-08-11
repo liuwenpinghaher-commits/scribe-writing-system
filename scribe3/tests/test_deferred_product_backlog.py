@@ -16,9 +16,14 @@ def test_wave0_flags_registered():
         "SCRIBE3_AGENT_CRON_UI",
         "SCRIBE3_BENCHMARK_LIB",
         "SCRIBE3_STORYLINE_INJECT",
+        "SCRIBE3_SOFT_ACTIVATION",
+        "SCRIBE3_SOFT_PRECHECK",
+        "SCRIBE3_LITERARY_DISTILL",
     ):
         assert name in flags
-        assert flag_truthy(name) is False
+        # 产品 soft 默认开；硬门仍关
+        assert flag_truthy(name) is True, name
+    assert flag_truthy("SCRIBE3_STAGE_MACHINE_HARD") is False
 
 
 def test_multi_hop_graph():

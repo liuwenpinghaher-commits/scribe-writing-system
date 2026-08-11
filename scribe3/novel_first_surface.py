@@ -54,7 +54,7 @@ def event_graph_surface(
     hop: list[str] = graph_one_hop(g, [seed]) if seed else []
     multi = None
     kk = max(1, int(k or 1))
-    multi_flag = (os.environ.get("SCRIBE3_MULTI_HOP_GRAPH") or "0").strip().lower() in (
+    multi_flag = (os.environ.get("SCRIBE3_MULTI_HOP_GRAPH") or "1").strip().lower() in (
         "1", "true", "yes", "on",
     )
     if kk > 1 and not multi_flag:

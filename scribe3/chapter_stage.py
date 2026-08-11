@@ -18,7 +18,7 @@ _ACTIONS: dict[str, str] = {
 
 
 def stage_machine_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_STAGE_MACHINE") or "0").strip().lower()
+    raw = (os.environ.get("SCRIBE3_STAGE_MACHINE") or "1").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 

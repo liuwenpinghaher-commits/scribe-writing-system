@@ -6,7 +6,7 @@ from typing import Any
 
 
 def parallel_deduce_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_PARALLEL_DEDUCE") or "0").strip().lower()
+    raw = (os.environ.get("SCRIBE3_PARALLEL_DEDUCE") or "1").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 

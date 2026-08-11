@@ -13,7 +13,7 @@ _MEM: dict[str, dict[str, Any]] = {}
 
 
 def benchmark_lib_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_BENCHMARK_LIB") or "0").strip().lower()
+    raw = (os.environ.get("SCRIBE3_BENCHMARK_LIB") or "1").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 

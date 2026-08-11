@@ -11,7 +11,7 @@ from typing import Any
 
 def soft_precheck_enabled() -> bool:
     """观测旗；关时调用方可不挂载，函数本身始终可跑。"""
-    raw = (os.environ.get("SCRIBE3_SOFT_PRECHECK") or "0").strip().lower()
+    raw = (os.environ.get("SCRIBE3_SOFT_PRECHECK") or "1").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 

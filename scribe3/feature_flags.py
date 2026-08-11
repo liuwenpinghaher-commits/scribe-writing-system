@@ -38,19 +38,19 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag("SCRIBE3_DB_KNOWLEDGE_FRAME", "0", "fn::knowledge_frame 知识帧", "knowledge", "caution"),
     Flag("SCRIBE3_STATS_VIEW", "0", "stats_* 聚合视图读", "stats_views", "safe"),
     Flag("SCRIBE3_LIVE_GRANULAR", "1", "LIVE/SSE 带 action+id", "live", "safe"),
-    # P2 novel-first
-    Flag("SCRIBE3_SOFT_ACTIVATION", "0", "软 lore 激活（L2/L3 可丢）", "soft_activation", "caution"),
-    Flag("SCRIBE3_SOFT_PRECHECK", "0", "大纲/节拍软预检 advisory", "soft_precheck", "safe"),
-    Flag("SCRIBE3_LITERARY_DISTILL", "0", "文学蒸馏原型（启发式）", "literary_distill", "safe"),
-    # 延期产品 backlog（默认关 · 安全禁令仍有效）
-    Flag("SCRIBE3_STORYLINE_UI", "0", "故事线 Gantt/情绪 UI", "storyline", "safe"),
-    Flag("SCRIBE3_MULTI_HOP_GRAPH", "0", "事件图多跳 k≥2", "event_graph", "caution"),
-    Flag("SCRIBE3_STAGE_MACHINE", "0", "章节阶段机产品", "chapter_stage", "caution"),
+    # P2 novel-first（产品 soft 默认开；硬门仍关）
+    Flag("SCRIBE3_SOFT_ACTIVATION", "1", "软 lore 激活（L2/L3 可丢）", "soft_activation", "caution"),
+    Flag("SCRIBE3_SOFT_PRECHECK", "1", "大纲/节拍软预检 advisory", "soft_precheck", "safe"),
+    Flag("SCRIBE3_LITERARY_DISTILL", "1", "文学蒸馏原型（启发式）", "literary_distill", "safe"),
+    # 延期产品 backlog（默认开 · 安全硬门仍关）
+    Flag("SCRIBE3_STORYLINE_UI", "1", "故事线 Gantt/情绪 UI", "storyline", "safe"),
+    Flag("SCRIBE3_MULTI_HOP_GRAPH", "1", "事件图多跳 k≥2", "event_graph", "caution"),
+    Flag("SCRIBE3_STAGE_MACHINE", "1", "章节阶段机产品", "chapter_stage", "caution"),
     Flag("SCRIBE3_STAGE_MACHINE_HARD", "0", "阶段非法跳转 hard 409", "chapter_stage", "danger"),
-    Flag("SCRIBE3_PARALLEL_DEDUCE", "0", "并行多视角演绎", "parallel_deduce", "caution"),
-    Flag("SCRIBE3_AGENT_CRON_UI", "0", "agent cron 产品面", "agent_crons", "safe"),
-    Flag("SCRIBE3_BENCHMARK_LIB", "0", "benchmark 参考库", "benchmark_lib", "safe"),
-    Flag("SCRIBE3_STORYLINE_INJECT", "0", "故事线注入 polish 段", "storyline_inject", "caution"),
+    Flag("SCRIBE3_PARALLEL_DEDUCE", "1", "并行多视角演绎", "parallel_deduce", "caution"),
+    Flag("SCRIBE3_AGENT_CRON_UI", "1", "agent cron 产品面", "agent_crons", "safe"),
+    Flag("SCRIBE3_BENCHMARK_LIB", "1", "benchmark 参考库", "benchmark_lib", "safe"),
+    Flag("SCRIBE3_STORYLINE_INJECT", "1", "故事线注入 polish 段", "storyline_inject", "caution"),
 )
 
 

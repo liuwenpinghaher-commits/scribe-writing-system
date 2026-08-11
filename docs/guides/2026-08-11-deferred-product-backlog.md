@@ -2,18 +2,21 @@
 
 安全禁令仍有效：不宣称文学 ≥9.5；默认不 hard park；不以 tokens_saved 为 KPI。
 
-## 旗标（默认全关）
+## 旗标（产品 soft **默认开**；硬门默认关）
 
-| 旗 | 含义 |
-|----|------|
-| `SCRIBE3_STORYLINE_UI` | 故事线 UI |
-| `SCRIBE3_MULTI_HOP_GRAPH` | 事件图 k≥2 |
-| `SCRIBE3_STAGE_MACHINE` | 章节阶段机 |
-| `SCRIBE3_STAGE_MACHINE_HARD` | 非法跳转 409 |
-| `SCRIBE3_PARALLEL_DEDUCE` | 并行演绎 |
-| `SCRIBE3_AGENT_CRON_UI` | cron 产品面 |
-| `SCRIBE3_BENCHMARK_LIB` | benchmark 库 |
-| `SCRIBE3_STORYLINE_INJECT` | 写路径故事线 polish 段 |
+| 旗 | 默认 | 含义 |
+|----|------|------|
+| `SCRIBE3_STORYLINE_UI` | **开** | 故事线 UI |
+| `SCRIBE3_MULTI_HOP_GRAPH` | **开** | 事件图 k≥2 |
+| `SCRIBE3_STAGE_MACHINE` | **开** | 章节阶段机（soft） |
+| `SCRIBE3_STAGE_MACHINE_HARD` | **关** | 非法跳转 409（硬门，引导优先） |
+| `SCRIBE3_PARALLEL_DEDUCE` | **开** | 并行演绎 plan |
+| `SCRIBE3_AGENT_CRON_UI` | **开** | cron 产品面 |
+| `SCRIBE3_BENCHMARK_LIB` | **开** | benchmark 库 |
+| `SCRIBE3_STORYLINE_INJECT` | **开** | 写路径故事线 polish 段 |
+| `SCRIBE3_SOFT_ACTIVATION` / `SOFT_PRECHECK` / `LITERARY_DISTILL` | **开** | P2 soft 能力 |
+
+可用环境变量或设置页覆盖为 `0` 关闭。
 
 ## API
 

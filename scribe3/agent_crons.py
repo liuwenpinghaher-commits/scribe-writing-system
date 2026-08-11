@@ -12,7 +12,7 @@ _OVERRIDES: dict[str, bool] = {}
 
 
 def agent_cron_ui_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_AGENT_CRON_UI") or "0").strip().lower()
+    raw = (os.environ.get("SCRIBE3_AGENT_CRON_UI") or "1").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 

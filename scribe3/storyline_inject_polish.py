@@ -6,7 +6,7 @@ from typing import Any
 
 
 def storyline_inject_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_STORYLINE_INJECT") or "0").strip().lower()
+    raw = (os.environ.get("SCRIBE3_STORYLINE_INJECT") or "1").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 

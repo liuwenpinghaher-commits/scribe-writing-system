@@ -45,7 +45,7 @@ REDLINE_SEGMENT_NAMES: frozenset[str] = frozenset({
 
 
 def soft_activation_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_SOFT_ACTIVATION") or "0").strip().lower()
+    raw = (os.environ.get("SCRIBE3_SOFT_ACTIVATION") or "1").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 
