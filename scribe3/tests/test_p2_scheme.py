@@ -169,7 +169,7 @@ def test_p2_flags_registered():
         "SCRIBE3_DISTRIBUTED_LOCK",
     ):
         assert name in flags
-    assert flag_truthy("SCRIBE3_SOFT_ACTIVATION") is False
+    assert flag_truthy("SCRIBE3_SOFT_ACTIVATION") is True  # 产品 soft 默认开
 
 
 def test_app_impl_wires_chapter_lock_source():
