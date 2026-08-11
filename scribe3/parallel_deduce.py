@@ -166,23 +166,48 @@ def _extract_summary(status: dict[str, Any], events: list[dict[str, Any]] | None
     return ""
 
 
-def _tool_trace_ok(events: list[dict[str, Any]] | None, *, require_get_chapter: bool) -> bool:
+def tool_trace_status(
+    events: list[dict[str, Any]] | None,
+    *,
+    require_get_chapter: bool,
+    events_fetch_ok: bool = True,
+) -> str:
+    """工具痕迹三态：``ok`` | ``missing`` | ``unknown``。
+
+    - 不要求读章（非 preview）→ ok
+    - 事件流拉取失败/空且无法判断 → unknown（**不**当 missing 假红）
+    - 有 events 且见 s3_get_chapter 完成 → ok
+    - 有 events 但无读章 → missing
+    """
     if not require_get_chapter:
-        return True
+        return "ok"
+    if not events_fetch_ok:
+        return "unknown"
     if not events:
-        return False
+        return "unknown"
+    saw_get = False
     for ev in events:
         if not isinstance(ev, dict):
             continue
-        blob = json_like = str(ev)
+        blob = str(ev)
         name = str(ev.get("name") or ev.get("tool") or ev.get("tool_name") or "")
         if "s3_get_chapter" in name or "s3_get_chapter" in blob:
-            # prefer completed
             t = str(ev.get("type") or ev.get("event") or "").lower()
             if "fail" in t or "error" in t:
                 continue
-            return True
-    return False
+            saw_get = True
+            break
+    return "ok" if saw_get else "missing"
+
+
+def _tool_trace_ok(events: list[dict[str, Any]] | None, *, require_get_chapter: bool) -> bool | None:
+    """兼容布尔：ok→True, missing→False, unknown→None（勿当失败红）。"""
+    st = tool_trace_status(events, require_get_chapter=require_get_chapter)
+    if st == "ok":
+        return True
+    if st == "missing":
+        return False
+    return None
 
 
 def complete_deduce_focalizer(
@@ -298,6 +323,7 @@ def complete_deduce_focalizer(
         st = "timeout"
 
     # best-effort events
+    events_fetch_ok = True
     try:
         for ev in rt.run_events(str(run_id), session_key=session_key, timeout=15.0):
             if isinstance(ev, dict):
@@ -305,10 +331,14 @@ def complete_deduce_focalizer(
             if len(events) > 200:
                 break
     except Exception as e:
+        events_fetch_ok = False
         _log.debug("run_events fail-soft: %s", e)
 
     summary = _extract_summary(last_status, events)
-    tool_ok = _tool_trace_ok(events, require_get_chapter=require_get)
+    tstat = tool_trace_status(
+        events, require_get_chapter=require_get, events_fetch_ok=events_fetch_ok,
+    )
+    tool_ok = True if tstat == "ok" else (False if tstat == "missing" else None)
     st = str(
         last_status.get("status")
         or last_status.get("state")
@@ -348,11 +378,13 @@ def complete_deduce_focalizer(
     return {
         "status": status_out,
         "summary": summary,
+        "tool_trace_status": tstat if status_out in ("ok", "degraded") else "unknown",
+        # None = unknown：调用方勿当 fail 红
         "tool_trace_ok": tool_ok if status_out in ("ok", "degraded") else False,
         "run_id": str(run_id),
         "mode": mode,
         "profile": profile,
-        "note": "audit depth: best-effort trace; not full DeduceStage collector",
+        "note": "audit depth: best-effort; tool_trace_status ok|missing|unknown",
     }
 
 
@@ -474,7 +506,11 @@ def execute_parallel_deduce(
                 out = {"summary": str(out), "status": "ok"}
             row["status"] = str(out.get("status") or "error")
             row["summary"] = str(out.get("summary") or out.get("text") or "")[:4000]
-            row["tool_trace_ok"] = bool(out.get("tool_trace_ok", False))
+            # 三态：unknown 时 tool_trace_ok 为 None（勿 bool() 抹掉）
+            if "tool_trace_status" in out:
+                row["tool_trace_status"] = out.get("tool_trace_status")
+            tok = out.get("tool_trace_ok", False)
+            row["tool_trace_ok"] = tok if tok is None or isinstance(tok, bool) else bool(tok)
             if out.get("run_id"):
                 row["run_id"] = out["run_id"]
             if out.get("error"):

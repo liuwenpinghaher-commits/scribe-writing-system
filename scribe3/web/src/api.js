@@ -559,6 +559,7 @@ export const api = {
   benchmarkDelete: (bid) => del(`/benchmarks/${enc(bid)}`),
   softPrecheck: (body, work) => post('/soft-precheck', body || {}, work),
   softEventLed: (body, work) => post('/soft/event-led', body || {}, work),
+  soak: (body, work) => post('/soak', body || {}, work),
   literaryDistill: (body, work) => post('/literary-distill', body || {}, work),
   injectionTrace: () => j('/debug/injection-trace'),
   budgetProbe: (body) => post('/debug/budget-probe', body || {}),

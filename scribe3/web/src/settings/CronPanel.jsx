@@ -56,7 +56,14 @@ export function CronPanel() {
           <h3 className="text-f13 font-medium">Agent Cron</h3>
           <p className="text-f11 text-faint">
             启停覆盖落盘；schedule/script 真源仍是 crons.yaml / provision_hermes。
-            不改 Hermes timer。{!flag && '（产品旗 SCRIBE3_AGENT_CRON_UI 关）'}
+            {!flag && '（产品旗 SCRIBE3_AGENT_CRON_UI 关）'}
+          </p>
+          <p
+            className="mt-1 text-f11 font-medium text-warn leading-snug"
+            data-testid="cron-timer-honesty"
+          >
+            重要：此处开关<strong>只改产品目录 enable 位</strong>，
+            <strong>不会</strong>启停 Hermes/systemd 真实 timer。运维仍以 yaml + provision 为准。
           </p>
         </div>
         <Btn size="sm" onClick={load}>刷新</Btn>

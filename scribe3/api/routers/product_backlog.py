@@ -206,6 +206,65 @@ def benchmarks_advisory_preview_ep(bid: str):
     return build_advisory_preview(bid)
 
 
+def soak_ep(req: dict | None = None, work: str = "main"):
+    """A9：浸泡前置 · 产出 seed_words（不写正典）。
+
+    Body: {seq/chapter, focalizer, dry_run?}
+    dry_run=true 或不传 complete 时只返回 prompt 预览。
+    """
+    payload = req if isinstance(req, dict) else {}
+    seq = int(payload.get("seq") or payload.get("chapter") or 0)
+    focalizer = str(payload.get("focalizer") or "").strip()
+    dry = payload.get("dry_run") in (True, 1, "1", "true", "yes") or not payload.get("execute")
+    if seq < 1:
+        return {"ok": False, "error": "seq_required", "seed_words": [], "surface": "soak"}
+    try:
+        from scribe3.api import app_impl as core
+        st = core._store_for(str(payload.get("work") or work or "main"))
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200], "seed_words": [], "surface": "soak"}
+    from scribe3.soak import build_soak_prompt, parse_soak, soak
+    try:
+        prompt = build_soak_prompt(st, seq, focalizer or "role:default")
+    except Exception as e:
+        return {"ok": False, "error": f"prompt:{e}"[:200], "seed_words": [], "surface": "soak"}
+    if dry:
+        return {
+            "ok": True,
+            "dry_run": True,
+            "prompt_preview": (prompt or "")[:800],
+            "seed_words": [],
+            "surface": "soak",
+            "note": "execute=true 才调 LLM；默认 dry_run",
+        }
+    try:
+        from scribe3.llm import hermes_complete
+        def _fn(p: str) -> str:
+            return str(hermes_complete(p, max_tokens=200) or "")
+    except Exception:
+        def _fn(p: str) -> str:
+            return ""
+    try:
+        out = soak(st, seq, focalizer or "role:default", _fn)
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": str(e)[:200],
+            "seed_words": [],
+            "surface": "soak",
+            "severity": "soft",
+        }
+    return {
+        "ok": True,
+        "dry_run": False,
+        "emotion_arc": out.get("emotion_arc"),
+        "turn": out.get("turn"),
+        "seed_words": out.get("seed_words") or [],
+        "surface": "soak",
+        "note": "seed_words 供写路径外部传入；本端点不自动改 prose",
+    }
+
+
 def storyline_inject_preview_ep(req: dict | None = None):
     """O33：注入 polish 预览。"""
     from scribe3.storyline_inject_polish import build_storyline_inject_segment
@@ -242,6 +301,7 @@ def _bind_and_register() -> None:
         ("benchmarks_delete_ep", "/benchmarks/{bid}", ["DELETE"]),
         ("benchmarks_advisory_preview_ep", "/benchmarks/{bid}/advisory-preview", ["POST"]),
         ("storyline_inject_preview_ep", "/storyline/inject-preview", ["POST"]),
+        ("soak_ep", "/soak", ["POST"]),
     ]
     for name, path, methods in routes:
         fn = g[name]

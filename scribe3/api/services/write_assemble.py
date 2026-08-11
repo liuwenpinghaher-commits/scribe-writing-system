@@ -1258,6 +1258,32 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _soak_block(seed_words),
         )
         _push("seed_words", "supplemental", _sw)
+        # A7：作者粘贴圣经刷分 soft telemetry（不硬拒写 · 不 400）
+        try:
+            rt = (request_text or "").strip()
+            if len(rt) >= 40:
+                from scribe3.memory_must_link import detect_author_restated_canon
+                anchors = []
+                try:
+                    # 轻量：用本章 synopsis/brief 片段作锚（有则）
+                    ch_meta = st.get_chapter(int(chapter)) or {}
+                    syn = str(ch_meta.get("synopsis") or "")
+                    if syn:
+                        anchors.append({"text": syn[:80]})
+                    for bit in re.findall(r"[\u4e00-\u9fff]{2,8}", syn)[:8]:
+                        anchors.append({"text": bit})
+                except Exception:
+                    anchors = []
+                if anchors:
+                    _rr = detect_author_restated_canon(rt, anchors, threshold=0.8)
+                    if _rr.get("restated"):
+                        _budget_report_holder.setdefault("author_restated_canon", _rr)
+                        logging.getLogger("scribe3.write_assemble").info(
+                            "author_restated_canon soft work=%s ch=%s ratio=%s",
+                            work, chapter, _rr.get("ratio"),
+                        )
+        except Exception:
+            pass
         craft = build_craft_block(st.list_craft_rules() or None, short_mode=short_mode)
         if craft:
             _cr = _domain_input(
