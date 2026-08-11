@@ -297,7 +297,7 @@ class ChaptersMixin:
             {"seq": seq, "draft": draft})
 
     def set_craft_compliance(self, seq: int, report: dict | None) -> None:
-        """P2：落 C-Det / 工艺合规摘要（fail-soft 调用方捕获）。"""
+        """P2：落 C-Det / 工艺合规摘要（JSON 串；fail-soft 由调用方捕获）。"""
         import json
         payload = report if isinstance(report, dict) else {}
         try:
@@ -307,7 +307,7 @@ class ChaptersMixin:
         self._execute_write(
             "UPDATE type::record('chapter', $seq) SET "
             "craft_compliance=$c, craft_compliance_at=time::now() RETURN NONE",
-            {"seq": int(seq), "c": payload if isinstance(payload, dict) else {}},
+            {"seq": int(seq), "c": raw},
         )
 
     def get_chapter(self, seq: int) -> dict | None:
