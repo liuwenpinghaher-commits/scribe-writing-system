@@ -129,8 +129,9 @@ def seed_writable_chapter(store, *, force: bool = False) -> dict:
     n = _active_chapter_count(store)
     seq = 1
     if n == 0:
-        created = store.create_chapter(title=CHAPTER_TITLE)
-        seq = int(created.get("seq") or 1)
+        # 固定 seq=1，避免 max_chapter 幽灵号导致跳到 2
+        store.save_chapter(1, "", title=CHAPTER_TITLE, focalizer=None)
+        seq = 1
         out["created"] = True
     else:
         # 取最小 seq 作为演示章
