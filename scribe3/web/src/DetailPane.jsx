@@ -28,6 +28,9 @@ const OverviewView = lazyNamed(() => import('./views/OverviewView'), 'OverviewVi
 const TimelineView = lazyNamed(() => import('./views/TimelineView'), 'TimelineView')
 const JourneyView = lazyNamed(() => import('./views/JourneyView'), 'JourneyView')
 const CanonInboxView = lazyNamed(() => import('./views/CanonInboxView'), 'CanonInboxView')
+const StorylineHub = lazyNamed(() => import('./views/StorylineHub'), 'StorylineHub')
+const BenchmarkLibrary = lazyNamed(() => import('./views/BenchmarkLibrary'), 'BenchmarkLibrary')
+const EventGraphPanel = lazyNamed(() => import('./views/EventGraphPanel'), 'EventGraphPanel')
 
 function DetailLoading() {
   return <div className="h-full grid place-items-center text-f13 text-faint/60">加载视图…</div>
