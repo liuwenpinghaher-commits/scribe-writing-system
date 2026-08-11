@@ -72,7 +72,8 @@ def final_score(candidate: MemoryCandidate, now: datetime, focus_ids: set[str]) 
     # I-2 依赖告警:linked_ids 由 Task 9 捕获管线回填(经验记忆提及的实体 id)。
     #   在回填前 _experiential_candidate 产出的候选 linked_ids 恒空 → 本 bonus 恒 0,
     #   focus 加权对真实记忆【静默不生效】。RetrievalResult.unlinked_count 记此缺口。
-    focus_bonus = 0.15 if candidate.linked_ids & focus_ids else 0.0
+    from scribe3.memory_conflict_heuristic import focus_bonus as _focus_bonus_fn
+    focus_bonus = _focus_bonus_fn(candidate.linked_ids, focus_ids)
     pin_bonus = 0.25 if candidate.pinned else 0.0
     return candidate.rrf_score * importance * confidence * decay + focus_bonus + pin_bonus
 
@@ -83,40 +84,33 @@ def _heuristic_entity_attribute(text: str) -> set[tuple[str, str]]:
 
 
 def _conflict_keys(cand: MemoryCandidate) -> set[tuple[str, str]]:
-    """从候选 provenance 提取 (entity, attribute) 冲突键(与 context_assembler 同口径,
-    保证正典压制在检索层与组装层裁决一致)。
+    """从候选 provenance 提取 (entity, attribute) 冲突键(与 context_assembler 同口径)。
 
     缺 provenance 键时尝试文本弱推断（SCRIBE3_CANON_SUPPRESS_HEURISTIC 默认开）。
     """
-    keys: set[tuple[str, str]] = set()
-    for p in (cand.provenance or []):
-        e, a = p.get("entity"), p.get("attribute")
-        if e and a:
-            keys.add((e, a))
-    if keys:
-        return keys
     import os
-    raw = (os.environ.get("SCRIBE3_CANON_SUPPRESS_HEURISTIC") or "1").strip().lower()
-    if raw in ("0", "false", "off", "no"):
-        return keys
+    from scribe3.memory_conflict_heuristic import conflict_keys_from_parts
+
+    use_h = (os.environ.get("SCRIBE3_CANON_SUPPRESS_HEURISTIC") or "1").strip().lower() not in (
+        "0", "false", "off", "no",
+    )
     text = getattr(cand, "text", None) or getattr(cand, "content", None) or ""
     if not text and isinstance(getattr(cand, "payload", None), dict):
         text = str((cand.payload or {}).get("text") or "")
-    return _heuristic_entity_attribute(str(text))
+    return conflict_keys_from_parts(
+        provenance=list(cand.provenance or []),
+        text=str(text),
+        use_heuristic=use_h,
+    )
 
 
 def _suppress_by_canonical(cands: list[MemoryCandidate]) -> list[RejectedCandidate]:
-    """正典压制:凡 episodic 候选与任一 canonical 同 (entity,attribute) → 压制。
-    只压 episodic(它宣称"发生过什么");reference 是外部参考,绝不参与真假裁决,不压。
+    """正典压制:凡 episodic 与任一 canonical 键冲突 → 压制。
 
-    ⚠ I-1 依赖告警:判据是 episodic 候选 provenance 里的 (entity,attribute)。
-      这两键由 Task 9 捕获管线回填;在回填前 _experiential_candidate 只写
-      source_type/source_ref,不含 entity/attribute → 本压制对真实记忆【静默失效】
-      (手搓 provenance 的单测能触发,真机记忆不能)。RetrievalResult.unconflictable_count
-      记录这类"压制不了的" episodic 数,让缺口可观测。
-    ⚠ M-2 记账:canonical 之间的 supersede/时态裁决不在此层做——canonical 候选由
-      structured 通道从 facts_at(chapter) 直查,已受领域表的时态窗口(valid_from/to)
-      约束,取回的本就是"当章有效正典";检索层不再对 canonical 互相 supersede。"""
+    键匹配走 ``should_suppress_episodic``（精确交 + 的-form 前缀）。
+    """
+    from scribe3.memory_conflict_heuristic import should_suppress_episodic
+
     canon_keys: set[tuple[str, str]] = set()
     for c in cands:
         if c.source_kind == "canonical":
@@ -125,7 +119,9 @@ def _suppress_by_canonical(cands: list[MemoryCandidate]) -> list[RejectedCandida
     if not canon_keys:
         return rejected
     for c in cands:
-        if c.source_kind == "episodic" and (_conflict_keys(c) & canon_keys):
+        if c.source_kind != "episodic":
+            continue
+        if should_suppress_episodic(_conflict_keys(c), canon_keys):
             rejected.append(RejectedCandidate(candidate=c, reason="conflicts_with_canonical"))
     return rejected
 

@@ -447,43 +447,38 @@ def patch_chapter(seq: int, req: ChapterMetaReq, work: str = "main"):
     return _resp
 
 
-class GcdFieldsReq(BaseModel):
-    """GCD 字段微调：仅 beats，拍数守恒（emergency REST 闸外）。"""
-    beats: list = Field(default_factory=list)
-
-
 def patch_chapter_gcd_fields(seq: int, req: GcdFieldsReq, work: str = "main"):
-    """novel-first：作者微调节拍 GCD/text，不开放 synopsis/volume 等 meta。
+    """novel-first / O14：作者微调节拍 GCD/text，不开放 synopsis/volume 等 meta。
 
-    路径 ``PATCH /chapters/{seq}/gcd-fields`` 不在 emergency 世界写闸内。
+    路径：
+    - ``PATCH /chapters/{seq}/gcd-fields``
+    - ``PATCH /chapters/{seq}/beats-fields``（别名，闸外白名单同口径）
+
+    请求体：``GcdFieldsReq``（``api.models``，须在 core globals 以便 FunctionType 重绑）。
     """
-    from scribe3.chapter_gcd_rest import (
-        normalize_beats_for_store,
-        validate_gcd_beats_patch,
-    )
+    from scribe3.chapter_gcd_rest import apply_gcd_beats_patch
     st = _store_for(work)
     ch = st.get_chapter(seq) or {}
-    if not ch and not st.get_chapter(seq):
-        # get may return {} for missing
-        pass
     old_beats = ch.get("beats") if ch else None
     if not ch:
         raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
-    ok, reason = validate_gcd_beats_patch(old_beats, req.beats)
+    ok, reason, normalized = apply_gcd_beats_patch(old_beats, req.beats)
     if not ok:
         raise HTTPException(
             status_code=422,
             detail=f"GCD field patch rejected: {reason}",
         )
     try:
-        written = st.update_chapter_meta(
-            seq, {"beats": normalize_beats_for_store(req.beats)},
-        )
+        written = st.update_chapter_meta(seq, {"beats": normalized})
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     if not written:
         raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
     return {"status": "updated", "seq": seq, "gcd_fields": True}
+
+
+# 闸外别名：与 emergency 白名单 beats-fields 对齐
+patch_chapter_beats_fields = patch_chapter_gcd_fields
 
 
 def list_volumes(work: str = "main"):
@@ -1098,6 +1093,14 @@ def _bind_and_register() -> None:
     g['patch_chapter'] = _re
     router.add_api_route('/chapters/{seq}', _re, methods=['PATCH'], name='patch_chapter')
 
+    # GcdFieldsReq 必须在 core globals（app_impl import * models），否则 rebind 后
+    # FastAPI get_type_hints 失败，把 Body 误判为 query → 422 Field required。
+    try:
+        from scribe3.api.models import GcdFieldsReq as _GcdFieldsReq
+        setattr(core, 'GcdFieldsReq', _GcdFieldsReq)
+        g['GcdFieldsReq'] = _GcdFieldsReq
+    except Exception:
+        pass
     _fn = g['patch_chapter_gcd_fields']
     _re = types.FunctionType(
         _fn.__code__, core.__dict__, 'patch_chapter_gcd_fields',
@@ -1105,11 +1108,20 @@ def _bind_and_register() -> None:
     )
     if _fn.__annotations__:
         _re.__annotations__ = dict(_fn.__annotations__)
+    if getattr(_fn, '__kwdefaults__', None):
+        _re.__kwdefaults__ = dict(_fn.__kwdefaults__)
+    if getattr(_fn, '__doc__', None):
+        _re.__doc__ = _fn.__doc__
     setattr(core, 'patch_chapter_gcd_fields', _re)
     g['patch_chapter_gcd_fields'] = _re
     router.add_api_route(
         '/chapters/{seq}/gcd-fields', _re, methods=['PATCH'],
         name='patch_chapter_gcd_fields',
+    )
+    # emergency 白名单别名
+    router.add_api_route(
+        '/chapters/{seq}/beats-fields', _re, methods=['PATCH'],
+        name='patch_chapter_beats_fields',
     )
 
     _fn = g['list_volumes']

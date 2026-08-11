@@ -172,13 +172,18 @@ def _is_rest_world_write_path(path: str) -> bool:
     # 永久删除仍走 /chapters/{seq} DELETE + impact token,保持在世界写闸内。
     # 形态: /chapters/{seq}/archive|restore|restore-version
     if path.startswith("/chapters/"):
-        rest = path[len("/chapters/"):]
-        parts = [p for p in rest.split("/") if p]
-        if len(parts) == 2 and parts[0].isdigit() and parts[1] in (
-                "archive", "restore", "restore-version",
-                # novel-first：GCD 字段微调闸外（拍数守恒+限长，见 chapter_gcd_rest）
-                "gcd-fields", "beats-fields"):
-            return False
+        # SSOT：chapter_gcd_rest.is_emergency_bypass_chapter_path
+        try:
+            from scribe3.chapter_gcd_rest import is_emergency_bypass_chapter_path
+            if is_emergency_bypass_chapter_path(path):
+                return False
+        except Exception:
+            rest = path[len("/chapters/"):]
+            parts = [p for p in rest.split("/") if p]
+            if len(parts) == 2 and parts[0].isdigit() and parts[1] in (
+                    "archive", "restore", "restore-version",
+                    "gcd-fields", "beats-fields"):
+                return False
     for p in _REST_WORLD_WRITE_PREFIXES:
         if path == p or path.startswith(p + "/"):
             return True

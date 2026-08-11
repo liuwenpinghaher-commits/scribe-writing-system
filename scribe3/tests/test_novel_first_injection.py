@@ -501,45 +501,112 @@ def test_epistemic_fail_loud_flag():
 
 
 def test_focus_bonus_formula_with_linked_ids():
-    """O7：focus_bonus 在 linked_ids 相交时生效（shipped final_score）。"""
-    from datetime import datetime, timezone
-    from types import SimpleNamespace
-    # Import final_score without full pydantic path if possible
+    """O7：shipped focus_bonus 纯函数 + retrieval 接线。"""
+    from scribe3.memory_conflict_heuristic import focus_bonus
+    assert focus_bonus(set(), {"char:alice"}) == 0.0
+    assert focus_bonus({"char:alice"}, {"char:alice"}) == 0.15
+    assert focus_bonus({"char:bob"}, {"char:alice"}) == 0.0
+    src = open("scribe3/memory_retrieval.py", encoding="utf-8").read()
+    assert "focus_bonus as _focus_bonus_fn" in src or "_focus_bonus_fn" in src
+    # 若 pydantic 可用，再驱动 final_score
     try:
+        from datetime import datetime, timezone
+        from types import SimpleNamespace
         from scribe3.memory_retrieval import final_score
+        now = datetime.now(timezone.utc)
+        base = dict(
+            source_kind="episodic", rrf_score=1.0, importance=1.0, confidence=1.0,
+            pinned=False, observed_at=now, linked_ids=set(),
+        )
+        s0 = final_score(SimpleNamespace(**base), now, {"char:alice"})
+        s1 = final_score(SimpleNamespace(**{**base, "linked_ids": {"char:alice"}}), now, {"char:alice"})
+        assert abs((s1 - s0) - 0.15) < 1e-9
     except ModuleNotFoundError as e:
-        if "pydantic" in str(e).lower():
-            # host slim: re-check formula via source + heuristic only
-            src = open("scribe3/memory_retrieval.py", encoding="utf-8").read()
-            assert "focus_bonus = 0.15 if candidate.linked_ids & focus_ids" in src
-            return
-        raise
-    now = datetime.now(timezone.utc)
-    base = dict(
-        source_kind="episodic",
-        rrf_score=1.0,
-        importance=1.0,
-        confidence=1.0,
-        pinned=False,
-        observed_at=now,
-        linked_ids=set(),
-    )
-    c0 = SimpleNamespace(**base)
-    c1 = SimpleNamespace(**{**base, "linked_ids": {"char:alice"}})
-    s0 = final_score(c0, now, {"char:alice"})
-    s1 = final_score(c1, now, {"char:alice"})
-    assert s1 > s0
-    assert abs((s1 - s0) - 0.15) < 1e-9
+        if "pydantic" not in str(e).lower():
+            raise
 
 
 def test_conflict_keys_heuristic_via_suppress_path():
-    from scribe3.memory_conflict_heuristic import heuristic_entity_attribute
-    keys = heuristic_entity_attribute("铜炉的秘密:隐秘议程 与 张三的刀法")
-    assert keys
-    # memory_retrieval wrappers
+    """O7：structured (张三,刀法) vs 文本「张三的刀法很强」应 suppress。"""
+    from scribe3.memory_conflict_heuristic import (
+        conflict_keys_from_parts,
+        heuristic_entity_attribute,
+        should_suppress_episodic,
+    )
+    epi = heuristic_entity_attribute("张三的刀法很强")
+    assert ("张三", "刀法") in epi or any(e == "张三" and a.startswith("刀法") for e, a in epi)
+    canon = {("张三", "刀法")}
+    assert should_suppress_episodic(epi, canon) is True
+    # conflict_keys_from_parts：有 structured 则不用启发式
+    only = conflict_keys_from_parts(
+        provenance=[{"entity": "张三", "attribute": "刀法"}],
+        text="无关文本",
+        use_heuristic=True,
+    )
+    assert only == {("张三", "刀法")}
+    # 无 provenance 走启发式
+    h = conflict_keys_from_parts(provenance=[], text="张三的刀法很强", use_heuristic=True)
+    assert should_suppress_episodic(h, canon)
     src = open("scribe3/memory_retrieval.py", encoding="utf-8").read()
-    assert "heuristic_entity_attribute" in src
-    assert "SCRIBE3_CANON_SUPPRESS_HEURISTIC" in src
+    assert "should_suppress_episodic" in src
+
+
+
+
+def test_gcd_fields_req_in_models_and_handler_pure():
+    """O14：闸外路径 SSOT + apply_gcd_beats_patch 真路径 + 前端接线。"""
+    from scribe3.chapter_gcd_rest import (
+        apply_gcd_beats_patch,
+        is_emergency_bypass_chapter_path,
+        validate_gcd_beats_patch,
+    )
+    assert is_emergency_bypass_chapter_path("/chapters/3/gcd-fields") is True
+    assert is_emergency_bypass_chapter_path("/chapters/3/beats-fields") is True
+    assert is_emergency_bypass_chapter_path("/chapters/3") is False
+    assert is_emergency_bypass_chapter_path("/chapters/3/archive") is True
+    old = [{"text": "a", "goal": "g", "conflict": "c"}]
+    new = [{"text": "ab", "goal": "g", "conflict": "c"}]
+    ok, reason, norm = apply_gcd_beats_patch(old, new)
+    assert ok and norm and norm[0]["text"] == "ab"
+    bad_ok, bad_r, bad_n = apply_gcd_beats_patch(
+        old, [{"text": "only"}, {"text": "extra"}],
+    )
+    assert not bad_ok and bad_n is None and bad_r == "beat_count_changed"
+    # app_impl 接线
+    src = open("scribe3/api/app_impl.py", encoding="utf-8").read()
+    assert "is_emergency_bypass_chapter_path" in src
+    chs = open("scribe3/api/routers/chapters.py", encoding="utf-8").read()
+    assert "gcd-fields" in chs and "beats-fields" in chs
+    assert "apply_gcd_beats_patch" in chs
+    models = open("scribe3/api/models.py", encoding="utf-8").read()
+    assert "class GcdFieldsReq" in models
+    api = open("scribe3/web/src/api.js", encoding="utf-8").read()
+    assert "patchChapterGcdFields" in api
+    studio = open("scribe3/web/src/ChapterStudio.jsx", encoding="utf-8").read()
+    assert "patchChapterGcdFields" in studio
+    assert "patchChapter(seq, { beats }" not in studio
+
+
+
+def test_patch_chapter_gcd_fields_handler_with_stub_store():
+    """无 FastAPI 时仍驱动 apply_gcd_beats_patch 作为 handler 核心。"""
+    from scribe3.chapter_gcd_rest import apply_gcd_beats_patch
+    old = [
+        {"text": "a", "goal": "g1", "conflict": "c1"},
+        {"text": "b", "goal": "g2", "conflict": "c2"},
+    ]
+    new = [
+        {"text": "a2", "goal": "g1", "conflict": "c1"},
+        {"text": "b2", "goal": "g2", "conflict": "c2"},
+    ]
+    ok, reason, norm = apply_gcd_beats_patch(old, new)
+    assert ok and norm[0]["text"] == "a2"
+    # simulate store write
+    store = {"beats": old}
+    if ok:
+        store["beats"] = norm
+    assert store["beats"][1]["text"] == "b2"
+
 
 
 if __name__ == "__main__":

@@ -573,6 +573,8 @@ export const api = {
   // 改章梗概/卷/标签/标题(不碰正文/embedding/qc)
   // work 可选:大纲/节拍卸载兜底 flush 传入捕获的 work,钉死目标书,防切书写错书(F5,同 saveDraft/saveChapter)。
   patchChapter: (seq, b, work) => patch('/chapters/' + seq, b, work),
+  // O14 / emergency 闸外：仅 beats GCD 微调（拍数守恒）；勿用 patchChapter 存 GCD 面板
+  patchChapterGcdFields: (seq, b, work) => patch('/chapters/' + seq + '/gcd-fields', b, work),
   // work 可选:演绎卸载兜底 flush 读现状(合并 deductions)时钉住目标书,防切书读错书(F6,同 patchChapter 钉书)。
   chapter: (seq, work) => fetch(BASE + ww(`/chapter?seq=${seq}`, work)).then(handle),
   // 角色投影只能以服务端场景真相为证据审查；客户端不传 source，避免伪造事实来源。

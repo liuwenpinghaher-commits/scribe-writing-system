@@ -67,3 +67,32 @@ def validate_gcd_beats_patch(
 def normalize_beats_for_store(new_beats: Any) -> list:
     """浅拷贝 list，供 update_chapter_meta。"""
     return _as_beat_list(new_beats)
+
+
+def is_emergency_bypass_chapter_path(path: str) -> bool:
+    """是否 emergency 世界写闸旁路的章节子路径（无 FastAPI）。
+
+    与 ``app_impl._is_rest_world_write_path`` 白名单一致：
+    archive|restore|restore-version|gcd-fields|beats-fields。
+    """
+    if not path.startswith("/chapters/"):
+        return False
+    rest = path[len("/chapters/"):]
+    parts = [p for p in rest.split("/") if p]
+    if len(parts) == 2 and parts[0].isdigit() and parts[1] in (
+        "archive", "restore", "restore-version",
+        "gcd-fields", "beats-fields",
+    ):
+        return True
+    return False
+
+
+def apply_gcd_beats_patch(
+    old_beats: Any,
+    new_beats: Any,
+) -> tuple[bool, str, list | None]:
+    """shipped 闸外写的核心：校验 + 规范化。返回 (ok, reason, normalized_or_None)。"""
+    ok, reason = validate_gcd_beats_patch(old_beats, new_beats)
+    if not ok:
+        return False, reason, None
+    return True, "", normalize_beats_for_store(new_beats)

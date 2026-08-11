@@ -374,6 +374,15 @@ class ChapterMetaReq(BaseModel):
     # 节拍 v2 元数据（schema/chapter_hook/beats_source/drama_validation）；JSON 串或 dict
     beats_meta: dict | str | None = None
 
+
+class GcdFieldsReq(BaseModel):
+    """GCD 字段微调：仅 beats，拍数守恒（emergency REST 闸外 · O14）。
+
+    必须放在 ``api.models``（经 app_impl ``import *`` 进入 core globals），
+    以便 chapters 路由 FunctionType 重绑后 FastAPI 仍能解析 Body 类型。
+    """
+    beats: list = Field(default_factory=list)
+
     @field_validator("label")
     @classmethod
     def _validate_label(cls, value):

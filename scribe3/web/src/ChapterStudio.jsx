@@ -366,7 +366,8 @@ function BeatsTab({ seq, work, value, meta, onSaved }) {
     setSaving(true)
     try {
       // 整表回写:保留 id/kind/density/budget/pov/done 等既有键,仅 GCD/text 由本面板改。
-      await api.patchChapter(seq, { beats }, work)
+      // emergency REST 默认关：PATCH /chapters/{seq} 403；GCD 走闸外 gcd-fields
+      await api.patchChapterGcdFields(seq, { beats }, work)
       setDirty(false)
       toast('节拍已保存', { tone: 'ok' })
       onSaved?.()
@@ -485,7 +486,7 @@ function BeatsTab({ seq, work, value, meta, onSaved }) {
         })}
       </div>
       <div className="text-f12 text-faint leading-snug">
-        {dirty ? '有未保存更改 · 点「保存节拍」写入章 meta。' : 'GCD 字段有值时自动展卡；无则点「补戏剧卡」。保存走 patchChapter(beats)。'}
+        {dirty ? '有未保存更改 · 点「保存节拍」写入章 meta。' : 'GCD 字段有值时自动展卡；无则点「补戏剧卡」。保存走 PATCH …/gcd-fields（闸外）。'}
       </div>
     </div>
   )
