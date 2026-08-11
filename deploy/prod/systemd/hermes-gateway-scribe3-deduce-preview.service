@@ -1,0 +1,25 @@
+[Unit]
+Description=Hermes gateway profile scribe3_deduce_preview (API :8646)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/.hermes/profiles/scribe3_deduce_preview
+Environment=HOME=/home/ubuntu
+Environment=HERMES_HOME=/home/ubuntu/.hermes/profiles/scribe3_deduce_preview
+Environment=VIRTUAL_ENV=/home/ubuntu/.hermes/hermes-agent/venv
+Environment=PATH=/home/ubuntu/.hermes/hermes-agent/venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=API_SERVER_PORT=8646
+Environment=API_SERVER_HOST=127.0.0.1
+ExecStart=/home/ubuntu/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main --profile scribe3_deduce_preview gateway run --replace
+Restart=always
+RestartSec=5
+TimeoutStopSec=240
+StandardOutput=append:/opt/scribe3/logs/hermes-scribe3_deduce_preview.log
+StandardError=append:/opt/scribe3/logs/hermes-scribe3_deduce_preview.err.log
+
+[Install]
+WantedBy=multi-user.target
