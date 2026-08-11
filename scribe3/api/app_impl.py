@@ -238,7 +238,58 @@ _chapter_repair_inflight: set[tuple[str, int]] = set()
 _chapter_repair_lock = threading.Lock()
 
 
-def _acquire_chapter_repair(work: str, seq: int) -> None:
+def _db_lock_on() -> bool:
+    try:
+        from scribe3.surreal_flags import db_inflight_lock
+        return db_inflight_lock()
+    except Exception:
+        return False
+
+
+def _acquire_op_mutex(work: str, seq: int, op: str, *, detail: str) -> None:
+    """S-3: flag 开 → DB inflight 锁；关 → 进程内 set（兼容单 worker）。"""
+    if _db_lock_on():
+        from scribe3.inflight_lock import acquire_chapter_op
+        st = _store_for(work)
+        r = acquire_chapter_op(st, work, int(seq), op)
+        if not r.ok:
+            raise HTTPException(status_code=409, detail=detail)
+        return
+    if op == "loop":
+        key = (work, int(seq))
+        with _loop_inflight_lock:
+            if key in _loop_inflight:
+                raise HTTPException(status_code=409, detail=detail)
+            _loop_inflight.add(key)
+        return
+    if op == "repair":
+        _acquire_chapter_repair_mem(work, int(seq))
+        return
+    # generic process set reuse loop set with op tag in key via repair set
+    key = (work, int(seq))
+    with _loop_inflight_lock:
+        if key in _loop_inflight:
+            raise HTTPException(status_code=409, detail=detail)
+        _loop_inflight.add(key)
+
+
+def _release_op_mutex(work: str, seq: int, op: str) -> None:
+    if _db_lock_on():
+        from scribe3.inflight_lock import release_chapter_op
+        try:
+            st = _store_for(work)
+            release_chapter_op(st, work, int(seq), op)
+        except Exception:
+            pass
+        return
+    if op == "repair":
+        _release_chapter_repair_mem(work, int(seq))
+        return
+    with _loop_inflight_lock:
+        _loop_inflight.discard((work, int(seq)))
+
+
+def _acquire_chapter_repair_mem(work: str, seq: int) -> None:
     key = (work, seq)
     with _chapter_repair_lock:
         if key in _chapter_repair_inflight:
@@ -247,9 +298,20 @@ def _acquire_chapter_repair(work: str, seq: int) -> None:
         _chapter_repair_inflight.add(key)
 
 
-def _release_chapter_repair(work: str, seq: int) -> None:
+def _release_chapter_repair_mem(work: str, seq: int) -> None:
     with _chapter_repair_lock:
         _chapter_repair_inflight.discard((work, seq))
+
+
+def _acquire_chapter_repair(work: str, seq: int) -> None:
+    _acquire_op_mutex(
+        work, int(seq), "repair",
+        detail=f"第 {seq} 章正在执行质量修复，完成后请重新检查再操作",
+    )
+
+
+def _release_chapter_repair(work: str, seq: int) -> None:
+    _release_op_mutex(work, int(seq), "repair")
 
 
 def _exclusive_chapter_repair(handler):

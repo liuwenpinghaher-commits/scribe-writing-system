@@ -121,6 +121,12 @@ class TTLCache:
             for k in [k for k, (_e, w, _v) in self._d.items() if w == work]:
                 self._d.pop(k, None)
 
+    def invalidate_by_table(self, table: str, work=None):
+        """S-2: 表级失效入口（与 emit_invalidation 广播一致，可被 changefeed 调用）。"""
+        if self.tables and table not in self.tables:
+            return
+        self.invalidate(work)
+
     def clear(self):
         self.invalidate(None)
 
@@ -174,7 +180,7 @@ def emit_invalidation(table: str, work: str | None = None) -> None:
     """表级失效事件:清订阅该表的缓存;正典表额外 bump authority_revision。
 
     正典写入 / 记忆 supersede / 素材 archive·pin 的 store 写点调用本函数。
-    best-effort、绝不抛错(失效比命中优先,但也绝不阻断写主链路)。"""
+    Changefeed 消费者亦可调用（S-2）。best-effort、绝不抛错。"""
     try:
         with _REGISTRY_LOCK:
             _invalidation_counts[table] = _invalidation_counts.get(table, 0) + 1
@@ -183,10 +189,15 @@ def emit_invalidation(table: str, work: str | None = None) -> None:
             _bump_authority(work)
         for cache in caches:
             if not cache.tables or table in cache.tables:
-                cache.invalidate(work)
+                cache.invalidate_by_table(table, work)
     except Exception:
         # 失效登记/广播的任何异常都不得冒泡到写路径(写正确性 > 缓存卫生)。
         pass
+
+
+def invalidate_by_table(table: str, work: str | None = None) -> None:
+    """S-2 公开别名：按表失效（与 emit_invalidation 同路径）。"""
+    emit_invalidation(table, work)
 
 
 def invalidation_counts() -> dict:

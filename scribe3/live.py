@@ -12,8 +12,6 @@ import asyncio
 import json
 import os
 
-from surrealdb import AsyncSurreal
-
 
 def _live_credentials() -> tuple[str, str]:
     """与 SurrealStore 一致:env → 设置中心 → 开发默认 root。"""
@@ -33,8 +31,49 @@ def _live_credentials() -> tuple[str, str]:
     return user or "root", password or "root"
 
 
+def _normalize_live_note(table: str, note) -> dict:
+    """S-8: 从 LIVE 通知提取 action + id + 可选 fields；始终含 table（旧客户端兼容）。"""
+    payload: dict = {"table": table}
+    try:
+        from scribe3.surreal_flags import live_granular
+        granular = live_granular()
+    except Exception:
+        granular = True
+    if not granular or note is None:
+        return payload
+    action = None
+    rid = None
+    fields = None
+    if isinstance(note, dict):
+        action = note.get("action") or note.get("type") or note.get("op")
+        rid = note.get("id") or note.get("record") or note.get("thing")
+        val = note.get("result") or note.get("value") or note.get("after")
+        if isinstance(val, dict):
+            fields = {k: val.get(k) for k in list(val.keys())[:12]}
+            rid = rid or val.get("id")
+        elif val is not None and rid is None:
+            rid = str(val)
+    else:
+        # 部分 SDK 推 record id 字符串
+        s = str(note)
+        if ":" in s and len(s) < 200:
+            rid = s
+    if action:
+        payload["action"] = str(action)
+    if rid is not None:
+        payload["id"] = str(rid)
+    if fields:
+        payload["fields"] = fields
+    return payload
+
+
 async def live_stream(url: str, ns: str, db: str, tables: list[str]):
-    """异步生成器:产出 SSE 行。任一表 CREATE/UPDATE/DELETE → 推 {"table": 名}。"""
+    """异步生成器:产出 SSE 行。
+
+    S-8: 推送 ``{table, action?, id?, fields?}``；仅读 table 的旧前端仍可用。
+    """
+    from surrealdb import AsyncSurreal
+
     q: asyncio.Queue = asyncio.Queue()
     tasks: list = []
     user, password = _live_credentials()
@@ -46,8 +85,8 @@ async def live_stream(url: str, ns: str, db: str, tables: list[str]):
             await c.use(ns, db)
             quuid = await c.live(table)
             gen = await c.subscribe_live(quuid)
-            async for _note in gen:
-                await q.put(table)
+            async for note in gen:
+                await q.put(_normalize_live_note(table, note))
         finally:
             # 取消可能发生在 signin/use 期间；此时客户端尚未完成订阅，
             # 也不能依赖外层的已订阅连接列表兜底关闭。
@@ -63,8 +102,10 @@ async def live_stream(url: str, ns: str, db: str, tables: list[str]):
         yield "retry: 3000\ndata: {\"table\": \"_init\"}\n\n"
         while True:
             try:
-                table = await asyncio.wait_for(q.get(), timeout=15)
-                yield f"data: {json.dumps({'table': table})}\n\n"
+                payload = await asyncio.wait_for(q.get(), timeout=15)
+                if isinstance(payload, str):
+                    payload = {"table": payload}
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
             except asyncio.TimeoutError:
                 yield ": keepalive\n\n"          # SSE 注释行保活
     finally:

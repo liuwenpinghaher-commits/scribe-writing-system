@@ -58,8 +58,25 @@ class RecallMixin:
         return facts[:k]
 
     def hybrid_recall(self, query: str, chapter: int, k: int = 5) -> list[Fact]:
-        """混合召回:向量路 + 关键词路 → RRF 融合排名(未来加图遍历路)。
-        限知时间门(chapter)过滤未来事实。"""
+        """混合召回:向量路 + 关键词路 → RRF 融合排名。
+
+        S-1: SCRIBE3_HYBRID_SEARCH_NATIVE=1 时走**单程** SurQL（双通道一次往返 + 融合）；
+        失败/flag 关回退 legacy 双查询 + Python RRF。
+        限知时间门(chapter)过滤未来事实。
+        """
+        try:
+            from scribe3.surreal_flags import hybrid_search_native
+            if hybrid_search_native():
+                out = self._hybrid_recall_native(query, chapter, k=k)
+                if out is not None:
+                    return out
+        except Exception:
+            logging.getLogger("scribe3.store").debug(
+                "hybrid_recall native fail→legacy", exc_info=True)
+        return self._hybrid_recall_legacy(query, chapter, k=k)
+
+    def _hybrid_recall_legacy(self, query: str, chapter: int, k: int = 5) -> list[Fact]:
+        """Legacy: 两次 DB 往返 + Python RRF。"""
         vector_results = self.semantic_recall(query, k=min(k * 3, 20), chapter=chapter)
         keyword_results = _keyword_search_propositions(self, query, chapter, top_k=k * 2)
 
@@ -70,7 +87,6 @@ class RecallMixin:
         top_ids = [item_id for item_id, _ in fused[:k]]
 
         all_facts = {f.id: f for f in vector_results + keyword_results}
-        # 双保险:融合结果再过一遍 chapter 时间门(防某一路漏滤)
         ch = int(chapter)
         out = []
         for fid in top_ids:
@@ -82,6 +98,169 @@ class RecallMixin:
             if f.valid_to is not None and f.valid_to <= ch:
                 continue
             out.append(f)
+        return out
+
+    def _hybrid_recall_native(self, query: str, chapter: int, k: int = 5) -> list[Fact] | None:
+        """单程混合：一次 _query 取向量候选 + 关键词候选，再 RRF（或 search::rrf）。
+
+        返回 None 表示应回退 legacy。
+        """
+        from scribe3.embed import embed
+        import jieba
+
+        ch = int(chapter)
+        kk = min(max(int(k) * 3, int(k)), 20)
+        ef = max(40, kk)
+        qv = embed([query or ""])[0]
+        kws = [w for w in jieba.cut(query or "") if len(w.strip()) >= 2]
+        kw0 = kws[0] if kws else (query or "")[:8]
+        # 单脚本：两路结果一次返回（减少往返）；融合仍用已测 _reciprocal_rank_fusion
+        # 可选 search::rrf 在 ids 上做实验，失败则 Python RRF
+        bundle = self._query(
+            "LET $vs = ("
+            "  SELECT meta::id(id) AS local, entity_id, attribute, value, valid_from, valid_to, "
+            "  secret, leak_markers, vector::distance::knn() AS dist "
+            f"  FROM proposition WHERE embedding <|{kk},{ef}|> $qv "
+            "  AND (archived = NONE OR archived != true) ORDER BY dist"
+            "); "
+            "LET $ft = ("
+            "  SELECT meta::id(id) AS local, entity_id, attribute, value, valid_from, valid_to, "
+            "  secret, leak_markers FROM proposition "
+            "  WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch) "
+            "  AND (archived = NONE OR archived != true) "
+            "  AND string::lowercase(value) CONTAINS string::lowercase($kw) "
+            "  LIMIT $tk"
+            "); "
+            "RETURN { vs: $vs, ft: $ft };",
+            {"qv": qv, "ch": ch, "kw": kw0, "tk": int(k) * 2},
+        )
+        if not bundle:
+            return None
+        row0 = bundle[0] if isinstance(bundle, list) else bundle
+        if not isinstance(row0, dict):
+            return None
+        # 部分驱动把 RETURN 包一层
+        if "vs" not in row0 and isinstance(row0.get("result"), dict):
+            row0 = row0["result"]
+        vs_rows = row0.get("vs") or []
+        ft_rows = row0.get("ft") or []
+        if not isinstance(vs_rows, list):
+            vs_rows = []
+        if not isinstance(ft_rows, list):
+            ft_rows = []
+
+        def _fact(r):
+            return Fact(
+                f"fact:{r['local']}", r.get("entity_id") or "",
+                r["attribute"], r["value"], r["valid_from"],
+                r.get("valid_to"), r.get("secret", False), r.get("leak_markers", []),
+            )
+
+        vector_results = []
+        for r in vs_rows:
+            if not isinstance(r, dict) or not r.get("local"):
+                continue
+            f = _fact(r)
+            if f.valid_from <= ch and (f.valid_to is None or f.valid_to > ch):
+                vector_results.append(f)
+        keyword_results = [_fact(r) for r in ft_rows if isinstance(r, dict) and r.get("local")]
+
+        vec_ids = [f.id for f in vector_results]
+        kw_ids = [f.id for f in keyword_results]
+        # 优先尝试 DB search::rrf（id 列表）；失败则 Python
+        fused_ids: list[str] = []
+        try:
+            rrf = self._query(
+                "RETURN search::rrf([$a, $b], $lim, 60);",
+                {"a": vec_ids, "b": kw_ids, "lim": int(k)},
+            )
+            if rrf and isinstance(rrf, list) and rrf[0]:
+                raw = rrf[0]
+                if isinstance(raw, list):
+                    fused_ids = [str(x) for x in raw][:k]
+        except Exception:
+            fused_ids = []
+        if not fused_ids:
+            fused = _reciprocal_rank_fusion(vec_ids, kw_ids, k=60)
+            fused_ids = [item_id for item_id, _ in fused[:k]]
+
+        all_facts = {f.id: f for f in vector_results + keyword_results}
+        out = []
+        for fid in fused_ids:
+            f = all_facts.get(fid)
+            if f is None:
+                continue
+            if f.valid_from > ch:
+                continue
+            if f.valid_to is not None and f.valid_to <= ch:
+                continue
+            out.append(f)
+        return out
+
+    def causal_chain(
+        self,
+        event_id: str,
+        *,
+        direction: str = "forward",
+        max_depth: int = 10,
+    ) -> list[dict]:
+        """S-4: 递归因果链。direction=forward|backward；深度封顶。
+
+        返回 [{id, title, seq}, ...] 链节点（含起点时依赖查询形态）。
+        """
+        eid = (event_id or "").strip()
+        if eid.startswith("event:"):
+            eid = eid.split(":", 1)[-1]
+        if not eid:
+            return []
+        depth = max(1, min(int(max_depth), 20))
+        if (direction or "forward").lower().startswith("back"):
+            arrow = f"<-causal(..{depth})<-event"
+        else:
+            arrow = f"->causal(..{depth})->event"
+        try:
+            rows = self._query(
+                f"SELECT meta::id(id) AS local, title, seq, "
+                f"{arrow}.{{id, title, seq}} AS chain "
+                f"FROM type::record('event', $eid);",
+                {"eid": eid},
+            ) or []
+        except Exception:
+            # 兼容无递归语法时的 1 跳
+            try:
+                rows = self._query(
+                    "SELECT meta::id(id) AS local, title, seq, "
+                    "->causal->event.{id, title, seq} AS chain "
+                    "FROM type::record('event', $eid);",
+                    {"eid": eid},
+                ) or []
+            except Exception:
+                return []
+        if not rows:
+            return []
+        r0 = rows[0] if isinstance(rows, list) else rows
+        if not isinstance(r0, dict):
+            return []
+        chain = r0.get("chain") or []
+        if not isinstance(chain, list):
+            chain = [chain] if chain else []
+        out: list[dict] = []
+        # 起点
+        out.append({
+            "id": f"event:{r0.get('local') or eid}",
+            "title": r0.get("title"),
+            "seq": r0.get("seq"),
+        })
+        for node in chain:
+            if isinstance(node, dict):
+                nid = node.get("id") or node.get("local")
+                out.append({
+                    "id": str(nid) if nid else None,
+                    "title": node.get("title"),
+                    "seq": node.get("seq"),
+                })
+            else:
+                out.append({"id": str(node), "title": None, "seq": None})
         return out
 
     def list_knowers_for_proposition(self, prop_local: str, chapter: int) -> list[dict]:

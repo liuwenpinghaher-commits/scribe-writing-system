@@ -65,20 +65,17 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
     from scribe3.loop import run_chapter_loop
     from scribe3.pipeline_journal import PipelineJournal
     st = _store_for(work)
-    # P0门审查 P1-3:同章 loop 互斥——在途拒 409,防双生成/双落库/双 ingest。
-    _lkey = (work, req.chapter)
-    with _loop_inflight_lock:
-        if _lkey in _loop_inflight:
-            raise HTTPException(status_code=409,
-                                detail=f"chapter {req.chapter} 已有 loop 在途(同章互斥)")
-        _loop_inflight.add(_lkey)
+    # P0门审查 P1-3 / S-3:同章 loop 互斥（进程内 set 或 DB inflight）
+    _acquire_op_mutex(
+        work, req.chapter, "loop",
+        detail=f"chapter {req.chapter} 已有 loop 在途(同章互斥)",
+    )
     # P2门审查 P2-1(loop 侧同修):journal 构造若抛异常须释放互斥,否则该章永久 409。
     try:
         jp = _loop_journal_path(work, req.chapter)
         journal = PipelineJournal(jp)
     except Exception:
-        with _loop_inflight_lock:
-            _loop_inflight.discard(_lkey)
+        _release_op_mutex(work, req.chapter, "loop")
         raise
 
     def _generate(attempt: int, constraints: str) -> str:
@@ -209,8 +206,7 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
                                   post_check=_post_check, persist_version=_persist_version,
                                   finalize=_finalize, journal=journal)
     finally:
-        with _loop_inflight_lock:
-            _loop_inflight.discard(_lkey)
+        _release_op_mutex(work, req.chapter, "loop")
     # 遗留处置 1-A:熔断数据源。审查 P2-1:记"S1 是某轮唯一 blocking 来源"而非"S1 出现
     # 过"——与泄密/退化同场时章确有硬伤,S1 非决定性,计入会污染误杀率分子、熔断偏易开。
     def _s1_sole_blocking(rounds):

@@ -1,0 +1,7 @@
+-- S-2: 关键表启用 Changefeed（1h）。不 OVERWRITE SCHEMAFULL，避免抹字段。
+-- 若已有表定义冲突，SCHEMA_SOFT 可吞非致命错误。
+DEFINE TABLE proposition CHANGEFEED 1h;
+DEFINE TABLE memory_item CHANGEFEED 1h;
+DEFINE TABLE material CHANGEFEED 1h;
+DEFINE TABLE chapter CHANGEFEED 1h;
+DEFINE TABLE character CHANGEFEED 1h;

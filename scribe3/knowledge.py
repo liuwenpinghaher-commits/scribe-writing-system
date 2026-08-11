@@ -24,7 +24,20 @@ class KnowledgeFrame:
 def project_frame(world: World, knower_id: str, chapter: int, edges=None) -> KnowledgeFrame:
     """投影 knower 在 chapter 的知识帧。
     knower='world' → 全知真相(一致性裁判);否则 = 有 KnowledgeEdge 的事实。
-    edges: 可选预加载的知识边列表(避免 dramatic_irony 重复全扫,去 N+1)。"""
+    edges: 可选预加载的知识边列表(避免 dramatic_irony 重复全扫,去 N+1)。
+
+    S-5: SCRIBE3_DB_KNOWLEDGE_FRAME=1 且 store 支持时优先 ``fn::knowledge_frame``；
+    失败回退 Python 边过滤。
+    """
+    if knower_id != "world":
+        try:
+            from scribe3.surreal_flags import db_knowledge_frame
+            if db_knowledge_frame() and hasattr(world, "_query"):
+                framed = _project_frame_db(world, knower_id, int(chapter))
+                if framed is not None:
+                    return framed
+        except Exception:
+            pass
     facts_now = world.facts_at(chapter)
     if knower_id == "world":
         return KnowledgeFrame("world", chapter, list(facts_now))
@@ -38,6 +51,43 @@ def project_frame(world: World, knower_id: str, chapter: int, edges=None) -> Kno
     }
     return KnowledgeFrame(knower_id, chapter,
                           [f for f in facts_now if f.id in known_ids])
+
+
+def _project_frame_db(store, knower_id: str, chapter: int) -> KnowledgeFrame | None:
+    """DB 侧投影；失败返回 None。"""
+    from scribe3.ontology import Fact
+    try:
+        rows = store._query(
+            "RETURN fn::knowledge_frame($k, $ch);",
+            {"k": knower_id, "ch": int(chapter)},
+        ) or []
+    except Exception:
+        return None
+    raw = rows[0] if rows else None
+    if raw is None:
+        return KnowledgeFrame(knower_id, int(chapter), [])
+    if isinstance(raw, dict) and "local" in raw:
+        raw = [raw]
+    if not isinstance(raw, list):
+        return None
+    facts: list[Fact] = []
+    for r in raw:
+        if not isinstance(r, dict):
+            continue
+        local = r.get("local")
+        if not local:
+            continue
+        facts.append(Fact(
+            f"fact:{local}",
+            r.get("entity_id") or "",
+            r.get("attribute") or "",
+            r.get("value"),
+            int(r.get("valid_from") or 0),
+            r.get("valid_to"),
+            bool(r.get("secret", False)),
+            r.get("leak_markers") or [],
+        ))
+    return KnowledgeFrame(knower_id, int(chapter), facts)
 
 
 def dramatic_irony(world, focalizer: str, chapter: int) -> list[Fact]:
