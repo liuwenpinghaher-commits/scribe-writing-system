@@ -4,7 +4,8 @@
 -- 全部 IF NOT EXISTS:启动可重复 apply 幂等(SurrealDB 3.x DEFINE 默认不幂等)。
 
 -- ===== 持续体节点 =====
-DEFINE TABLE IF NOT EXISTS character SCHEMAFULL;
+-- CHANGEFEED：新建库自带 CDC（S-2 最优路径；已存在表靠 rebuild 工具，勿 DEFINE 裸加）
+DEFINE TABLE IF NOT EXISTS character SCHEMAFULL CHANGEFEED 1h INCLUDE ORIGINAL;
 DEFINE FIELD IF NOT EXISTS name      ON character TYPE string ASSERT string::len($value) > 0;
 DEFINE FIELD IF NOT EXISTS aliases   ON character TYPE array<string> DEFAULT [];
 DEFINE FIELD IF NOT EXISTS backstory ON character TYPE option<string>;          -- 冰山·私密前史
@@ -14,7 +15,7 @@ DEFINE TABLE IF NOT EXISTS place SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS name      ON place TYPE string ASSERT string::len($value) > 0;
 
 -- ===== 命题/事实(知识帧载体;状态@章,双时态 valid 自建)=====
-DEFINE TABLE IF NOT EXISTS proposition SCHEMAFULL;
+DEFINE TABLE IF NOT EXISTS proposition SCHEMAFULL CHANGEFEED 1h INCLUDE ORIGINAL;
 DEFINE FIELD IF NOT EXISTS entity       ON proposition TYPE string;             -- 主体 oid(如 role:焦三 / place:乱岗)
 DEFINE FIELD IF NOT EXISTS attribute    ON proposition TYPE string;
 DEFINE FIELD IF NOT EXISTS value        ON proposition TYPE string;
@@ -25,7 +26,7 @@ DEFINE FIELD IF NOT EXISTS leak_markers ON proposition TYPE array<string> DEFAUL
 DEFINE FIELD IF NOT EXISTS created      ON proposition TYPE datetime VALUE time::now() READONLY;
 
 -- ===== 发生体节点(事件本体)=====
-DEFINE TABLE IF NOT EXISTS event SCHEMAFULL;
+DEFINE TABLE IF NOT EXISTS event SCHEMAFULL CHANGEFEED 1h INCLUDE ORIGINAL;
 DEFINE FIELD IF NOT EXISTS etype             ON event TYPE string;
 DEFINE FIELD IF NOT EXISTS valid_from        ON event TYPE int;                 -- 章
 DEFINE FIELD IF NOT EXISTS motivated_by_goal ON event TYPE option<string>;      -- IPOCL 硬约束

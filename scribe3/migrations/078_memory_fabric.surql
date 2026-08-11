@@ -3,7 +3,7 @@
 --   正典事实不复制进 memory_item——canonical 候选一律来自现有领域表(proposition/promise 等)。
 -- 三时态:valid_from/to = 故事内时间(章),known_from/to = 读者/发现时间(章)。
 -- SurrealDB 3.x: 全文用 FULLTEXT ANALYZER；HNSW DIMENSION 512 DIST COSINE。
-DEFINE TABLE IF NOT EXISTS memory_item SCHEMAFULL;
+DEFINE TABLE IF NOT EXISTS memory_item SCHEMAFULL CHANGEFEED 1h INCLUDE ORIGINAL;
 DEFINE FIELD IF NOT EXISTS work ON memory_item TYPE string;
 DEFINE FIELD IF NOT EXISTS scope_type ON memory_item TYPE string ASSERT $value IN ['work', 'thread', 'chapter', 'user_global'];
 DEFINE FIELD IF NOT EXISTS scope_id ON memory_item TYPE string;

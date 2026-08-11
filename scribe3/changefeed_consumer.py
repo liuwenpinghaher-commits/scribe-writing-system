@@ -15,8 +15,8 @@ from typing import Any, Callable
 _log = logging.getLogger("scribe3.changefeed")
 
 _TRUE = {"1", "true", "yes", "on"}
-# 旁路 cache_watch（带 CHANGEFEED）为主；直接表 SHOW CHANGES 作补充（常为空直至 DDL）
-_WATCH = ("cache_watch", "proposition", "memory_item", "material", "chapter", "character")
+# 最优：真表自带 CHANGEFEED（重建库后 SHOW 有数据）；cache_watch 双写作补充
+_WATCH = ("proposition", "memory_item", "material", "chapter", "character", "event", "cache_watch")
 
 
 def changefeed_cache_enabled() -> bool:
