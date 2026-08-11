@@ -2,14 +2,19 @@
  * S-8 / 剩余债：LIVE 事件是否应触发某面板刷新。
  * - 仅有 table：兼容旧 SSE，对该表相关面板刷新
  * - 有 id：尽量只刷新匹配记录（章号 / record id）
+ * - detail.tb 与 detail.table 等价（兼容旧推送）
  */
+
+function liveTable(detail) {
+  if (!detail) return null
+  return detail.table || detail.tb || null
+}
 
 /** @param {object|null|undefined} detail s3-live detail / SSE JSON */
 export function liveTouchesTable(detail, tables) {
   if (!detail) return true
-  const t = detail.table
+  const t = liveTable(detail)
   if (!t || t === '_init') return t !== '_init' ? true : false
-  if (t === '_init') return false
   const set = Array.isArray(tables) ? tables : [tables]
   return set.includes(t)
 }
@@ -19,7 +24,7 @@ export function liveTouchesTable(detail, tables) {
  */
 export function liveTouchesChapter(detail, seq) {
   if (!detail) return true
-  const t = detail.table
+  const t = liveTable(detail)
   if (t && t !== 'chapter' && t !== '_init') return false
   if (t === '_init') return false
   if (seq == null || detail.id == null || detail.id === '') return true

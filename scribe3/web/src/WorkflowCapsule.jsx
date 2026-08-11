@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Compass } from 'lucide-react'
 import { api } from './api'
+import { liveTouchesTable } from './lib/liveRefresh.js'
+
+/** 影响旅程/胶囊 next_step 的表（其它 LIVE 不重拉） */
+const WORKFLOW_LIVE_TABLES = [
+  'chapter', 'pilot_state', 'promise', 'outline', 'beats',
+  'chapter_scorecard', 'manuscript', 'volume',
+]
 
 /**
  * 顶栏进度胶囊：与 /workflow/snapshot 同源。
@@ -21,7 +28,10 @@ export function WorkflowCapsule({ work, onOpenJourney, onContinue }) {
   useEffect(() => {
     const cleanup = load()
     const t = setInterval(() => { load() }, 12000)
-    const onLive = () => { load() }
+    // S-8: 仅工作流相关表触发；无 table 字段时 liveTouchesTable 保守 true
+    const onLive = (e) => {
+      if (liveTouchesTable(e?.detail, WORKFLOW_LIVE_TABLES)) load()
+    }
     window.addEventListener('s3-live', onLive)
     return () => {
       cleanup?.()

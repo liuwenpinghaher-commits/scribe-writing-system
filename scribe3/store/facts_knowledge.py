@@ -64,7 +64,7 @@ class FactsKnowledgeMixin:
                 "add_fact: embedding 失败,命题 %s 将不可语义召回: %s", f.id, _e)
         # Task 16-B:正典写入发表级失效(清 global/retrieval 缓存 + bump authority_revision)。
         # supersede_fact 内部也经此路径,故正典变更两条路都覆盖。best-effort,绝不阻断写。
-        _emit_cache_invalidation("proposition", self.db_name)
+        _emit_cache_invalidation("proposition", self.db_name, store=self)
         return f
 
     def add_knowledge(self, k: KnowledgeEdge, ingest_seq: int | None = None) -> KnowledgeEdge:
@@ -301,7 +301,7 @@ class FactsKnowledgeMixin:
             )
             n += 1
         try:
-            _emit_cache_invalidation("proposition", getattr(self, "db_name", None))
+            _emit_cache_invalidation("proposition", getattr(self, "db_name", None), store=self)
         except Exception:
             pass
         return {"matched": len(targets), "updated": n, "dry_run": False}
@@ -536,7 +536,7 @@ class FactsKnowledgeMixin:
              "provenance": prov, "linked_ids": links,
              "tokens": toks, "embedding": vec, "reason": _reason})
         # Task 16-B:记忆 supersede 发表级失效,清检索缓存里被更正/取代的经验记忆。
-        _emit_cache_invalidation("memory_item", old.get("work"))
+        _emit_cache_invalidation("memory_item", old.get("work"), store=self)
         return self.get_memory(new_id)
 
     def _forget_origin_event_id(self, mem: dict) -> str | None:

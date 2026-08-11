@@ -15,12 +15,31 @@ class RecallMixin:
         import time
         _, local = _split(oid)
         vector = embed([text])[0]
+        # S-1: 同步写 tokens（jieba 空格串）供 BM25 / 混合检索
+        tokens = ""
+        try:
+            import jieba
+            tokens = " ".join(w for w in jieba.cut(text or "") if len(w.strip()) >= 1)[:2000]
+        except Exception:
+            tokens = (text or "")[:2000]
         for attempt in range(3):
             try:
-                self._execute_write("UPDATE type::record('proposition',$local) SET embedding=$v",
-                                    {"local": local, "v": vector})
+                self._execute_write(
+                    "UPDATE type::record('proposition',$local) SET embedding=$v, tokens=$tok",
+                    {"local": local, "v": vector, "tok": tokens},
+                )
                 return
             except Exception as e:
+                # tokens 字段未迁移时降级只写 embedding
+                if "tokens" in str(e).lower() or "field" in str(e).lower():
+                    try:
+                        self._execute_write(
+                            "UPDATE type::record('proposition',$local) SET embedding=$v",
+                            {"local": local, "v": vector},
+                        )
+                        return
+                    except Exception:
+                        pass
                 transient = "transaction" in str(e).lower() and "conflict" in str(e).lower()
                 if not transient or attempt == 2:
                     raise
@@ -114,8 +133,8 @@ class RecallMixin:
         qv = embed([query or ""])[0]
         kws = [w for w in jieba.cut(query or "") if len(w.strip()) >= 2]
         kw0 = kws[0] if kws else (query or "")[:8]
-        # 单脚本：两路结果一次返回（减少往返）；融合仍用已测 _reciprocal_rank_fusion
-        # 可选 search::rrf 在 ids 上做实验，失败则 Python RRF
+        # 单脚本：向量 HNSW + 全文(优先 tokens BM25，失败侧 CONTAINS 由 Python 不负责)
+        # 融合：优先 search::rrf；否则 Python RRF
         bundle = self._query(
             "LET $vs = ("
             "  SELECT meta::id(id) AS local, entity_id, attribute, value, valid_from, valid_to, "
@@ -128,11 +147,17 @@ class RecallMixin:
             "  secret, leak_markers FROM proposition "
             "  WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch) "
             "  AND (archived = NONE OR archived != true) "
-            "  AND string::lowercase(value) CONTAINS string::lowercase($kw) "
+            "  AND ("
+            "    (tokens IS NOT NONE AND tokens @@ $qtok)"
+            "    OR string::lowercase(value) CONTAINS string::lowercase($kw)"
+            "  ) "
             "  LIMIT $tk"
             "); "
             "RETURN { vs: $vs, ft: $ft };",
-            {"qv": qv, "ch": ch, "kw": kw0, "tk": int(k) * 2},
+            {
+                "qv": qv, "ch": ch, "kw": kw0, "tk": int(k) * 2,
+                "qtok": " ".join(kws) if kws else kw0,
+            },
         )
         if not bundle:
             return None
@@ -765,7 +790,7 @@ class RecallMixin:
         #   里同 work 的旧检索结果,消除新记忆 ≤30s TTL 的可见延迟(fail-safe 漏新不泄旧,对称更干净)。
         #   仅落在真新增路径:上方 (work,source_type,source_id) 幂等预查命中的重放 early-return 不发
         #   (无写入=无需失效)。best-effort,绝不阻断写主链路。
-        _emit_cache_invalidation("memory_item", work)
+        _emit_cache_invalidation("memory_item", work, store=self)
         return s.split(":")[-1] if ":" in s else s
 
     def add_memory_relation(self, in_id: str, out_id: str, relation: str,
@@ -916,7 +941,7 @@ class RecallMixin:
         # M1(Task 16-C):作废发表级失效,与 supersede 对称——否则已作废记忆在 RETRIEVAL_CACHE
         #   最长 30s 仍被命中(检索层 status='active' 门只在 miss 重算时生效,缓存命中会漏 status 变更,
         #   构成"已作废记忆倒灌进写作 prompt"的短窗)。
-        _emit_cache_invalidation("memory_item", _row.get("work"))
+        _emit_cache_invalidation("memory_item", _row.get("work"), store=self)
         return self.get_memory(memory_id)
 
     def get_memory_event(self, event_id: str) -> dict | None:

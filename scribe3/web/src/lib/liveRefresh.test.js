@@ -30,6 +30,12 @@ describe('liveRefresh', () => {
     expect(liveTouchesTable({ table: 'idea' }, ['chapter'])).toBe(false)
     expect(liveTouchesTable({ table: '_init' }, ['chapter'])).toBe(false)
   })
+
+  it('accepts detail.tb alias', () => {
+    expect(liveTouchesTable({ tb: 'promise' }, ['promise'])).toBe(true)
+    expect(liveTouchesChapter({ tb: 'chapter', id: 'chapter:3' }, 3)).toBe(true)
+    expect(liveTouchesChapter({ tb: 'chapter', id: 'chapter:9' }, 3)).toBe(false)
+  })
 })
 
 describe('volumeSoftHint', () => {

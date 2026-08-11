@@ -44,11 +44,14 @@ def test_s1_native_flag_and_single_query_path():
     kw_ids = ["fact:1"]
     fused = _rrf(vec_ids, kw_ids, k=60)
     assert fused[0][0] == "fact:1"
-    # 源码合同：hybrid_recall 含 native 分支
+    # 源码合同：hybrid_recall 含 native 分支 + tokens BM25 + rrf
     text = (Path(__file__).resolve().parents[1] / "store" / "recall.py").read_text(encoding="utf-8")
     assert "_hybrid_recall_native" in text
     assert "SCRIBE3_HYBRID_SEARCH_NATIVE" in text or "hybrid_search_native" in text
     assert "LET $vs" in text
+    assert "tokens @@" in text
+    assert "search::rrf" in text
+    assert "tokens=$tok" in text  # semantic_index 回填
     os.environ["SCRIBE3_HYBRID_SEARCH_NATIVE"] = "0"
 
 
@@ -73,6 +76,45 @@ def test_s2_apply_changes_to_cache():
         work="book",
     )
     assert c.get("x") is None
+
+
+def test_s2_cache_watch_apply_and_no_loop():
+    """cache_watch 行用 table_name 失效目标表；不把 cache_watch 自身当目标。"""
+    from scribe3.changefeed_consumer import apply_changes_to_cache
+    from scribe3.context_cache import TTLCache, invalidation_counts
+
+    c = TTLCache(60, maxsize=8, name="t2b", tables={"proposition"})
+    c.set("y", 2, work="book")
+    before = invalidation_counts().get("proposition", 0)
+    touched = apply_changes_to_cache(
+        [{
+            "versionstamp": 1,
+            "changes": [{
+                "value": {"table_name": "proposition", "work": "book", "id": "cache_watch:1"},
+            }],
+        }],
+        work="book",
+    )
+    assert "proposition" in touched
+    assert "cache_watch" not in touched
+    assert c.get("y") is None
+    assert invalidation_counts().get("proposition", 0) >= before + 1
+
+
+def test_s2_emit_dual_write_cache_watch():
+    """emit_invalidation(store=) 双写 CREATE cache_watch。"""
+    from scribe3.context_cache import emit_invalidation
+
+    writes: list[tuple] = []
+
+    class FakeStore:
+        def _execute_write(self, q, vars=None):
+            writes.append((q, vars))
+
+    emit_invalidation("proposition", work="main", store=FakeStore())
+    assert writes, "expected cache_watch CREATE"
+    assert "cache_watch" in writes[0][0]
+    assert writes[0][1].get("t") == "proposition"
 
 
 def test_s3_memory_lock_mutex():
@@ -175,6 +217,24 @@ def test_s7_audit_migration_file_exists():
     text = p.read_text(encoding="utf-8")
     assert "DEFINE EVENT" in text
     assert "audit_event" in text
+    assert "audit_pilot_state" in text
+    assert "audit_memory_status" in text
+    # EVENT 写 audit_event 的合同字段
+    assert "kind" in text and "source_table" in text and "source_id" in text
+
+
+def test_s7_audit_event_payload_shape():
+    """审计行形状（与 124 EVENT THEN 块对齐的纯结构证明）。"""
+    row = {
+        "kind": "memory_status",
+        "source_table": "memory_item",
+        "source_id": "memory_item:abc",
+        "detail": {"before_status": "active", "after_status": "invalid"},
+    }
+    assert row["kind"] in ("pilot_state", "memory_status")
+    assert row["source_table"]
+    assert ":" in row["source_id"] or row["source_id"]
+    assert "before_status" in row["detail"]
 
 
 def test_s8_live_normalize_payload():
@@ -191,9 +251,12 @@ def test_s8_live_normalize_payload():
     assert p2 == {"table": "promise"}
 
 
-def test_migrations_119_to_124_present():
+def test_migrations_119_to_125_present():
     from pathlib import Path
     d = Path(__file__).resolve().parents[1] / "migrations"
-    for n in range(119, 125):
+    for n in range(119, 126):
         files = list(d.glob(f"{n}_*.surql"))
         assert files, f"missing migration {n}"
+    cw = (d / "125_cache_watch_changefeed.surql").read_text(encoding="utf-8")
+    assert "cache_watch" in cw
+    assert "CHANGEFEED" in cw

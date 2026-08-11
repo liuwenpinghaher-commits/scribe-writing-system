@@ -168,7 +168,7 @@ class MaterialsMixin:
         self._update_by("material", material_id, fields)
         # Task 16-B:素材 archive/pin(及正文改动)发表级失效,清检索缓存里的素材召回。
         if "archived" in fields or "pinned" in fields or "title" in fields or "body" in fields or "summary" in fields:
-            _emit_cache_invalidation("material", self.db_name)
+            _emit_cache_invalidation("material", self.db_name, store=self)
         return True
 
     def material_lifecycle_impact(self, material_id: str) -> dict | None:

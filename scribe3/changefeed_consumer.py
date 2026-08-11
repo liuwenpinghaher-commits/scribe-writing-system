@@ -15,7 +15,8 @@ from typing import Any, Callable
 _log = logging.getLogger("scribe3.changefeed")
 
 _TRUE = {"1", "true", "yes", "on"}
-_WATCH = ("proposition", "memory_item", "material", "chapter", "character")
+# 旁路 cache_watch（带 CHANGEFEED）为主；直接表 SHOW CHANGES 作补充（常为空直至 DDL）
+_WATCH = ("cache_watch", "proposition", "memory_item", "material", "chapter", "character")
 
 
 def changefeed_cache_enabled() -> bool:
@@ -32,32 +33,47 @@ def changefeed_cache_enabled() -> bool:
 def apply_changes_to_cache(changes: list[dict], work: str | None = None) -> set[str]:
     """将 changefeed 行应用到缓存失效。返回触及的表名集合。
 
-    纯函数侧：从 change 行提取 table，调 emit_invalidation。
+    支持：
+    - cache_watch 行：value.table_name / table_name
+    - 其它表：id 前缀
+    不向 cache_watch 再双写（避免环）。
     """
     from scribe3.context_cache import emit_invalidation
 
     touched: set[str] = set()
+
+    def _touch(table: str, w: str | None = None) -> None:
+        t = (table or "").strip()
+        if not t or t == "cache_watch":
+            return
+        emit_invalidation(t, w if w is not None else work)
+        touched.add(t)
+
     for ch in changes or []:
         if not isinstance(ch, dict):
             continue
-        # Surreal SHOW CHANGES 形态：{ changes: [...], versionstamp: ... } 或扁平
-        table = ch.get("table") or ch.get("tb")
-        if not table and "changes" in ch:
+        # Surreal SHOW CHANGES 形态：{ changes: [...], versionstamp: ... }
+        if "changes" in ch:
             for inner in ch.get("changes") or []:
-                if isinstance(inner, dict):
-                    # value may be {id: ...} define table from id
-                    vid = inner.get("id") or (inner.get("value") or {}).get("id")
-                    if vid is not None:
-                        # id like proposition:xyz
-                        s = str(vid)
-                        table = s.split(":")[0] if ":" in s else None
-                    if table:
-                        emit_invalidation(str(table), work)
-                        touched.add(str(table))
+                if not isinstance(inner, dict):
+                    continue
+                # create/update payload
+                val = inner.get("value") or inner.get("after") or inner
+                if isinstance(val, dict):
+                    tn = val.get("table_name") or val.get("table")
+                    ww = val.get("work")
+                    if tn:
+                        _touch(str(tn), str(ww) if ww else work)
+                        continue
+                vid = inner.get("id") or (val.get("id") if isinstance(val, dict) else None)
+                if vid is not None:
+                    s = str(vid)
+                    if ":" in s:
+                        _touch(s.split(":", 1)[0], work)
             continue
+        table = ch.get("table") or ch.get("tb") or ch.get("table_name")
         if table:
-            emit_invalidation(str(table), work)
-            touched.add(str(table))
+            _touch(str(table), work)
     return touched
 
 

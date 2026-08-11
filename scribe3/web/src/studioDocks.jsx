@@ -22,6 +22,7 @@ import { useWorkScopedPref } from './hooks/useWorkScopedPref'
 import { SearchDirectory } from './capabilities/search/SearchDirectory'
 import { IssueDirectory } from './capabilities/issues/IssueDirectory'
 import { ReferenceWorks } from './quality/ReferenceWorks'
+import { liveTouchesChapter, liveTouchesTable } from './lib/liveRefresh.js'
 
 // 三栏写作台的「左栏」:VSCode 式竖图标轨 + 一个面板。图标切换:项目树/帧/演绎/伏笔/母题/校验。
 // 项目树是第一个 tab(默认),数据面板并列其后 —— 消灭独立第4栏,导航与数据同栏。
@@ -37,23 +38,43 @@ export function useLeftDockCapabilities({
 
   useEffect(() => {
     let cancelled = false
+    const pullLedger = () => {
+      api.promisesLedger(work)
+        .then((l) => { if (!cancelled) setLedger(l && typeof l === 'object' ? l : {}) })
+        .catch(() => { if (!cancelled) setLedger(null) })
+    }
+    const pullMotifs = () => {
+      api.motifs(work)
+        .then((m) => { if (!cancelled) setMotifs(Array.isArray(m) ? m : []) })
+        .catch(() => {})
+    }
+    const pullQc = () => {
+      if (seq != null) {
+        api.qc(seq, work).then((q) => {
+          if (cancelled) return
+          const cnt = (x) => Array.isArray(x) ? x.length : (typeof x === 'number' ? x : 0)
+          setQcCount(q && typeof q === 'object'
+            ? Object.values(q).reduce((s, v) => s + cnt(v), 0) : 0)
+        }).catch(() => { if (!cancelled) setQcCount(0) })
+      } else if (!cancelled) setQcCount(0)
+    }
     setLedger(undefined)
-    api.promisesLedger(work)
-      .then((l) => { if (!cancelled) setLedger(l && typeof l === 'object' ? l : {}) })
-      .catch(() => { if (!cancelled) setLedger(null) })
-    api.motifs(work)
-      .then((m) => { if (!cancelled) setMotifs(Array.isArray(m) ? m : []) })
-      .catch(() => {})
+    pullLedger()
+    pullMotifs()
     // 断头修复#13:QC 命中总数喂校验 tab badge(轻端点,读存稿缓存)
-    if (seq != null) {
-      api.qc(seq, work).then((q) => {
-        if (cancelled) return
-        const cnt = (x) => Array.isArray(x) ? x.length : (typeof x === 'number' ? x : 0)
-        setQcCount(q && typeof q === 'object'
-          ? Object.values(q).reduce((s, v) => s + cnt(v), 0) : 0)
-      }).catch(() => { if (!cancelled) setQcCount(0) })
-    } else if (!cancelled) setQcCount(0)
-    return () => { cancelled = true }
+    pullQc()
+    // S-8: LIVE id/table 过滤，伏笔/母题/校验 badge 跟表走、不刷无关表
+    const onLive = (e) => {
+      const d = e?.detail || {}
+      if (liveTouchesTable(d, ['promise', 'foreshadow'])) pullLedger()
+      if (liveTouchesTable(d, ['motif'])) pullMotifs()
+      if (liveTouchesChapter(d, seq) || liveTouchesTable(d, ['chapter', 'manuscript'])) pullQc()
+    }
+    window.addEventListener('s3-live', onLive)
+    return () => {
+      cancelled = true
+      window.removeEventListener('s3-live', onLive)
+    }
   }, [seq, work])
   useEffect(() => {
     if (seq == null) { setFocalizer(''); return }
@@ -64,7 +85,10 @@ export function useLeftDockCapabilities({
     pull()
     // 断头修复#14(focalizer 双源):顶栏改视角存稿后 chapter 表变更经 s3-live 推送——
     // 监听重拉,左栏帧面板不再按库中旧视角渲染(文档明令避免的"各自拉取不一致")。
-    const onLive = (e) => { if ((e?.detail?.table || e?.detail?.tb) === 'chapter') pull() }
+    // S-8: 有 id 时仅本章刷新，避免他章 LIVE 刷爆左栏。
+    const onLive = (e) => {
+      if (liveTouchesChapter(e?.detail, seq)) pull()
+    }
     window.addEventListener('s3-live', onLive)
     return () => {
       cancelled = true

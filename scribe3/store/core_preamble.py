@@ -101,13 +101,16 @@ def _join(table: str, local: str) -> str:
     return f"{TBL2ONT[table]}:{local}"
 
 
-def _emit_cache_invalidation(table: str, work: str | None) -> None:
+def _emit_cache_invalidation(table: str, work: str | None, store=None) -> None:
     """Task 16-B:向上下文性能层发一个表级失效事件(正典写入 / 记忆 supersede /
     素材 archive·pin 的写点调用)。best-effort:context_cache 缺席或任何异常都静默——
-    缓存卫生绝不阻断 store 写主链路(写正确性优先)。"""
+    缓存卫生绝不阻断 store 写主链路(写正确性优先)。
+
+    store 若传入：双写 cache_watch（S-2 Changefeed 旁路，跨进程失效）。
+    """
     try:
         from scribe3 import context_cache
-        context_cache.emit_invalidation(table, work=work)
+        context_cache.emit_invalidation(table, work=work, store=store)
     except Exception:
         pass
 

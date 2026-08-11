@@ -134,7 +134,8 @@ def sync_faction_secrets(store, name: str, row: dict) -> dict:
                     pass
                 try:
                     from scribe3.store.core_preamble import _emit_cache_invalidation
-                    _emit_cache_invalidation("proposition", getattr(store, "db_name", None))
+                    _emit_cache_invalidation(
+                        "proposition", getattr(store, "db_name", None), store=store)
                 except Exception:
                     pass
             else:
@@ -152,7 +153,8 @@ def sync_faction_secrets(store, name: str, row: dict) -> dict:
                     pass
                 try:
                     from scribe3.store.core_preamble import _emit_cache_invalidation
-                    _emit_cache_invalidation("proposition", getattr(store, "db_name", None))
+                    _emit_cache_invalidation(
+                        "proposition", getattr(store, "db_name", None), store=store)
                 except Exception:
                     pass
         elif existing_local:
