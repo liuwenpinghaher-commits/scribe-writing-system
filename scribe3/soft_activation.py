@@ -53,7 +53,10 @@ def _norm_keys(keys: list[str] | None) -> list[str]:
     out: list[str] = []
     for k in keys or []:
         s = re.sub(r"\s+", "", str(k or "").lower())
-        if len(s) >= 2:
+        if not s:
+            continue
+        # 拉丁词至少 2；CJK 单字可用（如「龙」）
+        if len(s) >= 2 or any("\u4e00" <= c <= "\u9fff" for c in s):
             out.append(s)
     return out
 
