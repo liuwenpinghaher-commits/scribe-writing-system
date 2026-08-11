@@ -46,15 +46,19 @@ def event_graph_surface(
     seed = seed_id or (nodes[0] if nodes else "")
     hop: list[str] = graph_one_hop(g, [seed]) if seed else []
     pair: dict[str, Any] | None = None
-    # 找一对 leads_to 边作诚实样例
+    # 找一对 leads_to / enables 边作诚实样例
     adj = g.get("adjacency") or {}
     for a, node in adj.items():
         if not isinstance(node, dict):
             continue
-        for b in node.get("leads_to") or []:
-            pair = graph_linked_pair(g, str(a), str(b))
-            break
-        if pair:
+        for rel in ("leads_to", "enables"):
+            for b in node.get(rel) or []:
+                pair = graph_linked_pair(g, str(a), str(b))
+                if pair and pair.get("linked"):
+                    break
+            if pair and pair.get("linked"):
+                break
+        if pair and pair.get("linked"):
             break
     if pair is None and len(nodes) >= 2:
         pair = graph_linked_pair(g, nodes[0], nodes[1])
@@ -68,44 +72,81 @@ def event_graph_surface(
     }
 
 
+def event_to_graph_dict(ev: Any) -> dict[str, Any] | None:
+    """ontology.Event / dict → build_event_adjacency 可消费的 dict（含 causal_in）。"""
+    if ev is None:
+        return None
+    if isinstance(ev, dict):
+        eid = str(ev.get("id") or ev.get("event_id") or "")
+        if not eid:
+            return None
+        out = dict(ev)
+        out["id"] = eid
+        if "causal_in" in out and out["causal_in"] is not None:
+            out["causal_in"] = list(out["causal_in"])
+        return out
+    eid = getattr(ev, "id", None) or getattr(ev, "oid", None)
+    if not eid:
+        return None
+    causal_in = list(getattr(ev, "causal_in", None) or [])
+    return {
+        "id": str(eid),
+        "type": getattr(ev, "type", None),
+        "causal_in": causal_in,
+        "leads_to": getattr(ev, "leads_to", None),
+        "enables": getattr(ev, "enables", None),
+        "caused_by": getattr(ev, "caused_by", None),
+    }
+
+
 def event_graph_from_store_chapter(store: Any, chapter: int) -> dict[str, Any]:
-    """从 store 抽本章事件/伏笔 → event_graph_surface（fail-soft 空图）。"""
+    """从 store 抽本章事件/伏笔 → event_graph_surface。
+
+    生产入口：**events_at(chapter)**（SurrealStore / EventsMixin），
+    非虚构的 list_events。Event 边在 **causal_in**，经 event_to_graph_dict 映射。
+    """
     events: list[dict[str, Any]] = []
     promises: list[dict[str, Any]] = []
+    ch = int(chapter)
+    raw: list[Any] = []
     try:
-        if hasattr(store, "list_events"):
-            raw = store.list_events(int(chapter)) or []
-            for e in raw:
-                if isinstance(e, dict):
-                    events.append(e)
-                else:
-                    events.append({
-                        "id": getattr(e, "id", None) or getattr(e, "oid", None),
-                        "leads_to": getattr(e, "leads_to", None),
-                        "enables": getattr(e, "enables", None),
-                    })
+        if hasattr(store, "events_at"):
+            raw = list(store.events_at(ch) or [])
+        elif hasattr(store, "list_events"):
+            # 兼容旧/测试双名，生产以 events_at 为准
+            raw = list(store.list_events(ch) or [])
     except Exception:
-        events = []
+        raw = []
+    for e in raw:
+        d = event_to_graph_dict(e)
+        if d:
+            events.append(d)
     try:
-        if hasattr(store, "list_promises"):
-            raw_p = store.list_promises() or []
-            for p in raw_p:
-                if isinstance(p, dict):
-                    promises.append(p)
-                else:
-                    promises.append({
-                        "id": getattr(p, "id", None) or getattr(p, "oid", None),
-                        "event_id": getattr(p, "event_id", None),
-                        "related_event": getattr(p, "related_event", None),
-                    })
+        # 常见：list_promises / promises / open_promises
+        for meth in ("list_promises", "promises", "open_promises"):
+            if hasattr(store, meth):
+                raw_p = getattr(store, meth)()
+                if raw_p is None:
+                    continue
+                for p in raw_p or []:
+                    if isinstance(p, dict):
+                        promises.append(p)
+                    else:
+                        promises.append({
+                            "id": getattr(p, "id", None) or getattr(p, "oid", None),
+                            "event_id": getattr(p, "event_id", None),
+                            "related_event": getattr(p, "related_event", None),
+                        })
+                break
     except Exception:
         promises = []
-    # 章内兜底：chapter.plan / meta 无事件时仍可空图
+    # 章内兜底
     try:
-        ch = store.get_chapter(int(chapter)) or {}
-        for e in ch.get("events") or []:
-            if isinstance(e, dict) and e not in events:
-                events.append(e)
+        chd = store.get_chapter(ch) or {}
+        for e in chd.get("events") or []:
+            d = event_to_graph_dict(e)
+            if d and d["id"] not in {x["id"] for x in events}:
+                events.append(d)
     except Exception:
         pass
     return event_graph_surface(events=events, promises=promises)

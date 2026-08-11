@@ -48,9 +48,20 @@ def test_event_graph_write_path_surface():
     assert "c" in api["one_hop"]
     assert api["sample_pair"]["linked"] is True
 
-    class _St:
-        def list_events(self, ch):
-            return [{"id": "x1"}, {"id": "x2", "leads_to": "x3"}]
+    # 真实 store 入口：events_at + ontology.Event.causal_in（禁止假 list_events 掩盖）
+    from scribe3.ontology import Event
+    from scribe3.novel_first_surface import event_to_graph_dict
+
+    class Realish:
+        def events_at(self, ch):
+            assert int(ch) == 1
+            return [
+                Event(id="ev:a", type="scene", story_time=1, causal_in=[]),
+                Event(
+                    id="ev:b", type="scene", story_time=1,
+                    causal_in=[("ev:a", "enables")],
+                ),
+            ]
 
         def list_promises(self):
             return []
@@ -58,15 +69,24 @@ def test_event_graph_write_path_surface():
         def get_chapter(self, ch):
             return {}
 
-    sg = event_graph_from_store_chapter(_St(), 1)
-    assert sg["graph"]["edge_count"] >= 1
+    # 无 list_events：只能走 events_at
+    assert not hasattr(Realish(), "list_events")
+    sg = event_graph_from_store_chapter(Realish(), 1)
+    assert sg["graph"]["edge_count"] >= 1, sg
     pair = sg["sample_pair"]
-    assert pair and pair.get("linked")
+    assert pair and pair.get("linked") is True, pair
+    # causal_in 映射后 a→b 一跳
+    hop_a = (sg.get("graph") or {}).get("adjacency", {}).get("ev:a") or {}
+    assert "ev:b" in (hop_a.get("enables") or hop_a.get("leads_to") or []), hop_a
+    d = event_to_graph_dict(Event(id="ev:x", type="t", causal_in=[("ev:y", "enables")]))
+    assert d and d["causal_in"] == [("ev:y", "enables")]
 
     wa = Path("scribe3/api/services/write_assemble.py").read_text(encoding="utf-8")
     assert "event_graph_from_store_chapter" in wa
     src = Path("scribe3/api/routers/misc_routes.py").read_text(encoding="utf-8")
     assert "event_graph_surface" in src
+    nsrc = Path("scribe3/novel_first_surface.py").read_text(encoding="utf-8")
+    assert "events_at" in nsrc and "causal_in" in nsrc
 
 
 def test_lock_loop_ingest_repair_surface():

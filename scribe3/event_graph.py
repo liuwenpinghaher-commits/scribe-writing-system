@@ -24,19 +24,38 @@ def build_event_adjacency(
 
     prev_id: str | None = None
     for ev in events:
+        if not isinstance(ev, dict):
+            continue
         eid = str(ev.get("id") or ev.get("event_id") or "")
         if not eid:
             continue
         node = _node(eid)
         if prev_id:
             _node(prev_id)["leads_to"].append(eid)
-        # explicit edges
+        # explicit edges on this node
         for k, rel in (("leads_to", "leads_to"), ("enables", "enables"), ("caused_by", "enables")):
             raw = ev.get(k)
             if isinstance(raw, str) and raw:
                 node[rel].append(raw)
             elif isinstance(raw, list):
                 node[rel].extend(str(x) for x in raw if x)
+        # ontology.Event.causal_in: [(src_id, ctype)] → src enables/leads_to this
+        for item in ev.get("causal_in") or []:
+            src, ctype = "", "enables"
+            if isinstance(item, (list, tuple)) and item:
+                src = str(item[0] or "")
+                if len(item) > 1 and item[1]:
+                    ctype = str(item[1])
+            elif isinstance(item, dict):
+                src = str(item.get("id") or item.get("event_id") or "")
+                ctype = str(item.get("type") or item.get("ctype") or "enables")
+            elif isinstance(item, str):
+                src = item
+            if not src:
+                continue
+            rel = "leads_to" if ctype in ("leads_to", "sequence", "next") else "enables"
+            if eid not in _node(src)[rel]:
+                _node(src)[rel].append(eid)
         prev_id = eid
 
     for pr in promises:
