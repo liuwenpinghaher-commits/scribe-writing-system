@@ -38,6 +38,10 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag("SCRIBE3_DB_KNOWLEDGE_FRAME", "0", "fn::knowledge_frame 知识帧", "knowledge", "caution"),
     Flag("SCRIBE3_STATS_VIEW", "0", "stats_* 聚合视图读", "stats_views", "safe"),
     Flag("SCRIBE3_LIVE_GRANULAR", "1", "LIVE/SSE 带 action+id", "live", "safe"),
+    # P2 novel-first
+    Flag("SCRIBE3_SOFT_ACTIVATION", "0", "软 lore 激活（L2/L3 可丢）", "soft_activation", "caution"),
+    Flag("SCRIBE3_SOFT_PRECHECK", "0", "大纲/节拍软预检 advisory", "soft_precheck", "safe"),
+    Flag("SCRIBE3_LITERARY_DISTILL", "0", "文学蒸馏原型（启发式）", "literary_distill", "safe"),
 )
 
 

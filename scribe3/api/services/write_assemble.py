@@ -1385,8 +1385,29 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             )
             _push("request_constraint", "supplemental", _rc)
 
+        # P2：软 lore 激活（仅 material/reference/codex 类；红线免疫）
+        try:
+            from scribe3.soft_activation import apply_soft_activation, soft_activation_enabled
+            if soft_activation_enabled():
+                _keys = []
+                try:
+                    _keys = [
+                        w for w in re.findall(
+                            r"[\u4e00-\u9fff]{2,8}|[A-Za-z]{3,16}",
+                            str(retrieval_query or "")[:400],
+                        )
+                    ][:12]
+                except Exception:
+                    _keys = []
+                segs, _act_rep = apply_soft_activation(segs, activation_keys=_keys)
+                _budget_report_holder.setdefault("activation", _act_rep)
+        except Exception:
+            pass
         # 统一 join（V2：L2 有序裁剪；禁止 rendered[:hard] 尾截）
         joined, bud_rep = join_generation_segments(segs, v2=_v2)
+        if _budget_report_holder.get("activation"):
+            bud_rep = dict(bud_rep)
+            bud_rep["soft_activation"] = _budget_report_holder["activation"]
         _budget_report_holder["report"] = bud_rep
         _store_write_budget_report(bud_rep)
         return joined, tuple(supplemental_sources)

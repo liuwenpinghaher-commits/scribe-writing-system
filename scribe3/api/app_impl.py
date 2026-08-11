@@ -264,33 +264,80 @@ def _db_lock_on() -> bool:
 
 
 def _acquire_op_mutex(work: str, seq: int, op: str, *, detail: str) -> None:
-    """S-3: flag 开 → DB inflight 锁；关 → 进程内 set（兼容单 worker）。"""
+    """S-3 + P2：统一章节锁表面；DB 旗开走 inflight 表，否则 chapter_lock 进程内。
+
+    仍维护遗留 _loop_inflight / repair set，供旧观测与测试兼容。
+    """
+    # P2 统一表面（进程内 + 可选 distributed store）
+    try:
+        from scribe3.chapter_lock import (
+            acquire_chapter_lock,
+            chapter_lock_busy_http_detail,
+        )
+        clr = acquire_chapter_lock(op, work, int(seq))
+        if not clr.ok:
+            raise HTTPException(
+                status_code=409,
+                detail=detail or chapter_lock_busy_http_detail(clr),
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # 降级遗留路径
     if _db_lock_on():
         from scribe3.inflight_lock import acquire_chapter_op
         st = _store_for(work)
         r = acquire_chapter_op(st, work, int(seq), op)
         if not r.ok:
+            try:
+                from scribe3.chapter_lock import release_chapter_lock
+                release_chapter_lock(op, work, int(seq))
+            except Exception:
+                pass
             raise HTTPException(status_code=409, detail=detail)
         return
     if op == "loop":
         key = (work, int(seq))
         with _loop_inflight_lock:
             if key in _loop_inflight:
+                try:
+                    from scribe3.chapter_lock import release_chapter_lock
+                    release_chapter_lock(op, work, int(seq))
+                except Exception:
+                    pass
                 raise HTTPException(status_code=409, detail=detail)
             _loop_inflight.add(key)
         return
     if op == "repair":
-        _acquire_chapter_repair_mem(work, int(seq))
+        try:
+            _acquire_chapter_repair_mem(work, int(seq))
+        except HTTPException:
+            try:
+                from scribe3.chapter_lock import release_chapter_lock
+                release_chapter_lock(op, work, int(seq))
+            except Exception:
+                pass
+            raise
         return
-    # generic process set reuse loop set with op tag in key via repair set
+    # generic / ingest：复用 loop set 兼容
     key = (work, int(seq))
     with _loop_inflight_lock:
         if key in _loop_inflight:
+            try:
+                from scribe3.chapter_lock import release_chapter_lock
+                release_chapter_lock(op, work, int(seq))
+            except Exception:
+                pass
             raise HTTPException(status_code=409, detail=detail)
         _loop_inflight.add(key)
 
 
 def _release_op_mutex(work: str, seq: int, op: str) -> None:
+    try:
+        from scribe3.chapter_lock import release_chapter_lock
+        release_chapter_lock(op, work, int(seq))
+    except Exception:
+        pass
     if _db_lock_on():
         from scribe3.inflight_lock import release_chapter_op
         try:

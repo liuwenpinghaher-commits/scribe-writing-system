@@ -76,3 +76,36 @@ def graph_one_hop(adjacency: dict[str, Any], seed_ids: list[str]) -> list[str]:
                     seen.add(xs)
                     out.append(xs)
     return out
+
+
+def graph_linked_pair(
+    adjacency: dict[str, Any],
+    a: str,
+    b: str,
+) -> dict[str, Any]:
+    """检查 a↔b 是否经一跳邻接相连；返回结构化边描述（P2 诚实表面）。"""
+    g = adjacency or {}
+    adj = g.get("adjacency") if isinstance(g.get("adjacency"), dict) else g
+    if not isinstance(adj, dict):
+        adj = {}
+    sa, sb = str(a), str(b)
+    hops_a = graph_one_hop({"adjacency": adj}, [sa])
+    hops_b = graph_one_hop({"adjacency": adj}, [sb])
+    forward = sb in hops_a
+    backward = sa in hops_b
+    rels: list[str] = []
+    node_a = adj.get(sa) or {}
+    if isinstance(node_a, dict):
+        for rel in ("leads_to", "enables", "related_promises"):
+            if sb in [str(x) for x in (node_a.get(rel) or [])]:
+                rels.append(rel)
+    return {
+        "a": sa,
+        "b": sb,
+        "linked": bool(forward or backward),
+        "forward": forward,
+        "backward": backward,
+        "relations": rels,
+        "one_hop_from_a": hops_a,
+        "version": "event_graph.v0",
+    }
