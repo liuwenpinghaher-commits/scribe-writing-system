@@ -374,23 +374,19 @@ def ordered_generation_segments(
     pieces: Iterable[dict[str, Any]] | list[dict[str, Any]],
     *,
     v2: bool = True,
+    order_names: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """按 production 物理序整理段列表；同名多段保持相对顺序（reference_craft 等）。
 
     每段 dict 至少含 name/text；缺 layer 时查 GENERATION_SEGMENT_LAYERS。
+    ``order_names`` 非空时用其作为序（active 注册表注入）；否则
+    ``generation_physical_order_names``。
     """
     items = [dict(s) for s in pieces if (s.get("text") or "")]
-    order = generation_physical_order_names(v2=v2)
-    # generation_physical_order_names 是主干序；附加名插在 final_reminder 前
+    order = list(order_names) if order_names else generation_physical_order_names(v2=v2)
+    # 主干序；附加名插在 final_reminder 前
     rank = {n: i for i, n in enumerate(order)}
     extra_base = len(order)
-
-    def _key(s: dict[str, Any]) -> tuple[int, int]:
-        name = str(s.get("name") or "")
-        if name in rank:
-            return (rank[name], 0)
-        # 未列名：保持输入序（stable via enumerate in sort is not enough — use original idx）
-        return (extra_base + 50, 0)
 
     # stable: decorate with original index
     decorated = []
@@ -419,18 +415,35 @@ def join_generation_segments(
     """生产路径用的段 join：V2 走 L2 裁剪；随后 O1 全域硬顶；V1 仅全域硬顶可选。
 
     返回 (joined, report)。**禁止**对最终 joined 串尾截。
-    active 注册表：先按 registry 声明序校验/对齐（仍用本模块 ordered_generation_segments）。
+    active 注册表：``order_names`` 取 ``registry_physical_order_names``，
+    真正参与 ``ordered_generation_segments`` 排序（非 no-op）。
     """
+    order_names: list[str] | None = None
+    order_source = "generation_physical_order"
     try:
-        from scribe3.injection_registry import active_registry_orders_join
+        from scribe3.injection_registry import (
+            active_registry_orders_join,
+            registry_physical_order_names,
+        )
         if active_registry_orders_join():
-            # 注册表 active：仅观测对齐，物理序仍由 ordered_generation_segments SSOT
-            pass
+            order_names = registry_physical_order_names(v2=v2)
+            order_source = "injection_registry"
     except Exception:
-        pass
-    segs = ordered_generation_segments(pieces, v2=v2)
+        order_names = None
+    segs = ordered_generation_segments(pieces, v2=v2, order_names=order_names)
     l2_rep: dict[str, Any] = {}
     if v2:
+        # active：L3 段优先进入 material 裁剪池（预算策略参与，不只观测）
+        if order_source == "injection_registry":
+            try:
+                from scribe3.injection_registry import registry_l3_names
+                l3 = registry_l3_names()
+                for s in segs:
+                    if str(s.get("name") or "") in l3 and s.get("layer") != "redline":
+                        s["layer"] = "supplemental"
+                        s["registry_tier"] = "L3"
+            except Exception:
+                pass
         _joined_l2, l2_rep = apply_l2_trim(
             segs,
             supplemental_hard=supplemental_hard,
@@ -454,6 +467,8 @@ def join_generation_segments(
         l2_report=l2_rep,
     )
     rep["total_enforce"] = total_rep
+    rep["order_source"] = order_source
+    rep["registry_active"] = order_source == "injection_registry"
     # 校验 final_reminder 仍在
     names = [str(s.get("name") or "") for s in segs]
     rep["final_reminder_kept"] = "final_reminder" in names

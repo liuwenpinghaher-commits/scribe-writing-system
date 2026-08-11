@@ -1,11 +1,13 @@
 """写门控纯实现（O13 · 无 FastMCP · 可单测）。
 
 ``mcp.gating.commit_if_approved`` 委托本模块，避免 slim-host 测试拉起 mcp SDK。
+``mcp.tools_write`` 用 ``args_from_tool_locals`` 把生产工具参数送入指纹。
 """
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any, Callable, Collection
+from typing import Any, Callable, Collection, Mapping
 
 
 # 与 mcp._common.WRITE_GATED 保持同步的兜底集合（gating 会传入真源）
@@ -31,6 +33,30 @@ DEFAULT_WRITE_GATED: frozenset[str] = frozenset({
     "s3_add_motif", "s3_patch_motif", "s3_patch_promise",
     "s3_delete_codex",
 })
+
+# tools_write 调用帧里不该进指纹的名字
+_SKIP_TOOL_LOCALS: frozenset[str] = frozenset({
+    "ctx", "ok", "_write", "do_write", "self", "name", "accepted",
+    "summary", "st", "cg", "cg_allowed",
+})
+
+
+def args_from_tool_locals(frame_locals: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """从 MCP 工具函数 locals 收集可序列化参数（供审批幂等指纹）。"""
+    if not frame_locals:
+        return None
+    collected: dict[str, Any] = {}
+    for k, v in frame_locals.items():
+        if k in _SKIP_TOOL_LOCALS or str(k).startswith("_"):
+            continue
+        if callable(v) and not isinstance(v, (str, bytes)):
+            continue
+        try:
+            json.dumps(v, default=str)
+            collected[k] = v
+        except Exception:
+            collected[k] = repr(v)[:200]
+    return collected or None
 
 
 def commit_if_approved(

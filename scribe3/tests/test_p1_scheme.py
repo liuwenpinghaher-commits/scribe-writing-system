@@ -63,6 +63,8 @@ def test_registry_density_and_v2_order_under_active():
         joined, rep = join_generation_segments(pieces, v2=True, total_budget=8000)
         assert_physical_order_indices(rep["order_indices"])
         assert rep.get("final_reminder_kept") is True
+        assert rep.get("registry_active") is True
+        assert rep.get("order_source") == "injection_registry"
         assert "最终提醒" in joined or "限知" in joined
     finally:
         os.environ.pop("SCRIBE3_INJECTION_REGISTRY", None)
@@ -85,12 +87,15 @@ def test_memory_access_pin_and_fingerprint_dedup():
     assert time_decay(age_days=100, half_life=10, pin_forever=True) == 1.0
     assert time_decay(age_days=100, half_life=10, pin_forever=False) < 1.0
 
-    a = "角色张三  拔刀。\n\n第二段内容相同。"
-    b = "角色张三拔刀。\n\n第二段内容相同。"
-    assert content_fingerprint(a.split("\n\n")[0]) == content_fingerprint("角色张三拔刀。")
+    # 段长 >= min_chars(20)，跨文本空白差应折叠
+    a = "角色张三  拔刀走向战场的时候忽然停住了脚步。\n\n第二段内容完全相同用于去重检测用例。"
+    b = "角色张三拔刀走向战场的时候忽然停住了脚步。\n\n第二段内容完全相同用于去重检测用例。"
+    assert content_fingerprint(a.split("\n\n")[0]) == content_fingerprint(
+        "角色张三拔刀走向战场的时候忽然停住了脚步。"
+    )
     assert is_duplicate_text("同一事实句。", "同一事实句。")
     kept, rep = deduplicate_paragraphs([a, b])
-    assert rep["dropped_paragraphs"] >= 1 or kept[0]  # 至少可运行
+    assert rep["dropped_paragraphs"] >= 1, rep
     assert "fingerprints_seen" in rep
 
     c = TTLCache(60.0, name="t", maxsize=8)
@@ -100,15 +105,14 @@ def test_memory_access_pin_and_fingerprint_dedup():
     st = cache_invalidation_stats()
     assert st["invalidation_events"] >= 1
 
-    # pin_must_first 走 shipped 指纹去重
+    # pin_must_first：空白归一后 must 核心须压掉含「后文」的 canonical
     from scribe3.memory_must_link import pin_must_first
     pinned = pin_must_first(
         ["角色张三拔刀。后文", "无关行"],
         ["- 〔压力〕角色张三  拔刀。"],
     )
     assert any("无关" in p for p in pinned)
-    # 与 must 指纹重复的 canonical 应被压掉
-    assert not any("后文" in p and "张三" in p for p in pinned) or len(pinned) >= 1
+    assert not any("后文" in p and "张三" in p for p in pinned), pinned
 
 
 def test_beats_schema_and_approval_fingerprint():
@@ -147,6 +151,37 @@ def test_beats_schema_and_approval_fingerprint():
     r2 = commit_if_approved("s3_add_fact", True, _write, args={"entity": "a", "attribute": "b"})
     assert r1.get("status") == "written"
     assert r2.get("idempotent_replay") is True
+    assert calls["n"] == 1
+
+    # tools_write 用 args_from_tool_locals 从工具 frame 抽参（纯 SSOT，无 mcp SDK）
+    from scribe3.write_commit import args_from_tool_locals, commit_if_approved as _wc
+    clear_approval_cache()
+    calls["n"] = 0
+    tool_locals = {
+        "ctx": object(),
+        "ok": True,
+        "_write": lambda: None,
+        "oid": "f1",
+        "entity": "role:a",
+        "attribute": "state",
+        "value": "ok",
+        "valid_from": 1,
+        "secret": False,
+        "work": None,
+    }
+    auto_args = args_from_tool_locals(tool_locals)
+    assert auto_args is not None
+    assert auto_args.get("entity") == "role:a"
+    assert "ctx" not in auto_args and "_write" not in auto_args
+
+    def _write2():
+        calls["n"] += 1
+        return {"status": "written", "n": calls["n"]}
+
+    rr1 = _wc("s3_add_fact", True, _write2, args=auto_args)
+    rr2 = _wc("s3_add_fact", True, _write2, args=auto_args)
+    assert rr1.get("fingerprint"), rr1
+    assert rr2.get("idempotent_replay") is True
     assert calls["n"] == 1
 
     assert is_emergency_bypass_chapter_path("/chapters/1/gcd-fields")

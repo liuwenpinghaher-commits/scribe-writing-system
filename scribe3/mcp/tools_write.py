@@ -8,6 +8,30 @@ from __future__ import annotations
 from scribe3.mcp._common import *  # noqa: F403
 from scribe3.mcp.gating import *  # noqa: F403
 
+# O13：生产写工具自动把调用方参数送入审批幂等指纹（否则 args= 全空、短路死）
+import inspect as _inspect
+from scribe3.mcp import gating as _gating_mod
+from scribe3.write_commit import args_from_tool_locals as _args_from_tool_locals
+
+_gate_commit_if_approved = _gating_mod.commit_if_approved
+
+
+def commit_if_approved(name, accepted, do_write, args=None):  # noqa: F811
+    """Shadow gating.commit_if_approved：args 缺省时从调用方 frame 收集稳定参数。
+
+    所有本模块 ``return commit_if_approved(...)`` 均经此路径，幂等指纹生效。
+    """
+    if args is None:
+        fr = _inspect.currentframe()
+        try:
+            caller = fr.f_back if fr else None
+            raw = dict(caller.f_locals) if caller else {}
+        finally:
+            del fr
+        args = _args_from_tool_locals(raw)
+    return _gate_commit_if_approved(name, accepted, do_write, args=args)
+
+
 @mcp.tool(annotations=_RO)
 
 def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None = None,

@@ -90,13 +90,22 @@ def density_trace_for_segments(
 
 
 def registry_physical_order_names(*, v2: bool = True) -> list[str]:
-    """注册表声明序；active 模式可与 context_budget.generation_physical_order_names 对齐校验。"""
+    """注册表声明序；active 时作为 ordered_generation_segments 的 order_names。
+
+    主干 marker（event_drive→drama→envelope→codex→final_reminder）保持与
+    generation_physical_order 一致的相对先后，以免破坏 V2 合同。
+    """
     names = [s.name for s in SEGMENT_REGISTRY]
     if not v2:
         return [n for n in names if n != "codex"]
     return list(names)
 
 
+def registry_l3_names() -> frozenset[str]:
+    """L3 段名：active 时 join 标 supplemental 优先裁。"""
+    return frozenset(s.name for s in SEGMENT_REGISTRY if s.tier == "L3")
+
+
 def active_registry_orders_join() -> bool:
-    """active 时 join 前按注册表重排段名（仍走 join_generation_segments SSOT）。"""
+    """active 时 join 用注册表序 + L3 预算策略（非 no-op）。"""
     return registry_mode() == "active"

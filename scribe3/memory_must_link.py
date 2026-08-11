@@ -466,44 +466,53 @@ def build_must_prefix(
         + lines + "\n"
     )
 
+def _normalize_ws(text: str) -> str:
+    """去空白+小写，供 must/canonical 子串与指纹对齐。"""
+    return re.sub(r"\s+", "", (text or "").lower())
+
+
 def pin_must_first(canonical_texts: list[str], must_lines: list[str]) -> list[str]:
     """把 must 行置顶，并去掉与 must 正文高度重复的后续行（省预算）。
 
-    O10：``SCRIBE3_INJECT_DEDUP`` 默认走内容指纹（``inject_dedup``）；legacy 仍用 40 字子串。
+    O10：``SCRIBE3_INJECT_DEDUP`` 默认走内容指纹（``inject_dedup``）；
+    子串/嵌入匹配一律在**空白归一化**后比较，使
+    ``角色张三  拔刀。`` 能压掉 ``角色张三拔刀。后文``。
     """
     if not must_lines:
         return list(canonical_texts or [])
     use_fp = False
+    content_fingerprint = None
     try:
-        from scribe3.inject_dedup import content_fingerprint, inject_dedup_fingerprint_enabled
+        from scribe3.inject_dedup import content_fingerprint as _cfp, inject_dedup_fingerprint_enabled
         use_fp = inject_dedup_fingerprint_enabled()
+        content_fingerprint = _cfp
     except Exception:
         use_fp = False
-    must_body: set[str] = set()
+    # 归一化核心（全串）+ 短前缀（legacy 40 字归一化）
+    must_cores_norm: list[str] = []
     must_fps: set[str] = set()
     for m in must_lines:
         # 去掉前缀标记后的核心串（兼容〔必需〕/〔压力〕）
         core = re.sub(r"^[-•\s〕〔]*(?:必需|压力)*[〕]*", "", m)
-        if len(core) >= 6:
-            must_body.add(core[:40])
-            if use_fp:
-                must_fps.add(content_fingerprint(core))
+        if len(core.strip()) < 6:
+            continue
+        core_n = _normalize_ws(core)
+        if len(core_n) >= 4:
+            must_cores_norm.append(core_n)
+        if use_fp and content_fingerprint is not None:
+            must_fps.add(content_fingerprint(core))
     out = list(must_lines)
     for t in canonical_texts or []:
+        t_raw = t or ""
+        t_n = _normalize_ws(t_raw)
         skip = False
-        if use_fp and must_fps:
-            t_fp = content_fingerprint(t or "")
-            if t_fp in must_fps:
+        if use_fp and must_fps and content_fingerprint is not None:
+            if content_fingerprint(t_raw) in must_fps:
                 skip = True
-            else:
-                # 子串兜底：must 核心嵌在 canonical 长行里
-                for core in must_body:
-                    if core and core in (t or ""):
-                        skip = True
-                        break
-        else:
-            for core in must_body:
-                if core and core in (t or ""):
+        if not skip:
+            # 归一化嵌入：must 核心是 canonical 的前缀/子串
+            for core_n in must_cores_norm:
+                if core_n and core_n in t_n:
                     skip = True
                     break
         if not skip:
