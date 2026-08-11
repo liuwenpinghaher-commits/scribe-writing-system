@@ -62,11 +62,14 @@ def apply_changes_to_cache(changes: list[dict], work: str | None = None) -> set[
 
 
 def poll_table_changes(store: Any, table: str, since: str | int | None = None) -> list:
-    """SHOW CHANGES FOR TABLE … — 返回原始行列表。"""
+    """SHOW CHANGES FOR TABLE … — 返回原始行列表。
+
+    Surreal 3.2 要求 ``SINCE``（不可仅 LIMIT）；无 cursor 时用 ``SINCE 0``。
+    """
     try:
-        if since is None or since == "" or since == 0:
-            q = f"SHOW CHANGES FOR TABLE {table} LIMIT 50;"
-            return store._query(q) or []
+        if since is None or since == "" :
+            since = 0
+        # 语法：SHOW CHANGES FOR TABLE name SINCE <versionstamp|0> [LIMIT n]
         q = f"SHOW CHANGES FOR TABLE {table} SINCE $since LIMIT 50;"
         return store._query(q, {"since": since}) or []
     except Exception as e:
