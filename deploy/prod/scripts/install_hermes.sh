@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 在服务器安装 Hermes Agent，并启用 default/scribe3/scribe3_write 三网关 systemd。
+# 在服务器安装 Hermes Agent，并启用 default/scribe3/scribe3_write 三网关 systemd；
+# 另从仓库 install plan/draft/deduce* units（若存在）。
 # 前置: 已解压 hermes_config.tgz 到 ~/.hermes（含 .env 与 profiles），或稍后手工配置密钥。
 set -euo pipefail
 
@@ -89,14 +90,30 @@ if [ -d "$REPO_DIR/scribe3" ]; then
   " || echo "provision 跳过/失败：可稍后手动跑"
 fi
 
-echo "==> enable + start gateways"
+echo "==> enable + start core gateways"
 sudo systemctl daemon-reload
 sudo systemctl enable --now hermes-gateway.service hermes-gateway-scribe3.service hermes-gateway-scribe3-write.service
+
+# plan/draft/deduce*：仓库固化 unit（可重复执行）
+if [ -x "$REPO_DIR/deploy/prod/scripts/install_hermes_units.sh" ]; then
+  echo "==> install stage gateway units (plan/draft/deduce*)"
+  SCRIBE3_REPO_DIR="$REPO_DIR" DEPLOY_USER="$DEPLOY_USER" \
+    bash "$REPO_DIR/deploy/prod/scripts/install_hermes_units.sh" || echo "warn: stage units install failed" >&2
+elif [ -d "$REPO_DIR/deploy/prod/systemd" ]; then
+  echo "==> copy stage units from repo"
+  sudo cp "$REPO_DIR"/deploy/prod/systemd/hermes-gateway-scribe3-*.service "$UNIT_DIR/" 2>/dev/null || true
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now \
+    hermes-gateway-scribe3-plan hermes-gateway-scribe3-draft \
+    hermes-gateway-scribe3-deduce hermes-gateway-scribe3-deduce-preview 2>/dev/null || true
+fi
+
 sleep 3
 systemctl --no-pager --full status hermes-gateway.service hermes-gateway-scribe3.service hermes-gateway-scribe3-write.service || true
 
 echo "Hermes 安装完成。探测:"
-curl -fsS -m 3 http://127.0.0.1:8642/v1/models || echo "8642 未就绪"
-curl -fsS -m 3 http://127.0.0.1:8643/v1/models || echo "8643 未就绪"
-curl -fsS -m 3 http://127.0.0.1:8644/v1/models || echo "8644 未就绪"
+for p in 8642 8643 8644 8645 8646 8647 8648; do
+  code=$(curl -sS -o /dev/null -w '%{http_code}' -m 3 "http://172.18.0.1:${p}/v1/models" 2>/dev/null || echo fail)
+  echo "  :${p} http=$code"
+done
 

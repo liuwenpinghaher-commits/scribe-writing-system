@@ -13,7 +13,8 @@ Environment=HERMES_HOME=/home/ubuntu/.hermes/profiles/scribe3_deduce_preview
 Environment=VIRTUAL_ENV=/home/ubuntu/.hermes/hermes-agent/venv
 Environment=PATH=/home/ubuntu/.hermes/hermes-agent/venv/bin:/usr/local/bin:/usr/bin:/bin
 Environment=API_SERVER_PORT=8646
-Environment=API_SERVER_HOST=127.0.0.1
+# 与 plan/draft/write 一致绑 Docker 网桥，backend 容器可达（勿用 127.0.0.1）
+Environment=API_SERVER_HOST=172.18.0.1
 ExecStart=/home/ubuntu/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main --profile scribe3_deduce_preview gateway run --replace
 Restart=always
 RestartSec=5

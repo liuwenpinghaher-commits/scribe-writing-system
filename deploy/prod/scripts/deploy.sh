@@ -37,6 +37,13 @@ else
 fi
 
 if docker info >/dev/null 2>&1; then DOCKER=docker; else DOCKER="sudo docker"; fi
+# Hermes plan/draft/deduce* unit 与仓库对齐（失败不阻断 compose；网关本就常驻宿主机）
+if [ -x "$REPO_DIR/deploy/prod/scripts/install_hermes_units.sh" ]; then
+  echo "==> sync Hermes stage systemd units (best-effort)"
+  SCRIBE3_REPO_DIR="$REPO_DIR" bash "$REPO_DIR/deploy/prod/scripts/install_hermes_units.sh" \
+    || echo "warn: hermes units sync failed; continue compose" >&2
+fi
+
 echo "==> $DOCKER compose up --build"
 # 使用 docker compose v2 插件（无权限时回退 sudo）
 $DOCKER compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull || true

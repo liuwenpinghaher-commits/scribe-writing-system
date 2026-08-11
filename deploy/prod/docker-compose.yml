@@ -2,7 +2,8 @@
 # 用法（在仓库根）:
 #   docker compose -f deploy/prod/docker-compose.yml --env-file deploy/prod/.env up -d --build
 #
-# Hermes 三网关跑在宿主机（systemd），backend 经 host-gateway 访问 8642/8643/8644。
+# Hermes 网关跑在宿主机（systemd）：default/scribe3/write + plan/draft/deduce*。
+# backend 经 Docker 网桥网关（常 172.18.0.1）访问 8642–8648；勿用 127.0.0.1。
 # 对外只暴露 80（nginx 同源 / 与 /api）。
 
 services:
@@ -45,10 +46,14 @@ services:
       SCRIBE3_SURREAL_URL: ws://surreal:8000/rpc
       SCRIBE3_SURREAL_USER: ${SURREAL_USER:-root}
       SCRIBE3_SURREAL_PASS: ${SURREAL_PASS:-root}
-      # Docker Desktop / Linux host 网关：访问宿主机 Hermes
+      # Docker Desktop / Linux host 网关：访问宿主机 Hermes（含阶段硬 profile）
       HERMES_API: ${HERMES_API:-http://172.18.0.1:8642/v1}
       HERMES_RESPONSES_API: ${HERMES_RESPONSES_API:-http://172.18.0.1:8643/v1}
       HERMES_RUNS_API: ${HERMES_RUNS_API:-http://172.18.0.1:8644/v1}
+      HERMES_DEDUCE_RUNS_API: ${HERMES_DEDUCE_RUNS_API:-http://172.18.0.1:8645/v1}
+      HERMES_DEDUCE_PREVIEW_RUNS_API: ${HERMES_DEDUCE_PREVIEW_RUNS_API:-http://172.18.0.1:8646/v1}
+      HERMES_PLAN_RUNS_API: ${HERMES_PLAN_RUNS_API:-http://172.18.0.1:8647/v1}
+      HERMES_DRAFT_RUNS_API: ${HERMES_DRAFT_RUNS_API:-http://172.18.0.1:8648/v1}
       HERMES_RESPONSES_PROFILE: ${HERMES_RESPONSES_PROFILE:-scribe3}
       HERMES_RUNS_PROFILE: ${HERMES_RUNS_PROFILE:-scribe3_write}
       SCRIBE3_CORS_ORIGINS: ${SCRIBE3_CORS_ORIGINS:-http://82.157.130.140,http://127.0.0.1}

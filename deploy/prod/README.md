@@ -9,7 +9,9 @@
             ├─ /        SPA
             └─ /api/*   → backend:3321 → SurrealDB(surrealkv)
                               ↓ 172.18.0.1 (docker bridge)
-                         Hermes :8642 / :8643 / :8644（宿主机 systemd）
+                         Hermes :8642–:8648（宿主机 systemd）
+                         # 8642 default · 8643 scribe3 · 8644 write
+                         # 8645 deduce · 8646 deduce_preview · 8647 plan · 8648 draft
 ```
 
 - 代码与 compose：`/opt/scribe3/app`
@@ -86,15 +88,17 @@ bash /opt/scribe3/app/deploy/prod/scripts/import_data.sh /tmp/scribe3-cloud-migr
 
 ```bash
 bash /opt/scribe3/app/deploy/prod/scripts/install_hermes.sh
-# Linux 上容器访问宿主机网关：绑 Docker 网桥（非 127.0.0.1）
-# systemd drop-in 示例：Environment=API_SERVER_HOST=172.18.0.1
-# deploy/prod/.env 中 HERMES_* 指向 http://172.18.0.1:8642|8643|8644/v1
-sudo systemctl restart hermes-gateway hermes-gateway-scribe3 hermes-gateway-scribe3-write
+# 仅刷新 stage unit（plan/draft/deduce*）:
+bash /opt/scribe3/app/deploy/prod/scripts/install_hermes_units.sh
+# 全部网关 API_SERVER_HOST=172.18.0.1（Docker 网桥；勿 127.0.0.1）
+# deploy/prod/.env 中 HERMES_* 指向 8642–8648（见 .env.example）
+bash /opt/scribe3/app/deploy/prod/scripts/restart-hermes-gateways.sh
 docker compose -f deploy/prod/docker-compose.yml --env-file deploy/prod/.env up -d backend
-curl -fsS http://127.0.0.1/api/gateway/status
+curl -fsS http://127.0.0.1/api/health
+# 宿主机: STRICT_STAGE=1 ./scripts/smoke_hermes_gateways.sh
 ```
 
-当前实例已验证：`default/responses/runs` 三网关 `online:true`；deduce 系列未装可忽略。
+阶段硬 profile：outline/beats/plan → `:8647`；draft → `:8648`；deduce* → `:8645/8646`。
 
 ### 6. 日常部署（主路径，不经 GitHub Actions）
 
