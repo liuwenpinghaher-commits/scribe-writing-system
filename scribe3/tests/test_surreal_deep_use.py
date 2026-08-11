@@ -57,16 +57,23 @@ def test_s1_native_flag_and_single_query_path():
 
 
 def test_s1_rrf_object_list_parse():
-    """Surreal search::rrf 返回 [{id, rrf_score}] → fused id 序。"""
-    raw = [
+    """Surreal search::rrf 返回扁平 [{id, rrf_score}]（_query 解包后）→ fused id 序。"""
+    rrf = [
         {"id": "fact:2", "rrf_score": 0.03},
         {"id": "fact:1", "rrf_score": 0.01},
     ]
-    fused = []
-    for x in raw:
-        if isinstance(x, dict) and x.get("id") is not None:
-            fused.append(str(x["id"]))
+    items = []
+    if isinstance(rrf, list) and rrf:
+        if isinstance(rrf[0], dict) and "id" in rrf[0]:
+            items = rrf
+        elif isinstance(rrf[0], list):
+            items = rrf[0]
+    fused = [str(x["id"]) for x in items if isinstance(x, dict) and x.get("id") is not None]
     assert fused == ["fact:2", "fact:1"]
+    # 源码须处理扁平形态（不可只认 rrf[0] 为 list）
+    from pathlib import Path
+    text = (Path(__file__).resolve().parents[1] / "store" / "recall.py").read_text(encoding="utf-8")
+    assert 'rrf[0], dict)' in text or '"id" in rrf[0]' in text
 
 
 def test_a1_backfill_proposition_tokens_contract():

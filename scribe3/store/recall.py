@@ -202,15 +202,25 @@ class RecallMixin:
                 "RETURN search::rrf([$a, $b], $lim, 60);",
                 {"a": a_objs, "b": b_objs, "lim": int(k)},
             )
-            if rrf and isinstance(rrf, list) and rrf[0]:
-                raw = rrf[0]
-                if isinstance(raw, list):
-                    for x in raw:
-                        if isinstance(x, dict) and x.get("id") is not None:
-                            fused_ids.append(str(x["id"]))
-                        elif x is not None:
-                            fused_ids.append(str(x))
-                    fused_ids = fused_ids[:k]
+            # Surreal 驱动常见两种形态：
+            #   1) 扁平 [{id, rrf_score}, …]（_query 解包后）
+            #   2) 包一层 [[…]] / {result: […]}
+            items: list = []
+            if isinstance(rrf, list) and rrf:
+                if isinstance(rrf[0], dict) and ("id" in rrf[0] or "rrf_score" in rrf[0]):
+                    items = rrf
+                elif isinstance(rrf[0], list):
+                    items = rrf[0]
+            elif isinstance(rrf, dict):
+                inner = rrf.get("result") or rrf.get("vs")
+                if isinstance(inner, list):
+                    items = inner
+            for x in items:
+                if isinstance(x, dict) and x.get("id") is not None:
+                    fused_ids.append(str(x["id"]))
+                elif x is not None and not isinstance(x, dict):
+                    fused_ids.append(str(x))
+            fused_ids = fused_ids[:k]
         except Exception:
             fused_ids = []
         if not fused_ids:

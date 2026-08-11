@@ -55,14 +55,16 @@ def run_smoke(db: str, *, ns: str = "scribe3") -> dict:
                     "lim": 5,
                 },
             )
-            raw = rrf[0] if isinstance(rrf, list) and rrf else rrf
-            ids = []
-            if isinstance(raw, list):
-                for x in raw:
-                    if isinstance(x, dict) and x.get("id") is not None:
-                        ids.append(str(x["id"]))
+            # 扁平 [{id,rrf_score},…] 或 [[…]]
+            items = []
+            if isinstance(rrf, list) and rrf:
+                if isinstance(rrf[0], dict) and "id" in rrf[0]:
+                    items = rrf
+                elif isinstance(rrf[0], list):
+                    items = rrf[0]
+            ids = [str(x["id"]) for x in items if isinstance(x, dict) and x.get("id") is not None]
             rrf_ok = bool(ids) and ids[0] == "fact:2"
-            rrf_detail = {"ids": ids, "raw_type": type(raw).__name__}
+            rrf_detail = {"ids": ids, "raw_type": type(rrf).__name__, "n": len(items)}
         except Exception as e:
             rrf_detail = {"error": str(e)[:200]}
         checks.append(_ok("rrf.object_lists", rrf_ok, rrf_detail))
