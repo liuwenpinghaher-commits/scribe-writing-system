@@ -80,20 +80,29 @@ _settings.apply_restart_overrides()   # restart 类 DB 覆盖灌 env,必须在 C
 async def _app_lifespan(_app: FastAPI):
     """统一承载启动安全守卫与退出连接回收，替代已弃用的 on_event。"""
     _startup_gateway_guard()
-    # S-2: Changefeed 缓存消费者（flag 关则 no-op）
+    # S-2: Changefeed 缓存消费者（flag 关则 no-op）+ A3 factory 双写
     try:
         from scribe3.changefeed_consumer import ChangefeedCacheWorker, changefeed_cache_enabled
+        from scribe3.context_cache import set_cache_watch_store_factory
+
+        def _store_factory():
+            return _store_for(os.environ.get("SCRIBE3_DEFAULT_WORK") or "main")
+
         if changefeed_cache_enabled():
-            def _store_factory():
-                return _store_for(os.environ.get("SCRIBE3_DEFAULT_WORK") or "main")
+            set_cache_watch_store_factory(_store_factory)
             _app.state.changefeed_worker = ChangefeedCacheWorker(_store_factory)
             _app.state.changefeed_worker.start()
-            logging.getLogger("scribe3").info("changefeed cache worker started")
+            logging.getLogger("scribe3").warning("changefeed cache worker started")
     except Exception as e:
         logging.getLogger("scribe3").warning("changefeed worker not started: %s", e)
     try:
         yield
     finally:
+        try:
+            from scribe3.context_cache import set_cache_watch_store_factory
+            set_cache_watch_store_factory(None)
+        except Exception:
+            pass
         try:
             w = getattr(_app.state, "changefeed_worker", None)
             if w is not None:
@@ -283,34 +292,47 @@ def _chapter_op_busy(work: str, seq: int, op: str = "loop") -> bool:
 
 
 def _acquire_op_mutex(work: str, seq: int, op: str, *, detail: str) -> None:
-    """S-3 + P2：统一章节锁表面；DB 旗开走 inflight 表，否则 chapter_lock 进程内。
+    """S-3 + P2：统一章节锁表面。
 
-    仍维护遗留 _loop_inflight / repair set，供旧观测与测试兼容。
+    - 始终走 chapter_lock（可注入 store → DISTRIBUTED_LOCK / inflight 表）
+    - DISTRIBUTED 已占 store 行时不再二次 TableInflight（同 rid 会假 busy）
+    - 仅 DB_INFLIGHT 开且 DISTRIBUTED 关：补 TableInflight
+    - 遗留 _loop_inflight / repair set 仅在纯进程内路径维护
     """
-    # P2 统一表面（进程内 + 可选 distributed store）
+    st = None
+    try:
+        st = _store_for(work)
+    except Exception:
+        st = None
+    distributed_ok = False
     try:
         from scribe3.chapter_lock import (
             acquire_chapter_lock,
             chapter_lock_busy_http_detail,
         )
-        clr = acquire_chapter_lock(op, work, int(seq))
+        from scribe3.concurrency_lock import distributed_lock_enabled
+        clr = acquire_chapter_lock(op, work, int(seq), store=st)
         if not clr.ok:
             raise HTTPException(
                 status_code=409,
                 detail=detail or chapter_lock_busy_http_detail(clr),
             )
+        if distributed_lock_enabled() and st is not None:
+            distributed_ok = True
     except HTTPException:
         raise
     except Exception:
         pass  # 降级遗留路径
+    if distributed_ok:
+        return
     if _db_lock_on():
         from scribe3.inflight_lock import acquire_chapter_op
-        st = _store_for(work)
+        st = st or _store_for(work)
         r = acquire_chapter_op(st, work, int(seq), op)
         if not r.ok:
             try:
                 from scribe3.chapter_lock import release_chapter_lock
-                release_chapter_lock(op, work, int(seq))
+                release_chapter_lock(op, work, int(seq), store=st)
             except Exception:
                 pass
             raise HTTPException(status_code=409, detail=detail)
@@ -321,7 +343,7 @@ def _acquire_op_mutex(work: str, seq: int, op: str, *, detail: str) -> None:
             if key in _loop_inflight:
                 try:
                     from scribe3.chapter_lock import release_chapter_lock
-                    release_chapter_lock(op, work, int(seq))
+                    release_chapter_lock(op, work, int(seq), store=st)
                 except Exception:
                     pass
                 raise HTTPException(status_code=409, detail=detail)
@@ -333,7 +355,7 @@ def _acquire_op_mutex(work: str, seq: int, op: str, *, detail: str) -> None:
         except HTTPException:
             try:
                 from scribe3.chapter_lock import release_chapter_lock
-                release_chapter_lock(op, work, int(seq))
+                release_chapter_lock(op, work, int(seq), store=st)
             except Exception:
                 pass
             raise
@@ -344,7 +366,7 @@ def _acquire_op_mutex(work: str, seq: int, op: str, *, detail: str) -> None:
         if key in _loop_inflight:
             try:
                 from scribe3.chapter_lock import release_chapter_lock
-                release_chapter_lock(op, work, int(seq))
+                release_chapter_lock(op, work, int(seq), store=st)
             except Exception:
                 pass
             raise HTTPException(status_code=409, detail=detail)
@@ -352,15 +374,26 @@ def _acquire_op_mutex(work: str, seq: int, op: str, *, detail: str) -> None:
 
 
 def _release_op_mutex(work: str, seq: int, op: str) -> None:
+    st = None
+    try:
+        st = _store_for(work)
+    except Exception:
+        st = None
     try:
         from scribe3.chapter_lock import release_chapter_lock
-        release_chapter_lock(op, work, int(seq))
+        release_chapter_lock(op, work, int(seq), store=st)
+    except Exception:
+        pass
+    try:
+        from scribe3.concurrency_lock import distributed_lock_enabled
+        if distributed_lock_enabled() and st is not None:
+            return
     except Exception:
         pass
     if _db_lock_on():
         from scribe3.inflight_lock import release_chapter_op
         try:
-            st = _store_for(work)
+            st = st or _store_for(work)
             release_chapter_op(st, work, int(seq), op)
         except Exception:
             pass

@@ -767,6 +767,62 @@ def backfill_material_memory(store) -> int:
     return n
 
 
+def _proposition_tokens_from_text(text: str) -> str:
+    """与 semantic_index 同口径：jieba 空格串，最长 2000。"""
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    try:
+        import jieba
+        return " ".join(w for w in jieba.cut(raw) if len(w.strip()) >= 1)[:2000]
+    except Exception:
+        return raw[:2000]
+
+
+def backfill_proposition_tokens(store, *, limit: int = 500, dry_run: bool = False) -> dict:
+    """A1: 存量命题补 tokens（不重算 embedding，省内存）。幂等。
+
+    返回 {scanned, updated, skipped, dry_run, errors, limit}。
+    """
+    lim = max(1, min(int(limit or 500), 5000))
+    rows = store._query(
+        f"SELECT meta::id(id) AS local, attribute, value, tokens "
+        f"FROM proposition LIMIT {lim};"
+    ) or []
+    scanned = updated = skipped = errors = 0
+    for r in rows:
+        if not isinstance(r, dict) or not r.get("local"):
+            continue
+        scanned += 1
+        if str(r.get("tokens") or "").strip():
+            skipped += 1
+            continue
+        text = f"{r.get('attribute') or ''} {r.get('value') or ''}".strip()
+        toks = _proposition_tokens_from_text(text)
+        if not toks:
+            skipped += 1
+            continue
+        if dry_run:
+            updated += 1
+            continue
+        try:
+            store._execute_write(
+                "UPDATE type::record('proposition', $local) SET tokens=$tok;",
+                {"local": r["local"], "tok": toks},
+            )
+            updated += 1
+        except Exception:
+            errors += 1
+    return {
+        "scanned": scanned,
+        "updated": updated,
+        "skipped": skipped,
+        "errors": errors,
+        "dry_run": bool(dry_run),
+        "limit": lim,
+    }
+
+
 # ===========================================================================
 # 统一上下文与记忆系统 · Task 14:记忆溯源 trace 的映射 + 服务端权威屏蔽
 #

@@ -144,6 +144,12 @@ class ChangefeedCacheWorker:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._cursors: dict[str, Any] = {}
+        self._started_at: float | None = None
+        self._last_ok_at: float | None = None
+        self._last_error: str | None = None
+        self._poll_count: int = 0
+        self._invalidate_count: int = 0
+        self._lock = threading.Lock()
 
     def start(self) -> None:
         if not changefeed_cache_enabled():
@@ -151,25 +157,52 @@ class ChangefeedCacheWorker:
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
+        self._started_at = time.time()
         self._thread = threading.Thread(target=self._run, name="s3-changefeed-cache", daemon=True)
         self._thread.start()
+        _log.warning("changefeed cache worker started interval=%s work=%s", self._interval, self._work)
 
     def stop(self) -> None:
         self._stop.set()
+
+    def status(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "enabled": changefeed_cache_enabled(),
+                "alive": bool(self._thread and self._thread.is_alive()),
+                "started_at": self._started_at,
+                "last_ok_at": self._last_ok_at,
+                "last_error": self._last_error,
+                "poll_count": self._poll_count,
+                "invalidate_count": self._invalidate_count,
+                "cursors": dict(self._cursors),
+                "work": self._work,
+            }
 
     def _run(self) -> None:
         while not self._stop.is_set():
             try:
                 st = self._factory()
+                batch_touched = 0
                 for table in _WATCH:
                     rows = poll_table_changes(st, table, self._cursors.get(table))
+                    with self._lock:
+                        self._poll_count += 1
                     if not rows:
                         continue
                     # 更新 cursor
                     last = rows[-1]
                     if isinstance(last, dict) and "versionstamp" in last:
                         self._cursors[table] = last["versionstamp"]
-                    apply_changes_to_cache(rows if isinstance(rows, list) else [rows], self._work)
+                    touched = apply_changes_to_cache(
+                        rows if isinstance(rows, list) else [rows], self._work)
+                    batch_touched += len(touched or ())
+                with self._lock:
+                    self._last_ok_at = time.time()
+                    self._last_error = None
+                    self._invalidate_count += batch_touched
             except Exception as e:
+                with self._lock:
+                    self._last_error = str(e)[:200]
                 _log.debug("changefeed loop: %s", e)
             self._stop.wait(self._interval)

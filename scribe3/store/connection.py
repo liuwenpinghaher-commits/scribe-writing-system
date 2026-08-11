@@ -217,6 +217,60 @@ class ConnectionMixin:
         """改世界状态的唯一落库点。所有 add_* 经此(开发标准不变量1)。"""
         self._raw_query(surql, vars)
 
+    # ── O28 / A4: concurrency_lock.LockStore 协议（与 TableInflightLock 同 rid）──
+    @staticmethod
+    def _inflight_rid(kind: str, target: str) -> str:
+        """统一 rid：target 为 work:seq 时 → {work}_{seq}_{kind}（与 inflight_lock 一致）。"""
+        k = str(kind or "run").strip() or "run"
+        t = str(target or "").strip()
+        if ":" in t:
+            work, _, rest = t.partition(":")
+            try:
+                seq = int(str(rest).strip())
+                return f"{work}_{seq}_{k}".replace(":", "_")
+            except Exception:
+                pass
+        return f"{k}_{t}".replace(":", "_").replace("/", "_")[:200]
+
+    def try_create_inflight(self, kind: str, target: str, worker: str, ttl_sec: int) -> bool:
+        """跨进程锁：CREATE ONLY inflight 行；冲突/已存在 → False。"""
+        rid = self._inflight_rid(kind, target)
+        try:
+            self._execute_write(
+                "CREATE type::record('inflight', $rid) CONTENT {"
+                " work: $work, seq: $seq, op: $op, worker: $worker, ttl_seconds: $ttl"
+                "};",
+                {
+                    "rid": rid,
+                    "work": str(target).split(":", 1)[0] if ":" in str(target) else str(target),
+                    "seq": (
+                        int(str(target).split(":", 1)[1])
+                        if ":" in str(target) and str(target).split(":", 1)[1].isdigit()
+                        else 0
+                    ),
+                    "op": str(kind or "run"),
+                    "worker": str(worker or ""),
+                    "ttl": int(ttl_sec or 60),
+                },
+            )
+            return True
+        except Exception as e:
+            msg = str(e).lower()
+            if "unique" in msg or "already" in msg or "exists" in msg or "conflict" in msg:
+                return False
+            logging.getLogger("scribe3.store").debug("try_create_inflight: %s", e)
+            return False
+
+    def delete_inflight(self, kind: str, target: str) -> None:
+        rid = self._inflight_rid(kind, target)
+        try:
+            self._execute_write(
+                "DELETE type::record('inflight', $rid);",
+                {"rid": rid},
+            )
+        except Exception as e:
+            logging.getLogger("scribe3.store").debug("delete_inflight: %s", e)
+
     @contextmanager
     def transaction(self):
         """关键多步写的事务边界。收集块内写,退出时拼为单条多语句提交。

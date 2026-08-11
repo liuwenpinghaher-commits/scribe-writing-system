@@ -192,17 +192,25 @@ class RecallMixin:
 
         vec_ids = [f.id for f in vector_results]
         kw_ids = [f.id for f in keyword_results]
-        # 优先尝试 DB search::rrf（id 列表）；失败则 Python
+        # 优先 DB search::rrf：Surreal 3.2 要求「对象列表」[{id},…] 而非纯字符串
+        # （纯字符串会静默返回 []）。失败则 Python RRF。
         fused_ids: list[str] = []
         try:
+            a_objs = [{"id": i} for i in vec_ids]
+            b_objs = [{"id": i} for i in kw_ids]
             rrf = self._query(
                 "RETURN search::rrf([$a, $b], $lim, 60);",
-                {"a": vec_ids, "b": kw_ids, "lim": int(k)},
+                {"a": a_objs, "b": b_objs, "lim": int(k)},
             )
             if rrf and isinstance(rrf, list) and rrf[0]:
                 raw = rrf[0]
                 if isinstance(raw, list):
-                    fused_ids = [str(x) for x in raw][:k]
+                    for x in raw:
+                        if isinstance(x, dict) and x.get("id") is not None:
+                            fused_ids.append(str(x["id"]))
+                        elif x is not None:
+                            fused_ids.append(str(x))
+                    fused_ids = fused_ids[:k]
         except Exception:
             fused_ids = []
         if not fused_ids:

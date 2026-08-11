@@ -215,6 +215,16 @@ def _reset_authority_for_test(work: str) -> None:
         _authority_rev.pop(work or "", None)
 
 
+# A3: lifespan 可注册 store factory，emit 未传 store 时仍双写 cache_watch
+_cache_watch_store_factory = None
+
+
+def set_cache_watch_store_factory(factory) -> None:
+    """注册 ``() -> store``；``None`` 清除。best-effort 双写用。"""
+    global _cache_watch_store_factory
+    _cache_watch_store_factory = factory
+
+
 def emit_invalidation(table: str, work: str | None = None, *, store=None) -> None:
     """表级失效事件:清订阅该表的缓存;正典表额外 bump authority_revision。
 
@@ -222,6 +232,7 @@ def emit_invalidation(table: str, work: str | None = None, *, store=None) -> Non
     Changefeed 消费者亦可调用（S-2）。best-effort、绝不抛错。
 
     store 若提供：双写 ``cache_watch``（CHANGEFEED 旁路，不改 SCHEMAFULL 表）。
+    store 缺省且已 set_cache_watch_store_factory：尝试 factory() 双写。
     """
     try:
         with _REGISTRY_LOCK:
@@ -233,14 +244,21 @@ def emit_invalidation(table: str, work: str | None = None, *, store=None) -> Non
             if not cache.tables or table in cache.tables:
                 cache.invalidate_by_table(table, work)
         # S-2 旁路：写入 cache_watch 供 SHOW CHANGES 消费（fail-soft；禁环）
-        if store is not None and table and table != "cache_watch":
-            try:
-                store._execute_write(
-                    "CREATE cache_watch SET table_name=$t, work=$w;",
-                    {"t": str(table), "w": work or ""},
-                )
-            except Exception:
-                pass
+        if table and table != "cache_watch":
+            st = store
+            if st is None and _cache_watch_store_factory is not None:
+                try:
+                    st = _cache_watch_store_factory()
+                except Exception:
+                    st = None
+            if st is not None:
+                try:
+                    st._execute_write(
+                        "CREATE cache_watch SET table_name=$t, work=$w;",
+                        {"t": str(table), "w": work or ""},
+                    )
+                except Exception:
+                    pass
     except Exception:
         # 失效登记/广播的任何异常都不得冒泡到写路径(写正确性 > 缓存卫生)。
         pass

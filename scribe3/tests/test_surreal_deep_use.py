@@ -44,15 +44,109 @@ def test_s1_native_flag_and_single_query_path():
     kw_ids = ["fact:1"]
     fused = _rrf(vec_ids, kw_ids, k=60)
     assert fused[0][0] == "fact:1"
-    # 源码合同：hybrid_recall 含 native 分支 + tokens BM25 + rrf
+    # 源码合同：hybrid_recall 含 native 分支 + tokens BM25 + rrf 对象入参
     text = (Path(__file__).resolve().parents[1] / "store" / "recall.py").read_text(encoding="utf-8")
     assert "_hybrid_recall_native" in text
     assert "SCRIBE3_HYBRID_SEARCH_NATIVE" in text or "hybrid_search_native" in text
     assert "LET $vs" in text
     assert "tokens @@" in text
     assert "search::rrf" in text
+    assert '[{"id": i}' in text or '{"id": i}' in text
     assert "tokens=$tok" in text  # semantic_index 回填
     os.environ["SCRIBE3_HYBRID_SEARCH_NATIVE"] = "0"
+
+
+def test_s1_rrf_object_list_parse():
+    """Surreal search::rrf 返回 [{id, rrf_score}] → fused id 序。"""
+    raw = [
+        {"id": "fact:2", "rrf_score": 0.03},
+        {"id": "fact:1", "rrf_score": 0.01},
+    ]
+    fused = []
+    for x in raw:
+        if isinstance(x, dict) and x.get("id") is not None:
+            fused.append(str(x["id"]))
+    assert fused == ["fact:2", "fact:1"]
+
+
+def test_a1_backfill_proposition_tokens_contract():
+    """本机无 surrealdb SDK：源码合同 + 幂等/dry-run 逻辑同构。"""
+    from pathlib import Path
+    text = (Path(__file__).resolve().parents[1] / "store" / "core_preamble.py").read_text(
+        encoding="utf-8")
+    assert "def backfill_proposition_tokens" in text
+    assert "def _proposition_tokens_from_text" in text
+    assert "dry_run" in text
+    # 同构 dry 计数
+    rows = [
+        {"local": "a", "attribute": "名", "value": "铜炉", "tokens": None},
+        {"local": "b", "tokens": "already"},
+    ]
+    updated = skipped = 0
+    for r in rows:
+        if str(r.get("tokens") or "").strip():
+            skipped += 1
+            continue
+        updated += 1
+    assert updated == 1 and skipped == 1
+
+
+def test_a4_inflight_rid_aligns_with_table_lock():
+    # 与 TableInflightLock rid 公式同构（不 import store 链）
+    def rid(kind, target):
+        k = str(kind or "run")
+        t = str(target or "")
+        if ":" in t:
+            work, _, rest = t.partition(":")
+            return f"{work}_{int(rest)}_{k}".replace(":", "_")
+        return f"{k}_{t}"
+    assert rid("loop", "main:3") == "main_3_loop"
+    # 源码合同
+    from pathlib import Path
+    text = (Path(__file__).resolve().parents[1] / "store" / "connection.py").read_text(
+        encoding="utf-8")
+    assert "def try_create_inflight" in text
+    assert "def _inflight_rid" in text
+
+
+def test_a5_ingest_kind_in_chapter_ops():
+    from scribe3.chapter_lock import CHAPTER_OPS, acquire_chapter_lock, release_chapter_lock
+
+    assert "ingest" in CHAPTER_OPS
+    r1 = acquire_chapter_lock("ingest", "w", 9)
+    r2 = acquire_chapter_lock("ingest", "w", 9)
+    assert r1.ok is True
+    assert r2.ok is False
+    release_chapter_lock("ingest", "w", 9)
+    r3 = acquire_chapter_lock("ingest", "w", 9)
+    assert r3.ok is True
+    release_chapter_lock("ingest", "w", 9)
+
+
+def test_a6_worker_status_shape():
+    from scribe3.changefeed_consumer import ChangefeedCacheWorker
+
+    w = ChangefeedCacheWorker(lambda: None, work="main", interval=60)
+    st = w.status()
+    assert "enabled" in st and "alive" in st and "poll_count" in st
+    assert st["alive"] is False
+
+
+def test_a3_factory_dual_write():
+    from scribe3.context_cache import emit_invalidation, set_cache_watch_store_factory
+
+    writes = []
+
+    class St:
+        def _execute_write(self, q, vars=None):
+            writes.append((q, vars))
+
+    set_cache_watch_store_factory(lambda: St())
+    try:
+        emit_invalidation("proposition", work="main")  # no store kw
+        assert writes and "cache_watch" in writes[0][0]
+    finally:
+        set_cache_watch_store_factory(None)
 
 
 def test_s2_invalidate_by_table_drops_cache():

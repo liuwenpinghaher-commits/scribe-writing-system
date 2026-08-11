@@ -118,8 +118,20 @@ def _bg_ingest(work: str, seq: int) -> None:
     st = None
     owner = ""
     backend = None
+    ch_lock_held = False
     try:
         st = SurrealStore(ns="scribe3", db=work)
+        # A5: 统一章锁表面（ingest kind）+ 既有 lease CAS
+        try:
+            from scribe3.chapter_lock import acquire_chapter_lock
+            clr = acquire_chapter_lock("ingest", work, int(seq), store=st, ttl_seconds=600)
+            if not clr.ok:
+                logging.getLogger("scribe3").info(
+                    "后台 ingest %s 第%s章: chapter_lock busy", work, seq)
+                return
+            ch_lock_held = True
+        except Exception as e:
+            logging.getLogger("scribe3").debug("ingest chapter_lock skip: %s", e)
         backend = combined_backend(st)
         owner = new_owner()
         acq = try_acquire_ingest_lease(backend, work, int(seq), owner, ttl=600.0)
@@ -160,6 +172,12 @@ def _bg_ingest(work: str, seq: int) -> None:
         if backend is not None and owner:
             try:
                 release_ingest_lease(backend, work, int(seq), owner)
+            except Exception:
+                pass
+        if ch_lock_held:
+            try:
+                from scribe3.chapter_lock import release_chapter_lock
+                release_chapter_lock("ingest", work, int(seq), store=st)
             except Exception:
                 pass
         pend, plock = _pending_pair()

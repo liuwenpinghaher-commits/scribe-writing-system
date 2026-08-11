@@ -324,11 +324,28 @@ def run_or_enqueue(
         out["reason"] = decision.reason if enq else "already_pending"
         return out
 
-    # sync
+    # sync：A5 chapter_lock(ingest) + lease CAS
+    ch_lock_held = False
+    try:
+        from scribe3.chapter_lock import acquire_chapter_lock
+        clr = acquire_chapter_lock("ingest", work, int(seq), store=st, ttl_seconds=600)
+        if not clr.ok:
+            out["action"] = "skip"
+            out["reason"] = "chapter_lock_busy"
+            return out
+        ch_lock_held = True
+    except Exception as e:
+        _log.debug("sync ingest chapter_lock: %s", e)
     backend = combined_backend(st)
     owner = new_owner()
     acq = try_acquire_ingest_lease(backend, work, int(seq), owner, ttl=600.0)
     if not acq.ok:
+        if ch_lock_held:
+            try:
+                from scribe3.chapter_lock import release_chapter_lock
+                release_chapter_lock("ingest", work, int(seq), store=st)
+            except Exception:
+                pass
         out["action"] = "skip"
         out["reason"] = "lease_busy"
         out["lease_owner"] = acq.owner
@@ -377,3 +394,9 @@ def run_or_enqueue(
         return out
     finally:
         release_ingest_lease(backend, work, int(seq), owner)
+        if ch_lock_held:
+            try:
+                from scribe3.chapter_lock import release_chapter_lock
+                release_chapter_lock("ingest", work, int(seq), store=st)
+            except Exception:
+                pass
