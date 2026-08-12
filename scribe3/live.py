@@ -31,6 +31,22 @@ def _live_credentials() -> tuple[str, str]:
     return user or "root", password or "root"
 
 
+def live_id_allowed(
+    table: str,
+    note_payload: dict,
+    record_ids: dict[str, list[str]] | None,
+) -> bool:
+    """GAP-4：输出侧 id 过滤（可单测；LIVE 条件订阅不稳时的诚实回退）。"""
+    id_filter = record_ids or {}
+    allowed = id_filter.get(table)
+    if not allowed:
+        return True
+    rid = str((note_payload or {}).get("id") or "")
+    if not rid:
+        return True
+    return any(rid == a or rid.endswith(":" + a) or a in rid for a in allowed)
+
+
 def _normalize_live_note(table: str, note) -> dict:
     """S-8: 从 LIVE 通知提取 action + id + 可选 fields；始终含 table（旧客户端兼容）。"""
     payload: dict = {"table": table}
@@ -67,26 +83,39 @@ def _normalize_live_note(table: str, note) -> dict:
     return payload
 
 
-async def live_stream(url: str, ns: str, db: str, tables: list[str]):
+async def live_stream(
+    url: str,
+    ns: str,
+    db: str,
+    tables: list[str],
+    *,
+    record_ids: dict[str, list[str]] | None = None,
+):
     """异步生成器:产出 SSE 行。
 
-    S-8: 推送 ``{table, action?, id?, fields?}``；仅读 table 的旧前端仍可用。
+    S-8 / GAP-4: 推送 ``{table, action?, id?, fields?}``。
+    ``record_ids`` 若提供：对对应表在输出侧按 id 过滤（DB 条件 LIVE 在驱动不稳时回退过滤）。
     """
     from surrealdb import AsyncSurreal
 
     q: asyncio.Queue = asyncio.Queue()
     tasks: list = []
     user, password = _live_credentials()
-
     async def watch(table: str):
         c = AsyncSurreal(url)
         try:
             await c.signin({"username": user, "password": password})
             await c.use(ns, db)
+            # GAP-4：优先整表 live；条件订阅在 SDK 支持时由调用方扩展
             quuid = await c.live(table)
             gen = await c.subscribe_live(quuid)
             async for note in gen:
-                await q.put(_normalize_live_note(table, note))
+                payload = _normalize_live_note(table, note)
+                if isinstance(payload, dict) and not live_id_allowed(
+                    table, payload, record_ids
+                ):
+                    continue
+                await q.put(payload)
         finally:
             # 取消可能发生在 signin/use 期间；此时客户端尚未完成订阅，
             # 也不能依赖外层的已订阅连接列表兜底关闭。

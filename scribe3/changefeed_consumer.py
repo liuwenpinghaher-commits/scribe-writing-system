@@ -264,9 +264,12 @@ class ChangefeedCacheWorker:
 
     def _run(self) -> None:
         bootstrapped = False
+        # GAP-2：worker 生命周期复用单一独立 store；禁止每 tick 新建 WS。
+        st = None
         while not self._stop.is_set():
             try:
-                st = self._factory()
+                if st is None:
+                    st = self._factory()
                 if not bootstrapped:
                     try:
                         self._catch_up_cursors(st)
@@ -312,7 +315,18 @@ class ChangefeedCacheWorker:
                     self._last_error = str(e)[:200]
                 _log.debug("changefeed loop: %s", e)
                 self._empty_streak = min(self._empty_streak + 1, 6)
+                try:
+                    if st is not None:
+                        st.close()
+                except Exception:
+                    pass
+                st = None
             # 空轮询退避：海量 CDC 日志上 SHOW CHANGES 即使 n=0 也极贵
             # streak 0→base；最高约 base*32，封顶 10s
             wait = min(self._interval * (2 ** self._empty_streak), 10.0)
             self._stop.wait(wait)
+        try:
+            if st is not None:
+                st.close()
+        except Exception:
+            pass

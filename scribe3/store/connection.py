@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-
+import threading
 import time
 
 from scribe3.store.core_preamble import *  # noqa: F403
@@ -10,6 +10,9 @@ from scribe3.store.core_preamble import *  # noqa: F403
 class ConnectionMixin:
 
     """SurrealDB 后端的 World。默认连 NS=scribe3 / DB=main(与 scribe2 的 NS=scribe 隔离)。"""
+
+    # Surreal WS SDK 非线程安全：changefeed 后台线程与请求线程共用 store 时必须串行化。
+    _ws_lock: threading.RLock
 
     # Surreal 3.x: bare ``<string> f`` InternalError when f is NONE.
     @staticmethod
@@ -77,19 +80,24 @@ class ConnectionMixin:
         self._ns = ns
         self._user = user or os.environ.get("SCRIBE3_SURREAL_USER", "root")
         self._password = password or os.environ.get("SCRIBE3_SURREAL_PASS", "root")
+        self._ws_lock = threading.RLock()
         self._connect()
 
     def _connect(self) -> None:
-        self._db = Surreal(self.url)
-        self._db.signin({"username": self._user, "password": self._password})
-        self._db.use(self._ns, self.db_name)
+        with self._ws_lock:
+            self._db = Surreal(self.url)
+            self._db.signin({"username": self._user, "password": self._password})
+            self._db.use(self._ns, self.db_name)
 
     def _reconnect(self) -> None:
-        try:
-            self._db.close()
-        except Exception:
-            pass
-        self._connect()
+        with self._ws_lock:
+            try:
+                self._db.close()
+            except Exception:
+                pass
+            self._db = Surreal(self.url)
+            self._db.signin({"username": self._user, "password": self._password})
+            self._db.use(self._ns, self.db_name)
 
     def _query_all_checked(self, surql: str, vars: dict):
         """执行 surql 并**逐条**校验全部语句结果,任一语句 ERR 即抛。
@@ -119,14 +127,22 @@ class ConnectionMixin:
         语法/校验等非连接错误原样抛,绝不重试。
 
         多语句脚本的逐条校验见 `_query_all_checked`(不能用 SDK 裸 query——它只看第一条)。"""
-        try:
-            return self._query_all_checked(surql, vars or {})
-        except _CONN_ERRORS as e:
-            logging.getLogger("scribe3.store").warning(
-                "SurrealDB 连接故障,重连后重试一次(%s): %s",
-                type(e).__name__, str(e)[:120])
-            self._reconnect()
-            return self._query_all_checked(surql, vars or {})
+        with self._ws_lock:
+            try:
+                return self._query_all_checked(surql, vars or {})
+            except _CONN_ERRORS as e:
+                logging.getLogger("scribe3.store").warning(
+                    "SurrealDB 连接故障,重连后重试一次(%s): %s",
+                    type(e).__name__, str(e)[:120])
+                # 已持锁：内联重连避免 _reconnect 再抢锁死锁
+                try:
+                    self._db.close()
+                except Exception:
+                    pass
+                self._db = Surreal(self.url)
+                self._db.signin({"username": self._user, "password": self._password})
+                self._db.use(self._ns, self.db_name)
+                return self._query_all_checked(surql, vars or {})
 
     def close(self) -> None:
         try:
@@ -541,14 +557,21 @@ class ConnectionMixin:
         已提交、响应丢失,重试的事务会先撞 stale THROW(IF 判定在 CREATE 之前)
         ——由上层"stale → 先按 navigation 读回 → 读不回才是真 stale"机制转为
         幂等读回;create 场景重试非幂等,见 create_context_session 说明。"""
-        try:
-            resp = self._db.query_raw(surql, vars)
-        except _CONN_ERRORS as e:
-            logging.getLogger("scribe3.store").warning(
-                "SurrealDB 连接故障,重连后重试一次(%s): %s",
-                type(e).__name__, str(e)[:120])
-            self._reconnect()
-            resp = self._db.query_raw(surql, vars)
+        with self._ws_lock:
+            try:
+                resp = self._db.query_raw(surql, vars)
+            except _CONN_ERRORS as e:
+                logging.getLogger("scribe3.store").warning(
+                    "SurrealDB 连接故障,重连后重试一次(%s): %s",
+                    type(e).__name__, str(e)[:120])
+                try:
+                    self._db.close()
+                except Exception:
+                    pass
+                self._db = Surreal(self.url)
+                self._db.signin({"username": self._user, "password": self._password})
+                self._db.use(self._ns, self.db_name)
+                resp = self._db.query_raw(surql, vars)
         if resp.get("error"):
             raise RuntimeError(f"context 事务 RPC 错误: {resp['error']}")
         errs = [str(st.get("result")) for st in (resp.get("result") or [])

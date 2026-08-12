@@ -458,17 +458,18 @@ def ingest_status(seq: int | None = None, work: str = "main"):
     行语义单源:finalize_gate.build_ingest_status_row
     """
     from scribe3.finalize_gate import build_ingest_status_row
+    from scribe3.novel_first_surface import is_chapter_op_busy
     st = _store_for(work)
-    pending: set = set()
-    try:
-        with _pending_ingest_lock:
-            pending = {s for (w, s) in _pending_ingest if w == work}
-    except Exception:
-        pending = set()
+
+    def _pending(s: int) -> bool:
+        try:
+            return bool(is_chapter_op_busy("ingest", work, int(s)))
+        except Exception:
+            return False
 
     if seq is not None:
         ch = st.get_chapter(int(seq)) or {}
-        return build_ingest_status_row(int(seq), ch, pending=(int(seq) in pending))
+        return build_ingest_status_row(int(seq), ch, pending=_pending(int(seq)))
 
     rows = []
     try:
@@ -477,7 +478,7 @@ def ingest_status(seq: int | None = None, work: str = "main"):
             if s is None:
                 continue
             full = st.get_chapter(int(s)) or c
-            r = build_ingest_status_row(int(s), full, pending=(int(s) in pending))
+            r = build_ingest_status_row(int(s), full, pending=_pending(int(s)))
             # 列表只保留有信号的章(状态/在途/失败),避免空书噪声
             if r["ingest_status"] not in (None, "unknown") or r["pending"]:
                 rows.append(r)

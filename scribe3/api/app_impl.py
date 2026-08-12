@@ -86,7 +86,10 @@ async def _app_lifespan(_app: FastAPI):
         from scribe3.context_cache import set_cache_watch_store_factory
 
         def _store_factory():
-            return _store_for(os.environ.get("SCRIBE3_DEFAULT_WORK") or "main")
+            # GAP-2：changefeed 必须用独立 WS 连接，禁止复用请求路径 _stores 缓存。
+            # 共享同一 Surreal WS 会在后台线程与请求线程交叉 query 时卡死 /ready。
+            work = os.environ.get("SCRIBE3_DEFAULT_WORK") or "main"
+            return SurrealStore(ns="scribe3", db=work)
 
         if changefeed_cache_enabled():
             set_cache_watch_store_factory(_store_factory)
@@ -248,20 +251,10 @@ _complete_fn = None
 # 排队前查此集合:同 (work,seq) 已在途/在排则跳过第二次;标记在 _bg_ingest 完成时清除。
 # 路径合同:
 #   · 自动:save-chapter / checkpoint(final) / 若干终选路径 → _enqueue_ingest → _bg_ingest
-#   · 手动:POST /ingest(作者「反哺设定库」) → 同步 ingest_chapter,共用同一在途集合
-#   · 手动撞自动 → 409「该章正在反哺中」;自动撞在途 → _enqueue 返回 False 跳过
-# ⚠ 单 worker 依赖:此为模块级进程内 set,仅在单 worker 部署下有效。
-#   多 worker(多进程/多机)前必须改为跨进程去重(Surreal 在途锁行 / Redis SETNX),
-#   否则同章 ingest 会跨进程交错。生产默认单 uvicorn worker。
-_pending_ingest: set[tuple[str, int]] = set()
-_pending_ingest_lock = threading.Lock()
-# P0门审查 P1-3:loop 同章互斥(并发两次 POST /loop/chapter 同章 → 双生成/双落库/双 ingest)
-_loop_inflight: set[tuple[str, int]] = set()
-_loop_inflight_lock = threading.Lock()
-# 精修与跨章去重都会读取整章、调用模型、再覆写正文；若同章并发，后完成者会把先完成者
-# 的修复覆盖掉。和 loop 一样以 (work, seq) 为粒度互斥，客户端可明确收到 409 后重试。
-_chapter_repair_inflight: set[tuple[str, int]] = set()
-_chapter_repair_lock = threading.Lock()
+#   · 手动:POST /ingest(作者「反哺设定库」) → 同步 ingest_chapter
+#   · 互斥唯一路径 = chapter_lock(op=ingest|loop|…)（见 _acquire_op_mutex）
+#   · 多 worker：依赖 DB distributed lock / chapter_lock store 后端
+# GAP-1：已移除进程内 _loop_inflight / _chapter_repair_inflight / _pending_ingest 集合。
 
 
 def _db_lock_on() -> bool:
@@ -273,104 +266,31 @@ def _db_lock_on() -> bool:
 
 
 def _chapter_op_busy(work: str, seq: int, op: str = "loop") -> bool:
-    """只读忙检：优先 chapter_lock 快照，并回看遗留 _loop_inflight / repair set。
-
-    作者路径「生成在途」护栏与 loop 互斥共用真相源（P2 residual）。
-    """
+    """只读忙检：chapter_lock / concurrency_lock 快照（GAP-1 单一真相源）。"""
     try:
         from scribe3.novel_first_surface import is_chapter_op_busy
-        if is_chapter_op_busy(op, work, int(seq)):
-            return True
+        return bool(is_chapter_op_busy(op, work, int(seq)))
     except Exception:
-        pass
-    key = (work, int(seq))
-    if op == "repair":
-        with _chapter_repair_lock:
-            return key in _chapter_repair_inflight
-    with _loop_inflight_lock:
-        return key in _loop_inflight
+        return False
 
 
 def _acquire_op_mutex(work: str, seq: int, op: str, *, detail: str) -> None:
-    """S-3 + P2：统一章节锁表面。
-
-    - 始终走 chapter_lock（可注入 store → DISTRIBUTED_LOCK / inflight 表）
-    - DISTRIBUTED 已占 store 行时不再二次 TableInflight（同 rid 会假 busy）
-    - 仅 DB_INFLIGHT 开且 DISTRIBUTED 关：补 TableInflight
-    - 遗留 _loop_inflight / repair set 仅在纯进程内路径维护
-    """
+    """GAP-1：章节操作互斥仅经 chapter_lock（可注入 store → distributed）。"""
     st = None
     try:
         st = _store_for(work)
     except Exception:
         st = None
-    distributed_ok = False
-    try:
-        from scribe3.chapter_lock import (
-            acquire_chapter_lock,
-            chapter_lock_busy_http_detail,
+    from scribe3.chapter_lock import (
+        acquire_chapter_lock,
+        chapter_lock_busy_http_detail,
+    )
+    clr = acquire_chapter_lock(op, work, int(seq), store=st)
+    if not clr.ok:
+        raise HTTPException(
+            status_code=409,
+            detail=detail or chapter_lock_busy_http_detail(clr),
         )
-        from scribe3.concurrency_lock import distributed_lock_enabled
-        clr = acquire_chapter_lock(op, work, int(seq), store=st)
-        if not clr.ok:
-            raise HTTPException(
-                status_code=409,
-                detail=detail or chapter_lock_busy_http_detail(clr),
-            )
-        if distributed_lock_enabled() and st is not None:
-            distributed_ok = True
-    except HTTPException:
-        raise
-    except Exception:
-        pass  # 降级遗留路径
-    if distributed_ok:
-        return
-    if _db_lock_on():
-        from scribe3.inflight_lock import acquire_chapter_op
-        st = st or _store_for(work)
-        r = acquire_chapter_op(st, work, int(seq), op)
-        if not r.ok:
-            try:
-                from scribe3.chapter_lock import release_chapter_lock
-                release_chapter_lock(op, work, int(seq), store=st)
-            except Exception:
-                pass
-            raise HTTPException(status_code=409, detail=detail)
-        return
-    if op == "loop":
-        key = (work, int(seq))
-        with _loop_inflight_lock:
-            if key in _loop_inflight:
-                try:
-                    from scribe3.chapter_lock import release_chapter_lock
-                    release_chapter_lock(op, work, int(seq), store=st)
-                except Exception:
-                    pass
-                raise HTTPException(status_code=409, detail=detail)
-            _loop_inflight.add(key)
-        return
-    if op == "repair":
-        try:
-            _acquire_chapter_repair_mem(work, int(seq))
-        except HTTPException:
-            try:
-                from scribe3.chapter_lock import release_chapter_lock
-                release_chapter_lock(op, work, int(seq), store=st)
-            except Exception:
-                pass
-            raise
-        return
-    # generic / ingest：复用 loop set 兼容
-    key = (work, int(seq))
-    with _loop_inflight_lock:
-        if key in _loop_inflight:
-            try:
-                from scribe3.chapter_lock import release_chapter_lock
-                release_chapter_lock(op, work, int(seq), store=st)
-            except Exception:
-                pass
-            raise HTTPException(status_code=409, detail=detail)
-        _loop_inflight.add(key)
 
 
 def _release_op_mutex(work: str, seq: int, op: str) -> None:
@@ -384,39 +304,6 @@ def _release_op_mutex(work: str, seq: int, op: str) -> None:
         release_chapter_lock(op, work, int(seq), store=st)
     except Exception:
         pass
-    try:
-        from scribe3.concurrency_lock import distributed_lock_enabled
-        if distributed_lock_enabled() and st is not None:
-            return
-    except Exception:
-        pass
-    if _db_lock_on():
-        from scribe3.inflight_lock import release_chapter_op
-        try:
-            st = st or _store_for(work)
-            release_chapter_op(st, work, int(seq), op)
-        except Exception:
-            pass
-        return
-    if op == "repair":
-        _release_chapter_repair_mem(work, int(seq))
-        return
-    with _loop_inflight_lock:
-        _loop_inflight.discard((work, int(seq)))
-
-
-def _acquire_chapter_repair_mem(work: str, seq: int) -> None:
-    key = (work, seq)
-    with _chapter_repair_lock:
-        if key in _chapter_repair_inflight:
-            raise HTTPException(status_code=409, detail=(
-                f"第 {seq} 章正在执行质量修复，完成后请重新检查再操作"))
-        _chapter_repair_inflight.add(key)
-
-
-def _release_chapter_repair_mem(work: str, seq: int) -> None:
-    with _chapter_repair_lock:
-        _chapter_repair_inflight.discard((work, seq))
 
 
 def _acquire_chapter_repair(work: str, seq: int) -> None:
@@ -1701,15 +1588,14 @@ def _pilot_steer(st, seq: int) -> str:
 
 
 
-# pilot 自身并发互斥(独立于 _loop_inflight:draft_loop 直调 loop 端点函数,
-# loop 自己会登记 _loop_inflight——pilot 若预登记会撞自己 409)。
+# pilot 自身并发互斥经 chapter_lock(op=pilot)；loop 走 op=loop，不交叉抢同一 key。
 _pilot_inflight: set[tuple[str, int]] = set()
 _pilot_inflight_lock = threading.Lock()
 
 
 def _guard_pilot_busy(work: str, seq: int) -> None:
     """R2-3:pilot 非 loop 步在途 / 连写运行中 → 拦 save/dedup/select(防 full_check/deliver
-    期间改正文致体检、交付挂旧稿,防双写)。draft_loop 期已由 _loop_inflight 拦(loop 自登记)。"""
+    期间改正文致体检、交付挂旧稿,防双写)。draft_loop 期由 chapter_lock(op=loop) 互斥。"""
     with _pilot_inflight_lock:
         if (work, seq) in _pilot_inflight:
             raise HTTPException(status_code=409, detail=f"第 {seq} 章 pilot 正在推进,请稍候再改")

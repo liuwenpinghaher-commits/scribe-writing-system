@@ -285,12 +285,128 @@ def storyline_inject_preview_ep(req: dict | None = None):
     )
 
 
+def storyline_list_ep(work: str = "main"):
+    """GAP-16：列出独立 storyline 实体（优先 Surreal，降级进程内）。"""
+    from scribe3.storyline_store import list_storylines as mem_list
+    try:
+        from scribe3.api import app_impl as core
+        st = core._store_for(work)
+        if hasattr(st, "list_storylines"):
+            rows = st.list_storylines() or []
+            # 空列表也算 Surreal 真相源（勿因 empty 误降级到 memory）
+            return {"work": work, "storylines": rows, "count": len(rows), "backend": "surreal"}
+    except Exception:
+        pass
+    rows = mem_list(work)
+    return {"work": work, "storylines": rows, "count": len(rows), "backend": "memory"}
+
+
+def storyline_create_ep(req: dict | None = None, work: str = "main"):
+    """GAP-16：创建 storyline（可编辑，优先持久化）。"""
+    from scribe3.storyline_store import create_storyline as mem_create
+    payload = req if isinstance(req, dict) else {}
+    w = str(payload.get("work") or work or "main")
+    title = str(payload.get("title") or "")
+    arc_kind = str(payload.get("arc_kind") or "main")
+    chapter_seqs = list(payload.get("chapter_seqs") or [])
+    notes = str(payload.get("notes") or "")
+    try:
+        from scribe3.api import app_impl as core
+        st = core._store_for(w)
+        if hasattr(st, "create_storyline"):
+            row = st.create_storyline(
+                title=title, arc_kind=arc_kind,
+                chapter_seqs=chapter_seqs, notes=notes,
+            )
+            if row and row.get("persisted") is not False:
+                return row
+    except Exception:
+        pass
+    return mem_create(w, title=title, arc_kind=arc_kind, chapter_seqs=chapter_seqs, notes=notes)
+
+
+def storyline_patch_ep(sid: str, req: dict | None = None, work: str = "main"):
+    from scribe3.storyline_store import update_storyline as mem_update
+    payload = req if isinstance(req, dict) else {}
+    w = str(payload.get("work") or work or "main")
+    try:
+        from scribe3.api import app_impl as core
+        st = core._store_for(w)
+        if hasattr(st, "update_storyline"):
+            row = st.update_storyline(
+                sid,
+                title=payload.get("title"),
+                arc_kind=payload.get("arc_kind"),
+                chapter_seqs=payload.get("chapter_seqs"),
+                notes=payload.get("notes"),
+            )
+            if row:
+                return row
+    except Exception:
+        pass
+    row = mem_update(
+        w, sid,
+        title=payload.get("title"),
+        arc_kind=payload.get("arc_kind"),
+        chapter_seqs=payload.get("chapter_seqs"),
+        notes=payload.get("notes"),
+    )
+    if not row:
+        from fastapi import HTTPException
+        raise HTTPException(404, "storyline not found")
+    return row
+
+
+def storyline_link_chapter_ep(sid: str, req: dict | None = None, work: str = "main"):
+    from scribe3.storyline_store import link_chapter as mem_link
+    payload = req if isinstance(req, dict) else {}
+    w = str(payload.get("work") or work or "main")
+    seq = int(payload.get("seq") or payload.get("chapter") or 0)
+    try:
+        from scribe3.api import app_impl as core
+        st = core._store_for(w)
+        if hasattr(st, "link_storyline_chapter"):
+            row = st.link_storyline_chapter(sid, seq)
+            if row:
+                return row
+    except Exception:
+        pass
+    row = mem_link(w, sid, seq)
+    if not row:
+        from fastapi import HTTPException
+        raise HTTPException(404, "storyline not found")
+    return row
+
+
+def storyline_craft_align_ep(work: str = "main"):
+    """GAP-19：技法标尺对标报告。"""
+    from scribe3.storyline_project import project_emotion_curve
+    from scribe3.craft_ruler import craft_ruler_report
+    try:
+        from scribe3.api import app_impl as core
+        st = core._store_for(work)
+        chapters = list(st.list_chapters() or []) if hasattr(st, "list_chapters") else []
+    except Exception:
+        chapters = []
+    emo = project_emotion_curve(chapters)
+    return {
+        "work": work,
+        "emotion": emo,
+        "align": emo.get("craft_align") or craft_ruler_report(emo.get("points") or []),
+    }
+
+
 def _bind_and_register() -> None:
     from scribe3.api import app_impl as core
     g = globals()
     routes = [
         ("storyline_gantt_ep", "/storyline/gantt", ["GET"]),
         ("storyline_emotion_ep", "/storyline/emotion-curve", ["GET"]),
+        ("storyline_list_ep", "/storyline/lines", ["GET"]),
+        ("storyline_create_ep", "/storyline/lines", ["POST"]),
+        ("storyline_patch_ep", "/storyline/lines/{sid}", ["PATCH"]),
+        ("storyline_link_chapter_ep", "/storyline/lines/{sid}/link", ["POST"]),
+        ("storyline_craft_align_ep", "/storyline/craft-align", ["GET"]),
         ("chapter_stage_get_ep", "/chapters/{seq}/stage", ["GET"]),
         ("chapter_stage_advance_ep", "/chapters/{seq}/stage/advance", ["POST"]),
         ("parallel_deduce_plan_ep", "/chapters/{seq}/deduce/parallel", ["POST"]),

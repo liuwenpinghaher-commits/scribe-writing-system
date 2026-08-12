@@ -103,8 +103,16 @@ def project_gantt_rows(
 
 
 def project_emotion_curve(chapters: list[dict[str, Any]] | None) -> dict[str, Any]:
-    """章列表 → 情绪/张力曲线点。"""
+    """章列表 → 情绪/张力曲线点。
+
+    GAP-14/18：默认输出 emotion ∈ [-5,5]；保留 tension 0–1 兼容字段。
+    """
     points: list[dict[str, Any]] = []
+    try:
+        from scribe3.emotion_scale import score_prose_emotion, tension_01_to_signed
+        use_scale = True
+    except Exception:
+        use_scale = False
     for ch in chapters or []:
         if not isinstance(ch, dict):
             continue
@@ -112,18 +120,42 @@ def project_emotion_curve(chapters: list[dict[str, Any]] | None) -> dict[str, An
         if seq <= 0:
             continue
         t = _tension_score(ch)
-        label = "低" if t < 0.35 else ("中" if t < 0.65 else "高")
-        points.append({
-            "seq": seq,
-            "tension": t,
-            "label": label,
-        })
+        if use_scale:
+            prose = str(ch.get("prose") or ch.get("synopsis") or "")
+            sc = score_prose_emotion(prose)
+            emo = sc["value"]
+            # 若正文空，回落映射张力
+            if not prose.strip():
+                emo = tension_01_to_signed(t)
+            label = "负" if emo < -1.5 else ("正" if emo > 1.5 else "平")
+            points.append({
+                "seq": seq,
+                "tension": t,
+                "emotion": emo,
+                "label": label,
+                "scale": [-5.0, 5.0],
+            })
+        else:
+            label = "低" if t < 0.35 else ("中" if t < 0.65 else "高")
+            points.append({
+                "seq": seq,
+                "tension": t,
+                "label": label,
+            })
     points.sort(key=lambda p: p["seq"])
-    return {
+    out = {
         "points": points,
         "count": len(points),
         "surface": "storyline.emotion_curve",
         "advisory": True,
-        "disclaimer": "启发式张力，非文学评分，禁止当作 ≥9.5 证据",
+        "disclaimer": "情绪标尺 -5…+5（advisory），非文学评分，禁止当作 ≥9.5 证据",
         "not_a_kpi": "tokens_saved",
+        "emotion_scale": [-5.0, 5.0],
     }
+    # GAP-19：对标报告
+    try:
+        from scribe3.craft_ruler import craft_ruler_report
+        out["craft_align"] = craft_ruler_report(points)
+    except Exception:
+        pass
+    return out

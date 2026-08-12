@@ -161,7 +161,14 @@ class Scribe3MemoryProvider(MemoryProvider):
             result = self.api.prefetch(work=work, thread_id=thread_id, query=query) or {}
         except Exception:
             return ""   # 边缘增强:取记忆失败不该让直连会话崩,降级空块
-        return result.get("context", "") or ""
+        ctx = result.get("context", "") or ""
+        # GAP-8：启动时注入 Scribe 侧历史偏好（单源仍在 Scribe 待批库，不写 Hermes Memory）
+        pref = result.get("author_prefs") or result.get("preferences") or ""
+        if not pref:
+            pref = os.environ.get("SCRIBE3_PREFETCH_PREFS_TEXT") or ""
+        if pref:
+            ctx = (f"[author_preferences]\n{pref}\n\n" + ctx).strip()
+        return ctx
 
     def sync_turn(self, user: str, assistant: str, *, session_id: str = "",
                   messages=None) -> None:

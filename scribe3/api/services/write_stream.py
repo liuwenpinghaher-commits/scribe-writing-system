@@ -77,7 +77,8 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
     from scribe3.llm import hermes_responses_events, official_deepseek_provider_identity
     from scribe3.proposal import ProposalParser
     fn = _responses_events or hermes_responses_events
-    adapter = HermesEventAdapter()
+    # GAP-11：写路径必须 filter_tools=False（默认已关）；显式 phase=write 不 enforce
+    adapter = HermesEventAdapter(phase=None, filter_tools=False)
     parser = ProposalParser()
     prop = {"scope": None, "prose": []}
     prop_marks: list[str] = []   # 本轮出过的提案标记(scope+字数),落库口径 D-003
@@ -668,7 +669,8 @@ def _collect_write(message, instructions: str, with_tools: bool = True,
     from scribe3.llm import hermes_responses_events, official_deepseek_provider_identity
     from scribe3.proposal import ProposalParser
     fn = _responses_events or hermes_responses_events
-    adapter = HermesEventAdapter()
+    # GAP-11：写路径必须 filter_tools=False（默认已关）；显式 phase=write 不 enforce
+    adapter = HermesEventAdapter(phase=None, filter_tools=False)
     parser = ProposalParser()
     outside: list[str] = []
     raw_delta_acc: list[str] = []

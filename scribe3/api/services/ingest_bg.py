@@ -25,22 +25,15 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 
 
-# 进程内在途集合：模块自持；生产路径优先对齐 app_impl 同名集合（rebind 后单源）。
-_pending_ingest: set[tuple[str, int]] = set()
-_pending_ingest_lock = threading.Lock()
+# GAP-1：ingest 互斥唯一真相源 = chapter_lock(op=ingest)。无进程内 set 互斥。
 
 
-def _pending_pair():
-    """返回 (set, lock)；优先 app_impl 全局，避免双集合去重失效。"""
+def _ingest_busy(work: str, seq: int) -> bool:
     try:
-        from scribe3.api import app_impl as _A
-        s = getattr(_A, "_pending_ingest", None)
-        lk = getattr(_A, "_pending_ingest_lock", None)
-        if s is not None and lk is not None:
-            return s, lk
+        from scribe3.novel_first_surface import is_chapter_op_busy
+        return bool(is_chapter_op_busy("ingest", work, int(seq)))
     except Exception:
-        pass
-    return _pending_ingest, _pending_ingest_lock
+        return False
 
 
 # Note: function bodies resolve free names via rebound globals on app_impl.
@@ -180,14 +173,6 @@ def _bg_ingest(work: str, seq: int) -> None:
                 release_chapter_lock("ingest", work, int(seq), store=st)
             except Exception:
                 pass
-        pend, plock = _pending_pair()
-        with plock:
-            pend.discard((work, seq))
-        try:
-            from scribe3.chapter_lock import release_chapter_lock
-            release_chapter_lock("ingest", work, int(seq))
-        except Exception:
-            pass
         if st is not None:
             try:
                 st.close()
@@ -197,29 +182,21 @@ def _bg_ingest(work: str, seq: int) -> None:
 
 
 def _enqueue_ingest_raw(background: BackgroundTasks, work: str, seq: int) -> bool:
-    """底层排队：统一 chapter_lock(ingest) + 进程内去重 set + BackgroundTasks。
+    """底层排队：BackgroundTasks → `_bg_ingest` 内独占 chapter_lock(ingest)。
 
-    策略层请走 schedule_ingest。锁失败 → 视为已在途（False）。
+    GAP-1 修正：enqueue **不得** acquire 后不释放再调度 worker——同 kind+target
+    非可重入，会令 `_bg_ingest` 永远 busy、enqueued=True 却无实际工作。
+
+    忙检只读：已在途则 False；否则入队。并发双入队时后到的 worker 在
+    acquire 处 no-op（日志 busy），安全。
     """
-    key = (work, seq)
-    # P2 residual：ingest 与 loop/repair 同一 chapter_lock 表面
     try:
-        from scribe3.chapter_lock import acquire_chapter_lock
-        clr = acquire_chapter_lock("ingest", work, int(seq))
-        if not clr.ok:
+        from scribe3.novel_first_surface import is_chapter_op_busy
+        if is_chapter_op_busy("ingest", work, int(seq)):
             return False
     except Exception:
+        # 忙检不可用时仍允许入队；worker 侧 acquire 兜底
         pass
-    pend, plock = _pending_pair()
-    with plock:
-        if key in pend:
-            try:
-                from scribe3.chapter_lock import release_chapter_lock
-                release_chapter_lock("ingest", work, int(seq))
-            except Exception:
-                pass
-            return False
-        pend.add(key)
     background.add_task(_bg_ingest, work, seq)
     return True
 

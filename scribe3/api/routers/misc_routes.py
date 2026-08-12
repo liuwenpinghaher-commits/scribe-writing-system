@@ -53,6 +53,19 @@ def chat_stream(msg: str, background: BackgroundTasks, work: str = "main",
     U-005:讨论留痕；U-009:history 续接。"""
     from scribe3.llm import hermes_complete_stream
     from scribe3.api.services.write_assemble import assemble_discussion_system
+    from scribe3.llm_path_guard import assert_llm_path_ok
+    # GAP-12：讨论路径必须走 Hermes；旁路可观测并 soft-block
+    _path_chk = assert_llm_path_ok(hermes_complete_stream, path="discuss")
+    if _path_chk.get("bypass"):
+        logging.getLogger("scribe3").error(
+            "GAP-12 discuss LLM bypass blocked fn=%s", _path_chk.get("fn"),
+        )
+        from scribe3.api.sse import sse_response
+
+        def _deny():
+            yield f"data: {json.dumps({'error': 'LLM path must be Hermes (GAP-12)', 'bypass': True}, ensure_ascii=False)}\n\n"
+            yield 'data: {"done": true}\n\n'
+        return sse_response(_deny())
     st = _store_for(work)
     thread_id = _editor_turn_context(
         work, thread_row=_resolve_thread_or_raise(work, thread)).thread_id
@@ -111,8 +124,22 @@ def chat_agentic_stream(msg: str, background: BackgroundTasks, work: str = "main
     事件:tool(工具调用提示)/delta(回复片段)/done。"""
     from scribe3.hermes_runtime import HermesEventAdapter
     from scribe3.llm import hermes_responses_events
+    from scribe3.llm_path_guard import assert_llm_path_ok
     fn = _responses_events or hermes_responses_events
-    adapter = HermesEventAdapter()
+    # GAP-12：agentic 必须 Hermes responses 路径
+    _ag_chk = assert_llm_path_ok(fn, path="agentic")
+    if _ag_chk.get("bypass"):
+        logging.getLogger("scribe3").error(
+            "GAP-12 agentic LLM bypass blocked fn=%s", _ag_chk.get("fn"),
+        )
+        from scribe3.api.sse import sse_response
+
+        def _deny_ag():
+            yield f"data: {json.dumps({'error': 'LLM path must be Hermes (GAP-12)', 'bypass': True}, ensure_ascii=False)}\n\n"
+            yield 'data: {"done": true}\n\n'
+        return sse_response(_deny_ag())
+    # GAP-11：生产接线 — 工具事件经 filter_tool_calls 后验拦截
+    adapter = HermesEventAdapter(phase="discuss", filter_tools=True)
     # H-01:工具 work-scoped,所有作品都可挂工具;提示必须钉死当前 work,防跨书读写。
     with_tools = _work_has_tools(work)
 
@@ -201,6 +228,9 @@ def chat_agentic_stream(msg: str, background: BackgroundTasks, work: str = "main
                         if d:
                             clog.feed(d)
                             yield f"data: {json.dumps({'delta': d}, ensure_ascii=False)}\n\n"
+                    elif app_ev["kind"] == "tool.blocked":
+                        # GAP-11：拒绝违规工具，不下发为可执行 tool.started
+                        yield f"data: {json.dumps({'tool_blocked': app_ev.get('name', ''), 'reason': app_ev.get('reason'), 'phase': app_ev.get('phase')}, ensure_ascii=False)}\n\n"
                     elif app_ev["kind"] == "tool.started":
                         yield f"data: {json.dumps({'tool': app_ev.get('name', ''), 'tool_args': app_ev.get('arguments', '')}, ensure_ascii=False)}\n\n"
                     elif app_ev["kind"] == "tool.output":
@@ -1082,7 +1112,57 @@ def get_debug_locks():
         "distributed_lock": dist,
         "inflight": inflight_snapshot(),
         "note": "进程内快照；ingest_lease/approval_idempotency 独立表面见 lock-kinds 文档",
+        "mutex_path": "chapter_lock_only",  # GAP-1
     }
+
+
+def get_debug_audit_log(
+    work: str = "main",
+    table: str | None = None,
+    kind: str | None = None,
+    limit: int = 50,
+):
+    """GAP-3：读取 audit_event（只读）。"""
+    from scribe3.audit_maintenance import query_audit_log, audit_ttl_days
+    try:
+        from scribe3.api import app_impl as core
+        st = core._store_for(work)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:160], "rows": []}
+    rows = query_audit_log(st, table=table, kind=kind, limit=limit)
+    return {
+        "ok": True,
+        "work": work,
+        "ttl_days": audit_ttl_days(),
+        "count": len(rows),
+        "rows": rows,
+        "surface": "debug.audit_log",
+    }
+
+
+def post_debug_audit_purge(work: str = "main", days: int | None = None):
+    """GAP-3：手动触发审计 TTL 清理。"""
+    from scribe3.audit_maintenance import purge_audit_events, audit_ttl_days
+    try:
+        from scribe3.api import app_impl as core
+        st = core._store_for(work)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:160]}
+    out = purge_audit_events(st, days=days)
+    out["work"] = work
+    out["default_ttl_days"] = audit_ttl_days()
+    return out
+
+
+def get_debug_stats(work: str = "main"):
+    """GAP-5：聚合统计 bundle。"""
+    from scribe3.stats_views import read_stats_bundle
+    try:
+        from scribe3.api import app_impl as core
+        st = core._store_for(work)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:160]}
+    return {"ok": True, "work": work, **read_stats_bundle(st)}
 
 
 def soft_event_led_ep(req: dict | None = None, work: str = "main"):
@@ -1323,6 +1403,9 @@ def _bind_and_register() -> None:
     for _name, _path, _methods in (
         ('budget_probe_ep', '/debug/budget-probe', ['POST']),
         ('get_debug_locks', '/debug/locks', ['GET']),
+        ('get_debug_audit_log', '/debug/audit-log', ['GET']),
+        ('post_debug_audit_purge', '/debug/audit-purge', ['POST']),
+        ('get_debug_stats', '/debug/stats', ['GET']),
         ('soft_event_led_ep', '/soft/event-led', ['POST']),
         ('soft_precheck_ep', '/soft-precheck', ['POST']),
         ('literary_distill_ep', '/literary-distill', ['POST']),

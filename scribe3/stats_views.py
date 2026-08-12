@@ -53,3 +53,80 @@ def read_open_promise_count(store: Any) -> int:
     except Exception:
         return 0
     return 0
+
+
+def read_total_words(store: Any) -> int:
+    """GAP-5：全书字数聚合（优先 stats_total_words 视图）。"""
+    if stats_view_enabled():
+        try:
+            rows = store._query("SELECT total_words FROM stats_total_words;") or []
+            if rows and isinstance(rows[0], dict) and rows[0].get("total_words") is not None:
+                return int(rows[0]["total_words"] or 0)
+        except Exception as e:
+            _log.debug("stats_total_words fallback: %s", e)
+    total = 0
+    try:
+        rows = store._query(
+            "SELECT math::sum(qc_word_count) AS total_words FROM chapter GROUP ALL;"
+        ) or []
+        if rows and isinstance(rows[0], dict) and rows[0].get("total_words") is not None:
+            return int(rows[0]["total_words"] or 0)
+    except Exception:
+        pass
+    try:
+        for ch in store.chapters_lite() or []:
+            if not isinstance(ch, dict):
+                continue
+            for k in ("qc_word_count", "word_count", "words"):
+                if ch.get(k) is not None:
+                    try:
+                        total += int(ch.get(k) or 0)
+                        break
+                    except Exception:
+                        pass
+            else:
+                prose = str(ch.get("prose") or "")
+                if prose:
+                    total += len(prose)
+    except Exception:
+        pass
+    return total
+
+
+def read_phase_distribution(store: Any) -> list[dict[str, Any]]:
+    """GAP-5：阶段分布。"""
+    if stats_view_enabled():
+        try:
+            rows = store._query("SELECT stage, n FROM stats_phase_distribution;") or []
+            out = []
+            for r in rows:
+                if isinstance(r, dict):
+                    out.append({
+                        "stage": r.get("stage") or "unknown",
+                        "n": int(r.get("n") or 0),
+                    })
+            if out:
+                return out
+        except Exception as e:
+            _log.debug("stats_phase_distribution fallback: %s", e)
+    counts: dict[str, int] = {}
+    try:
+        for ch in store.chapters_lite() or []:
+            if not isinstance(ch, dict):
+                continue
+            stg = str(ch.get("stage") or ch.get("phase") or "unknown")
+            counts[stg] = counts.get(stg, 0) + 1
+    except Exception:
+        pass
+    return [{"stage": k, "n": v} for k, v in sorted(counts.items())]
+
+
+def read_stats_bundle(store: Any) -> dict[str, Any]:
+    """组合统计（/debug/stats）。"""
+    return {
+        "chapter_count": read_chapter_count(store),
+        "open_promises": read_open_promise_count(store),
+        "total_words": read_total_words(store),
+        "phase_distribution": read_phase_distribution(store),
+        "stats_view_enabled": stats_view_enabled(),
+    }

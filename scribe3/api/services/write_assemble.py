@@ -1850,5 +1850,17 @@ def assemble_discussion_system(
             except Exception:
                 logging.getLogger("scribe3").warning(
                     "discussion memory_trace 落库失败(忽略)", exc_info=True)
+    # GAP-9：讨论出口 soft 限知扫描（不阻断）
+    try:
+        from scribe3.epistemic_guard import guard_discuss_instructions
+        rendered, _soft_hits = guard_discuss_instructions(
+            rendered, st, chapter=int(chapter) if chapter is not None else None,
+        )
+        if _soft_hits:
+            logging.getLogger("scribe3").info(
+                "discussion soft secret hits=%s", len(_soft_hits),
+            )
+    except Exception:
+        pass
     return rendered
 
