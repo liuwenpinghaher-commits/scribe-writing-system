@@ -304,9 +304,17 @@ def emit_invalidation(
                     )
                 except Exception:
                     pass
-    except Exception:
+    except Exception as e:
         # 失效登记/广播的任何异常都不得冒泡到写路径(写正确性 > 缓存卫生)。
-        pass
+        # EH-02 / PR-EH-4：外层失败可观测，仍 fail-soft 不抛。
+        try:
+            import logging
+            logging.getLogger("scribe3.context_cache").warning(
+                "emit_invalidation_failed table=%s work=%s err=%s",
+                table, work, type(e).__name__,
+            )
+        except Exception:
+            pass
 
 
 def invalidate_by_table(table: str, work: str | None = None) -> None:

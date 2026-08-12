@@ -406,7 +406,7 @@ def _drama_gate_park_if_needed(bmeta: dict) -> dict | None:
     }
 
 
-def _pilot_executor(work: str) -> dict:
+def _pilot_executor_body(work: str) -> dict:
     """action → callable(st, seq)。全部落库走 update_chapter_meta 白名单/既有端点函数。"""
     def propose_outline(st, seq):
         ch0 = st.get_chapter(seq) or {}
@@ -1345,6 +1345,13 @@ def _pilot_executor(work: str) -> dict:
     return {"propose_outline": propose_outline, "expand_beats": expand_beats,
             "deduce": deduce, "draft_loop": draft_loop, "full_check": full_check,
             "deliver": deliver, "finalize": finalize}
+
+
+
+def _pilot_executor(work: str) -> dict:
+    """Thin facade (PR-EH-8): action map assembled via pilot_steps."""
+    from scribe3.api.services.pilot_steps import build_pilot_executor
+    return build_pilot_executor(work)
 
 
 def _pilot_run_bg(work: str, start: int, until: int) -> None:
