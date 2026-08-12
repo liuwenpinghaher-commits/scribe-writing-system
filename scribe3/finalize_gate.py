@@ -229,6 +229,84 @@ def check_persist_gates(
     return fg
 
 
+def try_stamp_kind_final(
+    st,
+    seq: int,
+    prose: str,
+    *,
+    label: str = "",
+    stage: str = "final",
+    stats: dict | None = None,
+    skip_craft: bool = False,
+    force: bool = False,
+) -> dict[str, Any]:
+    """写 ``kind=final`` 版前的唯一 choke point（G4）。
+
+    - 默认必须 ``evaluate_craft_finalize_gate`` 硬通过（**永不** explore soft /
+      danger_draft 旁路 craft）。
+    - craft 失败 → **不**调用 ``add_chapter_version(..., kind=final)``。
+    - 内容与最新 final 相同 → ``stamped=False, code=unchanged``（仍算 craft 已过）。
+    - ``force=True`` 仅运维/测试逃生（生产路径禁止）。
+
+    返回::
+        {
+          stamped: bool,
+          allowed: bool,   # craft 是否允许 stamp（与 stamped 可不同：unchanged）
+          code: str,       # ok | craft_finalize | unchanged | stamp_error | skipped
+          craft: dict,
+          detail: str,
+        }
+    """
+    from scribe3.verify_craft_compliance import evaluate_craft_finalize_gate
+
+    craft = evaluate_craft_finalize_gate(
+        st, int(seq), skip=bool(skip_craft or force),
+    )
+    if not craft.get("allowed"):
+        return {
+            "stamped": False,
+            "allowed": False,
+            "code": "craft_finalize",
+            "craft": craft,
+            "detail": craft.get("detail") or "craft incomplete: refuse kind=final",
+            "blocking": list(craft.get("blocking") or []),
+        }
+    try:
+        latest = ""
+        if hasattr(st, "latest_version_prose"):
+            latest = st.latest_version_prose(int(seq), "final") or ""
+        if latest == (prose or ""):
+            return {
+                "stamped": False,
+                "allowed": True,
+                "code": "unchanged",
+                "craft": craft,
+                "detail": "final version already matches prose",
+            }
+        st.add_chapter_version(
+            int(seq), prose or "",
+            label=label or "",
+            kind="final",
+            stage=stage or "final",
+            stats=stats if stats is not None else {},
+        )
+        return {
+            "stamped": True,
+            "allowed": True,
+            "code": "ok",
+            "craft": craft,
+            "detail": "kind=final stamped",
+        }
+    except Exception as e:
+        return {
+            "stamped": False,
+            "allowed": True,
+            "code": "stamp_error",
+            "craft": craft,
+            "detail": str(e)[:200],
+        }
+
+
 def build_ingest_status_row(
     ch_seq: int,
     ch: dict | None,

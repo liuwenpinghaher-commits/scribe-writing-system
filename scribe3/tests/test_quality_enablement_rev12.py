@@ -375,6 +375,112 @@ def test_l2_drop_tier_single_source():
     assert set(L2_DROP_TIER) == {"T3", "T2", "T1"}
 
 
+def test_try_stamp_kind_final_refuses_without_calling_add_version(monkeypatch):
+    """G4 核心：craft 未齐套时 try_stamp_kind_final 不调用 add_chapter_version。"""
+    from scribe3.finalize_gate import try_stamp_kind_final
+
+    calls: list = []
+
+    class St(_EmptyStore):
+        def latest_version_prose(self, seq, kind):
+            return ""
+
+        def add_chapter_version(self, *a, **k):
+            calls.append({"args": a, "kwargs": k})
+            return "v1"
+
+    r = try_stamp_kind_final(St(), 1, "甲" * 100)
+    assert r["stamped"] is False
+    assert r["allowed"] is False
+    assert r["code"] == "craft_finalize"
+    assert calls == [], "must not stamp kind=final when craft incomplete"
+
+
+def test_try_stamp_kind_final_stamps_when_craft_ok(monkeypatch):
+    """craft soft-mapped 不应用于 stamp；本测直接 mock craft 通过。"""
+    from scribe3.finalize_gate import try_stamp_kind_final
+
+    calls: list = []
+
+    class St(_EmptyStore):
+        def latest_version_prose(self, seq, kind):
+            return ""
+
+        def add_chapter_version(self, *a, **k):
+            calls.append({"args": a, "kwargs": k})
+            return "v1"
+
+    # try_stamp 内 from verify_craft_compliance import evaluate_craft_finalize_gate
+    monkeypatch.setattr(
+        "scribe3.verify_craft_compliance.evaluate_craft_finalize_gate",
+        lambda st, seq, **kw: {
+            "allowed": True, "code": "ok", "blocking": [], "detail": "ok",
+            "reports": {},
+        },
+    )
+    r = try_stamp_kind_final(St(), 1, "乙" * 100, stats={"words": 100})
+    assert r["allowed"] is True
+    assert r["stamped"] is True
+    assert r["code"] == "ok"
+    assert len(calls) == 1
+    assert calls[0]["kwargs"].get("kind") == "final"
+
+
+def test_mcp_save_does_not_stamp_final_when_craft_incomplete(monkeypatch):
+    """真实 MCP s3_save_chapter 路径：explore soft 可 saved，但 final_version_stamped=False。"""
+    monkeypatch.setenv("SCRIBE3_CREATE_MODE", "explore")
+    monkeypatch.setenv("SCRIBE3_CRAFT_GATE", "1")
+    monkeypatch.setenv("SCRIBE3_CRAFT_FINALIZE", "1")
+    monkeypatch.setenv("SCRIBE3_FINALIZE_GATE", "0")  # QC skip；测 craft stamp
+    monkeypatch.setenv("SCRIBE3_EXPLORE_SOFT_SAVE", "1")
+
+    stamps: list = []
+
+    class St(_EmptyStore):
+        def save_chapter(self, *a, **k):
+            return True
+
+        def latest_version_prose(self, seq, kind):
+            return ""
+
+        def add_chapter_version(self, *a, **k):
+            stamps.append({"args": a, "kwargs": k})
+            return "v"
+
+    import scribe3.mcp.tools_write as tw
+    monkeypatch.setattr(tw, "_store_for", lambda work=None: St())
+
+    result = tw.s3_save_chapter(
+        seq=1, prose="丙" * 100, title="t", focalizer=None,
+        work="book_explore_smoke", skip_craft_gate=False, danger_draft=False,
+    )
+
+    assert result.get("status") == "saved", result
+    assert result.get("final_version_stamped") is False, result
+    assert (result.get("final_stamp") or {}).get("code") == "craft_finalize", result
+    assert stamps == [], f"MCP must not stamp kind=final when craft incomplete: {stamps}"
+
+
+def test_save_chapter_source_uses_try_stamp_kind_final():
+    """静态：save_chapter / dedup / polish / MCP 写 final 走 try_stamp_kind_final。"""
+    import inspect
+    from scribe3.api.routers import misc_routes
+    from scribe3.mcp import tools_write
+    src_save = inspect.getsource(misc_routes.save_chapter)
+    assert "try_stamp_kind_final" in src_save
+    assert "kind=\"final\"" not in src_save or "try_stamp_kind_final" in src_save
+    # bare add_chapter_version kind=final should not appear in save_chapter body
+    assert "add_chapter_version" not in src_save or "try_stamp_kind_final" in src_save
+    src_dedup = inspect.getsource(misc_routes.dedup_chapter)
+    assert "check_persist_gates" in src_dedup
+    assert "try_stamp_kind_final" in src_dedup
+    src_polish = inspect.getsource(misc_routes.polish_chapter)
+    assert "check_persist_gates" in src_polish
+    assert "try_stamp_kind_final" in src_polish
+    src_mcp = inspect.getsource(tools_write.s3_save_chapter)
+    assert "try_stamp_kind_final" in src_mcp
+
+
 def test_generation_forbidden_includes_provenance(monkeypatch):
     monkeypatch.setenv("SCRIBE3_PROVENANCE_IN_PROMPT", "0")
     from scribe3.api.services.write_assemble import (

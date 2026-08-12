@@ -1668,14 +1668,18 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                                 _prov_items = len(
                                     getattr(_blk, "sources", None) or []
                                 ) or (1 if _bt else 0)
-                        # 若 budget=0 或 forbidden 已 omit，joined 中无溯源
-                        _joined_has_prov = (
-                            "## 溯源清单" in (envelope_trace.get("joined_preview") or "")
-                        )
-                        # 以实际 blocks 为准：provenance 文本长度即 in-prompt 字符
+                        # G1(a) 硬字段：以实际渲染进 envelope 的 provenance 块为准
+                        # （禁止用 flag 强制 0 掩盖泄漏；budget=0/forbidden 正常时此处即 0）
                         _prov_chars = int(_env_lens.get("provenance", 0) or 0)
-                        if not provenance_in_prompt_enabled():
-                            _prov_chars = 0
+                        try:
+                            from scribe3.context_assembler import render_envelope_text
+                            _ren = render_envelope_text(envelope) or ""
+                            if "## 溯源清单" in _ren and _prov_chars == 0:
+                                # 泄漏：标题出现在 joined 但块长未记 → 按命中段计
+                                _i = _ren.find("## 溯源清单")
+                                _prov_chars = max(_prov_chars, len(_ren[_i:_i + 200]))
+                        except Exception:
+                            pass
                     except Exception:
                         _prov_chars = 0
                         _prov_items = 0

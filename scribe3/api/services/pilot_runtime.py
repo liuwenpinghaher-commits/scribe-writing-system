@@ -1242,9 +1242,9 @@ def _pilot_executor(work: str) -> dict:
     def finalize(st, seq):
         ch = st.get_chapter(seq) or {}
         prose = ch.get("prose") or ""
-        # rev.1.2：写 kind=final 前强制 craft hard + 质控 finalize（danger 不旁路 craft）
+        # rev.1.2：写 kind=final 前强制 craft hard + 质控；stamp 单源 try_stamp_kind_final
         try:
-            from scribe3.finalize_gate import check_persist_gates
+            from scribe3.finalize_gate import check_persist_gates, try_stamp_kind_final
             foc = (ch.get("focalizer") or ch.get("pov") or "") or None
             _pg = check_persist_gates(
                 st, int(seq), prose or "",
@@ -1258,6 +1258,20 @@ def _pilot_executor(work: str) -> dict:
                     "blocking": list(_pg.get("blocking") or []),
                     "gate": _pg,
                 }
+            _stamp = try_stamp_kind_final(
+                st, int(seq), prose or "",
+                label="pilot终选", stage="final", stats=_prose_stats(prose),
+            )
+            if not _stamp.get("allowed") or (
+                not _stamp.get("stamped") and _stamp.get("code") == "craft_finalize"
+            ):
+                return {
+                    "finalized": False,
+                    "error": _stamp.get("code") or "craft_finalize",
+                    "detail": _stamp.get("detail") or "",
+                    "blocking": list(_stamp.get("blocking") or []),
+                    "final_stamp": _stamp,
+                }
         except Exception as e:
             logging.getLogger("scribe3").warning(
                 "pilot finalize persist gates 失败(阻断) seq=%s: %s", seq, e,
@@ -1268,9 +1282,6 @@ def _pilot_executor(work: str) -> dict:
                 "detail": str(e)[:200],
                 "blocking": [],
             }
-        if st.latest_version_prose(seq, "final") != prose:
-            st.add_chapter_version(seq, prose, label="pilot终选", kind="final",
-                                   stage="final", stats=_prose_stats(prose))
         # v6.1 §5.2：定稿后强制全类型 PostFinalize（持久化候选；不自动 apply L1）
         post_finalize = None
         try:

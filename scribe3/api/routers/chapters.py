@@ -710,6 +710,22 @@ def select_finalize(req: SelectFinalizeReq, background: BackgroundTasks, work: s
             "message": f"定稿门闩评估失败: {e}",
         }) from e
     st.save_chapter(req.chapter, prose, title=title, focalizer=foc)
+    # G4：kind=final 单源 try_stamp_kind_final（craft hard 已在 check_persist_gates）
+    from scribe3.finalize_gate import try_stamp_kind_final
+    _stamp = try_stamp_kind_final(
+        st, req.chapter, prose,
+        label=f"终选定稿·{ver.get('label') or ''}",
+        stage="final", stats=_prose_stats(prose),
+    )
+    if not _stamp.get("allowed") or (
+        not _stamp.get("stamped") and _stamp.get("code") == "craft_finalize"
+    ):
+        raise HTTPException(status_code=409, detail={
+            "code": _stamp.get("code") or "craft_finalize",
+            "message": _stamp.get("detail") or "终选拒绝 stamp kind=final",
+            "blocking": _stamp.get("blocking") or [],
+            "final_stamp": _stamp,
+        })
     # C3(D-13):终选定稿 → 单入口策略(finalize 已通过 → pass 快照)
     from scribe3.ingest_policy import GateSnapshot
     from scribe3.api.services.ingest_bg import schedule_ingest
@@ -724,11 +740,6 @@ def select_finalize(req: SelectFinalizeReq, background: BackgroundTasks, work: s
         ),
         source="select_finalize", mode="bg",
     )
-    try:
-        st.add_chapter_version(req.chapter, prose, label=f"终选定稿·{ver.get('label') or ''}",
-                               kind="final", stage="final", stats=_prose_stats(prose))
-    except Exception as e:
-        logging.getLogger("scribe3").warning("终选留 final 版失败(正文已落库): %s", e)
     lesson_saved, lesson_error = True, None
     try:
         st.add_lesson(req.chapter, "decision",

@@ -575,16 +575,31 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
         import logging
         logging.getLogger("scribe3").warning(
             "P2 C-Det 落库失败(存稿不受影响) work=%s seq=%s: %s", work, req.seq, e)
-    # 四阶段(Phase0-BE2):存正文自动留 final 版(快照存稿瞬间)。fail-soft:留版失败不阻断存稿。
-    # 审计 P2-1:内容与最新 final 版相同则不重复落版(自动存稿风暴刷屏版本史)。
+    # G4：kind=final 须 craft hard（explore soft-save 可落 prose，不可半齐套 stamp final）
+    # 单源 try_stamp_kind_final；失败不阻断 draft 存稿，响应带 final_stamp。
+    final_stamp = None
     try:
-        if st.latest_version_prose(req.seq, "final") != req.prose:
-            st.add_chapter_version(req.seq, req.prose, label="", kind="final",
-                                   stage="final", stats=_prose_stats(req.prose))
+        from scribe3.finalize_gate import try_stamp_kind_final
+        final_stamp = try_stamp_kind_final(
+            st, req.seq, req.prose,
+            label="", stage="final", stats=_prose_stats(req.prose),
+            skip_craft=bool(req.skip_craft_gate),
+        )
+        if not final_stamp.get("stamped") and final_stamp.get("code") == "craft_finalize":
+            import logging
+            logging.getLogger("scribe3").info(
+                "save-chapter skip kind=final (craft incomplete) work=%s seq=%s blocking=%s",
+                work, req.seq, final_stamp.get("blocking"),
+            )
     except Exception as e:
         import logging
         logging.getLogger("scribe3").warning(
-            "save-chapter 自动留 final 版失败(存稿不受影响) work=%s seq=%s: %s", work, req.seq, e)
+            "save-chapter try_stamp_kind_final 失败(存稿不受影响) work=%s seq=%s: %s",
+            work, req.seq, e)
+        final_stamp = {
+            "stamped": False, "allowed": False, "code": "stamp_error",
+            "detail": str(e)[:200],
+        }
     # 软校验(确定性、快、不打 LLM):QC + 限知泄露。回写走独立 /ingest(前端接受后再调)。
     from scribe3.critique import quality_flags, find_cross_chapter_repetitions, find_duplicate_lines, find_emotion_telling
     qf = quality_flags(req.prose)
@@ -671,6 +686,8 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
             "qc_errors": qc_errs or None, "ingesting": bool(enqueued),
             "ingest_enqueued": bool(enqueued),
             "craft_compliance": craft_compliance_out,
+            "final_stamp": final_stamp,
+            "final_version_stamped": bool((final_stamp or {}).get("stamped")),
             "ingest": {
                 "action": _ing.get("action"),
                 "reason": _ing.get("reason"),
@@ -722,26 +739,30 @@ def dedup_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
     res = rewrite_cross_repetitions(ch["prose"], priors, _dedup_complete,
                                     n=12, allow=allow, max_targets=6)
     if res["rewritten"] > 0:
-        # KR1: final 覆写前过定稿门闩(与 save-chapter 单源)
-        from scribe3.finalize_gate import check_finalize_for_save
-        _fg = check_finalize_for_save(
+        # KR1+G4: craft hard + 质控（check_persist_gates）；再 try_stamp_kind_final
+        from scribe3.finalize_gate import check_persist_gates, try_stamp_kind_final
+        _fg = check_persist_gates(
             st, seq, res["prose"], focalizer=ch.get("focalizer") or None)
         if not _fg.get("allowed"):
             raise HTTPException(status_code=409, detail={
                 "code": _fg.get("code") or "finalize_gate",
                 "message": _fg.get("detail") or "去重改写结果未过定稿门闩,未落库",
                 "blocking": _fg.get("blocking") or [],
+                "craft": _fg.get("craft"),
                 "rewritten_unsaved": res["rewritten"],
             })
         st.save_chapter(seq, res["prose"], title=ch.get("title", ""), focalizer=ch.get("focalizer"))
-        # 落 final 版(与 /save-chapter 对称;fail-soft:留版失败不阻断改写落库)
-        try:
-            st.add_chapter_version(seq, res["prose"], label="", kind="final",
-                                   stage="final", stats=_prose_stats(res["prose"]))
-        except Exception as e:
-            import logging
-            logging.getLogger("scribe3").warning(
-                "dedup-chapter 自动留 final 版失败(改写已落库) work=%s seq=%s: %s", work, seq, e)
+        _stamp = try_stamp_kind_final(
+            st, seq, res["prose"], label="", stage="final",
+            stats=_prose_stats(res["prose"]),
+        )
+        if not _stamp.get("stamped") and _stamp.get("code") == "craft_finalize":
+            raise HTTPException(status_code=409, detail={
+                "code": "craft_finalize",
+                "message": "去重已过质控但 craft 未齐套，拒绝 kind=final",
+                "blocking": _stamp.get("blocking") or [],
+                "rewritten_unsaved": res["rewritten"],
+            })
         # 内容变了 → 单入口策略(缺 snapshot 安全 hold; active hold supersede)
         from scribe3.ingest_policy import GateSnapshot
         from scribe3.api.services.ingest_bg import schedule_ingest
@@ -816,24 +837,29 @@ def polish_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
                 quote_repairs = 0
                 changed = False
     if changed:
-        from scribe3.finalize_gate import check_finalize_for_save
-        _fg = check_finalize_for_save(
+        from scribe3.finalize_gate import check_persist_gates, try_stamp_kind_final
+        _fg = check_persist_gates(
             st, seq, res["prose"], focalizer=ch.get("focalizer") or None)
         if not _fg.get("allowed"):
             raise HTTPException(status_code=409, detail={
                 "code": _fg.get("code") or "finalize_gate",
                 "message": _fg.get("detail") or "精修结果未过定稿门闩,未落库",
                 "blocking": _fg.get("blocking") or [],
+                "craft": _fg.get("craft"),
                 "rewritten_unsaved": res["rewritten"],
             })
         st.save_chapter(seq, res["prose"], title=ch.get("title", ""), focalizer=ch.get("focalizer"))
-        try:
-            st.add_chapter_version(seq, res["prose"], label="", kind="final",
-                                   stage="final", stats=_prose_stats(res["prose"]))
-        except Exception as e:
-            import logging
-            logging.getLogger("scribe3").warning(
-                "polish-chapter 自动留 final 版失败(改写已落库) work=%s seq=%s: %s", work, seq, e)
+        _stamp = try_stamp_kind_final(
+            st, seq, res["prose"], label="", stage="final",
+            stats=_prose_stats(res["prose"]),
+        )
+        if not _stamp.get("stamped") and _stamp.get("code") == "craft_finalize":
+            raise HTTPException(status_code=409, detail={
+                "code": "craft_finalize",
+                "message": "精修已过质控但 craft 未齐套，拒绝 kind=final",
+                "blocking": _stamp.get("blocking") or [],
+                "rewritten_unsaved": res["rewritten"],
+            })
         from scribe3.ingest_policy import GateSnapshot
         from scribe3.api.services.ingest_bg import schedule_ingest
         schedule_ingest(
@@ -884,9 +910,29 @@ def semantic_repair(seq: int, background: BackgroundTasks, work: str = "main"):
                                  "parse_failed": bool((after.get("discipline") or {}).get("parse_failed"))})
     if not gate["ok"]:
         return {"status": "rejected", "seq": seq, "gate": gate, "discipline": after.get("discipline") or {}}
+    # G4：semantic_repair 写 kind=final 前 craft hard + 质控
+    from scribe3.finalize_gate import check_persist_gates, try_stamp_kind_final
+    _pg = check_persist_gates(
+        st, seq, candidate, focalizer=ch.get("focalizer") or None)
+    if not _pg.get("allowed"):
+        return {
+            "status": "rejected", "seq": seq, "gate": gate,
+            "persist_gate": _pg,
+            "code": _pg.get("code") or "craft_finalize",
+            "message": _pg.get("detail") or "semantic repair 未过 craft/质控门",
+        }
     st.save_chapter(seq, candidate, title=ch.get("title") or "", focalizer=ch.get("focalizer") or "")
-    st.add_chapter_version(seq, candidate, label="semantic repair", kind="final", stage="semantic_repair",
-                           stats=_prose_stats(candidate))
+    _stamp = try_stamp_kind_final(
+        st, seq, candidate, label="semantic repair", stage="semantic_repair",
+        stats=_prose_stats(candidate),
+    )
+    if not _stamp.get("stamped") and _stamp.get("code") == "craft_finalize":
+        return {
+            "status": "rejected", "seq": seq,
+            "code": "craft_finalize",
+            "message": "semantic repair 拒绝 kind=final（craft 未齐套）",
+            "final_stamp": _stamp,
+        }
     # 正文已变化 → 单入口策略(与 save/dedup 同 choke point)
     from scribe3.ingest_policy import GateSnapshot
     from scribe3.api.services.ingest_bg import schedule_ingest

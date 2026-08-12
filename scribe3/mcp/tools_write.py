@@ -45,10 +45,11 @@ def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None
     硬塞进存稿工具会阻塞且跨进程无从与 app 去重集协同,故只落版,知识回写走 s3_ingest_chapter。
 
     KD16:与 HTTP 共用 evaluate_save_craft_gate;blocking → 不落库。
-    门A/KR1:与 /save-chapter 共用 check_finalize_for_save;blocking 默认拒落 final。
-    danger_draft=true 为显式危险旁路(须 agent/作者知情)。"""
+    门A/KR1:质控 check_finalize_for_save（danger 可旁路 QC）。
+    G4:kind=final 仅经 try_stamp_kind_final（craft hard，danger 不旁路）。
+    danger_draft=true 为显式危险旁路(须 agent/作者知情)——仅 QC，不旁路 craft stamp。"""
     st = _store_for(work)
-    # craft 门与 HTTP save 对称(PR-2b)
+    # craft 门与 HTTP save 对称(PR-2b)：explore soft 可落 draft
     try:
         from scribe3.verify_craft_compliance import evaluate_save_craft_gate
         cg = evaluate_save_craft_gate(
@@ -75,7 +76,7 @@ def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None
             "code": "craft_gate_error",
             "message": f"工艺门闩评估失败,已阻断存稿: {e}",
         }
-    from scribe3.finalize_gate import check_finalize_for_save
+    from scribe3.finalize_gate import check_finalize_for_save, try_stamp_kind_final
     fg = check_finalize_for_save(
         st, seq, prose, focalizer=focalizer, danger_draft=bool(danger_draft))
     if not fg.get("allowed"):
@@ -86,28 +87,32 @@ def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None
             "verdict": fg.get("verdict"),
             "message": fg.get("detail") or "定稿门闩未通过,正文未落库",
             "blocking": fg.get("blocking") or [],
-            "danger_draft_hint": "传 danger_draft=true 可旁路(危险)",
+            "danger_draft_hint": "传 danger_draft=true 可旁路质控(危险；不旁路 craft stamp)",
         }
     st.save_chapter(seq, prose, title=title, focalizer=focalizer)
-    # 落 final 版(fail-soft:留版失败不阻断存稿)
-    try:
-        stats = {"words": len("".join((prose or "").split()))}
-        st.add_chapter_version(seq, prose, label="", kind="final",
-                               stage="final", stats=stats)
-    except Exception as e:
-        import logging
-        logging.getLogger("scribe3.mcp").warning(
-            "s3_save_chapter 自动留 final 版失败(存稿已落库) seq=%s: %s", seq, e)
+    # G4：仅 craft hard 通过才 stamp kind=final
+    stats = {"words": len("".join((prose or "").split()))}
+    final_stamp = try_stamp_kind_final(
+        st, seq, prose, label="", stage="final", stats=stats,
+        skip_craft=bool(skip_craft_gate),
+    )
     # 不内联 ingest;返回策略建议(active hold / auto required)
     from scribe3.ingest_policy import GateSnapshot, decide_ingest
     _verdict = str(fg.get("verdict") or "pass").lower()
     if fg.get("advisory_items") and _verdict in ("", "pass", "ok"):
         _verdict = "advisory"
+    _cm = None
+    try:
+        import os as _os
+        _cm = (_os.environ.get("SCRIBE3_CREATE_MODE") or "standard").strip().lower()
+    except Exception:
+        _cm = "standard"
     dec = decide_ingest(
         st, (work or "main").strip() or "main", seq,
         gate=GateSnapshot(
             path="mcp_save", craft_allowed=True,
             finalize_verdict=_verdict, danger_draft=bool(danger_draft),
+            create_mode=_cm,
         ),
         prose=prose, source="mcp_save",
     )
@@ -123,6 +128,8 @@ def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None
             "code": fg.get("code"), "verdict": fg.get("verdict"),
             "danger_draft": bool(danger_draft),
         },
+        "final_stamp": final_stamp,
+        "final_version_stamped": bool(final_stamp.get("stamped")),
         "ingest": {
             "action": dec.action,
             "reason": dec.reason or dec.skip_reason or dec.hold_reason,
