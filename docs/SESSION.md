@@ -26,6 +26,14 @@
 主验收协议 = v6.3.4（docs/e2e-director-journey-v634-true-chat-full-capability.md）。
 ```
 
+### 50k 验收硬化（短入口）
+
+```
+继续 50k-e2e
+先读 docs/plans/50k-e2e.md 与 docs/SESSION.md。
+实现暂缓；按 PR Plan 开工再说。
+```
+
 ---
 
 ## 当前状态
