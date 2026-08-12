@@ -6,7 +6,7 @@
 | **作者** | Grok Design（对抗审计） |
 | **日期** | 2026-08-12 |
 | **修订** | rev.C（A1 验收：命题路径 O(1)/斜率 0；整函数勿用 ≤6 含侧清） |
-| **状态** | Draft · Ready for implementation（Week1 PR-EH-0…6） |
+| **状态** | **Accepted · 实施结案**（见 `2026-08-12-engineering-health-closure.md`，main≥`cb64141`） |
 | **仓库** | `/home/admin/projects/scribe-writing-system`（`scribe3/` monorepo package） |
 | **受众** | 资深工程师 / 产品决策 |
 | **输入** | 外部审计声称 46 findings（2 P0 / 16 P1 / 23 P2 / 5 P3 + 13 healthy）；编排器预核；只读代码对抗；design review |

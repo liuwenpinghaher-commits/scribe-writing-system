@@ -40,6 +40,21 @@ scribe3/.venv/bin/python -m scribe3.app
 
 更多门禁见 [`docs/PR_TEST_BASELINE.md`](docs/PR_TEST_BASELINE.md)。
 
+## 工程健康度交付门（分层锁）
+
+结案：[`docs/plans/2026-08-12-engineering-health-closure.md`](docs/plans/2026-08-12-engineering-health-closure.md)。
+
+- **禁止**业务层直接 `st._query` / `_execute_write` / `_raw_query`（仅 `scribe3/store/*` 可）。  
+- 回归钉：`scribe3/tests/test_eh_residual.py::test_next_layer_adapters_no_private_store`。  
+- 推 main / 涉 store 分层改动后建议：
+
+```bash
+.venv/bin/python -m pytest scribe3/tests/test_eh_residual.py scribe3/tests/test_eh_health_batch.py -q --tb=line
+./scripts/smoke_eh.sh   # 已部署 demo → DEMO_EH_OK
+```
+
+- **不要**在 Grok 运行机跑全量 pytest / 本机 Surreal；验证 = 已部署 demo。
+
 ## 写路径约定
 
 - Agent 改世界状态：MCP `s3_*` + 审批；`commit_if_approved` 失败必须 `status=error`。
