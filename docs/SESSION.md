@@ -30,6 +30,14 @@
 
 ## 当前状态
 
+### 工程健康度结案（2026-08-12）
+
+- **状态**：Accepted · main `9656d33`（代码锁 `cb64141`）
+- **结案**：`docs/plans/2026-08-12-engineering-health-closure.md`
+- **分层**：业务层私有 store 调用 = 0；钉 `test_next_layer_adapters_no_private_store`
+- **冒烟**：`./scripts/smoke_eh.sh` → `DEMO_EH_OK`
+- **下一刀**：Month 可选 bare-pass warning（包 B）；巨石语义拆仅随产品改动（包 C）
+
 ### v6.3.4 验收脚手架（2026-08-12）
 
 - **协议**：`docs/e2e-director-journey-v634-true-chat-full-capability.md`（rev.2）为唯一体验总 PASS  
