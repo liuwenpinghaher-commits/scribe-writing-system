@@ -214,7 +214,10 @@ export function ChapterMetaPane({
         <Btn variant="ghost" size="sm" onClick={onClose}>返回写作</Btn>
       </div>
 
+      {/* 阶段机唯一常驻入口：与写作台顶栏五阶段页签分工——
+          页签 = 切编辑面；此处 = 服务端 stage 进度 / 推进 / 本地-服务端同步。 */}
       <section className="mb-4" data-testid="chapter-meta-stage-board">
+        <div className="text-meta text-faint mb-1.5">阶段机（进度与推进 · 非第二套大纲/正文导航）</div>
         <StageBoard
           seq={seq}
           work={work}

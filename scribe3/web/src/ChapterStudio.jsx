@@ -32,7 +32,7 @@ import {
   executionSoftSummary,
 } from './lib/chapterContractGate.js'
 import { loadIaDensity, saveIaDensity, auxVisibleForDensity } from './lib/iaDensity.js'
-import { StageBoard } from './StageBoard.jsx'
+
 
 // 章五阶段(Task 7):大纲→节拍→演绎→草稿→正文。字段分列禁止合并(IA KD-IA-1)。
 // 辅助面:简报/关联/评分卡/经验复盘——读着写,不参与阶段时钟。
@@ -999,20 +999,24 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
       onTab={(p) => { setAuxView(null); setChapterMetaOpen(false); setPhaseP(p) }}
       actions={frameActions}
     >
+      {/* 阶段导航唯一真源 = ObjectFrame tabs（大纲…正文）。
+          StageBoard 五阶段条不再叠在中栏（与页签重复）；阶段机推进/同步见「章节信息」。
+          仅保留一行 duty 说明当前 tab 职责，降低信息栏噪音。 */}
       {!showAux && !showChapterMeta && (
         <div
-          className="shrink-0 border-b border-line/60 px-3 py-1 text-meta text-faint"
+          className="shrink-0 border-b border-line/50 px-3 py-1 text-meta text-faint leading-snug"
           data-testid="phase-duty-line"
+          title="切换上方页签进入对应阶段；阶段机进度与推进请打开「章节信息」"
         >
           {(PHASES.find((p) => p.key === phase) || {}).duty || ''}
-          <div className="mt-1.5" data-testid="chapter-studio-stage-board">
-            <StageBoard
-              seq={seq}
-              work={work}
-              localPhase={phase}
-              onPhaseChange={(p) => setPhaseP(p)}
-            />
-          </div>
+          <button
+            type="button"
+            className="ml-2 text-brand/80 hover:text-brand underline-offset-2 hover:underline cursor-pointer"
+            data-testid="phase-duty-open-meta"
+            onClick={() => { setAuxView(null); setChapterMetaOpen(true) }}
+          >
+            阶段机 · 章节信息
+          </button>
         </div>
       )}
       {showChapterMeta ? (
