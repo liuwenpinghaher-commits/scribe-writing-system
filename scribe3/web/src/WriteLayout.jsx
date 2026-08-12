@@ -407,7 +407,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
               className="text-f12 rounded-lg px-2 py-1.5 bg-soft border border-line text-ink"
               data-testid="checkup-structure-style"
             >
-              <span className="font-medium text-faint">结构 · advisory</span>
+              <span className="font-medium text-faint">行文结构（仅提示）</span>
               <span className="ml-1">
                 {postCheckResult.structure_style.ending_formula_hit
                   ? '章末公式感 · ' : '章末 OK · '}
@@ -530,18 +530,18 @@ export function WriteLayout({ work, seq, sceneIdx }) {
     }
     setQc(r.qc); setLeaks(r.leaks || 0); setSaved(true)
     if (r.finalize_gate?.danger_draft) {
-      toast('已以危险草稿旁路落库(定稿门闩未拦)', { tone: 'warn' })
+      toast('已强制保存（跳过了质检拦截）——请稍后自行复查', { tone: 'warn' })
     }
     // 探索 soft-save / craft 未齐套未 stamp final（作者可感）
     try {
       const warns = Array.isArray(r.warnings) ? r.warnings : (r.craft_gate?.warnings || [])
       if (warns.length) {
-        toast(`探索模式：工艺脚手架有 ${warns.length} 条警告（已放行存稿）`, { tone: 'warn' })
+        toast(`探索模式：还有 ${warns.length} 处写作准备未齐（已先帮你存下草稿）`, { tone: 'warn' })
       }
       if (r.final_version_stamped === false
           && (r.final_stamp?.code === 'craft_finalize'
             || (r.final_stamp?.blocking || []).length)) {
-        toast('正文已存；定稿版本未写入——须齐套 GATE-A/B 后再终选/stamp', { tone: 'warn' })
+        toast('正文已存；但还不能当作「正式定稿」——请先补齐大纲/节拍等准备项，再点终选', { tone: 'warn' })
         setFinalStampBlocked(true)
         try {
           sessionStorage.setItem(`s3.final_stamp_blocked:${work || 'main'}:${chapter}`, '1')
@@ -891,7 +891,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
               ? 'border-brand/40 bg-brand/10 text-brand'
               : 'border-line bg-soft text-faint hover:text-ink'
           }`}
-          title="探索模式：工艺脚手架不全也可存草稿；定稿/stamp 仍须齐套 GATE"
+          title="探索模式：准备项不全也能先存草稿；要正式定稿仍须补齐大纲、节拍等"
           data-testid="explore-mode-toggle"
         >
           <input
@@ -909,7 +909,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
               ? 'border-danger/50 bg-danger/10 text-danger'
               : 'border-line bg-soft text-faint hover:text-ink'
           }`}
-          title="勾选后存稿将跳过定稿门闩(blocking 质控不拦)。仅用于草稿/紧急旁路。"
+          title="勾选后保存时不拦「质检未过」——仅紧急草稿用，可能带问题落库"
           data-testid="danger-draft-toggle"
         >
           <input
@@ -930,7 +930,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
             onClick={async () => {
               try {
                 await api.ingestRetry(chapter, work)
-                toast('已重试本章反哺(ingest)')
+                toast('已重试「从正文提取设定」')
                 const ist = await api.ingestStatus(chapter, work)
                 if (ist?.failed) setIngestFail({ status: ist.ingest_status, error: ist.ingest_error })
                 else setIngestFail(null)
@@ -1049,11 +1049,11 @@ export function WriteLayout({ work, seq, sceneIdx }) {
               data-testid="write-enablement-banner"
             >
               {exploreMode && (
-                <div>探索模式：存稿工艺 soft · 定稿 / stamp 仍须 GATE 齐套</div>
+                <div>探索模式：可以先存草稿；正式定稿前仍须补齐本章准备</div>
               )}
               {finalStampBlocked && (
                 <div className="text-warn">
-                  上次存稿未写入定稿版本——补齐 GATE-A/B 后终选或再存
+                  上次保存还不能算正式定稿——请补齐大纲/节拍等后再终选
                   <button
                     type="button"
                     className="ml-2 text-meta text-faint underline cursor-pointer"
