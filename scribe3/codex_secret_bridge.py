@@ -86,6 +86,8 @@ def _find_bridge_local(store, entity_id: str, attribute: str) -> str | None:
     """按幂等键 (entity_id, attribute, source) 查已存在的桥接命题,返回其 record id 的
     本地部分(无则 None)。LIMIT 1 是防御性写法——本模块自身的 create/update 分支保证
     该键至多一行,不依赖这里的 LIMIT 掩盖潜在重复(测试②③用不带 LIMIT 的裸查询验证)。"""
+    if hasattr(store, "find_bridge_proposition_local"):
+        return store.find_bridge_proposition_local(entity_id, attribute, SOURCE)
     rows = store._query(
         "SELECT meta::id(id) AS local FROM proposition "
         "WHERE entity_id=$eid AND attribute=$attr AND source=$src LIMIT 1",
@@ -122,12 +124,17 @@ def sync_faction_secrets(store, name: str, row: dict) -> dict:
         if flagged and has_value:
             text = _summarize(row.get(key))
             if existing_local:
-                # 策略 B：镜像 UPSERT value，无演变史；保持 source=codex_bridge
-                store._execute_write(
-                    "UPDATE type::record('proposition', $local) SET value=$val, secret=true, source=$src",
-                    {"local": existing_local, "val": text, "src": SOURCE})
+                # 策略 B：镜像 UPSERT — 优先公共 API（P1-2）
+                if hasattr(store, "upsert_bridge_proposition"):
+                    store.upsert_bridge_proposition(
+                        local=existing_local, entity_id=entity_id,
+                        attribute=key, value=text, source=SOURCE,
+                    )
+                else:
+                    store._execute_write(
+                        "UPDATE type::record('proposition', $local) SET value=$val, secret=true, source=$src",
+                        {"local": existing_local, "val": text, "src": SOURCE})
                 counts["updated"] += 1
-                # best-effort 语义索引 + 缓存失效（与 add_fact 对齐）
                 try:
                     store.semantic_index(f"fact:{existing_local}", text)
                 except Exception as e:
@@ -145,13 +152,18 @@ def sync_faction_secrets(store, name: str, row: dict) -> dict:
                         entity_id, key, type(e).__name__,
                     )
             else:
-                store._execute_write(
-                    "CREATE proposition SET entity_id=$eid, attribute=$attr, value=$val, "
-                    "valid_from=1, secret=true, source=$src",
-                    {"eid": entity_id, "attr": key, "val": text, "src": SOURCE})
+                if hasattr(store, "upsert_bridge_proposition"):
+                    store.upsert_bridge_proposition(
+                        local=None, entity_id=entity_id,
+                        attribute=key, value=text, source=SOURCE,
+                    )
+                else:
+                    store._execute_write(
+                        "CREATE proposition SET entity_id=$eid, attribute=$attr, value=$val, "
+                        "valid_from=1, secret=true, source=$src",
+                        {"eid": entity_id, "attr": key, "val": text, "src": SOURCE})
                 counts["created"] += 1
                 try:
-                    # CREATE 后查 local 可能已有 existing 路径；用 attribute 再找一次
                     loc = _find_bridge_local(store, entity_id, key) or existing_local
                     if loc:
                         store.semantic_index(f"fact:{loc}", text)
@@ -170,8 +182,11 @@ def sync_faction_secrets(store, name: str, row: dict) -> dict:
                         entity_id, key, type(e).__name__,
                     )
         elif existing_local:
-            store._execute_write(
-                "DELETE type::record('proposition', $local)", {"local": existing_local})
+            if hasattr(store, "delete_bridge_proposition"):
+                store.delete_bridge_proposition(existing_local)
+            else:
+                store._execute_write(
+                    "DELETE type::record('proposition', $local)", {"local": existing_local})
             counts["deleted"] += 1
     return counts
 

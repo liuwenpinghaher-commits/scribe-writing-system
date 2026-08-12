@@ -291,15 +291,14 @@ class FactsKnowledgeMixin:
                 targets.append(str(loc))
         if dry_run or not targets:
             return {"matched": len(targets), "updated": 0, "dry_run": bool(dry_run)}
-        # 按条 UPDATE 保持可审计；量级通常为百级
-        n = 0
-        for loc in targets:
-            self._execute_write(
-                "UPDATE type::record('proposition', $local) SET source='ingest' "
-                "WHERE (source = NONE OR source = '' OR source = NULL)",
-                {"local": loc},
-            )
-            n += 1
+        # P1-12：单语句批量 UPDATE（禁止 per-row 循环写）
+        self._execute_write(
+            "UPDATE proposition SET source='ingest' "
+            "WHERE meta::id(id) IN $locals "
+            "AND (source = NONE OR source = '' OR source = NULL)",
+            {"locals": targets},
+        )
+        n = len(targets)
         try:
             _emit_cache_invalidation("proposition", getattr(self, "db_name", None), store=self)
         except Exception:

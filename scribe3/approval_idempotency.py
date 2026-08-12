@@ -11,6 +11,25 @@ _lock = threading.Lock()
 # fingerprint -> {result, ts, tool}
 _CACHE: dict[str, dict[str, Any]] = {}
 _TTL_SEC = 24 * 3600
+_MAX_SIZE = 1024  # P1-14：进程内缓存上限，防无限膨胀
+
+
+def _prune_expired_unlocked(now: float | None = None) -> None:
+    """持锁调用：剔 TTL 过期项；若仍超 maxsize 按最旧 ts 裁剪。"""
+    t = time.time() if now is None else float(now)
+    expired = [
+        k for k, row in _CACHE.items()
+        if t - float(row.get("ts") or 0) > _TTL_SEC
+    ]
+    for k in expired:
+        _CACHE.pop(k, None)
+    if len(_CACHE) <= _MAX_SIZE:
+        return
+    # 最旧优先
+    ordered = sorted(_CACHE.items(), key=lambda kv: float(kv[1].get("ts") or 0))
+    overflow = len(_CACHE) - _MAX_SIZE
+    for k, _ in ordered[:overflow]:
+        _CACHE.pop(k, None)
 
 
 def compute_approval_fingerprint(tool_name: str, args: dict | None) -> str:
@@ -48,6 +67,8 @@ def record_approved(fingerprint: str, tool_name: str, result: Any) -> None:
             "result": result,
             "ts": time.time(),
         }
+        if len(_CACHE) > _MAX_SIZE:
+            _prune_expired_unlocked()
 
 
 def clear_approval_cache() -> None:
