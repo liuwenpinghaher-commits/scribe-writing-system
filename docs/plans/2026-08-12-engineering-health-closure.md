@@ -54,7 +54,7 @@
 |----|------|--------|
 | **A** | 本文 + smoke 脚本 + 交付 checklist | **已执行** |
 | **B** | 热路径 bare except → `soft_fail` 可观测 | **已执行**（`713c46b`：侧写 WARNING，组装可选 DEBUG） |
-| **C** | write/rules 语义拆 | 仅随产品改动 |
+| **C** | write_assemble v1/discuss 模块 + rules 可 import 族 | **已执行**（无 exec；`rules/*` 链式 re-export） |
 
 ## 交付门（功能 PR）
 

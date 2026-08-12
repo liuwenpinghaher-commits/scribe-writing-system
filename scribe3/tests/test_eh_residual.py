@@ -356,21 +356,34 @@ def test_p1_15_retry_read_no_sleep_in_async(monkeypatch):
 
 def test_write_assemble_context_module_and_rules_parts():
     import pathlib
-    from scribe3.api.services.write_assemble import _outline_block, assemble_discussion_system
+    from scribe3.api.services.write_assemble import (
+        _outline_block,
+        assemble_discussion_system,
+        _assemble_write_instructions_v1,
+    )
     from scribe3.api.services import write_assemble_context as ctx
+    from scribe3.api.services import write_assemble_v1 as v1
+    from scribe3.api.services import write_assemble_discuss as disc
     from scribe3.critique.rules_impl import find_ai_tics
+    from scribe3.critique.rules.text_utils import _th
+    from scribe3.critique.rules.repetition import find_repetitions
 
     assert callable(_outline_block) and callable(ctx._outline_block)
     assert callable(assemble_discussion_system)
     assert callable(find_ai_tics)
+    # package C: v1 / discuss modules + importable rules families
+    assert v1._assemble_write_instructions_v1 is _assemble_write_instructions_v1
+    assert disc.assemble_discussion_system is assemble_discussion_system
+    assert callable(_th) and callable(find_repetitions)
+    rules_pkg = pathlib.Path("scribe3/critique/rules")
+    assert (rules_pkg / "timeline.py").is_file()
+    assert (rules_pkg / "text_utils.py").is_file()
+    body = pathlib.Path("scribe3/critique/rules_impl_body.py").read_text()
+    assert "no exec" in body or "timeline" in body
+    assert body.count("\n") < 40
+    # navigation archive still present
     parts = pathlib.Path("scribe3/critique/rules_parts")
     assert parts.is_dir()
-    names = sorted(p.name for p in parts.glob("*.py"))
-    assert any(n.startswith("01_") for n in names)
-    assert any(n.startswith("07_") for n in names)
-    body = pathlib.Path("scribe3/critique/rules_impl_body.py").read_text()
-    assert "rules_parts" in body
-    assert body.count("\n") < 80
 
 
 def test_adapter_ops_public_surface():

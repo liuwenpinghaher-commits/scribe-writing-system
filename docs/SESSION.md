@@ -36,8 +36,9 @@
 - **结案**：`docs/plans/2026-08-12-engineering-health-closure.md`
 - **分层**：业务层私有 store 调用 = 0；钉 `test_next_layer_adapters_no_private_store`
 - **冒烟**：`./scripts/smoke_eh.sh` → `DEMO_EH_OK`
-- **包 B**：`scribe3/soft_fail.py` + 热路径 warning；组装可选 DEBUG；契约 34 passed  
-- **下一刀**：巨石语义拆仅随产品改动（包 C）
+- **包 B**：`scribe3/soft_fail.py` + 热路径 warning；组装可选 DEBUG  
+- **包 C**：`write_assemble_v1` / `write_assemble_discuss`；`critique/rules/*` 可 import（无 exec）  
+- **契约**：`test_eh_residual` 34 passed；`./scripts/smoke_eh.sh`
 
 ### v6.3.4 验收脚手架（2026-08-12）
 
