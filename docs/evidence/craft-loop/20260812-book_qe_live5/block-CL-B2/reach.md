@@ -1,6 +1,8 @@
-# reach · CL-B2
+# reach CL-B2
 
-- demo: https://tonglu.qing.blue
-- work: book_qe_live5
-- 通道见 `00-author-path.md`
-- 截图：本会话以 API 证据替代 SPA 截图（author_human=false）
+1. orch apply short synopsis (red)
+2. GET chapter + craft-gates (red)
+3. orch apply long synopsis (fix)
+4. GET chapter + craft-gates (green)
+
+Transcripts under machine/http-*.md

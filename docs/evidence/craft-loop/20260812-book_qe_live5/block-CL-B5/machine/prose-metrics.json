@@ -1,0 +1,14 @@
+{
+  "prose_cn_len": 1823,
+  "focalizer": "role:qin_huiqi",
+  "title": "第二章 · 齿边",
+  "synopsis_cn_len": 99,
+  "server_save_leaks": 0,
+  "craft_compliance": {
+    "ok": true,
+    "gate": "C",
+    "detail": "C-Det pass",
+    "root_causes": [],
+    "fails": []
+  }
+}

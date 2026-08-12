@@ -15,12 +15,12 @@
       "value": {
         "keyword_touch": true
       },
-      "human": "PASS 正文多次 touch 齿边缺口/铜匙，显式不 close"
+      "human": "PASS 正文 touch 齿边/铜匙，不 close"
     },
     "CL-B6-H3": {
       "pass": true,
       "status": "N/A",
-      "note": "单章 MVP 焦点 ch2；不挡 mvp_pass"
+      "note": "单章 MVP"
     },
     "CL-B6-H4": {
       "pass": true,
@@ -28,16 +28,15 @@
     },
     "CL-B6-H5": {
       "pass": true,
-      "status": "skip_or_ok"
+      "status": "skip"
     },
     "CL-B6-H6": {
       "pass": true,
-      "human": "PASS 正典路径可追溯 orch apply + save-chapter"
+      "human": "PASS orch+save transcripts 可追溯"
     },
     "CL-B6-H7": {
       "pass": true,
-      "status": "soft",
-      "note": "母题余烬 echo 炉灰/温着/铜腥出现在正文"
+      "status": "soft"
     }
   }
 }

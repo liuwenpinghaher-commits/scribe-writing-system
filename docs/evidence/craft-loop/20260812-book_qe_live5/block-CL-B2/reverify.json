@@ -1,0 +1,8 @@
+{
+  "from": "red",
+  "to": "green",
+  "failed_hard_before": [
+    "CL-B2-H1"
+  ],
+  "after_synopsis_cn_len": 99
+}

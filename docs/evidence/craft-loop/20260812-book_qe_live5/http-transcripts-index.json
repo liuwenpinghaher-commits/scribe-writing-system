@@ -1,0 +1,202 @@
+[
+  {
+    "id": "http-001",
+    "ts": "2026-08-12T10:48:30.308670+00:00",
+    "method": "GET",
+    "path": "/api/health",
+    "status": 200,
+    "note": "env health"
+  },
+  {
+    "id": "http-002",
+    "ts": "2026-08-12T10:48:31.654590+00:00",
+    "method": "PUT",
+    "path": "/api/intent-goals?work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B0 legal: engineering quota total_word_goal"
+  },
+  {
+    "id": "http-003",
+    "ts": "2026-08-12T10:48:31.878004+00:00",
+    "method": "GET",
+    "path": "/api/intent?work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B0 read intent after goals"
+  },
+  {
+    "id": "http-004",
+    "ts": "2026-08-12T10:48:33.621025+00:00",
+    "method": "GET",
+    "path": "/api/entities?work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B1 settings_min source entities"
+  },
+  {
+    "id": "http-005",
+    "ts": "2026-08-12T10:48:34.506841+00:00",
+    "method": "GET",
+    "path": "/api/character-relations?work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B1 settings_min source relations"
+  },
+  {
+    "id": "http-006",
+    "ts": "2026-08-12T10:48:35.310207+00:00",
+    "method": "GET",
+    "path": "/api/world-rules?work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B1 settings_min source world-rules"
+  },
+  {
+    "id": "http-007",
+    "ts": "2026-08-12T10:48:35.939377+00:00",
+    "method": "GET",
+    "path": "/api/motifs?work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B1 settings_min source motifs"
+  },
+  {
+    "id": "http-008",
+    "ts": "2026-08-12T10:48:36.876415+00:00",
+    "method": "GET",
+    "path": "/api/promises?work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B1 settings_min source promises"
+  },
+  {
+    "id": "http-009",
+    "ts": "2026-08-12T10:48:37.580369+00:00",
+    "method": "GET",
+    "path": "/api/craft-gates?work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B1 settings_min source craft-gates-A"
+  },
+  {
+    "id": "http-010",
+    "ts": "2026-08-12T10:48:39.821969+00:00",
+    "method": "POST",
+    "path": "/api/orchestration/proposal/apply?work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B2 legal world_write+approve: SHORT synopsis for red state"
+  },
+  {
+    "id": "http-011",
+    "ts": "2026-08-12T10:48:40.964227+00:00",
+    "method": "GET",
+    "path": "/api/chapter?seq=2&work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B2 read chapter AFTER short synopsis"
+  },
+  {
+    "id": "http-012",
+    "ts": "2026-08-12T10:48:41.219346+00:00",
+    "method": "GET",
+    "path": "/api/craft-gates?work=book_qe_live5&seq=2",
+    "status": 200,
+    "note": "CL-B2 craft-gates at RED (gate_b may still pass)"
+  },
+  {
+    "id": "http-013",
+    "ts": "2026-08-12T10:48:43.091078+00:00",
+    "method": "POST",
+    "path": "/api/orchestration/proposal/apply?work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B2 legal world_write+approve: LONG synopsis reverify green"
+  },
+  {
+    "id": "http-014",
+    "ts": "2026-08-12T10:48:44.232505+00:00",
+    "method": "GET",
+    "path": "/api/chapter?seq=2&work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B2 read chapter AFTER long synopsis"
+  },
+  {
+    "id": "http-015",
+    "ts": "2026-08-12T10:48:44.480064+00:00",
+    "method": "GET",
+    "path": "/api/craft-gates?work=book_qe_live5&seq=2",
+    "status": 200,
+    "note": "CL-B2 craft-gates at GREEN"
+  },
+  {
+    "id": "http-016",
+    "ts": "2026-08-12T10:48:46.270486+00:00",
+    "method": "GET",
+    "path": "/api/chapter?seq=2&work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B3 beats source"
+  },
+  {
+    "id": "http-017",
+    "ts": "2026-08-12T10:48:48.001022+00:00",
+    "method": "GET",
+    "path": "/api/chapter?seq=2&work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B4 truth/deductions"
+  },
+  {
+    "id": "http-018",
+    "ts": "2026-08-12T10:48:48.332872+00:00",
+    "method": "GET",
+    "path": "/api/craft-gates?work=book_qe_live5&seq=2",
+    "status": 200,
+    "note": "CL-B4 gates B3-B6 fields"
+  },
+  {
+    "id": "http-019",
+    "ts": "2026-08-12T10:48:50.382349+00:00",
+    "method": "GET",
+    "path": "/api/chapter?seq=2&work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B5 pre-check prose length"
+  },
+  {
+    "id": "http-020",
+    "ts": "2026-08-12T10:48:52.694039+00:00",
+    "method": "POST",
+    "path": "/api/save-chapter?work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B5 legal prose path: POST /save-chapter (not emergency world REST)"
+  },
+  {
+    "id": "http-021",
+    "ts": "2026-08-12T10:48:53.838482+00:00",
+    "method": "GET",
+    "path": "/api/chapter?seq=2&work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B5 verify prose after save"
+  },
+  {
+    "id": "http-022",
+    "ts": "2026-08-12T10:48:54.427572+00:00",
+    "method": "GET",
+    "path": "/api/craft-gates?work=book_qe_live5&seq=2",
+    "status": 200,
+    "note": "CL-B5 gate_c after prose"
+  },
+  {
+    "id": "http-023",
+    "ts": "2026-08-12T10:48:56.186895+00:00",
+    "method": "GET",
+    "path": "/api/promises?work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B6 open promises"
+  },
+  {
+    "id": "http-024",
+    "ts": "2026-08-12T10:48:56.487927+00:00",
+    "method": "GET",
+    "path": "/api/chapter?seq=2&work=book_qe_live5",
+    "status": 200,
+    "note": "CL-B6 prose touch keywords"
+  },
+  {
+    "id": "http-025",
+    "ts": "2026-08-12T10:48:57.071614+00:00",
+    "method": "POST",
+    "path": "/api/storyline/inject-preview?work=book_qe_live5",
+    "status": 200,
+    "note": "regression storyline omit"
+  }
+]

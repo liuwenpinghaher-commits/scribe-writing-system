@@ -1,0 +1,10 @@
+{
+  "block": "CL-B2",
+  "phase": "red",
+  "evaluated_at": "2026-08-12T10:48:41.590480+00:00",
+  "verdict": "red",
+  "failed_hard": [
+    "CL-B2-H1"
+  ],
+  "order_index": 2
+}

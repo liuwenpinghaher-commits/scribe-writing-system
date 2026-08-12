@@ -1,0 +1,61 @@
+{
+  "gate_c_det": {
+    "gate": "C",
+    "work": "book_qe_live5",
+    "seq": 2,
+    "ok": true,
+    "pass": true,
+    "checks": [
+      {
+        "id": "C1",
+        "ok": true,
+        "verdict": "pass",
+        "detail": "find_leaks 清空",
+        "evidence": {
+          "focalizer": "role:qin_huiqi"
+        },
+        "root_cause_hint": null,
+        "hard": true
+      },
+      {
+        "id": "C2",
+        "ok": false,
+        "verdict": "skip",
+        "detail": "无事件数据,因果不适用",
+        "evidence": {},
+        "root_cause_hint": null,
+        "hard": false
+      },
+      {
+        "id": "C6",
+        "ok": true,
+        "verdict": "pass",
+        "detail": "母题命中 ['余烬']",
+        "evidence": {
+          "hits": [
+            "余烬"
+          ]
+        },
+        "root_cause_hint": null,
+        "hard": true
+      },
+      {
+        "id": "C11",
+        "ok": true,
+        "verdict": "pass",
+        "detail": "节拍覆盖 3/3",
+        "evidence": {
+          "covered": 3,
+          "total": 3
+        },
+        "root_cause_hint": null,
+        "hard": true
+      }
+    ],
+    "blocking": [],
+    "rc_hints": [],
+    "degraded": []
+  },
+  "ok": true,
+  "blocking": []
+}

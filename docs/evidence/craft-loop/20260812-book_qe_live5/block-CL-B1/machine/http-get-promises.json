@@ -1,0 +1,15 @@
+[
+  {
+    "id": "http-008",
+    "ts_start": "2026-08-12T10:48:36.876415+00:00",
+    "ts_end": "2026-08-12T10:48:37.179559+00:00",
+    "note": "CL-B1 settings_min source promises",
+    "method": "GET",
+    "url": "https://tonglu.qing.blue/api/promises?work=book_qe_live5",
+    "path": "/api/promises?work=book_qe_live5",
+    "request_body": null,
+    "status": 200,
+    "response_snip": "[{\"clues\":[],\"id\":\"aq0kbbogie0ttbhrp4nl\",\"kind\":\"promise\",\"payoff_chapter\":null,\"payoff_max\":4,\"payoff_min\":2,\"resolution\":null,\"setup_chapter\":1,\"status\":\"open\",\"text\":\"铜匙齿边缺口要回收\",\"tier\":\"chapter\",\"overdue\":false}]",
+    "error": null
+  }
+]

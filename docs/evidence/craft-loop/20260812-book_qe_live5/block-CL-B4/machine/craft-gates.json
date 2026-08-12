@@ -1,0 +1,118 @@
+{
+  "gate_b": {
+    "gate": "B",
+    "work": "book_qe_live5",
+    "seq": 2,
+    "ok": true,
+    "pass": true,
+    "checks": [
+      {
+        "id": "B1",
+        "ok": true,
+        "verdict": "pass",
+        "detail": "大纲 99 字",
+        "evidence": {
+          "len": 99
+        },
+        "root_cause_hint": null,
+        "hard": true
+      },
+      {
+        "id": "B2",
+        "ok": true,
+        "verdict": "pass",
+        "detail": "节拍 3",
+        "evidence": {
+          "count": 3
+        },
+        "root_cause_hint": null,
+        "hard": true
+      },
+      {
+        "id": "B3",
+        "ok": true,
+        "verdict": "pass",
+        "detail": "scene_truth 150 字",
+        "evidence": {
+          "len": 150
+        },
+        "root_cause_hint": null,
+        "hard": true
+      },
+      {
+        "id": "B4",
+        "ok": true,
+        "verdict": "pass",
+        "detail": "涉及 2 角色",
+        "evidence": {
+          "ids": [
+            "role:qin_huiqi",
+            "role:hui_li"
+          ]
+        },
+        "root_cause_hint": null,
+        "hard": true
+      },
+      {
+        "id": "B5",
+        "ok": true,
+        "verdict": "pass",
+        "detail": "2 条限知投影",
+        "evidence": {
+          "ids": [
+            "role:qin_huiqi",
+            "role:hui_li"
+          ]
+        },
+        "root_cause_hint": null,
+        "hard": true
+      },
+      {
+        "id": "B6",
+        "ok": true,
+        "verdict": "pass",
+        "detail": "投影 verbatim 可对齐真相",
+        "evidence": {},
+        "root_cause_hint": null,
+        "hard": true
+      },
+      {
+        "id": "B6s",
+        "ok": true,
+        "verdict": "pass",
+        "detail": "投影未过期 (rev=1)",
+        "evidence": {
+          "truth_revision": 1
+        },
+        "root_cause_hint": null,
+        "hard": true
+      },
+      {
+        "id": "B8",
+        "ok": false,
+        "verdict": "warn",
+        "detail": "投影缺五层标题: ['role:qin_huiqi', 'role:hui_li']",
+        "evidence": {
+          "ids": [
+            "role:qin_huiqi",
+            "role:hui_li"
+          ]
+        },
+        "root_cause_hint": "RC-SCHEMA-WEAK",
+        "hard": false
+      },
+      {
+        "id": "B7",
+        "ok": false,
+        "verdict": "skip",
+        "detail": "无 stage_journal,库内无阶段时间戳",
+        "evidence": {},
+        "root_cause_hint": null,
+        "hard": false
+      }
+    ],
+    "blocking": [],
+    "rc_hints": [],
+    "degraded": []
+  }
+}

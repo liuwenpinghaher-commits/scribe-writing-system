@@ -36,7 +36,7 @@
       "pass": true,
       "value": {
         "motifs": 1,
-        "open_promises": 1
+        "open": 1
       }
     },
     "CL-B1-H7": {
@@ -53,12 +53,12 @@
     },
     "CL-B1-H8": {
       "pass": true,
-      "human": "PASS 设定经既有 world_write/审批与合法通道；本轮未 emergency REST 灌设定"
+      "human": "PASS 设定只读验收；本块无 emergency 写世界 REST"
     },
     "CL-B1-H9": {
       "pass": true,
-      "human": "PASS 主角覃灰七欲望守炉/怕匙落入不该知的人手，与压抑→裂缝弧对齐。",
-      "evidence_len": 28
+      "human": "PASS 主角守炉/怕匙落入不该知的人手，对齐 B0 弧。"
     }
-  }
+  },
+  "note": "settings_min ≠ WCG; gate_a.ok not used as green"
 }

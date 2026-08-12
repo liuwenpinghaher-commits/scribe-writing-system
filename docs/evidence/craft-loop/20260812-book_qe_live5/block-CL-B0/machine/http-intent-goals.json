@@ -1,0 +1,17 @@
+[
+  {
+    "id": "http-002",
+    "ts_start": "2026-08-12T10:48:31.654590+00:00",
+    "ts_end": "2026-08-12T10:48:31.877342+00:00",
+    "note": "CL-B0 legal: engineering quota total_word_goal",
+    "method": "PUT",
+    "url": "https://tonglu.qing.blue/api/intent-goals?work=book_qe_live5",
+    "path": "/api/intent-goals?work=book_qe_live5",
+    "request_body": {
+      "total_word_goal": 45000
+    },
+    "status": 200,
+    "response_snip": "{\"ok\":true,\"updated\":[\"total_word_goal\"]}",
+    "error": null
+  }
+]

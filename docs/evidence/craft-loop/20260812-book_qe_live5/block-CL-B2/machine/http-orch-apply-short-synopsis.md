@@ -1,0 +1,34 @@
+### http-010 · 2026-08-12T10:48:39.821969+00:00
+**POST** `/api/orchestration/proposal/apply?work=book_qe_live5`  
+note: CL-B2 legal world_write+approve: SHORT synopsis for red state
+
+```json
+REQUEST
+{
+  "proposal": {
+    "id": "prop_craftloop_b2_red_demo",
+    "ops": [
+      {
+        "tool": "s3_patch_chapter_plan",
+        "args": {
+          "seq": 2,
+          "synopsis": "灰狸索物，灰七假片挡过，冷锅婆点破炉未冷。"
+        },
+        "label": "CL-B2 red demo short synopsis",
+        "status": "pending"
+      }
+    ],
+    "summary": "craft-loop sequential: force synopsis<80 for red capture"
+  },
+  "decision": "approve",
+  "execute": true
+}
+```
+
+status: **200**
+
+```
+RESPONSE
+{"work":"book_qe_live5","proposal":{"id":"prop_craftloop_b2_red_demo","ops":[{"tool":"s3_patch_chapter_plan","args":{"seq":2,"synopsis":"灰狸索物，灰七假片挡过，冷锅婆点破炉未冷。"},"label":"CL-B2 red demo short synopsis","status":"written","result":{"status":"written","seq":2,"fields":["synopsis"]}}],"summary":"craft-loop sequential: force synopsis<80 for red capture","applied":[{"tool":"s3_patch_chapter_plan","result":{"status":"written","seq":2,"fields":["synopsis"]}}],"errors":[],"status":"applied"},"ui_events":[],"ui_target":null,"focus_policy":"soft"}
+```
+

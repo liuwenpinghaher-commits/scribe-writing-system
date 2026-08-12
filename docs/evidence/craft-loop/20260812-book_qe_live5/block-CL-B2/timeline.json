@@ -1,5 +1,12 @@
 {
   "block": "CL-B2",
-  "evaluated_at": "2026-08-12T10:39:49.421087+00:00",
-  "verdict": "green"
+  "phase": "green",
+  "evaluated_at": "2026-08-12T10:48:44.768888+00:00",
+  "verdict": "green",
+  "red_at": "2026-08-12T10:48:41.590480+00:00",
+  "red_synopsis_cn_len": 21,
+  "green_synopsis_cn_len": 99,
+  "prerequisite": "CL-B1 green",
+  "order_index": 2,
+  "reverify": true
 }

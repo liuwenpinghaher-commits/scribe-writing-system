@@ -1,5 +1,8 @@
 {
   "block": "CL-B1",
-  "evaluated_at": "2026-08-12T10:39:49.421087+00:00",
-  "verdict": "green"
+  "evaluated_at": "2026-08-12T10:48:38.320712+00:00",
+  "verdict": "green",
+  "unlock_next": true,
+  "prerequisite": "CL-B0 green",
+  "order_index": 1
 }

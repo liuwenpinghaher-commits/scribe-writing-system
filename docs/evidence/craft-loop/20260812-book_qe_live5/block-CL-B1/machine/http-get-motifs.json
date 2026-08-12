@@ -1,0 +1,15 @@
+[
+  {
+    "id": "http-007",
+    "ts_start": "2026-08-12T10:48:35.939377+00:00",
+    "ts_end": "2026-08-12T10:48:36.475598+00:00",
+    "note": "CL-B1 settings_min source motifs",
+    "method": "GET",
+    "url": "https://tonglu.qing.blue/api/motifs?work=book_qe_live5",
+    "path": "/api/motifs?work=book_qe_live5",
+    "request_body": null,
+    "status": 200,
+    "response_snip": "[{\"echo_terms\":[\"炉灰\",\"温着\",\"铜腥\"],\"echoes\":\"炉灰,温着,铜腥\",\"id\":\"rrbzk15mbw2jwee6xtgm\",\"name\":\"余烬\",\"phase\":\"seed\",\"scope\":null,\"theme\":\"未燃尽的守护\",\"tier\":\"book\",\"unfolding\":\"\",\"hit_count\":0}]",
+    "error": null
+  }
+]

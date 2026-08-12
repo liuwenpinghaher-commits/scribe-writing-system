@@ -1,0 +1,15 @@
+[
+  {
+    "id": "http-003",
+    "ts_start": "2026-08-12T10:48:31.878004+00:00",
+    "ts_end": "2026-08-12T10:48:32.118784+00:00",
+    "note": "CL-B0 read intent after goals",
+    "method": "GET",
+    "url": "https://tonglu.qing.blue/api/intent?work=book_qe_live5",
+    "path": "/api/intent?work=book_qe_live5",
+    "request_body": null,
+    "status": 200,
+    "response_snip": "{\"reader_feeling\":\"铜腥夜里的克制悬念，读完后指尖发凉。\",\"emotional_arc\":\"压抑→试探→裂缝→余烬未冷\",\"red_lines\":\"不系统流；不升级文；不写明铜匙用途给灰狸。\",\"total_word_goal\":45000}",
+    "error": null
+  }
+]

@@ -1,0 +1,21 @@
+{
+  "scene_truth": "读者已知铜匙=旧库钥匙；灰狸只知三棱反光物；冷锅婆知炉未凉。【感知】炉灰未冷【推断】若今夜被问破则炉子与钥匙一起完【情绪】克制【行动】侧身藏匙【未知】灰狸会否罢休。【感知】三棱反光物【推断】他藏了值钱的铜【情绪】嘴贫【行动】伸手索要【未知】究竟是什么。若今夜被问破，炉子与钥匙一起完。他藏了值钱的铜。",
+  "scene_truth_cn_len": 150,
+  "involved_characters": [
+    "role:qin_huiqi",
+    "role:hui_li"
+  ],
+  "deductions": [
+    {
+      "character_id": "role:qin_huiqi",
+      "prose": "【感知】炉灰未冷【推断】若今夜被问破则炉子与钥匙一起完【情绪】克制【行动】侧身藏匙【未知】灰狸会否罢休",
+      "based_on_truth_rev": 1
+    },
+    {
+      "character_id": "role:hui_li",
+      "prose": "【感知】三棱反光物【推断】他藏了值钱的铜【情绪】嘴贫【行动】伸手索要【未知】究竟是什么",
+      "based_on_truth_rev": 1
+    }
+  ],
+  "focalizer": "role:qin_huiqi"
+}

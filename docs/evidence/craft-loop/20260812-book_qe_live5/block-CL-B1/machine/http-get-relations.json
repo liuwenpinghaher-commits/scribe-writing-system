@@ -1,0 +1,15 @@
+[
+  {
+    "id": "http-005",
+    "ts_start": "2026-08-12T10:48:34.506841+00:00",
+    "ts_end": "2026-08-12T10:48:34.909515+00:00",
+    "note": "CL-B1 settings_min source relations",
+    "method": "GET",
+    "url": "https://tonglu.qing.blue/api/character-relations?work=book_qe_live5",
+    "path": "/api/character-relations?work=book_qe_live5",
+    "request_body": null,
+    "status": 200,
+    "response_snip": "[{\"dst\":\"hui_li\",\"note\":\"灰狸不知铜匙是钥匙\",\"relation\":\"熟人\",\"since_chapter\":1,\"src\":\"qin_huiqi\",\"until_chapter\":null}]",
+    "error": null
+  }
+]

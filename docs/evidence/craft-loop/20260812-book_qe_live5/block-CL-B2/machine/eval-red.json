@@ -1,0 +1,32 @@
+{
+  "evaluated_at": "2026-08-12T10:48:41.590480+00:00",
+  "verdict": "red",
+  "hard": {
+    "CL-B2-H1": {
+      "pass": false,
+      "value": 21,
+      "note": "craft-loop SSOT self-count; gate_b.ok NOT sufficient"
+    },
+    "CL-B2-H2": {
+      "pass": true,
+      "human": "PASS 人物+冲突仍在"
+    },
+    "CL-B2-H3": {
+      "pass": true,
+      "human": "PASS 三点可指（短纲仍含因果骨架）"
+    },
+    "CL-B2-H4": {
+      "pass": true,
+      "human": "PASS 无红线冲突"
+    },
+    "CL-B2-H5": {
+      "pass": false,
+      "human": "partial: short text still has pressure seed"
+    },
+    "CL-B2-H6": {
+      "pass": true,
+      "human": "PASS orch apply path"
+    }
+  },
+  "synopsis_cn_len": 21
+}

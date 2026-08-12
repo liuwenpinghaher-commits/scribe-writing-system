@@ -1,0 +1,15 @@
+{
+  "gate_b_ok": true,
+  "B1": {
+    "id": "B1",
+    "ok": false,
+    "verdict": "warn",
+    "detail": "大纲偏短(21<40)",
+    "evidence": {
+      "len": 21
+    },
+    "root_cause_hint": null,
+    "hard": false
+  },
+  "synopsis_cn_len_self": 21
+}

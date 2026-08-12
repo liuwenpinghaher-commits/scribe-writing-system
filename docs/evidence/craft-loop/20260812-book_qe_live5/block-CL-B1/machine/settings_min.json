@@ -1,0 +1,9 @@
+{
+  "cl_settings.intent_rf_ge10": true,
+  "cl_settings.chars_ge2_rich": true,
+  "cl_settings.relations_ge1": true,
+  "cl_settings.facts_or_rules_ge1": true,
+  "cl_settings.motifs_ge1": true,
+  "cl_settings.promises_open_ge1": true,
+  "cl_settings.path_legal": true
+}

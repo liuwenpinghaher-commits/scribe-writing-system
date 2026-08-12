@@ -1,56 +1,12 @@
 # CL-B0 · verdict
 
-**verdict: green**
+**verdict: green** · evaluated_at `2026-08-12T10:48:32.119882+00:00`
 
-| Hard ID | pass | 备注 |
-|---------|------|------|
-| CL-B0-H1 | PASS | cn_len(reader_feeling)>=10 |
-| CL-B0-H2 | PASS | PASS 弧=压抑→试探→裂缝→余烬未冷 |
-| CL-B0-H3 | PASS | {"lines": 3, "cn_len": 21} |
-| CL-B0-H4 | PASS | 45000 |
-| CL-B0-H5 | PASS | PASS 意图来自既有 live 验证书 UI 种子/合法通道，非本轮无追溯 REST 灌 intent 叙事字段；total_word_goal 经 PUT /intent-goals（工程配额闸外） |
-| CL-B0-H6 | PASS | PASS 读者要感到铜腥夜里的克制悬念、指尖发凉；弧压抑→试探→裂缝→余烬；红线不系统流/升级文/不写明铜匙用途给灰狸。 |
+- **CL-B0-H1**: PASS — 18
+- **CL-B0-H2**: PASS — PASS 弧=压抑→试探→裂缝→余烬未冷
+- **CL-B0-H3**: PASS — {'lines': 3, 'cn_len': 21}
+- **CL-B0-H4**: PASS — 45000
+- **CL-B0-H5**: PASS — PASS total_word_goal via PUT /intent-goals (gate-exempt); narrative intent pre-seeded not emergency REST this session
+- **CL-B0-H6**: PASS — PASS 读者铜腥克制悬念；弧压抑→试探→裂缝→余烬；红线不系统流/升级文/不明示匙用途给灰狸。
 
-## 人主裁行
-
-- **CL-B0-H2**: PASS 弧=压抑→试探→裂缝→余烬未冷
-- **CL-B0-H5**: PASS 意图来自既有 live 验证书 UI 种子/合法通道，非本轮无追溯 REST 灌 intent 叙事字段；total_word_goal 经 PUT /intent-goals（工程配额闸外）
-- **CL-B0-H6**: PASS 读者要感到铜腥夜里的克制悬念、指尖发凉；弧压抑→试探→裂缝→余烬；红线不系统流/升级文/不写明铜匙用途给灰狸。
-
-## 机算锚点
-
-```json
-{
-  "CL-B0-H1": {
-    "pass": true,
-    "value": 18,
-    "ssot": "cn_len(reader_feeling)>=10"
-  },
-  "CL-B0-H2": {
-    "pass": true,
-    "value": 13,
-    "human": "PASS 弧=压抑→试探→裂缝→余烬未冷",
-    "ssot": "cn_len(emotional_arc)>=4 + human direction"
-  },
-  "CL-B0-H3": {
-    "pass": true,
-    "value": {
-      "lines": 3,
-      "cn_len": 21
-    }
-  },
-  "CL-B0-H4": {
-    "pass": true,
-    "value": 45000
-  },
-  "CL-B0-H5": {
-    "pass": true,
-    "human": "PASS 意图来自既有 live 验证书 UI 种子/合法通道，非本轮无追溯 REST 灌 intent 叙事字段；total_word_goal 经 PUT /intent-goals（工程配额闸外）"
-  },
-  "CL-B0-H6": {
-    "pass": true,
-    "human": "PASS 读者要感到铜腥夜里的克制悬念、指尖发凉；弧压抑→试探→裂缝→余烬；红线不系统流/升级文/不写明铜匙用途给灰狸。",
-    "evidence_len": 48
-  }
-}
-```
+HTTP: `machine/http-intent-goals.md`, `machine/http-get-intent.md`

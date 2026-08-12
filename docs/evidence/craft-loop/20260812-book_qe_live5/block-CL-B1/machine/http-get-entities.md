@@ -1,0 +1,11 @@
+### http-004 · 2026-08-12T10:48:33.621025+00:00
+**GET** `/api/entities?work=book_qe_live5`  
+note: CL-B1 settings_min source entities
+
+status: **200**
+
+```
+RESPONSE
+[{"id":"role:hui_li","kind":"character","name":"灰狸","backstory":null,"backstory_secret":false,"importance":"major","appearance":"嘴角总翘一点","personality_tags":[],"aliases":[],"personality_detail":"嘴贫、眼尖","abilities":[],"weaknesses":[],"first_appearance":null,"surface_goal":"摸清灰七怀里藏什么","deep_need":"有人当他不是笑话","internal_conflict":null,"fear":"再被当外人"},{"id":"role:qin_huiqi","kind":"character","name":"覃灰七","backstory":null,"backstory_secret":false,"importance":"protagonist","appearance":"瘦高，袖口总沾着炉灰","personality_tags":[],"aliases":[],"personality_detail":"沉默克制，话少","abilities":[],"weaknesses":[],"first_appearance":null,"surface_goal":"守住炉子别灭","deep_need":"被承认曾守护过谁","internal_conflict":"想藏却必须用","fear":"铜匙落入不该知道的人手"}]
+```
+

@@ -1,0 +1,15 @@
+[
+  {
+    "id": "http-009",
+    "ts_start": "2026-08-12T10:48:37.580369+00:00",
+    "ts_end": "2026-08-12T10:48:37.919072+00:00",
+    "note": "CL-B1 settings_min source craft-gates-A",
+    "method": "GET",
+    "url": "https://tonglu.qing.blue/api/craft-gates?work=book_qe_live5",
+    "path": "/api/craft-gates?work=book_qe_live5",
+    "request_body": null,
+    "status": 200,
+    "response_snip": "{\"work\":\"book_qe_live5\",\"gate_a\":{\"gate\":\"A\",\"work\":\"book_qe_live5\",\"seq\":null,\"ok\":true,\"pass\":true,\"checks\":[{\"id\":\"A1\",\"ok\":true,\"verdict\":\"pass\",\"detail\":\"intent 三字段非空\",\"evidence\":{\"intent_keys\":[\"reader_feeling\",\"emotional_arc\",\"red_lines\",\"total_word_goal\"]},\"root_cause_hint\":null,\"hard\":true},{\"id\":\"A2\",\"ok\":true,\"verdict\":\"pass\",\"detail\":\"2 名档案齐全角色\",\"evidence\":{\"ids\":[\"role:hui_li\",\"role:qin_huiqi\"]},\"root_cause_hint\":null,\"hard\":true},{\"id\":\"A-ARC\",\"ok\":false,\"verdict\":\"warn\",\"detail\":\"主角色缺 Lie 锚 2 人: 灰狸, 覃灰七\",\"evidence\":{\"names\":[\"灰狸\",\"覃灰七\"]},\"root_cause_hint\":\"RC-EMPTY-AUX\",\"hard\":false},{\"id\":\"A3\",\"ok\":true,\"verdict\":\"pass\",\"detail\":\"facts=1 rules=1\",\"evidence\":{\"facts\":1,\"rules\":1},\"root_cause_hint\":null,\"hard\":true},{\"id\":\"A4\",\"ok\":true,\"verdict\":\"pass\",\"detail\":\"关系 1 条\",\"evidence\":{\"count\":1},\"root_cause_hint\":null,\"hard\":true},{\"id\":\"A5\",\"ok\":true,\"verdict\":\"pass\",\"detail\":\"母题 1\",\"evidence\":{\"names\":[\"余烬\"]},\"root_cause_hint\":null,\"hard\":true},{\"id\":\"A6\",\"ok\":true,\"verdict\":\"pass\",\"detail\":\"open 伏笔 1\",\"evidence\":{\"sample\":[\"铜匙齿边缺口要回收\"]},\"root_cause_hint\":null,\"hard\":true},{\"id\":\"A7\",\"ok\":true,\"verdict\":\"pass\",\"detail\":\"brief.promises=dict\",\"evidence\":{},\"root_cause_hint\":null,\"hard\":true}],\"blocking\":[],\"rc_hints\":[],\"degraded\":[]},\"ok\":true}",
+    "error": null
+  }
+]
