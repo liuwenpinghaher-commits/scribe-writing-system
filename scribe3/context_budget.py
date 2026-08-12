@@ -130,7 +130,8 @@ NOVEL_PROMPT_HARD = 48_000
 # ── L2 四档 DROP（唯一真源 · rev.1.2 WS-6）──────────────────────────
 # 数字越大越先丢；T0/GEN_SEGMENT_PROTECTED 不进 victim 或极低优先级
 L2_DROP_TIER: dict[str, tuple[str, ...]] = {
-    "T3": ("material_recall", "reference_craft", "seed_words", "author_prefs"),
+    # SL2：storyline_polish 进 T3（与 material_recall/reference_craft 同档，先可裁）
+    "T3": ("material_recall", "storyline_polish", "reference_craft", "seed_words", "author_prefs"),
     "T2": ("craft", "phase_role", "avoid", "volume_intro", "request_constraint"),
     "T1": ("codex", "purpose", "pressure_drive"),
 }
@@ -791,6 +792,7 @@ def generation_physical_order_names(*, v2: bool = True) -> list[str]:
         "author_prefs",
         "voice_anchor",
         "reference_craft",
+        "storyline_polish",  # SL2 · 紧邻 reference_craft 后
         "deduction_final",
         "material_recall",
         "final_reminder",

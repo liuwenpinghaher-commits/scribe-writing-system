@@ -546,13 +546,19 @@ export const api = {
   recall: (text, k = 6) => j(`/recall?q=${enc(text)}&k=${k}`),
 
   // ── 延期产品 / 做厚表面（H3–H7 · 命名方法避免裸 fetch 脆弱）──
-  storylineHub: (work) => j('/storyline/hub', work),
+  storylineHub: (work, focusSeq) => j(
+    '/storyline/hub' + (focusSeq != null && focusSeq !== '' ? `?focus_seq=${enc(focusSeq)}` : ''),
+    work,
+  ),
   storylineGantt: (work) => j('/storyline/gantt', work),
   storylineEmotion: (work) => j('/storyline/emotion-curve', work),
   storylineLines: (work) => j('/storyline/lines', work),
   storylineCreate: (body, work) => post('/storyline/lines', body || {}, work),
+  storylinePatch: (sid, body, work) => patch(`/storyline/lines/${enc(sid)}`, body || {}, work),
+  storylineDelete: (sid, work) => fetch(BASE + ww(`/storyline/lines/${enc(sid)}`, work), { method: 'DELETE' }).then(handle),
   storylineLink: (sid, body, work) => post(`/storyline/lines/${enc(sid)}/link`, body || {}, work),
-  storylineInjectPreview: (body, work) => post('/storyline/inject-preview', body || {}, work),
+  storylineInjectPreview: (body, work) => post('/storyline/inject-preview', body || { use_store: 1 }, work),
+  storylineCraftAlign: (work) => j('/storyline/craft-align', work),
   chapterStage: (seq, work) => j(`/chapters/${enc(seq)}/stage`, work),
   chapterStageAdvance: (seq, body, work) => post(`/chapters/${enc(seq)}/stage/advance`, body || {}, work),
   parallelDeduce: (seq, body, work) => post(`/chapters/${enc(seq)}/deduce/parallel`, body || {}, work),

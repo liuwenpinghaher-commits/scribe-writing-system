@@ -104,6 +104,11 @@ from scribe3.api.services.write_assemble_discuss import (  # noqa: E402,F401
     assemble_discussion_system,
 )
 
+# rebind 到 app_impl 后，v1 内 LOAD_GLOBAL 解析这些名（须列入 _rebind_services 白名单）
+def _record_write_soft_fail(kind: str) -> None:
+    record_write_soft_fail(kind)
+
+
 def check_generate_reread_gate(work: str, chapter: int) -> dict:
     """供 /chat/write 等生成入口:硬续写模式未 ack 则拒。"""
     from scribe3.experience import exp_state

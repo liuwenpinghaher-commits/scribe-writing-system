@@ -1,9 +1,22 @@
-"""Storyline Surreal 持久化 mixin（GAP-16）。"""
+"""Storyline Surreal 持久化 mixin（GAP-16 / SL1 craft_only）。"""
 from __future__ import annotations
 
 import time
 import uuid
 from typing import Any
+
+
+def _normalize_craft_only(raw: Any, *, default: bool = True) -> bool:
+    if raw is None:
+        return default
+    if isinstance(raw, bool):
+        return raw
+    s = str(raw).strip().lower()
+    if s in ("0", "false", "no", "off"):
+        return False
+    if s in ("1", "true", "yes", "on"):
+        return True
+    return default
 
 
 class StorylineStoreMixin:
@@ -37,29 +50,33 @@ class StorylineStoreMixin:
         arc_kind: str = "main",
         chapter_seqs: list[int] | None = None,
         notes: str = "",
+        craft_only: bool | None = None,
     ) -> dict[str, Any]:
         sid = "sl_" + uuid.uuid4().hex[:10]
         seqs = [int(x) for x in (chapter_seqs or [])]
+        co = _normalize_craft_only(craft_only, default=True)
         try:
             self._execute_write(
                 "CREATE type::record('storyline', $id) SET "
-                "title=$t, arc_kind=$k, chapter_seqs=$cs, notes=$n, updated_at=time::now();",
+                "title=$t, arc_kind=$k, chapter_seqs=$cs, notes=$n, "
+                "craft_only=$co, updated_at=time::now();",
                 {
                     "id": sid,
                     "t": (title or "").strip() or "未命名故事线",
                     "k": (arc_kind or "main").strip() or "main",
                     "cs": seqs,
                     "n": notes or "",
+                    "co": co,
                 },
             )
         except Exception:
-            # 表未迁移时降级：仍返回可序列化行（调用方可落进程内）
             return {
                 "id": sid,
                 "title": (title or "").strip() or "未命名故事线",
                 "arc_kind": arc_kind or "main",
                 "chapter_seqs": seqs,
                 "notes": notes or "",
+                "craft_only": co,
                 "updated_at": time.time(),
                 "editable": True,
                 "persisted": False,
@@ -70,10 +87,12 @@ class StorylineStoreMixin:
             "arc_kind": arc_kind,
             "chapter_seqs": seqs,
             "notes": notes,
+            "craft_only": co,
             "editable": True,
             "persisted": True,
         }
         row["persisted"] = True
+        row["craft_only"] = _normalize_craft_only(row.get("craft_only"), default=co)
         return row
 
     def update_storyline(
@@ -84,6 +103,7 @@ class StorylineStoreMixin:
         arc_kind: str | None = None,
         chapter_seqs: list[int] | None = None,
         notes: str | None = None,
+        craft_only: bool | None = None,
     ) -> dict[str, Any] | None:
         cur = self.get_storyline(sid)
         if not cur:
@@ -92,11 +112,24 @@ class StorylineStoreMixin:
         nk = arc_kind if arc_kind is not None else cur.get("arc_kind")
         ncs = chapter_seqs if chapter_seqs is not None else cur.get("chapter_seqs") or []
         nn = notes if notes is not None else cur.get("notes")
+        nco = (
+            _normalize_craft_only(craft_only, default=True)
+            if craft_only is not None
+            else _normalize_craft_only(cur.get("craft_only"), default=True)
+        )
         try:
             self._execute_write(
                 "UPDATE type::record('storyline', $id) SET "
-                "title=$t, arc_kind=$k, chapter_seqs=$cs, notes=$n, updated_at=time::now();",
-                {"id": _bare_id(sid), "t": nt, "k": nk, "cs": list(ncs), "n": nn},
+                "title=$t, arc_kind=$k, chapter_seqs=$cs, notes=$n, "
+                "craft_only=$co, updated_at=time::now();",
+                {
+                    "id": _bare_id(sid),
+                    "t": nt,
+                    "k": nk,
+                    "cs": list(ncs),
+                    "n": nn,
+                    "co": nco,
+                },
             )
         except Exception:
             return None
@@ -136,6 +169,7 @@ class StorylineStoreMixin:
             "arc_kind": r.get("arc_kind") or "main",
             "chapter_seqs": list(r.get("chapter_seqs") or []),
             "notes": r.get("notes") or "",
+            "craft_only": _normalize_craft_only(r.get("craft_only"), default=True),
             "updated_at": r.get("updated_at"),
             "editable": True,
             "persisted": True,

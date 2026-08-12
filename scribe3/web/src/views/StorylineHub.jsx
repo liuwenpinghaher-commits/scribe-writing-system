@@ -1,12 +1,12 @@
 /**
- * 故事线中枢 — 与概览/旅程同视觉体系
- * - 一次 /storyline/hub 拉齐 gantt + 情绪 + 实体 + 对标（避免 4 次往返）
- * - recharts 仅在有数据后挂载；design tokens（border-line / text-faint / bg-soft）
- * - 章条用阶段色条（轻量 Gantt），不宣称文学分
+ * 故事线中枢 — 融合弧实体 + 章进度 + 情绪 + focus 因果（SL1–SL5）
+ * - 一次 /storyline/hub 拉齐 gantt + 情绪 + 实体 + overlay + refs
+ * - craft_only：仅「写入生成提示」勾选的 notes 会进写路径
+ * - 对标轴 uncomputed 不画假中柱
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  GitBranch, RefreshCw, Plus, Link2, BookOpen, Activity, Ruler, AlertTriangle,
+  GitBranch, RefreshCw, Plus, Link2, BookOpen, Activity, Ruler, AlertTriangle, Trash2, Save,
 } from 'lucide-react'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -31,12 +31,26 @@ const PHASE_BAR = {
   final: 'bg-ok',
 }
 
+const CAUSAL_LABEL = {
+  complete: '因果：完整',
+  violations: '因果：有缺口',
+  'no-data': '因果：尚无事件',
+  gap: '因果：有缺口',
+  ok: '因果：完整',
+}
+
 function phaseLabel(p) {
   return PHASE_LABEL[p] || p || '—'
 }
 
 function phaseBarClass(p) {
   return PHASE_BAR[p] || 'bg-soft'
+}
+
+function stakesLabel(hint) {
+  if (hint === 'present') return '有代价'
+  if (hint === 'missing') return '缺代价'
+  return '—'
 }
 
 function Section({ title, icon: Icon, children, testId, action }) {
@@ -64,11 +78,17 @@ export function StorylineHub({ work, onJumpChapter }) {
   const [curve, setCurve] = useState(null)
   const [lines, setLines] = useState([])
   const [align, setAlign] = useState(null)
+  const [overlay, setOverlay] = useState(null)
+  const [refs, setRefs] = useState(null)
+  const [focusSeq, setFocusSeq] = useState(null)
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(true)
   const [title, setTitle] = useState('')
   const [linkSeq, setLinkSeq] = useState('')
   const [activeId, setActiveId] = useState('')
+  const [editNotes, setEditNotes] = useState('')
+  const [editKind, setEditKind] = useState('main')
+  const [editCraftOnly, setEditCraftOnly] = useState(true)
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(() => {
@@ -85,9 +105,11 @@ export function StorylineHub({ work, onJumpChapter }) {
         if (pack?.emotion) setCurve(pack.emotion)
         setLines(pack?.storylines || [])
         setAlign(pack?.align || pack?.emotion?.craft_align || null)
+        setOverlay(pack?.overlay || null)
+        setRefs(pack?.refs || null)
+        if (pack?.focus_seq != null) setFocusSeq(pack.focus_seq)
       })
       .catch(async (ex) => {
-        // 兼容旧后端无 /hub：降级并行
         try {
           const [g, e, l] = await Promise.all([
             api.storylineGantt(w).catch(() => null),
@@ -109,7 +131,28 @@ export function StorylineHub({ work, onJumpChapter }) {
 
   useEffect(() => { load() }, [load])
 
-  const rows = gantt?.rows || []
+  const active = useMemo(
+    () => lines.find((sl) => sl.id === activeId) || null,
+    [lines, activeId],
+  )
+
+  useEffect(() => {
+    if (!active) {
+      setEditNotes('')
+      setEditKind('main')
+      setEditCraftOnly(true)
+      return
+    }
+    setEditNotes(active.notes || '')
+    setEditKind(active.arc_kind || 'main')
+    setEditCraftOnly(active.craft_only !== false)
+  }, [active])
+
+  const rows = useMemo(() => {
+    if (overlay?.rows?.length) return overlay.rows
+    return gantt?.rows || []
+  }, [overlay, gantt])
+
   const maxSeq = useMemo(
     () => Math.max(1, ...rows.map((r) => Number(r.seq) || 0), 1),
     [rows],
@@ -136,20 +179,38 @@ export function StorylineHub({ work, onJumpChapter }) {
 
   const dimBars = useMemo(() => {
     const dims = align?.core_dimensions || []
-    return dims.map((d) => ({
-      key: d.key,
-      label: d.label || d.key,
-      score: Number(d.score) || 0,
-    }))
+    return dims
+      .filter((d) => {
+        const src = d.source || ''
+        if (src === 'uncomputed' || src === 'neutral_placeholder') return false
+        if (d.score == null || Number.isNaN(Number(d.score))) return false
+        return true
+      })
+      .map((d) => ({
+        key: d.key,
+        label: d.label || d.key,
+        score: Number(d.score),
+      }))
+  }, [align])
+
+  const uncomputedDims = useMemo(() => {
+    const dims = align?.core_dimensions || []
+    return dims.filter((d) => {
+      const src = d.source || ''
+      return src === 'uncomputed' || src === 'neutral_placeholder' || d.score == null
+    })
   }, [align])
 
   const onCreate = async () => {
     setBusy(true)
     try {
       if (typeof api.storylineCreate === 'function') {
-        await api.storylineCreate({ title: title || '新故事线' }, work)
+        await api.storylineCreate({
+          title: title || '新故事线',
+          craft_only: true,
+        }, work)
       } else {
-        await api.post('/storyline/lines', { title: title || '新故事线', work }, work)
+        await api.post('/storyline/lines', { title: title || '新故事线', craft_only: true, work }, work)
       }
       setTitle('')
       load()
@@ -173,6 +234,50 @@ export function StorylineHub({ work, onJumpChapter }) {
       load()
     } catch (ex) {
       setErr(ex?.message || '关联失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const onSaveMeta = async () => {
+    if (!activeId) return
+    setBusy(true)
+    try {
+      if (typeof api.storylinePatch === 'function') {
+        await api.storylinePatch(activeId, {
+          notes: editNotes,
+          arc_kind: editKind,
+          craft_only: !!editCraftOnly,
+        }, work)
+      } else {
+        await api.patch(`/storyline/lines/${activeId}`, {
+          notes: editNotes,
+          arc_kind: editKind,
+          craft_only: !!editCraftOnly,
+        }, work)
+      }
+      load()
+    } catch (ex) {
+      setErr(ex?.message || '保存失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const onDelete = async () => {
+    if (!activeId) return
+    if (!window.confirm('确定删除这条故事线？')) return
+    setBusy(true)
+    try {
+      if (typeof api.storylineDelete === 'function') {
+        await api.storylineDelete(activeId, work)
+      } else {
+        await api.deleteObject?.('storyline', activeId)
+      }
+      setActiveId('')
+      load()
+    } catch (ex) {
+      setErr(ex?.message || '删除失败')
     } finally {
       setBusy(false)
     }
@@ -202,15 +307,16 @@ export function StorylineHub({ work, onJumpChapter }) {
   }
 
   const chartRows = idealOverlay.length ? idealOverlay : chartData
+  const causalState = refs?.causal?.state
+  const causalText = CAUSAL_LABEL[causalState] || '因果：—'
 
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-canvas" data-testid="storyline-hub">
       <div className="max-w-5xl mx-auto px-5 py-5 md:px-7 md:py-6 space-y-4">
-        {/* 页头 — 对齐概览/旅程 */}
         <div className="flex items-center gap-2 flex-wrap">
           <GitBranch size={18} className="text-brand shrink-0" />
           <h1 className="type-page prose-serif text-ink">故事线</h1>
-          <span className="text-meta text-faint rounded bg-soft px-1.5 py-0.5">advisory</span>
+          <span className="text-meta text-faint rounded bg-soft px-1.5 py-0.5">参考 · 不是打分</span>
           <div className="ml-auto flex items-center gap-2">
             <Btn
               size="sm"
@@ -226,8 +332,20 @@ export function StorylineHub({ work, onJumpChapter }) {
           </div>
         </div>
         <p className="text-f12 text-faint -mt-2">
-          章进度条与情绪曲线（-5…+5）为启发式辅视，非文学评分。技法对标对接 CORE_DIMENSIONS。
+          跨章弧意图登记 + 章进度 / 情绪起伏（参考）。不替代大纲、伏笔或因果校验。
         </p>
+        {refs && (
+          <div
+            className="flex flex-wrap gap-3 text-f12 text-ink rounded-md border border-line/50 bg-soft/20 px-3 py-2"
+            data-testid="storyline-refs"
+          >
+            <span>焦点章：{focusSeq ?? '—'}</span>
+            <span data-testid="storyline-causal-state">{causalText}
+              {refs.causal?.count ? `（${refs.causal.count}）` : ''}
+            </span>
+            <span>未收线伏笔（本章）：{refs.open_promise_count ?? 0}</span>
+          </div>
+        )}
         {err && (
           <div
             role="alert"
@@ -238,7 +356,6 @@ export function StorylineHub({ work, onJumpChapter }) {
           </div>
         )}
 
-        {/* 实体 */}
         <Section title="故事线实体" icon={BookOpen} testId="storyline-entities">
           <div className="flex gap-2 mb-3 flex-wrap">
             <Input
@@ -267,10 +384,13 @@ export function StorylineHub({ work, onJumpChapter }) {
                     data-testid={`storyline-item-${sl.id}`}
                   >
                     <span className="font-medium">{sl.title}</span>
-                    <span className="text-faint ml-2 text-f12">{sl.arc_kind || 'arc'}</span>
+                    <span className="text-faint ml-2 text-f12">{sl.arc_kind || '弧'}</span>
                     <span className="text-faint ml-2 text-f12">
                       章:{(sl.chapter_seqs || []).join(', ') || '—'}
                     </span>
+                    {sl.craft_only === false && (
+                      <span className="ml-2 text-meta text-warn">不进生成</span>
+                    )}
                     {sl.persisted && (
                       <span className="ml-2 text-meta text-ok">已存库</span>
                     )}
@@ -305,13 +425,67 @@ export function StorylineHub({ work, onJumpChapter }) {
               <span className="text-meta text-faint">先点选一条故事线</span>
             )}
           </div>
+          {activeId && (
+            <div className="mt-3 space-y-2 border-t border-line/50 pt-3" data-testid="storyline-edit-panel">
+              <label className="block text-f12 text-faint">
+                弧类型
+                <Input
+                  size="sm"
+                  className="mt-1 w-full"
+                  value={editKind}
+                  onChange={(e) => setEditKind(e.target.value)}
+                  data-testid="storyline-arc-kind"
+                />
+              </label>
+              <label className="block text-f12 text-faint">
+                弧说明（notes）
+                <textarea
+                  className="mt-1 w-full min-h-[4rem] rounded-md border border-line bg-canvas px-2 py-1.5 text-f13 text-ink"
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  data-testid="storyline-notes"
+                  placeholder="写弧意图；默认可进生成提示（见下方勾选）"
+                />
+              </label>
+              <label className="flex items-center gap-2 text-f12 text-ink cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!editCraftOnly}
+                  onChange={(e) => setEditCraftOnly(e.target.checked)}
+                  data-testid="storyline-craft-only"
+                />
+                写入生成提示（仅勾选时 notes 会进写作提示）
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <Btn
+                  size="sm"
+                  onClick={onSaveMeta}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1"
+                  data-testid="storyline-save-meta"
+                >
+                  <Save size={14} /> 保存
+                </Btn>
+                <Btn
+                  size="sm"
+                  variant="ghost"
+                  onClick={onDelete}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1 text-danger"
+                  data-testid="storyline-delete"
+                >
+                  <Trash2 size={14} /> 删除
+                </Btn>
+              </div>
+            </div>
+          )}
         </Section>
 
-        {/* 章进度条 */}
-        <Section title="章进度（轻量 Gantt）" icon={Activity} testId="storyline-gantt">
+        <Section title="章进度（轻量进度条）" icon={Activity} testId="storyline-gantt">
           <div className="space-y-1.5">
             {rows.map((r) => {
               const wPct = Math.max(8, Math.round((Number(r.seq) / maxSeq) * 100))
+              const arcs = r.arcs || []
               return (
                 <div
                   key={r.seq}
@@ -326,9 +500,14 @@ export function StorylineHub({ work, onJumpChapter }) {
                     #{r.seq}
                   </button>
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
+                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                       <span className="truncate text-ink text-f13">{r.title}</span>
                       <span className="shrink-0 text-meta text-faint">{phaseLabel(r.phase)}</span>
+                      {arcs.slice(0, 2).map((a) => (
+                        <span key={a.id || a.title} className="text-meta text-brand/80 truncate max-w-[8rem]">
+                          · {a.title}
+                        </span>
+                      ))}
                     </div>
                     <div className="h-1.5 rounded-full bg-soft overflow-hidden">
                       <div
@@ -338,7 +517,7 @@ export function StorylineHub({ work, onJumpChapter }) {
                     </div>
                   </div>
                   <span className="text-meta text-faint shrink-0">
-                    {r.stakes_hint === 'present' ? '有赌注' : r.stakes_hint === 'missing' ? '缺赌注' : '—'}
+                    {stakesLabel(r.stakes_hint)}
                   </span>
                 </div>
               )
@@ -347,8 +526,7 @@ export function StorylineHub({ work, onJumpChapter }) {
           </div>
         </Section>
 
-        {/* 情绪曲线 */}
-        <Section title="情绪曲线（-5…+5）" icon={Activity} testId="emotion-chart">
+        <Section title="情绪起伏（-5…+5 · 参考）" icon={Activity} testId="emotion-chart">
           {chartRows.length > 0 ? (
             <div className="h-56 w-full min-h-[12rem]" data-testid="emotion-recharts">
               <ResponsiveContainer width="100%" height="100%">
@@ -395,13 +573,12 @@ export function StorylineHub({ work, onJumpChapter }) {
           )}
         </Section>
 
-        {/* 技法对标 */}
-        <Section title="技法标尺对标" icon={Ruler} testId="craft-align">
+        <Section title="节奏对标（参考）" icon={Ruler} testId="craft-align">
           {align ? (
             <div className="text-f13 space-y-2">
               <div className="flex flex-wrap gap-3 text-f12">
                 <span>
-                  DTW 距离：
+                  与起承转合的距离：
                   <span className="tabular-nums text-ink font-medium">{align.dtw_distance ?? '—'}</span>
                 </span>
                 <span>
@@ -409,10 +586,7 @@ export function StorylineHub({ work, onJumpChapter }) {
                   <span className="tabular-nums text-ink font-medium">{align.similarity ?? '—'}</span>
                 </span>
               </div>
-              <div className="text-meta text-faint">
-                ideal={align.ideal_name || 'qichengzhuanhe_v0'}
-                {align.dimension_ssot ? ` · ${align.dimension_ssot}` : ''}
-              </div>
+              <div className="text-meta text-faint">仅作改节奏自比，不是文学分</div>
               {dimBars.length > 0 && (
                 <div className="h-40 w-full" data-testid="dimension-bars">
                   <ResponsiveContainer width="100%" height="100%">
@@ -428,10 +602,15 @@ export function StorylineHub({ work, onJumpChapter }) {
                           fontSize: 12,
                         }}
                       />
-                      <Bar dataKey="score" fill="var(--color-brand)" name="轴分" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="score" fill="var(--color-brand)" name="实测轴" radius={[3, 3, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
+              )}
+              {uncomputedDims.length > 0 && (
+                <p className="text-meta text-faint" data-testid="storyline-uncomputed-dims">
+                  未测维度：{uncomputedDims.map((d) => d.label || d.key).join('、')}
+                </p>
               )}
             </div>
           ) : (

@@ -517,6 +517,101 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             )
             _push("request_constraint", "supplemental", _rc)
 
+        # SL2：故事线 polish — join 前 _push + 窗口 feed；默认 omit 伏笔正文；fail-soft 仍写键
+        _storyline_meta: dict = {
+            "fed": False,
+            "promise_mode": "omit",
+            "applied": False,
+            "enabled": False,
+        }
+        try:
+            from scribe3.storyline_inject_polish import (
+                build_storyline_feed_context,
+                storyline_inject_enabled,
+            )
+            _sl_on = bool(storyline_inject_enabled())
+            _storyline_meta["enabled"] = _sl_on
+            if _sl_on:
+                _chapters = []
+                _lines = []
+                _prom = []
+                try:
+                    if hasattr(st, "chapters_lite"):
+                        _chapters = list(st.chapters_lite() or [])
+                    elif hasattr(st, "list_chapters"):
+                        _chapters = list(st.list_chapters() or [])
+                except Exception:
+                    _chapters = []
+                try:
+                    if hasattr(st, "list_storylines"):
+                        _lines = list(st.list_storylines() or [])
+                except Exception:
+                    try:
+                        from scribe3.storyline_store import list_storylines as _mem_sl
+                        _lines = list(_mem_sl(str(work or "main")) or [])
+                    except Exception:
+                        _lines = []
+                try:
+                    if hasattr(st, "open_promises"):
+                        _prom = list(st.open_promises() or [])
+                    elif hasattr(st, "list_promises"):
+                        _prom = list(st.list_promises() or [])
+                except Exception:
+                    _prom = []
+                _feed = build_storyline_feed_context(
+                    focus_seq=int(chapter) if chapter is not None else None,
+                    chapters=_chapters,
+                    storylines=_lines,
+                    open_promises=_prom,
+                    window=2,
+                    promise_mode="omit",
+                )
+                _seg = _feed.get("segment") or {}
+                _txt = str(_seg.get("text") or "")
+                if _txt.strip():
+                    _sl = _domain_input(
+                        f"chapter:{chapter}:storyline-polish",
+                        "storyline_polish",
+                        _txt if _txt.startswith("\n") else ("\n" + _txt),
+                    )
+                    _push("storyline_polish", "supplemental", _sl)
+                _storyline_meta = {
+                    "fed": bool(_feed.get("fed")),
+                    "promise_mode": str(_feed.get("promise_mode") or "omit"),
+                    "applied": bool(_txt.strip()),
+                    "enabled": True,
+                    "window_seqs": list(_feed.get("window_seqs") or []),
+                    "notes_in_prompt": bool(_feed.get("notes_in_prompt")),
+                    "craft_only_injected_ids": list(
+                        _feed.get("craft_only_injected_ids") or []
+                    ),
+                    "craft_only_skipped": list(_feed.get("craft_only_skipped") or []),
+                    "audit": _seg.get("audit"),
+                }
+            else:
+                _storyline_meta = {
+                    "fed": False,
+                    "promise_mode": "omit",
+                    "applied": False,
+                    "enabled": False,
+                }
+        except Exception as _sf_e:
+            from scribe3.soft_fail import soft_fail
+            import logging as _sf_logging
+            soft_fail(
+                "write_assemble_soft_10",
+                _sf_e,
+                logger="scribe3.write_assemble",
+                level=_sf_logging.DEBUG,
+            )
+            _storyline_meta = {
+                "fed": False,
+                "promise_mode": "omit",
+                "applied": False,
+                "enabled": True,
+                "error": str(_sf_e)[:160],
+            }
+
         # P2：软 lore 激活（仅 material/reference/codex 类；红线免疫）
         try:
             from scribe3.soft_activation import apply_soft_activation, soft_activation_enabled
@@ -540,6 +635,8 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         # 统一 join（V2：L2 有序裁剪；禁止 rendered[:hard] 尾截）
         joined, bud_rep = join_generation_segments(segs, v2=_v2)
         bud_rep = dict(bud_rep)
+        # SL2：始终写入 storyline_inject 键（含 fail-soft / 旗关），便于 injection-trace
+        bud_rep["storyline_inject"] = dict(_storyline_meta)
         if _budget_report_holder.get("activation"):
             bud_rep["soft_activation"] = _budget_report_holder["activation"]
         # P2 residual：写路径挂事件图一跳（共享 novel_first_surface，非平行实现）
@@ -558,24 +655,6 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             from scribe3.soft_fail import soft_fail
             import logging as _sf_logging
             soft_fail('write_assemble_soft_9', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
-        # O33：故事线 polish 短段（旗关则 text 空；不挡 redline）
-        try:
-            from scribe3.storyline_inject_polish import (
-                build_storyline_inject_segment,
-                storyline_inject_enabled,
-            )
-            if storyline_inject_enabled():
-                _seg = build_storyline_inject_segment(focus_seq=int(chapter))
-                if (_seg.get("text") or "").strip():
-                    joined = joined + str(_seg["text"])
-                    bud_rep["storyline_inject"] = {
-                        "applied": True,
-                        "audit": _seg.get("audit"),
-                    }
-        except Exception as _sf_e:
-            from scribe3.soft_fail import soft_fail
-            import logging as _sf_logging
-            soft_fail('write_assemble_soft_10', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         _budget_report_holder["report"] = bud_rep
         _store_write_budget_report(bud_rep)
         return joined, tuple(supplemental_sources)
@@ -594,7 +673,13 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         actor_role="writer",
         pov_character=focalizer or None,
         required_slots=("focus", "global"),
-        forbidden_source_kinds=generation_forbidden_source_kinds(),
+        forbidden_source_kinds=(
+            # rebind 到 app_impl 时模块级 import 可能不在 globals：就地取
+            __import__(
+                "scribe3.api.services.write_assemble_blocks",
+                fromlist=["generation_forbidden_source_kinds"],
+            ).generation_forbidden_source_kinds()
+        ),
         policy_version="generation.v1",
     )
     compiled = CreativeContextEngine(

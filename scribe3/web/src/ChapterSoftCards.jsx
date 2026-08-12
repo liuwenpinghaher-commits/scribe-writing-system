@@ -100,8 +100,11 @@ export function ChapterSoftCards({ seq, work, synopsis, beats }) {
     setBusy('inject')
     setErr('')
     try {
+      // SL2：use_store=1 与写路径同源 feed（窗口 + craft_only + omit）
       const body = {
         focus_seq: Number(seq),
+        use_store: 1,
+        promise_mode: 'omit',
         chapters: [{ seq: Number(seq), synopsis: synopsis || '' }],
       }
       let r

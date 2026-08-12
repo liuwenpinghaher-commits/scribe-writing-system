@@ -1,6 +1,7 @@
-"""GAP-16：独立 Storyline 数据模型（进程内 + 可选 store 落盘 JSON 字段）。
+"""GAP-16 / SL1：独立 Storyline 数据模型（进程内 + 可选 store 落盘）。
 
-实体：storyline 有 id/title/arc_kind/chapter_seqs/notes；可编辑。
+实体：id/title/arc_kind/chapter_seqs/notes/craft_only；可编辑。
+craft_only 默认 true；仅 true 时 notes 可进写路径 inject。
 """
 from __future__ import annotations
 
@@ -18,14 +19,34 @@ def _new_id() -> str:
     return "sl_" + uuid.uuid4().hex[:10]
 
 
+def _normalize_craft_only(raw: Any, *, default: bool = True) -> bool:
+    if raw is None:
+        return default
+    if isinstance(raw, bool):
+        return raw
+    s = str(raw).strip().lower()
+    if s in ("0", "false", "no", "off"):
+        return False
+    if s in ("1", "true", "yes", "on"):
+        return True
+    return default
+
+
+def _public_row(row: dict[str, Any]) -> dict[str, Any]:
+    out = dict(row)
+    out["craft_only"] = _normalize_craft_only(out.get("craft_only"), default=True)
+    return out
+
+
 def list_storylines(work: str = "main") -> list[dict[str, Any]]:
     with _LOCK:
-        return list((_BY_WORK.get(work) or {}).values())
+        return [_public_row(r) for r in (_BY_WORK.get(work) or {}).values()]
 
 
 def get_storyline(work: str, sid: str) -> dict[str, Any] | None:
     with _LOCK:
-        return dict((_BY_WORK.get(work) or {}).get(sid) or {}) or None
+        row = (_BY_WORK.get(work) or {}).get(sid)
+        return _public_row(row) if row else None
 
 
 def create_storyline(
@@ -35,6 +56,7 @@ def create_storyline(
     arc_kind: str = "main",
     chapter_seqs: list[int] | None = None,
     notes: str = "",
+    craft_only: bool | None = None,
 ) -> dict[str, Any]:
     sid = _new_id()
     row = {
@@ -44,12 +66,13 @@ def create_storyline(
         "arc_kind": (arc_kind or "main").strip() or "main",
         "chapter_seqs": [int(x) for x in (chapter_seqs or [])],
         "notes": notes or "",
+        "craft_only": _normalize_craft_only(craft_only, default=True),
         "updated_at": time.time(),
         "editable": True,
     }
     with _LOCK:
         _BY_WORK.setdefault(work, {})[sid] = row
-    return dict(row)
+    return _public_row(row)
 
 
 def update_storyline(
@@ -60,6 +83,7 @@ def update_storyline(
     arc_kind: str | None = None,
     chapter_seqs: list[int] | None = None,
     notes: str | None = None,
+    craft_only: bool | None = None,
 ) -> dict[str, Any] | None:
     with _LOCK:
         bucket = _BY_WORK.setdefault(work, {})
@@ -74,8 +98,10 @@ def update_storyline(
             row["chapter_seqs"] = [int(x) for x in chapter_seqs]
         if notes is not None:
             row["notes"] = notes
+        if craft_only is not None:
+            row["craft_only"] = _normalize_craft_only(craft_only, default=True)
         row["updated_at"] = time.time()
-        return dict(row)
+        return _public_row(row)
 
 
 def delete_storyline(work: str, sid: str) -> bool:
@@ -96,7 +122,7 @@ def link_chapter(work: str, sid: str, seq: int) -> dict[str, Any] | None:
             seqs.sort()
         row["chapter_seqs"] = seqs
         row["updated_at"] = time.time()
-        return dict(row)
+        return _public_row(row)
 
 
 def clear_for_tests() -> None:

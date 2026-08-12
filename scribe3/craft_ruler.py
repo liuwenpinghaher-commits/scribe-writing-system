@@ -12,11 +12,29 @@ IDEAL_EMOTION_CURVE: tuple[float, ...] = (
     -1.0, -0.5, 0.5, 1.5, 2.5, 0.0, -2.0, 1.0,
 )
 
-# GAP-15：对外稳定导出（SSOT 仍为 quality.rubrics；此处 re-export 便于 import）
+# GAP-15：对外稳定导出（SSOT 仍为 quality.rubrics；无 pydantic 时用内置 fallback 轴）
+class _Dim:
+    __slots__ = ("key", "label")
+
+    def __init__(self, key: str, label: str):
+        self.key = key
+        self.label = label
+
+
+_FALLBACK_CORE_DIMENSIONS = (
+    _Dim("emotional_effect", "情感效力"),
+    _Dim("structure_pacing", "结构节奏"),
+    _Dim("suspense_payoff", "悬念兑现"),
+    _Dim("character_agency", "人物能动"),
+    _Dim("prose_craft", "文笔工艺"),
+)
+
 try:
     from scribe3.quality.rubrics import CORE_DIMENSIONS as CORE_DIMENSIONS
+    if not CORE_DIMENSIONS:
+        CORE_DIMENSIONS = _FALLBACK_CORE_DIMENSIONS
 except Exception:  # pragma: no cover
-    CORE_DIMENSIONS = ()
+    CORE_DIMENSIONS = _FALLBACK_CORE_DIMENSIONS
 
 
 def resample_series(series: Sequence[float], n: int) -> list[float]:
@@ -92,26 +110,36 @@ def craft_ruler_report(
             except Exception:
                 series.append(0.0)
     align = align_to_ideal(series)
-    # GAP-15：对接 quality CORE_DIMENSIONS 作为对标轴
+    # SL5：仅 emotional_effect 用 DTW 相似度；其余轴诚实 uncomputed（禁止假 0.5 当实测）
     dims: list[dict[str, Any]] = []
-    try:
-        from scribe3.quality.rubrics import CORE_DIMENSIONS
-        # 将情绪序列相似度映射到 emotional_effect 轴，其余轴给中性 0.5 占位
-        sim = float(align.get("similarity") or 0)
-        for d in CORE_DIMENSIONS:
-            score = sim if d.key == "emotional_effect" else 0.5
+    sim = float(align.get("similarity") or 0)
+    dim_list = CORE_DIMENSIONS or _FALLBACK_CORE_DIMENSIONS
+    for d in dim_list:
+        key = getattr(d, "key", None) or (d.get("key") if isinstance(d, dict) else None)
+        label = getattr(d, "label", None) or (d.get("label") if isinstance(d, dict) else key)
+        if not key:
+            continue
+        if key == "emotional_effect":
             dims.append({
-                "key": d.key,
-                "label": d.label,
-                "score": round(score, 4),
-                "source": "craft_ruler.dtw" if d.key == "emotional_effect" else "neutral_placeholder",
+                "key": key,
+                "label": label,
+                "score": round(sim, 4),
+                "source": "craft_ruler.dtw",
             })
-    except Exception:
-        dims = []
+        else:
+            dims.append({
+                "key": key,
+                "label": label,
+                "score": None,
+                "source": "uncomputed",
+                "legacy_source": "neutral_placeholder",
+            })
     return {
         **align,
         "n_points": len(series),
         "ideal_name": "qichengzhuanhe_v0",
         "core_dimensions": dims,
         "dimension_ssot": "scribe3.quality.rubrics.CORE_DIMENSIONS",
+        "advisory": True,
+        "not_a_score": "literary_quality",
     }

@@ -59,6 +59,13 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag("SCRIBE3_AGENT_CRON_UI", "1", "agent cron 产品面", "agent_crons", "safe"),
     Flag("SCRIBE3_BENCHMARK_LIB", "1", "benchmark 参考库", "benchmark_lib", "safe"),
     Flag("SCRIBE3_STORYLINE_INJECT", "1", "故事线注入 polish 段", "storyline_inject", "caution"),
+    Flag(
+        "SCRIBE3_STORYLINE_PROMISE_HINT",
+        "0",
+        "故事线一行未收线伏笔计数提示（默认关；omit 正文仍是硬保证）",
+        "storyline_inject",
+        "caution",
+    ),
 )
 
 

@@ -62,6 +62,7 @@ SEGMENT_REGISTRY: tuple[SegmentMeta, ...] = (
     SegmentMeta("author_prefs", "L3", "mid", "craft"),
     SegmentMeta("voice_anchor", "L2", "mid", "frame"),
     SegmentMeta("reference_craft", "L3", "mid", "craft"),
+    SegmentMeta("storyline_polish", "L3", "mid", "craft"),  # SL2 · 故事线 polish
     SegmentMeta("deduction_final", "L0", "mid", "redline"),
     SegmentMeta("material_recall", "L3", "mid", "craft"),
     SegmentMeta("final_reminder", "L0", "tail", "redline"),

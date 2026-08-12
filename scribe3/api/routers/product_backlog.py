@@ -64,9 +64,18 @@ def storyline_emotion_ep(work: str = "main"):
     return project_emotion_curve(chapters)
 
 
-def storyline_hub_ep(work: str = "main"):
-    """故事线中枢一次打包：单次取章，避免 4 次 list_chapters + 串行往返。"""
-    from scribe3.storyline_project import project_gantt_rows, project_emotion_curve
+def storyline_hub_ep(
+    work: str = "main",
+    focus_seq: int | None = Query(default=None),
+):
+    """故事线中枢：Gantt + 情绪 + 弧实体 + overlay + focus 单章因果 refs。"""
+    from scribe3.storyline_project import (
+        project_gantt_rows,
+        project_emotion_curve,
+        project_arc_overlay,
+        default_focus_seq,
+        focus_causal_refs,
+    )
     from scribe3.storyline_store import list_storylines as mem_list
     try:
         from scribe3.api import app_impl as core
@@ -90,6 +99,49 @@ def storyline_hub_ep(work: str = "main"):
             lines = list(mem_list(work) or [])
         except Exception:
             lines = []
+    overlay = project_arc_overlay(lines, gantt.get("rows") or [])
+    # 默认 focus：lite 字段，禁 dig prose
+    try:
+        fseq = int(focus_seq) if focus_seq is not None else None
+    except Exception:
+        fseq = None
+    if fseq is None:
+        fseq = default_focus_seq(chapters)
+    # 与 GET /causal 同源：{no_event_data, violations}，单章三态（非全书扫）
+    causal_payload: dict | None = None
+    if fseq is not None and st is not None:
+        try:
+            from scribe3.verify import causal_complete as _cc
+            viols = [
+                {"event": getattr(v, "event_id", None) or str(v), "reason": getattr(v, "reason", str(v))}
+                for v in (_cc(st, int(fseq)) or [])
+            ]
+            has_events = False
+            try:
+                has_events = bool(st.events_at(int(fseq)))
+            except Exception:
+                has_events = bool(viols)  # 无法枚举时：有违规则视为有数据
+            causal_payload = {
+                "no_event_data": not has_events,
+                "violations": viols,
+            }
+        except Exception:
+            causal_payload = {"no_event_data": True, "violations": []}
+    open_n = 0
+    for p in prom or []:
+        if not isinstance(p, dict):
+            continue
+        try:
+            setup = p.get("setup_chapter") or p.get("chapter") or p.get("since")
+            if setup is not None and fseq is not None and int(setup) == int(fseq):
+                open_n += 1
+        except Exception:
+            pass
+    refs = focus_causal_refs(
+        focus_seq=fseq,
+        causal_payload=causal_payload,
+        open_promise_count=open_n,
+    )
     align = emotion.get("craft_align")
     if not align:
         try:
@@ -106,6 +158,12 @@ def storyline_hub_ep(work: str = "main"):
         "align": align,
         "backend": backend,
         "chapter_source": "chapters_lite",
+        "overlay": overlay,
+        "focus_seq": fseq,
+        "refs": {
+            "causal": refs.get("causal"),
+            "open_promise_count": refs.get("open_promise_count"),
+        },
     }
 
 
@@ -333,23 +391,80 @@ def soak_ep(req: dict | None = None, work: str = "main"):
     }
 
 
-def storyline_inject_preview_ep(req: dict | None = None):
-    """O33：注入 polish 预览。"""
-    from scribe3.storyline_inject_polish import build_storyline_inject_segment
-    from scribe3.storyline_project import project_gantt_rows, project_emotion_curve
+def storyline_inject_preview_ep(req: dict | None = None, work: str = "main"):
+    """O33/SL2：注入 polish 预览；use_store=1 时与热路径同源 feed。"""
+    from scribe3.storyline_inject_polish import (
+        build_storyline_feed_context,
+        build_storyline_inject_segment,
+    )
     payload = req if isinstance(req, dict) else {}
+    w = str(payload.get("work") or work or "main")
+    focus = payload.get("focus_seq")
+    use_store = payload.get("use_store")
+    if use_store is None:
+        use_store = 1  # 默认与热路径对齐
+    use_store = str(use_store).strip().lower() in ("1", "true", "yes", "on")
+    promise_mode = str(payload.get("promise_mode") or "omit").strip().lower() or "omit"
+
+    if use_store:
+        chapters: list = []
+        lines: list = []
+        prom: list = []
+        try:
+            from scribe3.api import app_impl as core
+            st = core._store_for(w)
+            chapters = _storyline_chapters(st)
+            prom = _storyline_promises(st)
+            if hasattr(st, "list_storylines"):
+                lines = list(st.list_storylines() or [])
+        except Exception:
+            pass
+        if not lines:
+            try:
+                from scribe3.storyline_store import list_storylines as mem_list
+                lines = list(mem_list(w) or [])
+            except Exception:
+                lines = []
+        # 客户端残缺 chapters 仅作补充（store 优先）
+        client_ch = payload.get("chapters") or []
+        if client_ch and not chapters:
+            chapters = list(client_ch)
+        feed = build_storyline_feed_context(
+            focus_seq=int(focus) if focus else None,
+            chapters=chapters,
+            storylines=lines,
+            open_promises=prom if prom else (payload.get("open_promises") or []),
+            window=2,
+            promise_mode=promise_mode,
+        )
+        seg = dict(feed.get("segment") or {})
+        seg["feed"] = {
+            "window_seqs": feed.get("window_seqs"),
+            "promise_mode": feed.get("promise_mode"),
+            "fed": feed.get("fed"),
+            "notes_in_prompt": feed.get("notes_in_prompt"),
+            "craft_only_injected_ids": feed.get("craft_only_injected_ids"),
+            "craft_only_skipped": feed.get("craft_only_skipped"),
+            "use_store": True,
+        }
+        return seg
+
+    # 显式 use_store=0：仅用请求体（兼容旧调用）
+    from scribe3.storyline_project import project_gantt_rows, project_emotion_curve
     chapters = payload.get("chapters") or []
     gantt = project_gantt_rows(chapters)
     emo = project_emotion_curve(chapters)
-    focus = payload.get("focus_seq")
     pt = None
     if focus and emo.get("points"):
         pt = next((p for p in emo["points"] if p.get("seq") == int(focus)), None)
+    # 默认仍 omit，除非调用方强制 full
+    open_texts = payload.get("open_promises") or [] if promise_mode == "full" else []
     return build_storyline_inject_segment(
         focus_seq=int(focus) if focus else None,
         gantt_rows=gantt.get("rows"),
-        open_promise_texts=payload.get("open_promises") or [],
+        open_promise_texts=open_texts if isinstance(open_texts, list) else [],
         emotion_point=pt,
+        promise_mode=promise_mode,
     )
 
 
@@ -370,7 +485,10 @@ def storyline_list_ep(work: str = "main"):
 
 
 def storyline_create_ep(req: dict | None = None, work: str = "main"):
-    """GAP-16：创建 storyline（可编辑，优先持久化）。"""
+    """GAP-16/SL1：创建 storyline（含 craft_only，默认 true）。
+
+    注意：endpoint 会被 rebind 到 app_impl globals，勿依赖模块级私有 helper。
+    """
     from scribe3.storyline_store import create_storyline as mem_create
     payload = req if isinstance(req, dict) else {}
     w = str(payload.get("work") or work or "main")
@@ -378,51 +496,101 @@ def storyline_create_ep(req: dict | None = None, work: str = "main"):
     arc_kind = str(payload.get("arc_kind") or "main")
     chapter_seqs = list(payload.get("chapter_seqs") or [])
     notes = str(payload.get("notes") or "")
+    # craft_only 解析内联（rebind 安全）
+    co = True
+    if "craft_only" in payload:
+        raw = payload.get("craft_only")
+        if isinstance(raw, bool):
+            co = raw
+        else:
+            s = str(raw).strip().lower()
+            if s in ("0", "false", "no", "off"):
+                co = False
+            elif s in ("1", "true", "yes", "on"):
+                co = True
     try:
         from scribe3.api import app_impl as core
         st = core._store_for(w)
         if hasattr(st, "create_storyline"):
             row = st.create_storyline(
                 title=title, arc_kind=arc_kind,
-                chapter_seqs=chapter_seqs, notes=notes,
+                chapter_seqs=chapter_seqs, notes=notes, craft_only=co,
             )
             if row and row.get("persisted") is not False:
                 return row
     except Exception:
         pass
-    return mem_create(w, title=title, arc_kind=arc_kind, chapter_seqs=chapter_seqs, notes=notes)
+    return mem_create(
+        w, title=title, arc_kind=arc_kind,
+        chapter_seqs=chapter_seqs, notes=notes, craft_only=co,
+    )
 
 
 def storyline_patch_ep(sid: str, req: dict | None = None, work: str = "main"):
     from scribe3.storyline_store import update_storyline as mem_update
     payload = req if isinstance(req, dict) else {}
     w = str(payload.get("work") or work or "main")
+    co = None
+    if "craft_only" in payload:
+        raw = payload.get("craft_only")
+        if isinstance(raw, bool):
+            co = raw
+        else:
+            s = str(raw).strip().lower()
+            if s in ("0", "false", "no", "off"):
+                co = False
+            elif s in ("1", "true", "yes", "on"):
+                co = True
     try:
         from scribe3.api import app_impl as core
         st = core._store_for(w)
         if hasattr(st, "update_storyline"):
-            row = st.update_storyline(
-                sid,
-                title=payload.get("title"),
-                arc_kind=payload.get("arc_kind"),
-                chapter_seqs=payload.get("chapter_seqs"),
-                notes=payload.get("notes"),
-            )
+            kw: dict = {
+                "title": payload.get("title"),
+                "arc_kind": payload.get("arc_kind"),
+                "chapter_seqs": payload.get("chapter_seqs"),
+                "notes": payload.get("notes"),
+            }
+            if co is not None:
+                kw["craft_only"] = co
+            row = st.update_storyline(sid, **kw)
             if row:
                 return row
     except Exception:
         pass
-    row = mem_update(
-        w, sid,
-        title=payload.get("title"),
-        arc_kind=payload.get("arc_kind"),
-        chapter_seqs=payload.get("chapter_seqs"),
-        notes=payload.get("notes"),
-    )
+    kw2: dict = {
+        "title": payload.get("title"),
+        "arc_kind": payload.get("arc_kind"),
+        "chapter_seqs": payload.get("chapter_seqs"),
+        "notes": payload.get("notes"),
+    }
+    if co is not None:
+        kw2["craft_only"] = co
+    row = mem_update(w, sid, **kw2)
     if not row:
         from fastapi import HTTPException
         raise HTTPException(404, "storyline not found")
     return row
+
+
+def storyline_delete_ep(sid: str, work: str = "main"):
+    """SL1：删除故事线（Surreal 优先，降级进程内）。"""
+    from scribe3.storyline_store import delete_storyline as mem_delete
+    w = str(work or "main")
+    try:
+        from scribe3.api import app_impl as core
+        st = core._store_for(w)
+        if hasattr(st, "delete_storyline"):
+            ok = bool(st.delete_storyline(sid))
+            if ok:
+                return {"ok": True, "id": sid, "backend": "surreal"}
+    except Exception:
+        pass
+    ok = mem_delete(w, sid)
+    if not ok:
+        from fastapi import HTTPException
+        raise HTTPException(404, "storyline not found")
+    return {"ok": True, "id": sid, "backend": "memory"}
 
 
 def storyline_link_chapter_ep(sid: str, req: dict | None = None, work: str = "main"):
@@ -478,6 +646,7 @@ def _bind_and_register() -> None:
         ("storyline_list_ep", "/storyline/lines", ["GET"]),
         ("storyline_create_ep", "/storyline/lines", ["POST"]),
         ("storyline_patch_ep", "/storyline/lines/{sid}", ["PATCH"]),
+        ("storyline_delete_ep", "/storyline/lines/{sid}", ["DELETE"]),
         ("storyline_link_chapter_ep", "/storyline/lines/{sid}/link", ["POST"]),
         ("storyline_craft_align_ep", "/storyline/craft-align", ["GET"]),
         ("chapter_stage_get_ep", "/chapters/{seq}/stage", ["GET"]),
