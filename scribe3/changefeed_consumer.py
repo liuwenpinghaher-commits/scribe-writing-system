@@ -186,6 +186,7 @@ class ChangefeedCacheWorker:
         self._invalidate_count: int = 0
         self._last_purge_at: float = 0.0
         self._purge_interval_s: float = 60.0
+        self._empty_streak: int = 0
         self._lock = threading.Lock()
 
     def start(self) -> None:
@@ -273,6 +274,7 @@ class ChangefeedCacheWorker:
                         _log.warning("changefeed catch-up failed: %s", e)
                     bootstrapped = True
                 batch_touched = 0
+                saw_rows = False
                 for table in _WATCH:
                     prev = self._cursors.get(table)
                     rows = poll_table_changes(st, table, prev)
@@ -280,6 +282,7 @@ class ChangefeedCacheWorker:
                         self._poll_count += 1
                     if not rows:
                         continue
+                    saw_rows = True
                     # 先推进 cursor 再 apply，避免 apply 抛错时卡在同一批死循环
                     last = rows[-1]
                     if isinstance(last, dict) and "versionstamp" in last:
@@ -300,8 +303,16 @@ class ChangefeedCacheWorker:
                     self._last_ok_at = time.time()
                     self._last_error = None
                     self._invalidate_count += batch_touched
+                if saw_rows:
+                    self._empty_streak = 0
+                else:
+                    self._empty_streak = min(self._empty_streak + 1, 6)
             except Exception as e:
                 with self._lock:
                     self._last_error = str(e)[:200]
                 _log.debug("changefeed loop: %s", e)
-            self._stop.wait(self._interval)
+                self._empty_streak = min(self._empty_streak + 1, 6)
+            # 空轮询退避：海量 CDC 日志上 SHOW CHANGES 即使 n=0 也极贵
+            # streak 0→base；最高约 base*32，封顶 10s
+            wait = min(self._interval * (2 ** self._empty_streak), 10.0)
+            self._stop.wait(wait)
