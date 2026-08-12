@@ -532,6 +532,39 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             )
             _push("storyline_polish", "supplemental", _sl)
 
+        # Week-2 D4/D7：discourse_soft L3（storyline_polish 旁；禁 L0）
+        _discourse_meta: dict = {
+            "fed": False, "applied": False, "enabled": False,
+            "chars": 0, "cap": 200, "meso_source": "off", "serial_source": "off",
+        }
+        try:
+            from scribe3.discourse_inject import prepare_write_discourse_soft
+            _ds = prepare_write_discourse_soft(
+                st, chapter=int(chapter) if chapter is not None else None, work=work,
+            )
+            _discourse_meta = dict(_ds.get("meta") or _discourse_meta)
+            _d_txt = str(_ds.get("text") or "")
+            if _d_txt.strip():
+                _d_seg = _domain_input(
+                    f"chapter:{chapter}:discourse-soft",
+                    "discourse_soft",
+                    _d_txt if _d_txt.startswith("\n") else ("\n" + _d_txt),
+                )
+                _push("discourse_soft", "supplemental", _d_seg)
+        except Exception as _sf_e:
+            from scribe3.soft_fail import soft_fail
+            import logging as _sf_logging
+            soft_fail(
+                "write_assemble_discourse_soft",
+                _sf_e,
+                logger="scribe3.write_assemble",
+                level=_sf_logging.DEBUG,
+            )
+            _discourse_meta = {
+                "fed": False, "applied": False, "enabled": True,
+                "error": str(_sf_e)[:160], "cap": 200,
+            }
+
         # P2：软 lore 激活（仅 material/reference/codex 类；红线免疫）
         try:
             from scribe3.soft_activation import apply_soft_activation, soft_activation_enabled
@@ -557,6 +590,8 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         bud_rep = dict(bud_rep)
         # SL2：始终写入 storyline_inject 键（含 fail-soft / 旗关），便于 injection-trace
         bud_rep["storyline_inject"] = dict(_storyline_meta)
+        # W2：discourse_soft 预算观测（meso_source / truncated）
+        bud_rep["discourse_soft"] = dict(_discourse_meta)
         if _budget_report_holder.get("activation"):
             bud_rep["soft_activation"] = _budget_report_holder["activation"]
         # P2 residual：写路径挂事件图一跳（共享 novel_first_surface，非平行实现）

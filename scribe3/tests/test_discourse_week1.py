@@ -279,18 +279,49 @@ def test_blocking_flag_not_finalize_contract():
     }) is False
 
 
-def test_no_discourse_soft_in_l0_structure_diversity():
-    """Week-1 禁止 discourse 进 L0 structure_diversity / registry discourse_soft。"""
+def test_discourse_soft_l3_order_not_l0():
+    """Week-2：discourse_soft 为 L3，紧邻 storyline_polish 后；禁止进 L0_NEVER_CUT。"""
     from scribe3.injection_registry import SEGMENT_REGISTRY
-    from scribe3.context_budget import L0_NEVER_CUT, generation_physical_order_names
+    from scribe3.context_budget import L0_NEVER_CUT, L2_DROP_TIER, generation_physical_order_names
 
-    names = {s.name for s in SEGMENT_REGISTRY}
-    assert "discourse_soft" not in names  # Week-1 gate
-    assert "discourse_soft" not in generation_physical_order_names()
+    meta = {s.name: s for s in SEGMENT_REGISTRY}
+    assert "discourse_soft" in meta
+    assert meta["discourse_soft"].tier == "L3"
+    order = generation_physical_order_names()
+    assert "discourse_soft" in order
+    assert order.index("discourse_soft") == order.index("storyline_polish") + 1
+    assert "discourse_soft" in L2_DROP_TIER["T3"]
+    assert "discourse_soft" not in L0_NEVER_CUT
     # structure_diversity remains L0
     assert "structure_diversity" in L0_NEVER_CUT or any(
         s.name == "structure_diversity" and s.tier == "L0" for s in SEGMENT_REGISTRY
     )
+
+
+def test_discourse_soft_render_cap_and_no_promise_body():
+    from scribe3.discourse_inject import render_discourse_soft_text, meso_line_from_chapter
+
+    r = render_discourse_soft_text({})
+    assert r["meta"]["enabled"] is True
+    assert r["meta"]["fed"] is True
+    assert "开放伏笔：" not in (r.get("text") or "")
+    assert "讲法" in (r.get("text") or "") or r["meta"].get("meso_source") in ("default", "off")
+    assert r["meta"]["chars"] <= 200 or r["meta"].get("truncated")
+
+    # beats_meta meso
+    line, src = meso_line_from_chapter({
+        "beats_meta": {"distance_intent": "贴身", "pov_stance": "限知"},
+    })
+    assert src == "beats_meta"
+    assert "贴身" in line or "限知" in line
+
+    # 禁止伏笔原文泄漏：即使 chapter 带 promise 字段也不写入
+    r2 = render_discourse_soft_text({
+        "beats_meta": {"meso_note": "勿点破"},
+        "open_promises": [{"text": "秘密铜钱伏笔正文"}],
+    })
+    assert "秘密铜钱伏笔正文" not in (r2.get("text") or "")
+    assert "开放伏笔：" not in (r2.get("text") or "")
 
 
 if __name__ == "__main__":
@@ -302,5 +333,6 @@ if __name__ == "__main__":
     test_loop_triage_discourse_to_story()
     test_flags_registered()
     test_blocking_flag_not_finalize_contract()
-    test_no_discourse_soft_in_l0_structure_diversity()
+    test_discourse_soft_l3_order_not_l0()
+    test_discourse_soft_render_cap_and_no_promise_body()
     print("ALL_DISCOURSE_WEEK1_OK")
