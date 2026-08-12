@@ -230,6 +230,15 @@ def build_reader_ready(
         "may_claim_readable": bool(machine_ok and human_acked),
         "may_claim_serializable": False,  # needs H9 external
     }
+    # ack_row may contain Surreal RecordID — never put raw in HTTP JSON
+    ack_safe = None
+    if isinstance(ack_row, dict):
+        ack_safe = {
+            "prose_fp": ack_row.get("prose_fp"),
+            "work": ack_row.get("work"),
+            "seq": ack_row.get("seq"),
+            "note": ack_row.get("note"),
+        }
     return {
         "machine_reader_ok": machine_ok,
         "human_acked": human_acked,
@@ -244,7 +253,7 @@ def build_reader_ready(
             "pad_suspect": clen >= 1500 and len(hits) >= 1,
         },
         "degraded": degraded,
-        "ack_row": ack_row,
+        "ack": ack_safe,
         "prose_fp": fp,
     }
 

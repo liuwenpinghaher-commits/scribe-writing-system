@@ -1138,7 +1138,16 @@ def reader_ack_ep(body: dict = Body(...), work: str = "main"):
             status_code=503,
             detail=f"读者确认存储未就绪：{str(e)[:120]}",
         ) from e
-    return {"ok": True, "work": work, "seq": seq, "ack": row}
+    # strip RecordID for JSON
+    ack_out = None
+    if isinstance(row, dict):
+        ack_out = {
+            "prose_fp": row.get("prose_fp"),
+            "work": row.get("work"),
+            "seq": row.get("seq"),
+            "note": row.get("note"),
+        }
+    return {"ok": True, "work": work, "seq": seq, "ack": ack_out}
 
 
 def reader_claim_ep(body: dict = Body(...), work: str = "main"):
