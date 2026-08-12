@@ -114,8 +114,9 @@ def _resolve_char(store, name: str, seq: int, role: str) -> str | None:
                 "layer": "L1",
                 "status": "pending",
             })
-        except Exception:
-            pass
+        except Exception as e:
+            from scribe3.soft_fail import soft_fail
+            soft_fail("ingest_queue_character_candidate", e, logger="scribe3.ingest")
     return None
 
 
@@ -663,8 +664,9 @@ def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3,
             f"ingest:{unified_source or 'legacy'}",
             prose_fp=fp,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        from scribe3.soft_fail import soft_fail
+        soft_fail("ingest_mark_status_ok", e, logger="scribe3.ingest", seq=seq)
     return {
         "applied": applied,
         "delta": delta,

@@ -127,8 +127,10 @@ class TTLCache:
         # O9：可观测失效（零清除告警由 record_cache_invalidation 处理）
         try:
             record_cache_invalidation(self.name, cleared, work=work)
-        except Exception:
-            pass
+        except Exception as e:
+            from scribe3.soft_fail import soft_fail
+            soft_fail("cache_record_invalidation", e, logger="scribe3.context_cache",
+                      name=self.name)
         return cleared
 
     def invalidate_by_table(self, table: str, work=None):
@@ -289,13 +291,17 @@ def emit_invalidation(
             if st is None and _cache_watch_store_factory is not None:
                 try:
                     st = _cache_watch_store_factory()
-                except Exception:
+                except Exception as e:
+                    from scribe3.soft_fail import soft_fail
+                    soft_fail("cache_watch_store_factory", e, logger="scribe3.context_cache")
                     st = None
             if st is not None:
                 try:
                     st.create_cache_watch_row(str(table), work or "")
-                except Exception:
-                    pass
+                except Exception as e:
+                    from scribe3.soft_fail import soft_fail
+                    soft_fail("cache_watch_dual_write", e, logger="scribe3.context_cache",
+                              table=table)
     except Exception as e:
         # 失效登记/广播的任何异常都不得冒泡到写路径(写正确性 > 缓存卫生)。
         # EH-02 / PR-EH-4：外层失败可观测，仍 fail-soft 不抛。

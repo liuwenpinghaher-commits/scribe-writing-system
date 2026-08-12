@@ -45,8 +45,9 @@ def build_actions(work: str) -> dict:
                     _prom.append(f"埋「{(pr.get('text') or '')[:20]}」")
                 if pr.get("payoff_chapter") == seq:
                     _prom.append(f"收「{(pr.get('text') or '')[:20]}」")
-        except Exception:
-            pass
+        except Exception as e:
+            from scribe3.soft_fail import soft_fail
+            soft_fail("pilot_deliver_promises", e, logger="scribe3", seq=seq)
         card = {"seq": seq, "words": len("".join(prose.split())),
                 "qc": _qn, "promises": _prom, "low_confidence": low_conf}
         # PR-6c · KD-NQ-7：deliver 卡带 redline/story/style 三项计数
@@ -91,8 +92,10 @@ def build_actions(work: str) -> dict:
             try:
                 if float(_ss.get("simile_like_per_1k") or 0) >= 8:
                     _hits += 1
-            except Exception:
-                pass
+            except Exception as _sf_e:
+                from scribe3.soft_fail import soft_fail
+                import logging as _sf_logging
+                soft_fail('deliver_soft_1', _sf_e, logger='scribe3', level=_sf_logging.DEBUG)
             if _hits and isinstance(card.get("buckets"), dict):
                 card["buckets"]["style"] = int(card["buckets"].get("style") or 0) + _hits
             if _hits:

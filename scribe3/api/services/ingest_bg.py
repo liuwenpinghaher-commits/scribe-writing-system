@@ -143,14 +143,17 @@ def _bg_ingest(work: str, seq: int) -> None:
         if backend is not None and owner:
             try:
                 release_ingest_lease(backend, work, int(seq), owner)
-            except Exception:
-                pass
+            except Exception as e:
+                from scribe3.soft_fail import soft_fail
+                soft_fail("ingest_bg_release_lease", e, logger="scribe3", work=work, seq=seq)
         if ch_lock_held:
             try:
                 from scribe3.chapter_lock import release_chapter_lock
                 release_chapter_lock("ingest", work, int(seq), store=st)
-            except Exception:
-                pass
+            except Exception as e:
+                from scribe3.soft_fail import soft_fail
+                soft_fail("ingest_bg_release_chapter_lock", e, logger="scribe3",
+                          work=work, seq=seq)
         if st is not None:
             try:
                 st.close()

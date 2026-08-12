@@ -299,8 +299,10 @@ class ChangefeedCacheWorker:
                     try:
                         from scribe3.context_cache import purge_cache_watch
                         purge_cache_watch(st, max_age_seconds=3600)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        from scribe3.soft_fail import soft_fail
+                        soft_fail("changefeed_purge_cache_watch", e,
+                                  logger="scribe3.changefeed_consumer")
                 with self._lock:
                     self._last_ok_at = time.time()
                     self._last_error = None
@@ -317,8 +319,10 @@ class ChangefeedCacheWorker:
                 try:
                     if st is not None:
                         st.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    from scribe3.soft_fail import soft_fail
+                    soft_fail("changefeed_store_close_on_error", e,
+                              logger="scribe3.changefeed_consumer")
                 st = None
             # 空轮询退避：海量 CDC 日志上 SHOW CHANGES 即使 n=0 也极贵
             # streak 0→base；最高约 base*32，封顶 10s
@@ -327,5 +331,7 @@ class ChangefeedCacheWorker:
         try:
             if st is not None:
                 st.close()
-        except Exception:
-            pass
+        except Exception as e:
+            from scribe3.soft_fail import soft_fail
+            soft_fail("changefeed_store_close_final", e,
+                      logger="scribe3.changefeed_consumer")

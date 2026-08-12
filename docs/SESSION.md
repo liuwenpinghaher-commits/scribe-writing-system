@@ -36,7 +36,8 @@
 - **结案**：`docs/plans/2026-08-12-engineering-health-closure.md`
 - **分层**：业务层私有 store 调用 = 0；钉 `test_next_layer_adapters_no_private_store`
 - **冒烟**：`./scripts/smoke_eh.sh` → `DEMO_EH_OK`
-- **下一刀**：Month 可选 bare-pass warning（包 B）；巨石语义拆仅随产品改动（包 C）
+- **包 B**：`scribe3/soft_fail.py` + 热路径 warning；组装可选 DEBUG；契约 34 passed  
+- **下一刀**：巨石语义拆仅随产品改动（包 C）
 
 ### v6.3.4 验收脚手架（2026-08-12）
 

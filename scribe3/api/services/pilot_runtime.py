@@ -462,8 +462,10 @@ def _pilot_run_bg(work: str, start: int, until: int) -> None:
                             with open(os.path.join(_bd, f"pilot_unsaved_ch{seq}.txt"), "w", encoding="utf-8") as _fh:
                                 _fh.write(_unsaved)
                             state["stopped"] += "(草稿留版失败,已存兜底 pilot_unsaved 文件)"
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            from scribe3.soft_fail import soft_fail
+                            soft_fail("pilot_unsaved_fallback_file", e, logger="scribe3",
+                                      work=work, seq=seq)
                     return
                 if r["state"] == "delivered":
                     break
@@ -477,8 +479,9 @@ def _pilot_run_bg(work: str, start: int, until: int) -> None:
             if _cur is not None:
                 _store_for(work).set_pilot_parked(
                     _cur, f"连写异常停靠:{str(e)[:100]}")
-        except Exception:
-            pass
+        except Exception as e2:
+            from scribe3.soft_fail import soft_fail
+            soft_fail("pilot_run_set_parked", e2, logger="scribe3", work=work)
     finally:
         state["running"] = False
 

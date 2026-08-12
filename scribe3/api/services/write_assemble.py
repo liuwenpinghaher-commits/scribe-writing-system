@@ -146,8 +146,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                     "structure_diversity",
                     "\n\n" + _sd,
                 )
-    except Exception:
-        pass
+    except Exception as _sf_e:
+        from scribe3.soft_fail import soft_fail
+        import logging as _sf_logging
+        soft_fail('write_assemble_soft_1', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
     # 经验压力 E4:续写快照并入真实组装链(单源,非平行 builder)
     try:
         from scribe3.experience.continue_rite import (
@@ -289,8 +291,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                             _vac,
                         ),
                     )
-            except Exception:
-                pass
+            except Exception as _sf_e:
+                from scribe3.soft_fail import soft_fail
+                import logging as _sf_logging
+                soft_fail('write_assemble_soft_2', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         _dr = _domain_input(
             f"chapter:{chapter}:drama-contract", "drama_contract",
             _dr_raw,
@@ -334,8 +338,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                             "author_restated_canon soft work=%s ch=%s ratio=%s",
                             work, chapter, _rr.get("ratio"),
                         )
-        except Exception:
-            pass
+        except Exception as _sf_e:
+            from scribe3.soft_fail import soft_fail
+            import logging as _sf_logging
+            soft_fail('write_assemble_soft_3', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         craft = build_craft_block(st.list_craft_rules() or None, short_mode=short_mode)
         if craft:
             _cr = _domain_input(
@@ -351,8 +357,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 craft_text=craft or "",
                 anti_slop_text=_anti_slop_floor_block() or "",
             )
-        except Exception:
-            pass
+        except Exception as _sf_e:
+            from scribe3.soft_fail import soft_fail
+            import logging as _sf_logging
+            soft_fail('write_assemble_soft_4', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         _pr = _domain_input(
             f"chapter:{chapter}:phase-role", "phase_role",
             _pr_raw,
@@ -423,8 +431,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 volume_title=_vt,
                 volume_goal=_vg,
             )
-        except Exception:
-            pass
+        except Exception as _sf_e:
+            from scribe3.soft_fail import soft_fail
+            import logging as _sf_logging
+            soft_fail('write_assemble_soft_5', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         _vid = "none"
         if _vol_intro:
             try:
@@ -463,8 +473,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                         if _keep in _pdc and _keep not in slim:
                             pass
                     _pd_txt = render_pressure_drive_block(slim) or ""
-        except Exception:
-            pass
+        except Exception as _sf_e:
+            from scribe3.soft_fail import soft_fail
+            import logging as _sf_logging
+            soft_fail('write_assemble_soft_6', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         _pd = _domain_input(
             f"chapter:{chapter}:pressure-drive", "pressure_drive",
             _pd_txt,
@@ -505,8 +517,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                             "\n\n" + _bm_txt,
                         )
                         _push("benchmark_advisory", "supplemental", _bm)
-            except Exception:
-                pass
+            except Exception as _sf_e:
+                from scribe3.soft_fail import soft_fail
+                import logging as _sf_logging
+                soft_fail('write_assemble_soft_7', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
             for ordinal, (source_id, source_kind, text) in enumerate(
                 _deduction_context_segments(st, chapter)
             ):
@@ -561,8 +575,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                     _keys = []
                 segs, _act_rep = apply_soft_activation(segs, activation_keys=_keys)
                 _budget_report_holder.setdefault("activation", _act_rep)
-        except Exception:
-            pass
+        except Exception as _sf_e:
+            from scribe3.soft_fail import soft_fail
+            import logging as _sf_logging
+            soft_fail('write_assemble_soft_8', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         # 统一 join（V2：L2 有序裁剪；禁止 rendered[:hard] 尾截）
         joined, bud_rep = join_generation_segments(segs, v2=_v2)
         bud_rep = dict(bud_rep)
@@ -580,8 +596,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 "sample_pair": _eg.get("sample_pair"),
                 "surface": _eg.get("surface"),
             }
-        except Exception:
-            pass
+        except Exception as _sf_e:
+            from scribe3.soft_fail import soft_fail
+            import logging as _sf_logging
+            soft_fail('write_assemble_soft_9', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         # O33：故事线 polish 短段（旗关则 text 空；不挡 redline）
         try:
             from scribe3.storyline_inject_polish import (
@@ -596,8 +614,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                         "applied": True,
                         "audit": _seg.get("audit"),
                     }
-        except Exception:
-            pass
+        except Exception as _sf_e:
+            from scribe3.soft_fail import soft_fail
+            import logging as _sf_logging
+            soft_fail('write_assemble_soft_10', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         _budget_report_holder["report"] = bud_rep
         _store_write_budget_report(bud_rep)
         return joined, tuple(supplemental_sources)
@@ -631,8 +651,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     try:
         from scribe3 import context_cache as _cc
         _cc.record_context_tokens(envelope.total_token_estimate)
-    except Exception:
-        pass
+    except Exception as _sf_e:
+        from scribe3.soft_fail import soft_fail
+        import logging as _sf_logging
+        soft_fail('write_assemble_soft_11', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
     # Caveat 1(Task 17 Step 5b):把 envelope 的【安全块清单】回填 envelope_trace,供
     # chat/write 落 chat_message.trace.context 审计"主编这轮看到了哪些上下文块"(Task 14
     # ContextInspector 数据源)。复用 envelope_trace_manifest —— 它本就"给 trace.context 用"
@@ -670,8 +692,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 "brief_must_link_short_circuit": inject_dedup_enabled() and pinned,
                 "pin_detect": "reason=must_link_priority|source_id_prefix",
             }
-        except Exception:
-            pass
+        except Exception as _sf_e:
+            from scribe3.soft_fail import soft_fail
+            import logging as _sf_logging
+            soft_fail('write_assemble_soft_12', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         # novel-first：外露 budget_report + density_trace（非 tokens_saved KPI）
         try:
             _br = _budget_report_holder.get("report") or get_last_write_budget_report()
@@ -701,8 +725,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                                 # 泄漏：标题出现在 joined 但块长未记 → 按命中段计
                                 _i = _ren.find("## 溯源清单")
                                 _prov_chars = max(_prov_chars, len(_ren[_i:_i + 200]))
-                        except Exception:
-                            pass
+                        except Exception as _sf_e:
+                            from scribe3.soft_fail import soft_fail
+                            import logging as _sf_logging
+                            soft_fail('write_assemble_soft_13', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
                     except Exception:
                         _prov_chars = 0
                         _prov_items = 0
@@ -726,8 +752,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                         logging.getLogger("scribe3").debug(
                             "density_trace persist fail-soft", exc_info=True,
                         )
-                except Exception:
-                    pass
+                except Exception as _sf_e:
+                    from scribe3.soft_fail import soft_fail
+                    import logging as _sf_logging
+                    soft_fail('write_assemble_soft_14', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         except Exception:
             logging.getLogger("scribe3").debug(
                 "budget_report envelope_trace attach fail-soft", exc_info=True,
@@ -937,8 +965,10 @@ def assemble_discussion_system(
             pref = _author_prefs_block_safe()
             if pref:
                 parts.append(pref)
-        except Exception:
-            pass
+        except Exception as _sf_e:
+            from scribe3.soft_fail import soft_fail
+            import logging as _sf_logging
+            soft_fail('write_assemble_soft_15', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         return "\n\n".join(p for p in parts if p), tuple(supplemental)
 
     context_request = ContextRequest(
@@ -980,13 +1010,17 @@ def assemble_discussion_system(
                     result=_result, store=st)
                 _sel = list(_tmp.get("selected") or [])
                 _rej = list(_tmp.get("rejected") or [])
-            except Exception:
-                pass
+            except Exception as _sf_e:
+                from scribe3.soft_fail import soft_fail
+                import logging as _sf_logging
+                soft_fail('write_assemble_soft_16', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         _usage = {}
         try:
             _usage = envelope_trace_manifest(compiled.envelope).get("usage_digest") or {}
-        except Exception:
-            pass
+        except Exception as _sf_e:
+            from scribe3.soft_fail import soft_fail
+            import logging as _sf_logging
+            soft_fail('write_assemble_soft_17', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         try:
             _save_context_turn_bind(
                 st, snap=snap, envelope=compiled.envelope, work=work, ctx=_mtc,
@@ -1019,7 +1053,9 @@ def assemble_discussion_system(
             logging.getLogger("scribe3").info(
                 "discussion soft secret hits=%s", len(_soft_hits),
             )
-    except Exception:
-        pass
+    except Exception as _sf_e:
+        from scribe3.soft_fail import soft_fail
+        import logging as _sf_logging
+        soft_fail('write_assemble_soft_18', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
     return rendered
 

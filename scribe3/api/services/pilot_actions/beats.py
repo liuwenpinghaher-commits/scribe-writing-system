@@ -142,8 +142,10 @@ def build_actions(work: str) -> dict:
                     if val.get("ok") is False:
                         from scribe3.narrative_drive import format_narrative_park
                         out["pilot_park"] = format_narrative_park(_nd_drive)
-            except Exception:
-                pass
+            except Exception as _sf_e:
+                from scribe3.soft_fail import soft_fail
+                import logging as _sf_logging
+                soft_fail('beats_soft_1', _sf_e, logger='scribe3', level=_sf_logging.DEBUG)
             return out
 
         try:

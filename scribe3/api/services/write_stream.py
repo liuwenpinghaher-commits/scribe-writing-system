@@ -444,8 +444,9 @@ def _build_write_retrieval_query(st, *, chapter, seed_words, request_text: str =
         syn = (ch.get("synopsis") or "").strip()
         if syn:
             return syn[:200]
-    except Exception:
-        pass
+    except Exception as e:
+        from scribe3.soft_fail import soft_fail
+        soft_fail("write_retrieval_query_synopsis", e, logger="scribe3", chapter=chapter)
     return ""
 
 

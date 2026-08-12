@@ -108,8 +108,10 @@ def _voice_anchor_block(st, focalizer: str = "") -> str:
                     if reasons:
                         line += (f"\n\n## 声音待演变提示\n"
                                  f"{focalizer} 因下列情节声音正在转变,行文可体现这种变化:{reasons}")
-            except Exception:
-                pass
+            except Exception as _sf_e:
+                from scribe3.soft_fail import soft_fail
+                import logging as _sf_logging
+                soft_fail('write_assemble_context_soft_1', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
             parts.append(line)
 
     # 对白声音速记——所有有 profile 的角色,各自对白在声,别串味
@@ -565,8 +567,10 @@ def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", ll
                         c["material_id"], chapter,
                         dimension=(c.get("ref_tags") or [None])[0],
                         reason=c.get("reason"), via=f"phase:{phase}")
-                except Exception:
-                    pass
+                except Exception as _sf_e:
+                    from scribe3.soft_fail import soft_fail
+                    import logging as _sf_logging
+                    soft_fail('write_assemble_context_soft_2', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         return "\n\n" + block if block else ""
     except Exception:
         logging.getLogger("scribe3").debug("素材召回块失败(不阻断写作)", exc_info=True)

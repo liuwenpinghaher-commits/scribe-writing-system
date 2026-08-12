@@ -92,8 +92,9 @@ def _park_journal(journal, seq: int, action: str) -> None:
     try:
         journal.complete_stage(f"pilot_ch{seq}_{action}")          # 清 in_progress
         journal.complete_stage(f"pilot_ch{seq}_{action}_parked")   # 留停靠痕
-    except Exception:
-        pass
+    except Exception as e:
+        from scribe3.soft_fail import soft_fail
+        soft_fail("pilot_park_journal", e, logger="scribe3.pilot", seq=seq, action=action)
 
 
 def step(st, seq: int, executor: dict, *, mode: str = "manual",
@@ -115,8 +116,9 @@ def step(st, seq: int, executor: dict, *, mode: str = "manual",
     if journal:
         try:
             journal.start_stage(f"pilot_ch{seq}_{action}")
-        except Exception:
-            pass
+        except Exception as e:
+            from scribe3.soft_fail import soft_fail
+            soft_fail("pilot_start_stage", e, logger="scribe3.pilot", seq=seq, action=action)
     try:
         fn = executor[action]
     except KeyError:
@@ -159,8 +161,9 @@ def step(st, seq: int, executor: dict, *, mode: str = "manual",
     if journal:
         try:
             journal.complete_stage(f"pilot_ch{seq}_{action}")
-        except Exception:
-            pass
+        except Exception as e:
+            from scribe3.soft_fail import soft_fail
+            soft_fail("pilot_complete_stage", e, logger="scribe3.pilot", seq=seq, action=action)
     return {"seq": seq, "state": nxt, "action": action,
             "gate": gate_of(action, authz, mode), "artifact": artifact}
 

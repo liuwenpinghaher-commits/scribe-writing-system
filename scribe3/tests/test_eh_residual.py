@@ -436,3 +436,43 @@ def test_quality_ops_public_surface():
     ):
         assert hasattr(SurrealStore, name), name
         assert hasattr(QualityOpsMixin, name), name
+
+
+def test_soft_fail_logs_op_and_type(caplog):
+    import logging
+    from scribe3.soft_fail import soft_fail
+
+    with caplog.at_level(logging.WARNING, logger="scribe3.test_soft"):
+        soft_fail("unit_test_op", RuntimeError("x"), logger="scribe3.test_soft")
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any("soft_fail op=unit_test_op" in m and "err=RuntimeError" in m for m in msgs), msgs
+
+
+def test_cache_watch_dual_write_soft_fail_logs(caplog, monkeypatch):
+    """create_cache_watch_row 失败 → soft_fail warning，不抛。"""
+    import logging
+    from scribe3 import context_cache as cc
+
+    class BoomStore:
+        def create_cache_watch_row(self, *a, **k):
+            raise RuntimeError("watch_fail")
+
+    with caplog.at_level(logging.WARNING, logger="scribe3.context_cache"):
+        cc.emit_invalidation("chapter", "main", store=BoomStore(), dual_write=True)
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any("cache_watch_dual_write" in m or "soft_fail" in m for m in msgs), msgs
+    # outer path must not raise (already returned)
+
+
+def test_pilot_park_journal_soft_fail_logs(caplog):
+    import logging
+    from scribe3 import pilot as P
+
+    class BoomJournal:
+        def complete_stage(self, *a, **k):
+            raise ValueError("journal_down")
+
+    with caplog.at_level(logging.WARNING, logger="scribe3.pilot"):
+        P._park_journal(BoomJournal(), 3, "draft_loop")
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any("pilot_park_journal" in m and "ValueError" in m for m in msgs), msgs
