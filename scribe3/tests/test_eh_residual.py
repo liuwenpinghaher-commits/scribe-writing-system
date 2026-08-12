@@ -279,3 +279,95 @@ def test_p1_16_pilot_phase_modules():
 
     assert "propose_outline" in bo("main")
     assert "finalize" in bf("main")
+
+
+def test_infra_context_public_apis_on_store():
+    from scribe3.store.surreal import SurrealStore
+    from scribe3.store.infra_ops import InfraOpsMixin
+    from scribe3.store.context_ops import ContextOpsMixin
+
+    for name in (
+        "ensure_ingest_lease_table",
+        "get_ingest_lease_row",
+        "upsert_ingest_lease_row",
+        "clear_ingest_lease_row",
+        "create_only_ingest_lease",
+        "cas_update_ingest_lease",
+        "ensure_chapter_lease_fields",
+        "get_chapter_lease_fields",
+        "set_chapter_lease_fields",
+        "clear_chapter_lease_fields",
+        "cas_update_chapter_lease",
+        "delete_cache_watch_older_than",
+        "create_cache_watch_row",
+        "create_only_context_manifest",
+        "get_context_manifest_row",
+        "create_only_context_outcome",
+        "get_context_outcome_row",
+    ):
+        assert hasattr(SurrealStore, name), name
+        assert hasattr(InfraOpsMixin, name) or hasattr(ContextOpsMixin, name), name
+
+
+def test_infra_adapters_no_private_store_calls():
+    import re
+    import pathlib
+
+    pat = re.compile(r"\._(?:query|execute_write|raw_query)\s*\(")
+    for rel in (
+        "scribe3/ingest_lease.py",
+        "scribe3/context_store.py",
+        "scribe3/context_cache.py",
+    ):
+        hits = []
+        for i, line in enumerate(pathlib.Path(rel).read_text().splitlines(), 1):
+            if line.lstrip().startswith("#"):
+                continue
+            if pat.search(line):
+                hits.append(f"{rel}:{i}:{line.strip()[:100]}")
+        assert not hits, hits
+
+
+def test_p1_15_retry_read_no_sleep_in_async(monkeypatch):
+    import asyncio
+    import time
+    from scribe3.quality.store import QualityStore
+
+    slept = []
+
+    def boom_sleep(d):
+        slept.append(d)
+        raise AssertionError("time.sleep must not run under event loop")
+
+    monkeypatch.setattr(time, "sleep", boom_sleep)
+    n = {"i": 0}
+
+    def loader():
+        n["i"] += 1
+        return None if n["i"] < 3 else {"ok": 1}
+
+    async def run():
+        return QualityStore._retry_read(loader, attempts=5)
+
+    out = asyncio.run(run())
+    assert out == {"ok": 1}
+    assert slept == []
+
+
+def test_write_assemble_context_module_and_rules_parts():
+    import pathlib
+    from scribe3.api.services.write_assemble import _outline_block, assemble_discussion_system
+    from scribe3.api.services import write_assemble_context as ctx
+    from scribe3.critique.rules_impl import find_ai_tics
+
+    assert callable(_outline_block) and callable(ctx._outline_block)
+    assert callable(assemble_discussion_system)
+    assert callable(find_ai_tics)
+    parts = pathlib.Path("scribe3/critique/rules_parts")
+    assert parts.is_dir()
+    names = sorted(p.name for p in parts.glob("*.py"))
+    assert any(n.startswith("01_") for n in names)
+    assert any(n.startswith("07_") for n in names)
+    body = pathlib.Path("scribe3/critique/rules_impl_body.py").read_text()
+    assert "rules_parts" in body
+    assert body.count("\n") < 80

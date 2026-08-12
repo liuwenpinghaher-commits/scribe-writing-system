@@ -191,23 +191,7 @@ class TableLeaseBackend:
         if self._ensured:
             return
         try:
-            self.st._raw_query(
-                "DEFINE TABLE IF NOT EXISTS ingest_lease SCHEMALESS;"
-            )
-            for field, typ in (
-                ("work", "option<string>"),
-                ("seq", "option<int>"),
-                ("owner", "option<string>"),
-                ("until", "option<float>"),
-                ("state", "option<string>"),
-                ("heartbeat_at", "option<float>"),
-            ):
-                try:
-                    self.st._raw_query(
-                        f"DEFINE FIELD IF NOT EXISTS {field} ON ingest_lease TYPE {typ};"
-                    )
-                except Exception:
-                    pass
+            self.st.ensure_ingest_lease_table()
         except Exception as e:
             _log.warning("ingest_lease table ensure failed: %s", e)
         self._ensured = True
@@ -218,14 +202,11 @@ class TableLeaseBackend:
     def get(self, work: str, seq: int) -> tuple[str, float] | None:
         self._ensure()
         try:
-            rows = self.st._query(
-                "SELECT owner AS o, until AS u FROM type::record('ingest_lease', $id)",
-                {"id": self._rid(work, seq)},
-            ) or []
-            if not rows:
+            row = self.st.get_ingest_lease_row(self._rid(work, seq))
+            if not row:
                 return None
-            o = (rows[0].get("o") or "").strip()
-            u = float(rows[0].get("u") or 0)
+            o = (row.get("o") or "").strip()
+            u = float(row.get("u") or 0)
             if not o or u <= time.time():
                 return None
             return str(o), u
@@ -237,13 +218,8 @@ class TableLeaseBackend:
         self._ensure()
         rid = self._rid(work, seq)
         try:
-            self.st._execute_write(
-                "UPSERT type::record('ingest_lease', $id) SET "
-                "work=$w, seq=$s, owner=$o, until=$u, state='leased', heartbeat_at=$u",
-                {
-                    "id": rid, "w": work, "s": int(seq),
-                    "o": owner, "u": float(until),
-                },
+            self.st.upsert_ingest_lease_row(
+                rid, work=work, seq=int(seq), owner=owner, until=float(until),
             )
         except Exception as e:
             _log.warning("ingest_lease set failed: %s", e)
@@ -253,12 +229,7 @@ class TableLeaseBackend:
         rid = self._rid(work, seq)
         try:
             # 仅 owner 匹配才清
-            self.st._execute_write(
-                "UPDATE type::record('ingest_lease', $id) SET "
-                "owner=NONE, until=0, state='idle' "
-                "WHERE owner = $o",
-                {"id": rid, "o": owner},
-            )
+            self.st.clear_ingest_lease_row(rid, owner)
             cur = self.get(work, seq)
             return cur is None or cur[0] != owner
         except Exception:
@@ -276,10 +247,8 @@ class TableLeaseBackend:
         }
         # 1) 尝试 CREATE ONLY（首占）
         try:
-            self.st._execute_write(
-                "CREATE ONLY type::record('ingest_lease', $id) SET "
-                "work=$w, seq=$s, owner=$o, until=$u, state='leased', heartbeat_at=$u",
-                binds,
+            self.st.create_only_ingest_lease(
+                rid, work=work, seq=int(seq), owner=owner, until=float(until),
             )
             # 创建 成功 → 确认我们是 owner
             if self.assert_owner(work, seq, owner, now=now):
@@ -290,12 +259,8 @@ class TableLeaseBackend:
 
         # 2) UPDATE WHERE 过期 / 空 owner / 同 owner
         try:
-            self.st._execute_write(
-                "UPDATE type::record('ingest_lease', $id) SET "
-                "owner=$o, until=$u, state='leased', heartbeat_at=$u, work=$w, seq=$s "
-                "WHERE owner = NONE OR owner = NONE OR until = NONE "
-                "OR until < $now OR until <= $now OR owner = $o OR owner = ''",
-                binds,
+            self.st.cas_update_ingest_lease(
+                rid, work=work, seq=int(seq), owner=owner, until=float(until), now=float(now),
             )
         except Exception as e:
             _log.warning("ingest_lease CAS update failed: %s", e)
@@ -317,14 +282,11 @@ class TableLeaseBackend:
         t = time.time() if now is None else now
         self._ensure()
         try:
-            rows = self.st._query(
-                "SELECT owner AS o, until AS u FROM type::record('ingest_lease', $id)",
-                {"id": self._rid(work, seq)},
-            ) or []
-            if not rows:
+            row = self.st.get_ingest_lease_row(self._rid(work, seq))
+            if not row:
                 return False
-            o = (rows[0].get("o") or "").strip()
-            u = float(rows[0].get("u") or 0)
+            o = (row.get("o") or "").strip()
+            u = float(row.get("u") or 0)
             return bool(o == owner and u > t)
         except Exception:
             return False
@@ -341,12 +303,7 @@ class ChapterLeaseBackend:
         if self._ensured:
             return
         try:
-            self.st._raw_query(
-                "DEFINE FIELD IF NOT EXISTS ingest_lease_owner ON chapter TYPE option<string>;"
-            )
-            self.st._raw_query(
-                "DEFINE FIELD IF NOT EXISTS ingest_lease_until ON chapter TYPE option<float>;"
-            )
+            self.st.ensure_chapter_lease_fields()
         except Exception:
             pass
         self._ensured = True
@@ -354,15 +311,11 @@ class ChapterLeaseBackend:
     def get(self, work: str, seq: int) -> tuple[str, float] | None:
         self._ensure()
         try:
-            rows = self.st._query(
-                "SELECT ingest_lease_owner AS o, ingest_lease_until AS u "
-                "FROM type::record('chapter',$seq)",
-                {"seq": int(seq)},
-            ) or []
-            if not rows:
+            row = self.st.get_chapter_lease_fields(int(seq))
+            if not row:
                 return None
-            o = (rows[0].get("o") or "").strip()
-            u = float(rows[0].get("u") or 0)
+            o = (row.get("o") or "").strip()
+            u = float(row.get("u") or 0)
             if not o or u <= time.time():
                 return None
             return str(o), u
@@ -372,23 +325,14 @@ class ChapterLeaseBackend:
     def set(self, work: str, seq: int, owner: str, until: float) -> None:
         self._ensure()
         try:
-            self.st._execute_write(
-                "UPDATE type::record('chapter',$seq) SET "
-                "ingest_lease_owner=$o, ingest_lease_until=$u",
-                {"seq": int(seq), "o": owner, "u": float(until)},
-            )
+            self.st.set_chapter_lease_fields(int(seq), owner, float(until))
         except Exception:
             pass
 
     def clear(self, work: str, seq: int, owner: str) -> bool:
         self._ensure()
         try:
-            self.st._execute_write(
-                "UPDATE type::record('chapter',$seq) SET "
-                "ingest_lease_owner=NONE, ingest_lease_until=NONE "
-                "WHERE ingest_lease_owner = $o",
-                {"seq": int(seq), "o": owner},
-            )
+            self.st.clear_chapter_lease_fields(int(seq), owner)
             cur = self.get(work, seq)
             return cur is None or cur[0] != owner
         except Exception:
@@ -403,14 +347,8 @@ class ChapterLeaseBackend:
             "seq": int(seq), "o": owner, "u": float(until), "now": float(now),
         }
         try:
-            self.st._execute_write(
-                "UPDATE type::record('chapter',$seq) SET "
-                "ingest_lease_owner=$o, ingest_lease_until=$u "
-                "WHERE ingest_lease_owner = NONE OR ingest_lease_owner = NONE "
-                "OR ingest_lease_until = NONE OR ingest_lease_until < $now "
-                "OR ingest_lease_until <= $now OR ingest_lease_owner = $o "
-                "OR ingest_lease_owner = ''",
-                binds,
+            self.st.cas_update_chapter_lease(
+                int(seq), owner=owner, until=float(until), now=float(now),
             )
         except Exception as e:
             _log.warning("chapter lease CAS failed: %s", e)
@@ -430,15 +368,11 @@ class ChapterLeaseBackend:
         t = time.time() if now is None else now
         self._ensure()
         try:
-            rows = self.st._query(
-                "SELECT ingest_lease_owner AS o, ingest_lease_until AS u "
-                "FROM type::record('chapter',$seq)",
-                {"seq": int(seq)},
-            ) or []
-            if not rows:
+            row = self.st.get_chapter_lease_fields(int(seq))
+            if not row:
                 return False
-            o = (rows[0].get("o") or "").strip()
-            u = float(rows[0].get("u") or 0)
+            o = (row.get("o") or "").strip()
+            u = float(row.get("u") or 0)
             return bool(o == owner and u > t)
         except Exception:
             return False

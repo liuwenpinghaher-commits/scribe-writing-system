@@ -181,28 +181,32 @@ class QualityStore:
     def _retry_read(loader, attempts: int = 5):
         """同步重试读（sync 契约）。
 
-        P1-15：总 sleep 有界（每步 ≤50ms）。**勿在 async 热路径直接调用**——
-        若事件环正在跑，请用 :meth:`_retry_read_async`（``await asyncio.sleep``）。
-        误在 running loop 中调用时仍极短 ``time.sleep`` 并打 debug，避免长堵环。
+        - **无** running event loop：有界 ``time.sleep``（每步 ≤50ms）。
+        - **有** running loop：**禁止** ``time.sleep`` 堵环；仅立即再读
+          （CREATE 冲突后读回通常首轮即有）。async 调用方应优先
+          :meth:`_retry_read_async`。
         """
+        import asyncio
+        in_async = False
+        try:
+            asyncio.get_running_loop()
+            in_async = True
+        except RuntimeError:
+            pass
         for attempt in range(attempts):
             value = loader()
             if value is not None:
                 return value
             if attempt + 1 < attempts:
-                delay = QualityStore._retry_delay(attempt)
-                try:
-                    import asyncio
-                    asyncio.get_running_loop()
+                if in_async:
                     import logging
                     logging.getLogger("scribe3.quality.store").debug(
-                        "quality_retry_read_sleep_in_async_context delay=%.3f "
+                        "quality_retry_read_no_sleep_in_async attempt=%s "
                         "(prefer _retry_read_async)",
-                        delay,
+                        attempt,
                     )
-                    time.sleep(delay)
-                except RuntimeError:
-                    time.sleep(delay)
+                    continue
+                time.sleep(QualityStore._retry_delay(attempt))
         return None
 
     @staticmethod
@@ -219,6 +223,20 @@ class QualityStore:
             if attempt + 1 < attempts:
                 await asyncio.sleep(QualityStore._retry_delay(attempt))
         return None
+
+    async def _read_after_conflict_async(self, loader, conflict: BaseException, *, attempts: int = 5):
+        """CREATE 冲突后的异步读回；无行则原样抛 conflict。"""
+        existing = await self._retry_read_async(loader, attempts=attempts)
+        if existing is None:
+            raise conflict
+        return existing
+
+    def _read_after_conflict(self, loader, conflict: BaseException, *, attempts: int = 5):
+        """CREATE 冲突后的同步读回；无 running loop 时带短 sleep。"""
+        existing = self._retry_read(loader, attempts=attempts)
+        if existing is None:
+            raise conflict
+        return existing
 
     def save_contract_revision(
         self, contract: QualityContractRevision,

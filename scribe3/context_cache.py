@@ -244,17 +244,12 @@ def purge_cache_watch(store, *, max_age_seconds: int = 3600) -> int:
         return 0
     age = max(60, int(max_age_seconds or 3600))
     try:
-        # Surreal：删除超过 age 的旁路失效行
-        store._execute_write(
-            f"DELETE cache_watch WHERE at < time::now() - {age}s;",
-            {},
-        )
+        # Surreal：删除超过 age 的旁路失效行（公开 API）
+        store.delete_cache_watch_older_than(age)
         return 1
     except Exception:
         try:
-            store._raw_query(
-                f"DELETE cache_watch WHERE created_at < time::now() - {age}s;"
-            )
+            store.delete_cache_watch_older_than_created_at(age)
             return 1
         except Exception:
             return 0
@@ -298,10 +293,7 @@ def emit_invalidation(
                     st = None
             if st is not None:
                 try:
-                    st._execute_write(
-                        "CREATE cache_watch SET table_name=$t, work=$w;",
-                        {"t": str(table), "w": work or ""},
-                    )
+                    st.create_cache_watch_row(str(table), work or "")
                 except Exception:
                     pass
     except Exception as e:
