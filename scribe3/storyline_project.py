@@ -30,7 +30,11 @@ def _stakes_hint(ch: dict[str, Any]) -> str:
 
 
 def _tension_score(ch: dict[str, Any]) -> float:
-    """0–1 启发式张力；禁止当文学评分。"""
+    """0–1 启发式张力（低成本辅字段）。
+
+    D7 / DEFERRED：产品主标尺是 emotion ∈ [-5,+5]（见 emotion_scale）；
+    本函数有意保留 0–1 启发式（零 LLM），不升级为 NLP。禁止当文学评分。
+    """
     score = 0.2
     plan = ch.get("plan") if isinstance(ch.get("plan"), dict) else {}
     beats = plan.get("beats") or ch.get("beats") or []

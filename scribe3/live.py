@@ -36,7 +36,11 @@ def live_id_allowed(
     note_payload: dict,
     record_ids: dict[str, list[str]] | None,
 ) -> bool:
-    """GAP-4：输出侧 id 过滤（可单测；LIVE 条件订阅不稳时的诚实回退）。"""
+    """GAP-4 / D8：记录级过滤的**等效实现**（输出侧）。
+
+    表级 ``c.live(table)`` + 本函数过滤 ≡ 调用方只关心目标 id 的推送语义。
+    原生 ``LIVE SELECT … WHERE`` 待 Surreal SDK 稳定后切换（DEFERRED，一行级）。
+    """
     id_filter = record_ids or {}
     allowed = id_filter.get(table)
     if not allowed:
@@ -106,7 +110,7 @@ async def live_stream(
         try:
             await c.signin({"username": user, "password": password})
             await c.use(ns, db)
-            # GAP-4：优先整表 live；条件订阅在 SDK 支持时由调用方扩展
+            # D8 DEFERRED：整表 live + live_id_allowed；SDK 稳后改为条件 LIVE
             quuid = await c.live(table)
             gen = await c.subscribe_live(quuid)
             async for note in gen:
