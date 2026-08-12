@@ -135,10 +135,16 @@ def triage(post: dict) -> dict:
     buckets: dict[str, list] = {"redline": [], "story": [], "style": []}
     leaks = post.get("leaks") or []
     for lk in leaks:
+        # 兼容 dict 与 verify.Leak dataclass（finalize 路径常传后者）
+        if isinstance(lk, dict):
+            marker = lk.get("marker") or lk
+            fact_id = lk.get("fact_id") or "?"
+        else:
+            marker = getattr(lk, "marker", None) or lk
+            fact_id = getattr(lk, "fact_id", None) or "?"
         item = {"detector": "find_leaks", "kind": "leak",
-                "quote": str((lk or {}).get("marker") or lk)[:60],
-                "note": (f"帧外私密破绽词(fact="
-                         f"{((lk or {}).get('fact_id') or '?')})")[:120]}
+                "quote": str(marker)[:60],
+                "note": (f"帧外私密破绽词(fact={fact_id})")[:120]}
         blocking.append(item)
         buckets["redline"].append(item)
     # KD-14: ALL issue types go solely through is_blocking_issue (accepts S1|BLOCKING).

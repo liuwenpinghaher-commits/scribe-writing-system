@@ -43,9 +43,9 @@ class CraftGateThresholds:
     # 可写 hard 下限（与 craft-loop CL-B2-H1 / CL-B4-H1 对齐：cn_len≥80）
     synopsis_min_chars: int = 80
     scene_truth_min_chars: int = 80
-    # 兼容旧名：曾作 soft 阈值；现仅作「可再写细」hint（≥min 且 <hint → warn，不挡 ok）
-    synopsis_soft_chars: int = 120
-    scene_truth_soft_chars: int = 120
+    # 兼容旧字段名（不再对 80–120 发 soft warn：会与 B6/B8 叠满 max_warns 假红挡存稿）
+    synopsis_soft_chars: int = 80
+    scene_truth_soft_chars: int = 80
     min_beats: int = 3
     bridge_min_beats: int = 1
     beat_cover_ratio: float = 2 / 3
@@ -443,11 +443,6 @@ def gate_b(st, seq: int, *, thresholds: CraftGateThresholds | None = None,
             f"大纲未达可写({syn_n}<{t.synopsis_min_chars})",
             {"len": syn_n, "cn_len": syn_n, "min": t.synopsis_min_chars},
             "RC-SKIP-STAGE", hard=True))
-    elif syn_n < t.synopsis_soft_chars:
-        checks.append(CheckResult(
-            "B1", "warn",
-            f"大纲可写但偏简({syn_n}<{t.synopsis_soft_chars})",
-            {"len": syn_n, "cn_len": syn_n}, hard=False))
     else:
         checks.append(CheckResult(
             "B1", "pass", f"大纲 {syn_n} 字",
@@ -475,11 +470,6 @@ def gate_b(st, seq: int, *, thresholds: CraftGateThresholds | None = None,
             f"场景真相未达可写({truth_n}<{t.scene_truth_min_chars})",
             {"len": truth_n, "cn_len": truth_n, "min": t.scene_truth_min_chars},
             "RC-SKIP-STAGE", hard=True))
-    elif truth_n < t.scene_truth_soft_chars:
-        checks.append(CheckResult(
-            "B3", "warn",
-            f"场景真相可写但偏简({truth_n}<{t.scene_truth_soft_chars})",
-            {"len": truth_n, "cn_len": truth_n}, hard=False))
     else:
         checks.append(CheckResult(
             "B3", "pass", f"scene_truth {truth_n} 字",
