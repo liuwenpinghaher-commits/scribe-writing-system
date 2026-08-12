@@ -4,15 +4,15 @@
  * 拖拽时栏宽跳变、中文逐字折行、整页错乱。
  */
 
-// 兼容导出:与 layoutMode 共用默认（目录次要；内容:聊天 4:6）。阶段自动模式请用 layoutMode.LAYOUT_DEFAULTS_BY_MODE。
-// 旅程 tab 的会话/旅程换位默认见 layoutMode.JOURNEY_LAYOUT_SHARES。
-export const FOUR_PANE_DEFAULT = { directory: 14, detail: 34, right: 52 }
+// 兼容导出:与 layoutMode.LAYOUT_DEFAULT_SHARES 对齐（v8：目录 18 / 详情 42 / 会话 40）。
+// 阶段自动模式请用 layoutMode.LAYOUT_DEFAULTS_BY_MODE。
+export const FOUR_PANE_DEFAULT = { directory: 18, detail: 42, right: 40 }
 
 // max=100：折叠一侧后剩余栏可铺满；双栏同开时对侧 min 仍限制有效上限（见 layoutMode）
 export const FOUR_PANE_BOUNDS = {
-  directory: { min: 10, max: 22 },
-  detail: { min: 28, max: 100 },
-  right: { min: 28, max: 100 },
+  directory: { min: 14, max: 24 },
+  detail: { min: 30, max: 100 },
+  right: { min: 30, max: 100 },
 }
 
 /**

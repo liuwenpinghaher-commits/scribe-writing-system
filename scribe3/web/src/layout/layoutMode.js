@@ -3,8 +3,9 @@
  * 默认按章阶段自动：大纲/节拍/演绎/草稿 → collaboration；正文 final → reading。
  * 非章上下文（设定/素材等）默认 collaboration。全画布 view → reading。
  *
- * 栏序（用户偏好）：目录 | 详情 | 主编会话 —— 聊天在**最右侧**；
- * 默认宽度仍为 right=52 / detail=34 / directory=14（聊天:内容 ≈ 6:4）。
+ * 栏序：目录 | 详情 | 主编会话（聊天最右）。
+ * 默认宽度 v8：directory 18 / detail 42 / right 40（正文与大纲共用 writing 持久化，
+ * 避免切 final 时栏宽跳变、目录被压窄后 min-width 顶出遮挡）。
  */
 
 export const LAYOUT_MODE = Object.freeze({
@@ -31,18 +32,17 @@ export function resolveLayoutMode(ctx = {}) {
 }
 
 /**
- * 默认栏宽（%）：协作/阅读共用同一套，避免切 phase 时比例跳变。
- * 内容(detail):聊天(right) 在去掉目录后按 4:6 分（聊天:内容 = 6:4）。
- * 14 + 34 + 52 = 100。
+ * 默认栏宽（%）：协作/阅读共用；正文与大纲同一 writing 键，比例不跳变。
+ * 目录略加宽防窄屏被 min 像素顶出；详情略宽于聊天，利于正文阅读。
+ * 18 + 42 + 40 = 100。
  */
-export const LAYOUT_DEFAULT_SHARES = Object.freeze({ directory: 14, detail: 34, right: 52 })
+export const LAYOUT_DEFAULT_SHARES = Object.freeze({ directory: 18, detail: 42, right: 40 })
 
 /**
- * 旅程 tab 专用（目录隐藏时只剩两栏）：会话 52%、旅程 34% 的份额比。
- * 三键仍写 directory=0 占位；实际 Group 用 visibleLayoutShares 归一到 100。
- * 14 + 34 + 52 = 100（与全局份额语义一致：right=会话宽，detail=旅程宽）。
+ * 旅程 tab（目录隐藏时两栏）：detail=旅程、right=会话，保持 42:40 份额比。
+ * 三键仍写 directory 占位；Group 用 visibleLayoutShares 归一到 100。
  */
-export const JOURNEY_LAYOUT_SHARES = Object.freeze({ directory: 14, detail: 34, right: 52 })
+export const JOURNEY_LAYOUT_SHARES = Object.freeze({ directory: 18, detail: 42, right: 40 })
 
 /**
  * 仅保留可见栏 id 的份额并归一到 100（view 隐藏目录时 Group 只有两栏）。
@@ -73,13 +73,13 @@ export const LAYOUT_DEFAULTS_BY_MODE = Object.freeze({
 
 /**
  * 两模式共用拖拽边界。
- * max 用 100（而非 60）：折叠一侧后另一侧才能吃满空位；双栏同开时
- * 对侧 min（28）+ 目录 min（10）仍把单栏有效上限卡在 ~62%，不会拖死邻居。
+ * 目录 min 14：与默认 18 接近，避免拖到 10% 时内层文字顶破邻栏。
+ * max 100：折叠一侧后另一侧可吃满；双栏同开时对侧 min 仍限制有效上限。
  */
 export const LAYOUT_BOUNDS_SHARED = Object.freeze({
-  directory: { min: 10, max: 22 },
-  detail: { min: 28, max: 100 },
-  right: { min: 28, max: 100 },
+  directory: { min: 14, max: 24 },
+  detail: { min: 30, max: 100 },
+  right: { min: 30, max: 100 },
 })
 
 export const LAYOUT_BOUNDS_BY_MODE = Object.freeze({
@@ -118,33 +118,33 @@ export function panelOrderForJourney() {
 export function resolvePanelLayout(opts = {}) {
   const mode = opts.layoutMode || LAYOUT_MODE.reading
   if (opts.isJourneyView) {
-    // 旅程两栏均可拖：detail/right 下限 28（勿用 isView 的 56% 详情下限）
+    // 旅程两栏均可拖：detail/right 下限与全局一致
     const journeyBounds = Object.freeze({
       directory: LAYOUT_BOUNDS_SHARED.directory,
-      detail: { min: 28, max: 100 },
-      right: { min: 28, max: 100 },
+      detail: { min: 30, max: 100 },
+      right: { min: 30, max: 100 },
     })
     return {
       panelOrder: panelOrderForJourney(),
       layoutDefaults: JOURNEY_LAYOUT_SHARES,
       layoutBounds: journeyBounds,
-      storageMode: 'journey-v4',
-      // 旅程详情不要锁 min 56%，否则默认 34% 无效且几乎拖不动
-      detailMinPercent: 28,
+      storageMode: 'journey-v5',
+      detailMinPercent: 30,
     }
   }
   return {
     panelOrder: panelOrderForMode(mode),
     layoutDefaults: LAYOUT_DEFAULTS_BY_MODE[mode] || LAYOUT_DEFAULT_SHARES,
     layoutBounds: LAYOUT_BOUNDS_BY_MODE[mode] || LAYOUT_BOUNDS_SHARED,
-    storageMode: mode,
+    // 大纲(collaboration)与正文(reading)共用 writing 键：切 final 不换栏宽
+    storageMode: opts.isView ? mode : 'writing',
     // 其它 view（图谱等）仍倾向内容更宽
     detailMinPercent: opts.isView ? 40 : undefined,
   }
 }
 
-/** layout persistence 前缀 v7：会话在最右，清掉 v6 最左顺序缓存 */
-export const FOUR_PANE_LAYOUT_ID_V3 = 's3.fourPane.layout.v7'
+/** layout persistence 前缀 v8：统一默认宽 + writing 共用键，清掉 v7 窄目录/分模式缓存 */
+export const FOUR_PANE_LAYOUT_ID_V3 = 's3.fourPane.layout.v8'
 
 export function layoutStorageId(work, mode) {
   return `${FOUR_PANE_LAYOUT_ID_V3}:${mode}:${work || 'main'}`

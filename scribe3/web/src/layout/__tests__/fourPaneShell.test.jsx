@@ -490,12 +490,13 @@ describe('FourPaneShell 四栏钻取', () => {
     expect(rightRestore.getAttribute('data-restore-edge')).toBe('right')
   })
 
-  it('storage id 与 data-layout-mode 同源(单 mode 路径)', () => {
+  it('storage id 与 data-layout-mode 同源(writing 共用键)', () => {
     render(<Harness work="book-sync" />)
     const mode = screen.getByTestId('four-col').getAttribute('data-layout-mode')
     expect(mode).toBe('collaboration')
+    // 大纲/正文共用 writing 持久化，避免切 final 栏宽跳变
     expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
-      id: `s3.fourPane.layout.v7:${mode}:book-sync`,
+      id: 's3.fourPane.layout.v8:writing:book-sync',
     }))
     expect(screen.getByTestId('detail-panel').getAttribute('data-layout-mode')).toBe(mode)
     expect(screen.getByTestId('right-panel').getAttribute('data-layout-mode')).toBe(mode)
@@ -673,15 +674,15 @@ describe('FourPaneShell 四栏钻取', () => {
     }
   })
 
-  // Task 4 / v5:栏宽按 work + layoutMode 隔离
-  it('scopes panel layout by work and mode (v5)', () => {
+  // Task 4: 栏宽按 work + writing 键隔离（大纲/正文共用）
+  it('scopes panel layout by work and writing storage', () => {
     render(<Harness work="book-a" />)
     expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
-      id: 's3.fourPane.layout.v7:collaboration:book-a',
+      id: 's3.fourPane.layout.v8:writing:book-a',
     }))
   })
 
-  it('正文 final 阶段默认 reading:栏序变、默认宽与协作相同', async () => {
+  it('正文 final 阶段 reading 模式，默认宽与协作相同且共用 writing 键', async () => {
     function PhaseFinal({ children }) {
       const { setChapterPhase } = useChiefSlot()
       useEffect(() => { setChapterPhase('final') }, [setChapterPhase])
@@ -716,16 +717,18 @@ describe('FourPaneShell 四栏钻取', () => {
     })
     const detailW = Number(screen.getByTestId('detail-panel').getAttribute('data-default-size'))
     const rightW = Number(screen.getByTestId('right-panel').getAttribute('data-default-size'))
-    // 内容:聊天 4:6（聊天更宽）—— final 阅读态，非旅程 tab
-    expect(rightW).toBeGreaterThan(detailW)
-    expect(detailW).toBe(34)
-    expect(rightW).toBe(52)
+    const dirW = Number(screen.getByTestId('col-directory-panel').getAttribute('data-default-size'))
+    // v8：详情略宽于会话；大纲/正文同比例
+    expect(detailW).toBeGreaterThanOrEqual(rightW)
+    expect(dirW).toBe(18)
+    expect(detailW).toBe(42)
+    expect(rightW).toBe(40)
     expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
-      id: 's3.fourPane.layout.v7:reading:demo',
+      id: 's3.fourPane.layout.v8:writing:demo',
     }))
   })
 
-  it('旅程 tab：会话与旅程换位，会话默认宽=原旅程宽 34%', async () => {
+  it('旅程 tab：目录|旅程|会话，默认宽 42:40 归一', async () => {
     function JourneyHarness() {
       const [sel, setSel] = useState({ mode: 'view', viewKey: 'journey' })
       return (
@@ -751,16 +754,16 @@ describe('FourPaneShell 四栏钻取', () => {
     })
     expect(screen.getByTestId('four-col').getAttribute('data-journey-layout')).toBe('1')
     expect(screen.getByTestId('four-col').getAttribute('data-panel-order')).toBe('directory|detail|right')
-    // view 隐藏目录 → 两栏份额归一；会话:旅程 ≈ 52:34，且详情 min 可拖（非 56）
+    // view 隐藏目录 → 两栏份额归一；detail:right ≈ 42:40
     const detailW = Number(screen.getByTestId('detail-panel').getAttribute('data-default-size'))
     const rightW = Number(screen.getByTestId('right-panel').getAttribute('data-default-size'))
     const detailMin = Number(screen.getByTestId('detail-panel').getAttribute('data-min-size'))
-    expect(rightW).toBeGreaterThan(detailW)
-    expect(rightW / detailW).toBeCloseTo(52 / 34, 1)
-    expect(detailMin).toBe(28)
+    expect(detailW).toBeGreaterThanOrEqual(rightW)
+    expect(rightW / detailW).toBeCloseTo(40 / 42, 1)
+    expect(detailMin).toBe(30)
     expect(detailMin).toBeLessThanOrEqual(detailW)
     expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
-      id: 's3.fourPane.layout.v7:journey-v4:demo',
+      id: 's3.fourPane.layout.v8:journey-v5:demo',
     }))
   })
 })

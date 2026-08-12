@@ -473,8 +473,9 @@ export function FourPaneShell({
       }}
       className={cn('border-r border-line/50 bg-surface min-h-0 min-w-0 overflow-hidden')}
     >
+      {/* min-w-0：禁止固定 min-w 把百分比目录顶出遮挡邻栏（正文/大纲切换时尤甚） */}
       <div
-        className="relative h-full min-h-0 min-w-[10rem] max-w-full overflow-hidden"
+        className="relative h-full min-h-0 min-w-0 max-w-full overflow-hidden"
         data-testid="col-directory-panel"
         data-default-size={String(panelDefaults.directory ?? layoutDefaults.directory)}
         data-min-size={String(panelBounds.directory.min)}
@@ -502,7 +503,7 @@ export function FourPaneShell({
     </Panel>
   )
 
-  // 详情下限：旅程 tab 用 28% 可拖到 34% 默认；其它 view 略抬高内容下限；写作态用 bounds
+  // 详情下限：旅程 tab 用 30% 可拖到 42% 默认；其它 view 略抬高内容下限；写作态用 bounds
   const detailMin = detailMinPercent != null
     ? detailMinPercent
     : panelBounds.detail.min

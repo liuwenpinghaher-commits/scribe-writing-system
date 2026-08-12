@@ -37,24 +37,26 @@ describe('resolveLayoutMode phase-auto', () => {
 })
 
 describe('layout defaults by mode', () => {
-  it('collaboration and reading share chat-wider defaults (content:chat ≈ 4:6)', () => {
+  it('collaboration and reading share v8 balanced defaults (detail ≥ right, sum 100)', () => {
     const collab = LAYOUT_DEFAULTS_BY_MODE.collaboration
     const reading = LAYOUT_DEFAULTS_BY_MODE.reading
     expect(collab).toEqual(reading)
-    expect(collab.right).toBeGreaterThan(collab.detail)
-    expect(collab.right / collab.detail).toBeCloseTo(6 / 4, 1)
+    expect(collab.detail).toBeGreaterThanOrEqual(collab.right)
+    expect(collab.directory).toBe(18)
+    expect(collab.detail).toBe(42)
+    expect(collab.right).toBe(40)
     expect(collab.directory).toBeLessThan(collab.detail)
     expect(collab.directory + collab.detail + collab.right).toBe(100)
   })
 
-  it('sanitizeLayout with shared defaults keeps chat-wider shares', () => {
+  it('sanitizeLayout with shared defaults keeps v8 shares', () => {
     const collab = sanitizeLayout(null, {
       defaults: LAYOUT_DEFAULTS_BY_MODE.collaboration,
       bounds: LAYOUT_BOUNDS_BY_MODE.collaboration,
     })
-    expect(collab.right).toBeGreaterThan(collab.detail)
-    expect(collab.right).toBe(52)
-    expect(collab.detail).toBe(34)
+    expect(collab.detail).toBe(42)
+    expect(collab.right).toBe(40)
+    expect(collab.directory).toBe(18)
 
     const reading = sanitizeLayout(null, {
       defaults: LAYOUT_DEFAULTS_BY_MODE.reading,
@@ -70,10 +72,13 @@ describe('panel order + storage id', () => {
     expect(panelOrderForMode('reading')).toEqual(['directory', 'detail', 'right'])
   })
 
-  it('layoutStorageId isolates work and mode (v7)', () => {
-    expect(layoutStorageId('demo', 'collaboration')).toContain('v7')
-    expect(layoutStorageId('demo', 'collaboration')).toContain('collaboration')
-    expect(layoutStorageId('demo', 'collaboration')).not.toBe(layoutStorageId('demo', 'reading'))
+  it('layoutStorageId uses v8 and writing key for chapter modes', () => {
+    expect(layoutStorageId('demo', 'writing')).toContain('v8')
+    expect(layoutStorageId('demo', 'writing')).toContain('writing')
+    const writeCollab = resolvePanelLayout({ layoutMode: 'collaboration', isJourneyView: false })
+    const writeReading = resolvePanelLayout({ layoutMode: 'reading', isJourneyView: false })
+    expect(writeCollab.storageMode).toBe('writing')
+    expect(writeReading.storageMode).toBe('writing')
   })
 })
 
@@ -89,9 +94,9 @@ describe('journey tab shares + rightmost session', () => {
     expect(panelOrderForJourney()).toEqual(['directory', 'detail', 'right'])
   })
 
-  it('journey defaults: session 52%, journey/detail 34%', () => {
-    expect(JOURNEY_LAYOUT_SHARES.right).toBe(52)
-    expect(JOURNEY_LAYOUT_SHARES.detail).toBe(34)
+  it('journey defaults align with v8 detail:right shares', () => {
+    expect(JOURNEY_LAYOUT_SHARES.right).toBe(40)
+    expect(JOURNEY_LAYOUT_SHARES.detail).toBe(42)
     expect(JOURNEY_LAYOUT_SHARES.directory + JOURNEY_LAYOUT_SHARES.detail + JOURNEY_LAYOUT_SHARES.right).toBe(100)
   })
 
@@ -99,21 +104,21 @@ describe('journey tab shares + rightmost session', () => {
     const two = visibleLayoutShares(JOURNEY_LAYOUT_SHARES, ['right', 'detail'])
     expect(Object.keys(two).sort()).toEqual(['detail', 'right'])
     expect(two.right + two.detail).toBeCloseTo(100, 0)
-    expect(two.right / two.detail).toBeCloseTo(52 / 34, 1)
+    expect(two.right / two.detail).toBeCloseTo(40 / 42, 1)
   })
 
   it('resolvePanelLayout journey only overrides when isJourneyView', () => {
     const journey = resolvePanelLayout({ layoutMode: 'reading', isJourneyView: true })
     expect(journey.panelOrder).toEqual(['directory', 'detail', 'right'])
-    expect(journey.layoutDefaults.right).toBe(52)
-    expect(journey.layoutDefaults.detail).toBe(34)
-    expect(journey.detailMinPercent).toBe(28)
-    expect(journey.storageMode).toBe('journey-v4')
+    expect(journey.layoutDefaults.right).toBe(40)
+    expect(journey.layoutDefaults.detail).toBe(42)
+    expect(journey.detailMinPercent).toBe(30)
+    expect(journey.storageMode).toBe('journey-v5')
 
     const atlas = resolvePanelLayout({ layoutMode: 'reading', isJourneyView: false, isView: true })
     expect(atlas.panelOrder).toEqual(['directory', 'detail', 'right'])
-    expect(atlas.layoutDefaults.right).toBe(52)
-    expect(atlas.layoutDefaults.detail).toBe(34)
+    expect(atlas.layoutDefaults.right).toBe(40)
+    expect(atlas.layoutDefaults.detail).toBe(42)
     expect(atlas.detailMinPercent).toBe(40)
     expect(atlas.storageMode).toBe('reading')
   })

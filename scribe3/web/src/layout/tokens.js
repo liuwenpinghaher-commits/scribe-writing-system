@@ -1,9 +1,11 @@
+// 像素参考（设计意图）；实际栏宽由 layoutMode 百分比驱动。
+// v8：目录约 18% / 详情 42% / 会话 40%（在常见 1280–1600 内容区接近下表 ideal）。
 export const PC_LAYOUT = Object.freeze({
   topbar: 44,
   rail: 56,
-  directory: { min: 240, ideal: 264, max: 320 },
-  detail: { min: 600 },
-  right: { min: 300, ideal: 336, max: 380 },
+  directory: { min: 200, ideal: 260, max: 320 },
+  detail: { min: 480, ideal: 640 },
+  right: { min: 320, ideal: 480, max: 560 },
 })
 
 // 设计 token 单一真源(阶段1a)。值用 var() 引用现有 CSS 变量,不发明新值、不改观感。
