@@ -23,6 +23,7 @@ import { loadButtons, addButton } from './lib/rewriteButtons.js'
 import { InputDialog } from './ui/Dialog.jsx'
 import { useToast, dismissToast, showToast } from './ui/Toast.jsx'
 import { useChiefSlot } from './ChiefSlotContext'
+import { dualLampChips } from './lib/readerReadyGate.js'
 
 // 右坞「恢复到此版本」同步编辑器(F3/彻查 G-E4):BinderLayout 持有的共享信号。
 // 右坞 doRestore 落库后 bump restoreTick;WriteLayout(经 DetailPane 隔开、无法直接传 prop)
@@ -123,6 +124,8 @@ export function WriteLayout({ work, seq, sceneIdx }) {
   const [guard, setGuard] = useState({ leaks: [], qc: { repetition: 0, structural: 0, purple: 0, ai_tics: 0, oversaturation: 0 }, issues: [] })
   const [postCheckResult, setPostCheckResult] = useState(null)
   const [postChecking, setPostChecking] = useState(false)
+  // dual-lamp chips from last save/post-check
+  const [dualLamps, setDualLamps] = useState(null)
   // F-05 完整:点正文波浪线弹的悬浮卡 { issue, x, y };忽略后 bump 触发 decoration 重推
   const [issueCard, setIssueCard] = useState(null)
   const [ignoreTick, setIgnoreTick] = useState(0)
@@ -532,11 +535,18 @@ export function WriteLayout({ work, seq, sceneIdx }) {
     if (r.finalize_gate?.danger_draft) {
       toast('已强制保存（跳过了质检拦截）——请稍后自行复查', { tone: 'warn' })
     }
-    // dual-lamp：若存稿响应带 reader_ready / anti_meta 提示（soft）
+    // dual-lamp：存稿响应透出 anti_meta / reader_ready（soft toast + chips）
     try {
-      const am = r.anti_meta || r.reader_ready?.anti_meta
-      if (am && am.ok_for_claim === false) {
-        toast('草稿已存；正文含验收腔，尚不可宣称「给读者看」', { tone: 'warn' })
+      const rr = r.reader_ready || null
+      const am = r.anti_meta || rr?.anti_meta
+      if (rr || am) {
+        const chips = dualLampChips(rr || { anti_meta: am, lamps: r.lamps, claims: r.claims })
+        setDualLamps(chips)
+        if (am && am.ok_for_claim === false) {
+          toast('草稿已存；正文含验收腔，尚不可宣称「给读者看」', { tone: 'warn' })
+        } else if (chips.phase === 'yellow') {
+          toast('草稿已存；机判可读，请通读后点「确认给读者」', { tone: 'ok' })
+        }
       }
     } catch { /* */ }
     // 探索 soft-save / craft 未齐套未 stamp final（作者可感）
@@ -1076,6 +1086,31 @@ export function WriteLayout({ work, seq, sceneIdx }) {
                     知道了
                   </button>
                 </div>
+              )}
+            </div>
+          )}
+          {dualLamps && (
+            <div
+              className="mb-3 flex flex-wrap gap-2 items-center text-f12"
+              data-testid="dual-lamp-chips"
+            >
+              <span className="px-2 py-0.5 rounded-full bg-soft border border-line text-ink" data-testid="dual-lamp-scaffold">
+                {dualLamps.scaffoldChip}
+              </span>
+              <span
+                className={`px-2 py-0.5 rounded-full border ${
+                  dualLamps.phase === 'green'
+                    ? 'border-ok/40 bg-ok/10 text-ok'
+                    : dualLamps.phase === 'yellow'
+                      ? 'border-warn/40 bg-warn/10 text-warn'
+                      : 'border-danger/40 bg-danger/10 text-danger'
+                }`}
+                data-testid="dual-lamp-reader"
+              >
+                {dualLamps.readerChip}
+              </span>
+              {dualLamps.mayClaimReadable && (
+                <span className="text-meta text-faint">可宣称给读者</span>
               )}
             </div>
           )}

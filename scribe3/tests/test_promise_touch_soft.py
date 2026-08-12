@@ -57,3 +57,32 @@ def test_meta_span_does_not_count_as_touch():
     )
     assert ok2 is True
     assert reason2 == "scene"
+
+
+CH2_TAIL = """
+信息差维持到章末：缺口露一线，用途不写明。伏笔触碰：齿边、铜匙、炉灰、温着、铜腥，一一落在读者可感的句子里，却不收口。
+读者知道那是旧库钥匙；他知道；灰狸不知道——这道差，就是今夜的全部胜负。
+伏笔仍 open：铜匙齿边缺口要回收——本章只 touch，不 close。
+余烬主题在炉灰、温着、铜腥里轻轻回响。
+"""
+
+
+def test_ch2_tail_not_scene_touch():
+    """齿边验收腔全文：清单词不得算场面 touch（criterion3）。"""
+    from scribe3.promise_touch_soft import prose_touches_promise_scene
+    ok, reason = prose_touches_promise_scene(CH2_TAIL, "铜匙齿边缺口要回收")
+    assert ok is False, (ok, reason)
+
+
+def test_ch2_tail_scene_cover_not_ok():
+    """验收腔 + beats 关键词不得 scene_cover 假绿。"""
+    from scribe3.reader_ready import scene_cover
+    from scribe3.anti_meta_narration import scan_anti_meta
+    hits = scan_anti_meta(CH2_TAIL).get("hits") or []
+    sc = scene_cover(
+        CH2_TAIL,
+        [{"text": "齿边"}, {"text": "铜匙"}, {"text": "炉灰"}],
+        hits,
+    )
+    assert sc.get("ok") is not True, sc
+    assert (sc.get("valid") or 0) == 0 or sc.get("beat_ratio", 1) < 2 / 3

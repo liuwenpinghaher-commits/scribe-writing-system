@@ -64,15 +64,63 @@ def _clip(s: str, n: int = 80) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
-def _hit(id_: str, m: re.Match, sev: str, msg: str) -> AntiMetaHit:
+def _line_bounds(text: str, pos: int) -> tuple[int, int]:
+    """Full-line [start, end) containing pos (end exclusive, may include newline)."""
+    if not text:
+        return 0, 0
+    pos = max(0, min(pos, len(text)))
+    lo = text.rfind("\n", 0, pos)
+    lo = 0 if lo < 0 else lo + 1
+    hi = text.find("\n", pos)
+    if hi < 0:
+        hi = len(text)
+    return lo, hi
+
+
+def _sentence_bounds(text: str, pos: int) -> tuple[int, int]:
+    """Coarse sentence [start, end) containing pos."""
+    if not text:
+        return 0, 0
+    pos = max(0, min(pos, len(text)))
+    lo = pos
+    while lo > 0 and text[lo - 1] not in "。！？\n…":
+        lo -= 1
+    hi = pos
+    while hi < len(text) and text[hi] not in "。！？\n…":
+        hi += 1
+    if hi < len(text) and text[hi] in "。！？…":
+        hi += 1
+    return lo, hi
+
+
+def _hit_span(
+    id_: str, start: int, end: int, text: str, sev: str, msg: str,
+) -> AntiMetaHit:
     return AntiMetaHit(
         id=id_,
-        start=m.start(),
-        end=m.end(),
-        quote=_clip(m.group(0)),
+        start=start,
+        end=end,
+        quote=_clip(text[start:end]),
         severity=sev,
         message_zh=msg,
     )
+
+
+def _hit(id_: str, m: re.Match, text: str, sev: str, msg: str, *, expand_line: bool) -> AntiMetaHit:
+    """Build hit; claim_blocking M1/M2 expand to whole line so list tails are covered."""
+    s, e = m.start(), m.end()
+    if expand_line and sev == "claim_blocking":
+        s, e = _line_bounds(text, m.start())
+    return _hit_span(id_, s, e, text, sev, msg)
+
+
+# 行级验收腔（用于 is_meta_span 扩展：清单词在「伏笔触碰：」后）
+_ACCEPT_LINE = re.compile(
+    r"伏笔触碰\s*[:：]|信息差维持到章末|信息差钉在|伏笔仍\s*open|"
+    r"本章只\s*touch|只\s*touch|不\s*close|读者知道|读者已知|"
+    r"一一落在读者可感|(?<![A-Za-z])(open|touch|close)(?![A-Za-z])",
+    re.I,
+)
 
 
 def scan_anti_meta(prose: str) -> dict[str, Any]:
@@ -82,67 +130,59 @@ def scan_anti_meta(prose: str) -> dict[str, Any]:
 
     for rx, msg in _M2_PATTERNS:
         for m in rx.finditer(text):
-            hits.append(_hit("M2", m, "claim_blocking", msg))
+            hits.append(_hit("M2", m, text, "claim_blocking", msg, expand_line=True))
 
     for rx, msg in _M1_ZH:
         for m in rx.finditer(text):
-            hits.append(_hit("M1", m, "claim_blocking", msg))
+            hits.append(_hit("M1", m, text, "claim_blocking", msg, expand_line=True))
 
     for m in _M1_EN.finditer(text):
-        # same sentence-ish window
         lo = max(0, m.start() - 24)
         hi = min(len(text), m.end() + 24)
         window = text[lo:hi]
         if _M1_NEIGHBOR.search(window):
-            hits.append(_hit("M1", m, "claim_blocking", "协议词 open/touch/close 与伏笔邻域共现"))
+            hits.append(
+                _hit("M1", m, text, "claim_blocking",
+                     "协议词 open/touch/close 与伏笔邻域共现", expand_line=True)
+            )
 
     for m in _M3.finditer(text):
         lo = max(0, m.start() - 40)
         hi = min(len(text), m.end() + 40)
         window = text[lo:hi]
         if _M3_CO.search(window):
-            hits.append(
-                _hit("M3", m, "claim_blocking", "用「读者知道」讲解信息差，出戏")
-            )
+            # expand sentence so co-located 钥匙/秘密 also covered
+            s, e = _sentence_bounds(text, m.start())
+            hits.append(_hit_span(
+                "M3", s, e, text, "claim_blocking",
+                "用「读者知道」讲解信息差，出戏",
+            ))
         else:
-            hits.append(_hit("M3", m, "soft", "出现「读者…」表述（软提示）"))
+            hits.append(_hit("M3", m, text, "soft", "出现「读者…」表述（软提示）", expand_line=False))
 
     for rx, msg in _M4:
         for m in rx.finditer(text):
-            hits.append(_hit("M4", m, "soft", msg))
+            hits.append(_hit("M4", m, text, "soft", msg, expand_line=False))
 
     for m in _M5.finditer(text):
-        hits.append(_hit("M5", m, "soft", "母题 SEO 腔（软提示）"))
+        hits.append(_hit("M5", m, text, "soft", "母题 SEO 腔（软提示）", expand_line=False))
 
-    # M6: same paragraph ≥2 markers
-    paras = re.split(r"\n\s*\n", text) if "\n\n" in text else text.split("\n")
+    # M6: same line ≥2 markers → whole line claim_blocking
     offset = 0
-    for para in paras:
-        if not para:
-            offset += 1
-            continue
-        marks = list(_M6_MARK.finditer(para))
+    for line in text.split("\n"):
+        marks = list(_M6_MARK.finditer(line))
         if len(marks) >= 2:
-            # report first two as one stack hit on first mark in full text
-            m0 = marks[0]
-            abs_start = offset + m0.start()
-            abs_end = offset + marks[-1].end()
             hits.append(
                 AntiMetaHit(
                     id="M6",
-                    start=abs_start,
-                    end=abs_end,
-                    quote=_clip(para.strip()),
+                    start=offset,
+                    end=offset + len(line),
+                    quote=_clip(line.strip()),
                     severity="claim_blocking",
                     message_zh="同段堆叠协议/验收词（信息差·伏笔·open/touch…）",
                 )
             )
-        # advance offset including separator
-        offset += len(para)
-        if offset < len(text):
-            # account for split separators roughly
-            while offset < len(text) and text[offset] in "\n":
-                offset += 1
+        offset += len(line) + 1  # + newline
 
     # de-dupe by (id, start, end)
     seen: set[tuple] = set()
@@ -169,13 +209,27 @@ def is_meta_span(
     j: int,
     hits: list[dict[str, Any]] | None = None,
 ) -> bool:
-    """Whether [i,j) intersects any claim_blocking anti_meta hit."""
+    """Whether [i,j) is inside acceptance-speak (expanded hits or accept line)."""
+    text = prose or ""
     if hits is None:
-        hits = scan_anti_meta(prose).get("hits") or []
+        hits = scan_anti_meta(text).get("hits") or []
     for h in hits:
         if (h.get("severity") or "") != "claim_blocking":
             continue
         hs, he = int(h.get("start") or 0), int(h.get("end") or 0)
         if not (j <= hs or i >= he):
+            return True
+    # line-level fallback: keyword sits on an acceptance-speak line
+    if 0 <= i < len(text):
+        lo, hi = _line_bounds(text, i)
+        line = text[lo:hi]
+        if _ACCEPT_LINE.search(line):
+            return True
+        # SEO list: 顿号/逗号 ≥3 且以验收引导起头或无场面动词
+        parts = [p for p in re.split(r"[、，,]", line) if p.strip()]
+        if len(parts) >= 3 and (
+            re.search(r"伏笔触碰|触碰\s*[:：]|主题|母题", line)
+            or not re.search(r"[推摸藏问说看闪退走站坐跑打]", line)
+        ):
             return True
     return False

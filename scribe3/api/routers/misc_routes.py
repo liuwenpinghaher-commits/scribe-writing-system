@@ -704,6 +704,38 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
             "advisory_count": len(fg_decision.get("advisory_items") or []),
             "blocking_count": len(fg_decision.get("blocking") or []),
         }
+    # dual-lamp: 存稿响应透出 anti_meta / reader_ready（soft；不改变 200）
+    try:
+        from scribe3.reader_ready import build_reader_ready
+        _beats = None
+        try:
+            _beats = (st.get_chapter(req.seq) or {}).get("beats")
+        except Exception:
+            _beats = None
+        _sc_ok = None
+        try:
+            from scribe3.verify_craft_compliance import gate_b
+            _sc_ok = bool(gate_b(st, int(req.seq)).ok)
+        except Exception:
+            pass
+        rr = build_reader_ready(
+            req.prose or "",
+            st=st,
+            work=work,
+            seq=int(req.seq),
+            beats=_beats,
+            load_ack=True,
+            require_scene_cover=bool(_beats),
+            scaffold_ok=_sc_ok,
+        )
+        out["anti_meta"] = rr.get("anti_meta")
+        out["reader_ready"] = rr
+        out["lamps"] = rr.get("lamps")
+        out["claims"] = rr.get("claims")
+    except Exception as e:
+        import logging
+        logging.getLogger("scribe3").warning(
+            "save_chapter reader_ready attach fail-soft work=%s: %s", work, e)
     return out
 
 def dedup_chapter(seq: int, background: BackgroundTasks, work: str = "main"):

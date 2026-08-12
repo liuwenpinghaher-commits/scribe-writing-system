@@ -87,9 +87,9 @@ def scene_cover(
         ranges = _keyword_ranges(prose or "", b)
         good = []
         for a, c in ranges:
+            # SC3 / dual-lamp: meta·SEO·验收清单行内命中一律无效
             if is_meta_span(prose or "", a, c, hits):
                 continue
-            # SC3: only in tail and near meta → invalid
             if a >= tail_start and is_meta_span(
                 prose or "", max(0, a - 20), min(n, c + 20), hits
             ):
