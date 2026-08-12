@@ -57,10 +57,7 @@ def _project_frame_db(store, knower_id: str, chapter: int) -> KnowledgeFrame | N
     """DB 侧投影；失败返回 None。"""
     from scribe3.ontology import Fact
     try:
-        rows = store._query(
-            "RETURN fn::knowledge_frame($k, $ch);",
-            {"k": knower_id, "ch": int(chapter)},
-        ) or []
+        rows = store.knowledge_frame_fn(knower_id, int(chapter)) or []
     except Exception:
         return None
     raw = rows[0] if rows else None

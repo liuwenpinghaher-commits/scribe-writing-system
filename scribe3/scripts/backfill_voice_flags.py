@@ -41,9 +41,7 @@ from scribe3.store import SurrealStore, list_works   # noqa: E402
 
 
 def diagnose(st: SurrealStore) -> dict:
-    rows = st._query(
-        "SELECT meta::id(id) AS id, character, trigger_chapter, ingest_seq, status "
-        "FROM voice_evolution_flag")
+    rows = st.list_voice_evolution_flags()
     none_seq = [r for r in rows if r.get("ingest_seq") is None and r.get("status") == "open"]
     bare = [r for r in rows if r.get("character") and ":" not in str(r["character"])]
     prefixed_names = {str(r["character"]).split(":")[-1] for r in rows
@@ -57,9 +55,7 @@ def fix_bare_names(st: SurrealStore, bare_rows: list) -> int:
     n = 0
     for r in bare_rows:
         try:
-            st._execute_write(
-                "UPDATE type::record('voice_evolution_flag',$id) SET character=$c",
-                {"id": r["id"], "c": f"role:{r['character']}"})
+            st.set_voice_flag_character(r["id"], f"role:{r['character']}")
             n += 1
         except Exception as e:   # noqa: BLE001
             print(f"    ! 修裸名失败 {r.get('id')}: {e}")
@@ -90,9 +86,7 @@ def main() -> None:
                     print(f"  → [DRY-RUN] 将补前缀 {len(d['bare'])} 条裸名(加 --yes 执行)")
             if args.archive_stale_none and d["none_open"]:
                 if args.yes:
-                    st._execute_write(
-                        "UPDATE voice_evolution_flag SET status='done' "
-                        "WHERE ingest_seq IS NONE AND status='open'")
+                    st.archive_stale_none_voice_flags()
                     print(f"  → 已归档 {len(d['none_open'])} 条 NONE open flag(status=done)")
                 else:
                     print(f"  → [DRY-RUN] 将归档 {len(d['none_open'])} 条 NONE open flag"

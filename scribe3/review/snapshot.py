@@ -26,22 +26,16 @@ def save_chapter_review(store, *, work: str, seq: int, payload: dict[str, Any]) 
         fp = payload.get("prose_fp") or prose_fp(payload.get("prose") or "")
         # Surreal: use record chapter_review:{work}_{seq} or separate fields
         local = f"{work}_{int(seq)}".replace(":", "_")
-        store._execute_write(
-            "UPSERT type::record('chapter_review', $local) SET "
-            "work=$work, seq=$seq, prose_fp=$fp, mode=$mode, "
-            "issues_json=$issues, coverage=$cov, degraded=$deg, "
-            "model_id=$mid, created_at=time::now()",
-            {
-                "local": local,
-                "work": work,
-                "seq": int(seq),
-                "fp": fp,
-                "mode": payload.get("mode") or "full",
-                "issues": payload.get("issues") or [],
-                "cov": payload.get("coverage") or {},
-                "deg": payload.get("degraded_sources") or payload.get("degraded") or [],
-                "mid": payload.get("model_id") or "",
-            },
+        store.upsert_chapter_review(
+            local,
+            work=work,
+            seq=int(seq),
+            prose_fp=fp,
+            mode=payload.get("mode") or "full",
+            issues=payload.get("issues") or [],
+            coverage=payload.get("coverage") or {},
+            degraded=payload.get("degraded_sources") or payload.get("degraded") or [],
+            model_id=payload.get("model_id") or "",
         )
         return True
     except Exception as e:
@@ -53,13 +47,9 @@ def load_chapter_review(store, *, work: str, seq: int, current_prose: str) -> di
     """Load if prose_fp matches; else None."""
     try:
         local = f"{work}_{int(seq)}".replace(":", "_")
-        rows = store._query(
-            "SELECT * FROM type::record('chapter_review', $local) LIMIT 1",
-            {"local": local},
-        ) or []
-        if not rows:
+        r = store.get_chapter_review_row(local)
+        if not r:
             return None
-        r = rows[0]
         fp = (r.get("prose_fp") or "").strip()
         if fp != prose_fp(current_prose):
             return None

@@ -130,8 +130,7 @@ def poll_table_changes(store: Any, table: str, since: str | int | None = None) -
         # 表名白名单形态：字母数字下划线
         if not str(table).replace("_", "").isalnum():
             return []
-        q = f"SHOW CHANGES FOR TABLE {table} SINCE {since_lit} LIMIT 50;"
-        return store._query(q) or []
+        return store.show_table_changes(table, since_lit, limit=50) or []
     except Exception as e:
         _log.debug("poll %s: %s", table, e)
         return []

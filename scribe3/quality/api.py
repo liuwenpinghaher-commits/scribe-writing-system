@@ -390,13 +390,7 @@ def generate_fingerprint(
 @quality_router.get("/{reference_work_id}/fingerprints")
 def list_fingerprints(reference_work_id: str, work: str, request: Request):
     store = _store_for_request(request, work)
-    rows = store._query(
-        "SELECT fingerprint_id, reference_work_id, revision, source_hash, status, fingerprint, "
-        "provider, model, provider_request_id, usage FROM reference_fingerprint "
-        "WHERE reference_work_id=$rid ORDER BY revision DESC",
-        {"rid": reference_work_id},
-    )
-    return rows
+    return store.list_reference_fingerprints(reference_work_id)
 
 
 @quality_router.post("/{reference_work_id}/fingerprints/{fingerprint_id}/approve", status_code=201)
@@ -420,15 +414,10 @@ def approve_fingerprint(
 @quality_router.patch("/{reference_work_id}")
 def patch_reference(reference_work_id: str, body: PatchBody, request: Request):
     store = _store_for_request(request, body.work)
-    rows = store._query(
-        "SELECT reference_work_id, work, title, source_hash, import_revision, status "
-        "FROM reference_work WHERE reference_work_id=$rid "
-        "ORDER BY import_revision DESC LIMIT 1",
-        {"rid": reference_work_id},
-    )
-    if not rows:
+    row = store.get_reference_work_meta(reference_work_id)
+    if not row:
         raise HTTPException(404, "参考作品不存在")
-    return rows[0]
+    return row
 
 
 # ── 质量评价纵向链端点 ──────────────────────────────────────────────
@@ -510,11 +499,7 @@ class ContractApprovalBody(BaseModel):
 
 
 def _chapter_version_ids_for_seq(store, seq: int) -> list[str]:
-    rows = store._query(
-        "SELECT VALUE id FROM chapter_version WHERE seq=$seq "
-        "ORDER BY created_at DESC LIMIT 1", {"seq": seq},
-    )
-    return [str(rid) for rid in rows]
+    return store.latest_chapter_version_ids(int(seq))
 
 
 @quality_eval_router.post("/contracts", status_code=201)
@@ -562,21 +547,7 @@ def approve_contract_revision(
 
 
 def _latest_job_id_for_seq(store, seq: int) -> str | None:
-    snapshot_rows = store._query(
-        "SELECT VALUE snapshot FROM quality_snapshot_member "
-        "WHERE chapter_version IN "
-        "(SELECT VALUE id FROM chapter_version WHERE seq=$seq)",
-        {"seq": seq},
-    )
-    snapshots = [s for s in snapshot_rows if s is not None]
-    if not snapshots:
-        return None
-    job_rows = store._query(
-        "SELECT job_id, created_at FROM quality_job WHERE snapshot IN $snapshots "
-        "ORDER BY created_at DESC LIMIT 1",
-        {"snapshots": snapshots},
-    )
-    return job_rows[0]["job_id"] if job_rows else None
+    return store.latest_quality_job_id_for_seq(int(seq))
 
 
 def _anchor_payload(anchor: EvidenceAnchor) -> dict[str, Any]:
@@ -768,12 +739,7 @@ def list_reference_craft_uses(chapter: int, request: Request, work: str = "main"
     这里绝不返回参考原文、指纹全文、提示词或模型输出；只给可关联到 Manifest 的
     使用标识，避免把验收查询变成新的参考内容读取通道。
     """
-    rows = _store_for_request(request, work)._query(
-        "SELECT chapter, request_id, manifest_id, reference_fingerprint_ids, mechanism_ids, created_at "
-        "FROM reference_craft_use WHERE work=$work AND chapter=$chapter "
-        "ORDER BY created_at DESC",
-        {"work": work, "chapter": chapter},
-    )
+    rows = _store_for_request(request, work).list_reference_craft_uses(work, chapter)
     fields = ("chapter", "request_id", "manifest_id", "reference_fingerprint_ids", "mechanism_ids")
     return [{field: row.get(field) for field in fields} for row in rows]
 

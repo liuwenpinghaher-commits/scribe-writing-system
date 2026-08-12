@@ -1567,8 +1567,7 @@ def _grounding_llm(st, work: str, chapter: int, prompt: str) -> str:
 
 
 def _pilot_steer(st, seq: int) -> str:
-    rows = st._query("SELECT pilot_steer FROM type::record('chapter',$seq)", {"seq": seq})
-    raw = ((rows[0] if rows else {}).get("pilot_steer") or "").strip()
+    raw = (st.get_pilot_steer(seq) if hasattr(st, "get_pilot_steer") else "") or ""
     # D5 质量验收：SCRIBE3_MEMORY_STEER_MODE=minimal 时不把库内长 steer 当设定灌输，
     # 只保留极简冲突句，迫使模型依赖记忆/正典注入（见 memory_must_link）。
     try:

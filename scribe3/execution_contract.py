@@ -238,20 +238,12 @@ def merge_pilot_card(st: Any, seq: int, patch: dict) -> None:
         return
     prev_raw = None
     try:
-        rows = st._query(
-            "SELECT pilot_card FROM type::record('chapter',$seq)",
-            {"seq": int(seq)},
-        )
-        if rows:
-            prev_raw = rows[0].get("pilot_card")
+        prev_raw = st.get_pilot_card(int(seq))
     except Exception as e:
         _log.debug("merge_pilot_card read fail-soft: %s", e)
     card = merge_pilot_card_dict(prev_raw, patch)
     try:
-        st._execute_write(
-            "UPDATE type::record('chapter',$seq) SET pilot_card=$c",
-            {"seq": int(seq), "c": json.dumps(card, ensure_ascii=False)},
-        )
+        st.set_pilot_card(int(seq), json.dumps(card, ensure_ascii=False))
     except Exception as e:
         _log.warning("merge_pilot_card write fail-soft: %s", e)
 

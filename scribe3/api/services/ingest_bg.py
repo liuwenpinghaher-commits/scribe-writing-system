@@ -47,31 +47,9 @@ def mark_chapter_ingest_status(
     """
     import logging
     try:
-        if prose_fp and status == "ok":
-            try:
-                st._execute_write(
-                    "UPDATE type::record('chapter',$seq) SET "
-                    "ingest_status=$st, ingest_error=$er, ingest_prose_fp=$fp",
-                    {"seq": int(seq), "st": status, "er": (err or "")[:200], "fp": prose_fp[:32]},
-                )
-                return
-            except Exception:
-                # 老库无字段：先 DEFINE 再写
-                try:
-                    st._raw_query(
-                        "DEFINE FIELD IF NOT EXISTS ingest_prose_fp ON chapter TYPE option<string>;"
-                    )
-                    st._execute_write(
-                        "UPDATE type::record('chapter',$seq) SET "
-                        "ingest_status=$st, ingest_error=$er, ingest_prose_fp=$fp",
-                        {"seq": int(seq), "st": status, "er": (err or "")[:200], "fp": prose_fp[:32]},
-                    )
-                    return
-                except Exception:
-                    pass
-        st._execute_write(
-            "UPDATE type::record('chapter',$seq) SET ingest_status=$st, ingest_error=$er",
-            {"seq": int(seq), "st": status, "er": (err or "")[:200]})
+        st.set_chapter_ingest_status(
+            int(seq), status, err, prose_fp=prose_fp if (prose_fp and status == "ok") else None,
+        )
     except Exception as me:
         logging.getLogger("scribe3").warning(
             "ingest 状态落库失败(忽略) seq=%s status=%s: %s", seq, status, me)

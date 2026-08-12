@@ -73,16 +73,12 @@ def selected_reference_work_ids_from_contract(
       求交后可能为空 → 不注入）。
     """
     quality = QualityStore(store)
-    rows = store._query(
-        "SELECT contract_id, revision FROM quality_contract_revision "
-        "WHERE work=$work AND approved=true ORDER BY revision DESC LIMIT 1",
-        {"work": work},
-    )
-    if not rows:
+    row = store.latest_approved_contract_ref(work)
+    if not row:
         return None
     try:
         contract = quality.get_contract(
-            str(rows[0]["contract_id"]), int(rows[0]["revision"]),
+            str(row["contract_id"]), int(row["revision"]),
         )
     except (ValueError, TypeError, KeyError):
         return None

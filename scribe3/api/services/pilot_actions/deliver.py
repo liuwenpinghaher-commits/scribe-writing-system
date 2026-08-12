@@ -31,10 +31,11 @@ def build_actions(work: str) -> dict:
                                    stage="final", stats=_prose_stats(prose))
         except Exception as e:
             logging.getLogger("scribe3").warning("pilot 交付留版失败(忽略): %s", e)
-        _qrows = st._query(
-            "SELECT qc_issues, pilot_card FROM type::record('chapter',$seq)",
-            {"seq": seq})
-        _row0 = _qrows[0] if _qrows else {}
+        _row0 = (
+            st.get_chapter_qc_and_pilot_card(seq)
+            if hasattr(st, "get_chapter_qc_and_pilot_card")
+            else {}
+        )
         _qc = _row0.get("qc_issues")
         _qn = len(_qc) if isinstance(_qc, list) else (_qc or 0)
         _prom = []
@@ -103,8 +104,7 @@ def build_actions(work: str) -> dict:
         for _k in ("soft_fulfill", "execution"):
             if isinstance(_prev_card.get(_k), dict):
                 card[_k] = _prev_card[_k]
-        st._execute_write("UPDATE type::record('chapter',$seq) SET pilot_card=$c",
-                          {"seq": seq, "c": json.dumps(card, ensure_ascii=False)})
+        st.set_pilot_card(seq, json.dumps(card, ensure_ascii=False))
         return {"card": card}
 
 

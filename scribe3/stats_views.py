@@ -19,13 +19,13 @@ def read_chapter_count(store: Any) -> int:
     """章计数：优先 stats_chapter_count 视图。"""
     if stats_view_enabled():
         try:
-            rows = store._query("SELECT n FROM stats_chapter_count;") or []
+            rows = store.stats_chapter_count_view() or []
             if rows and isinstance(rows[0], dict) and rows[0].get("n") is not None:
                 return int(rows[0]["n"])
         except Exception as e:
             _log.debug("stats_chapter_count fallback: %s", e)
     try:
-        rows = store._query("SELECT count() AS n FROM chapter GROUP ALL;") or []
+        rows = store.count_chapters_group() or []
         if rows and isinstance(rows[0], dict):
             return int(rows[0].get("n") or 0)
     except Exception:
@@ -39,15 +39,13 @@ def read_chapter_count(store: Any) -> int:
 def read_open_promise_count(store: Any) -> int:
     if stats_view_enabled():
         try:
-            rows = store._query("SELECT n FROM stats_open_promises;") or []
+            rows = store.stats_open_promises_view() or []
             if rows and isinstance(rows[0], dict) and rows[0].get("n") is not None:
                 return int(rows[0]["n"])
         except Exception as e:
             _log.debug("stats_open_promises fallback: %s", e)
     try:
-        rows = store._query(
-            "SELECT count() AS n FROM promise WHERE status = 'open' GROUP ALL;"
-        ) or []
+        rows = store.count_open_promises_group() or []
         if rows and isinstance(rows[0], dict):
             return int(rows[0].get("n") or 0)
     except Exception:
@@ -59,16 +57,14 @@ def read_total_words(store: Any) -> int:
     """GAP-5：全书字数聚合（优先 stats_total_words 视图）。"""
     if stats_view_enabled():
         try:
-            rows = store._query("SELECT total_words FROM stats_total_words;") or []
+            rows = store.stats_total_words_view() or []
             if rows and isinstance(rows[0], dict) and rows[0].get("total_words") is not None:
                 return int(rows[0]["total_words"] or 0)
         except Exception as e:
             _log.debug("stats_total_words fallback: %s", e)
     total = 0
     try:
-        rows = store._query(
-            "SELECT math::sum(qc_word_count) AS total_words FROM chapter GROUP ALL;"
-        ) or []
+        rows = store.sum_chapter_word_counts() or []
         if rows and isinstance(rows[0], dict) and rows[0].get("total_words") is not None:
             return int(rows[0]["total_words"] or 0)
     except Exception:
@@ -97,7 +93,7 @@ def read_phase_distribution(store: Any) -> list[dict[str, Any]]:
     """GAP-5：阶段分布。"""
     if stats_view_enabled():
         try:
-            rows = store._query("SELECT stage, n FROM stats_phase_distribution;") or []
+            rows = store.stats_phase_distribution_view() or []
             out = []
             for r in rows:
                 if isinstance(r, dict):

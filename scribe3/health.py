@@ -45,10 +45,11 @@ def health_report(store, up_to: int) -> HealthReport:
     ingest_failures: list = []
     for ch in chapters:
         try:
-            rows = store._query(
-                "SELECT ingest_status, ingest_error FROM type::record('chapter',$seq)",
-                {"seq": ch}) if hasattr(store, "_query") else []
-            row = rows[0] if rows else {}
+            row = (
+                store.get_chapter_ingest_status_fields(ch)
+                if hasattr(store, "get_chapter_ingest_status_fields")
+                else {}
+            )
             stt = row.get("ingest_status")
             if stt in ("failed", "parse_failed"):
                 ingest_failures.append({

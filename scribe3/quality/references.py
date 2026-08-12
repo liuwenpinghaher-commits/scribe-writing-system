@@ -144,11 +144,7 @@ class ReferenceService:
 
     def list_references(self, *, work: str) -> tuple[ReferenceWorkRecord, ...]:
         """仅返回当前作品的可展示元数据；参考原文不离开服务层。"""
-        rows = self._store._query(
-            "SELECT reference_work_id, work, title, source_hash, import_revision, status "
-            "FROM reference_work WHERE work=$work ORDER BY import_revision DESC",
-            {"work": work},
-        )
+        rows = self._store.list_reference_works_for_work(work)
         return tuple(ReferenceWorkRecord.model_validate(row) for row in rows)
 
     def list_approved_fingerprints_for_ui(self, *, work: str) -> list[dict[str, Any]]:
@@ -181,12 +177,10 @@ class ReferenceService:
         reference_work_id: str,
         llm,
     ) -> ReferenceFingerprintRecord:
-        works = self._store._query(
-            "SELECT id, reference_work_id, source_hash, import_revision "
-            "FROM reference_work WHERE reference_work_id=$rid "
-            "ORDER BY import_revision DESC LIMIT 1",
-            {"rid": reference_work_id},
-        )
+        works = []
+        _w = self._store.get_reference_work_for_fingerprint(reference_work_id)
+        if _w:
+            works = [_w]
         if not works:
             raise ValueError(f"参考作品不存在: {reference_work_id}")
         work_row = works[0]
@@ -339,14 +333,10 @@ class ReferenceService:
         return self._quality.save_reference_fingerprint(new_record)
 
     def _get_reference_text(self, reference_work_id: str) -> str:
-        rows = self._store._query(
-            "SELECT source_text, import_revision FROM reference_work "
-            "WHERE reference_work_id=$rid ORDER BY import_revision DESC LIMIT 1",
-            {"rid": reference_work_id},
-        )
-        if not rows:
+        row = self._store.get_reference_source_text(reference_work_id)
+        if not row:
             return ""
-        source_text = (rows[0].get("source_text") or "").strip()
+        source_text = (row.get("source_text") or "").strip()
         if not source_text:
             raise ValueError("参考作品原文缺失；请重新导入同一文本以补齐指纹输入")
         return source_text

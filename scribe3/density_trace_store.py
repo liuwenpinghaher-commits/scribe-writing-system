@@ -79,32 +79,22 @@ def density_delta(curr: dict | None, prev: dict | None) -> dict[str, Any] | None
 
 
 def ensure_density_fields(st) -> None:
-    if st is None or not hasattr(st, "_raw_query"):
+    if st is None or not hasattr(st, "ensure_density_trace_fields"):
         return
     try:
-        st._raw_query(
-            "DEFINE FIELD IF NOT EXISTS density_trace_json ON chapter TYPE option<string>;"
-        )
-        st._raw_query(
-            "DEFINE FIELD IF NOT EXISTS density_trace_prev_json ON chapter TYPE option<string>;"
-        )
+        st.ensure_density_trace_fields()
     except Exception:
         pass
 
 
 def load_density_pair(st, seq: int) -> tuple[dict | None, dict | None]:
     """返回 (last, prev)。"""
-    if st is None or not hasattr(st, "_query"):
+    if st is None or not hasattr(st, "get_density_trace_fields"):
         return None, None
     try:
-        rows = st._query(
-            "SELECT density_trace_json, density_trace_prev_json "
-            "FROM type::record('chapter',$s)",
-            {"s": int(seq)},
-        )
-        if not rows:
+        r = st.get_density_trace_fields(int(seq)) or {}
+        if not r:
             return None, None
-        r = rows[0] or {}
         last = prev = None
         raw = r.get("density_trace_json")
         if raw:
@@ -134,17 +124,11 @@ def upsert_density_trace(st, seq: int, density_trace: dict | None) -> dict[str, 
     prev = old_last  # 旧 last → prev
     delta = density_delta(slim, prev)
     try:
-        if hasattr(st, "_execute_write"):
-            st._execute_write(
-                "UPDATE type::record('chapter',$s) SET "
-                "density_trace_json=$cur, density_trace_prev_json=$prev",
-                {
-                    "s": int(seq),
-                    "cur": json.dumps(slim, ensure_ascii=False),
-                    "prev": (
-                        json.dumps(prev, ensure_ascii=False) if prev else None
-                    ),
-                },
+        if hasattr(st, "set_density_trace_fields"):
+            st.set_density_trace_fields(
+                int(seq),
+                cur_json=json.dumps(slim, ensure_ascii=False),
+                prev_json=(json.dumps(prev, ensure_ascii=False) if prev else None),
             )
         return {
             "ok": True,

@@ -25,7 +25,8 @@ from scribe3.store.storyline import StorylineStoreMixin
 from scribe3.store.pilot_ops import PilotOpsMixin
 from scribe3.store.infra_ops import InfraOpsMixin
 from scribe3.store.context_ops import ContextOpsMixin
+from scribe3.store.adapter_ops import AdapterOpsMixin
 
-class SurrealStore(ConnectionMixin, CharactersMixin, FactsKnowledgeMixin, EventsMixin, RecallMixin, ChaptersMixin, PromisesMixin, IntentMixin, CodexExtMixin, VoiceCraftMixin, MaterialsMixin, ChatAiMixin, StructureMixin, WorksMixin, MotifsMixin, UnverifiedIngestMixin, CanonCandidatesMixin, ProgressStatsMixin, CharacterArcMixin, StorylineStoreMixin, PilotOpsMixin, InfraOpsMixin, ContextOpsMixin, MiscMixin):
+class SurrealStore(ConnectionMixin, CharactersMixin, FactsKnowledgeMixin, EventsMixin, RecallMixin, ChaptersMixin, PromisesMixin, IntentMixin, CodexExtMixin, VoiceCraftMixin, MaterialsMixin, ChatAiMixin, StructureMixin, WorksMixin, MotifsMixin, UnverifiedIngestMixin, CanonCandidatesMixin, ProgressStatsMixin, CharacterArcMixin, StorylineStoreMixin, PilotOpsMixin, InfraOpsMixin, ContextOpsMixin, AdapterOpsMixin, MiscMixin):
     """组合各域 mixin;公开 API 与历史 store.SurrealStore 一致。"""
     pass

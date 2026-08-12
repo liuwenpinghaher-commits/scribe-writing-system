@@ -371,3 +371,56 @@ def test_write_assemble_context_module_and_rules_parts():
     body = pathlib.Path("scribe3/critique/rules_impl_body.py").read_text()
     assert "rules_parts" in body
     assert body.count("\n") < 80
+
+
+def test_adapter_ops_public_surface():
+    from scribe3.store.surreal import SurrealStore
+    from scribe3.store.adapter_ops import AdapterOpsMixin
+
+    for name in (
+        "ping",
+        "stats_chapter_count_view",
+        "knowledge_frame_fn",
+        "set_chapter_ingest_status",
+        "write_chapter_ingest_hold",
+        "create_inflight_lock",
+        "upsert_chapter_review",
+        "promise_exists",
+        "delete_promise_record",
+        "get_pilot_card",
+        "set_pilot_card",
+        "show_table_changes",
+        "list_reference_fingerprints",
+        "latest_quality_job_id_for_seq",
+        "get_chapter_qc_and_pilot_card",
+        "clear_chapter_prose_for_redraft",
+    ):
+        assert hasattr(SurrealStore, name), name
+        assert hasattr(AdapterOpsMixin, name), name
+
+
+def test_next_layer_adapters_no_private_store():
+    """业务适配层（除 quality/store 域适配器）无私有 store 调用。"""
+    import pathlib
+    import re
+
+    pat = re.compile(r"\._(?:query|execute_write|raw_query)\s*\(")
+    allow = {
+        "scribe3/quality/store.py",  # 域适配器，对标 ContextStore 已迁移前形态
+    }
+    roots = []
+    for p in pathlib.Path("scribe3").rglob("*.py"):
+        s = str(p).replace("\\", "/")
+        if "/store/" in s or "/tests/" in s or "/tools/" in s or "__pycache__" in s:
+            continue
+        if s in allow:
+            continue
+        roots.append(s)
+    hits = []
+    for rel in sorted(roots):
+        for i, line in enumerate(pathlib.Path(rel).read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            if line.lstrip().startswith("#"):
+                continue
+            if pat.search(line):
+                hits.append(f"{rel}:{i}:{line.strip()[:100]}")
+    assert not hits, "private store calls remain:\n" + "\n".join(hits[:40])

@@ -85,29 +85,12 @@ def write_hold(
         return
     until = time.time() + ttl
     try:
-        st._raw_query(
-            "DEFINE FIELD IF NOT EXISTS ingest_hold_reason ON chapter TYPE option<string>;"
-        )
-        st._raw_query(
-            "DEFINE FIELD IF NOT EXISTS ingest_confirm_token ON chapter TYPE option<string>;"
-        )
-        st._raw_query(
-            "DEFINE FIELD IF NOT EXISTS ingest_hold_prose_fp ON chapter TYPE option<string>;"
-        )
-        st._raw_query(
-            "DEFINE FIELD IF NOT EXISTS ingest_hold_until ON chapter TYPE option<float>;"
-        )
+        st.ensure_ingest_hold_fields()
     except Exception:
         pass
     try:
-        st._execute_write(
-            "UPDATE type::record('chapter',$seq) SET "
-            "ingest_hold_reason=$r, ingest_confirm_token=$t, "
-            "ingest_hold_prose_fp=$fp, ingest_hold_until=$u, ingest_status=$st",
-            {
-                "seq": int(seq), "r": reason[:120], "t": token[:64],
-                "fp": prose_fp[:32], "u": until, "st": "held",
-            },
+        st.write_chapter_ingest_hold(
+            int(seq), reason=reason, token=token, prose_fp=prose_fp, until=until,
         )
     except Exception as e:
         _log.warning("write_hold failed seq=%s: %s", seq, e)
@@ -117,12 +100,7 @@ def clear_hold(st, seq: int) -> None:
     if st is None:
         return
     try:
-        st._execute_write(
-            "UPDATE type::record('chapter',$seq) SET "
-            "ingest_hold_reason=NONE, ingest_confirm_token=NONE, "
-            "ingest_hold_until=NONE",
-            {"seq": int(seq)},
-        )
+        st.clear_chapter_ingest_hold(int(seq))
     except Exception:
         pass
 

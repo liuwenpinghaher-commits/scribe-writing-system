@@ -17,7 +17,7 @@ def health(request: Request):
     store_for = request.app.state.store_for
     out: dict = {"ok": True, "ns": "scribe3", "db": "ok"}
     try:
-        store_for("main")._query("RETURN 1")
+        store_for("main").ping()
     except Exception as e:
         out["ok"] = False
         out["db"] = f"down: {str(e)[:80]}"
@@ -69,7 +69,7 @@ def ready(request: Request):
     """就绪探针:DB 可达 200,否则 503(部署/看门狗用)。"""
     store_for = request.app.state.store_for
     try:
-        store_for("main")._query("RETURN 1")
+        store_for("main").ping()
         return {"ready": True}
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"db not ready: {str(e)[:80]}")

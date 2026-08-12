@@ -76,10 +76,7 @@ def build_actions(work: str) -> dict:
         if _plan.get("force_clear"):
             try:
                 # SCHEMAFULL prose 是 string，不可 SET NONE；空串才合法
-                st._execute_write(
-                    "UPDATE type::record('chapter',$seq) SET prose=$p, draft=$p, qc_word_count=0",
-                    {"seq": seq, "p": ""},
-                )
+                st.clear_chapter_prose_for_redraft(seq)
                 logging.getLogger("scribe3").info(
                     "draft_loop force clear prose work=%s seq=%s", work, seq)
             except Exception as e:

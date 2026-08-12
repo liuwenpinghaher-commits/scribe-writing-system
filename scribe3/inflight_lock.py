@@ -80,11 +80,8 @@ class TableInflightLock:
         w, s, o = (work or "main"), int(seq), str(op or "loop")
         rid = f"{w}_{s}_{o}".replace(":", "_")
         try:
-            self._st._execute_write(
-                "CREATE type::record('inflight', $rid) CONTENT {"
-                " work: $work, seq: $seq, op: $op, ttl_seconds: $ttl"
-                "};",
-                {"rid": rid, "work": w, "seq": s, "op": o, "ttl": int(ttl_seconds)},
+            self._st.create_inflight_lock(
+                rid, work=w, seq=s, op=o, ttl=int(ttl_seconds),
             )
             return LockResult(ok=True)
         except Exception as e:
@@ -98,10 +95,7 @@ class TableInflightLock:
         w, s, o = (work or "main"), int(seq), str(op or "loop")
         rid = f"{w}_{s}_{o}".replace(":", "_")
         try:
-            self._st._execute_write(
-                "DELETE type::record('inflight', $rid);",
-                {"rid": rid},
-            )
+            self._st.delete_inflight_lock(rid)
             return True
         except Exception as e:
             _log.warning("TableInflightLock.release: %s", e)
@@ -109,10 +103,7 @@ class TableInflightLock:
 
     def cleanup_stale(self) -> int:
         try:
-            rows = self._st._query(
-                "DELETE FROM inflight WHERE started_at IS NOT NONE "
-                "AND time::now() - started_at > 5m RETURN BEFORE;"
-            ) or []
+            rows = self._st.cleanup_stale_inflight_locks() or []
             return len(rows) if isinstance(rows, list) else 0
         except Exception as e:
             _log.debug("cleanup_stale: %s", e)

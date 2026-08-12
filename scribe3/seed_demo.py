@@ -112,12 +112,8 @@ def seed_world(store) -> dict:
 
 def _active_chapter_count(store) -> int:
     try:
-        rows = store._query(
-            "SELECT count() AS n FROM chapter "
-            "WHERE archived = NONE OR archived != true GROUP ALL;"
-        ) or []
-        if rows and isinstance(rows[0], dict):
-            return int(rows[0].get("n") or 0)
+        if hasattr(store, "count_active_chapters"):
+            return int(store.count_active_chapters() or 0)
     except Exception:
         pass
     return 0
@@ -135,12 +131,13 @@ def seed_writable_chapter(store, *, force: bool = False) -> dict:
         out["created"] = True
     else:
         # 取最小 seq 作为演示章
-        rows = store._query(
-            "SELECT seq FROM chapter "
-            "WHERE archived = NONE OR archived != true ORDER BY seq LIMIT 1;"
-        ) or []
-        if rows:
-            seq = int(rows[0]["seq"])
+        seq0 = (
+            store.first_active_chapter_seq()
+            if hasattr(store, "first_active_chapter_seq")
+            else None
+        )
+        if seq0 is not None:
+            seq = int(seq0)
         ch0 = store.get_chapter(seq)
         if ch0 and (ch0.get("prose") or "").strip() and not force:
             out["seq"] = seq
