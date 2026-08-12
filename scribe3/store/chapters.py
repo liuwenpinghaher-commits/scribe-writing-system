@@ -5,73 +5,99 @@ from scribe3.store.core_preamble import *  # noqa: F403
 
 class ChaptersMixin:
 
-    def purge_ingest(self, seq: int) -> None:
+    def purge_ingest(self, seq: int, *, _qstats: dict | None = None) -> None:
         """删除某章 ingest 产出的命题 + knows 边 + reader_knows 边 + char_state(幂等再 ingest 的前置清理)。
         只清 ingest_seq=seq,作者直编/种子(ingest_seq=NONE)不动。
 
         learned 跨章复用保护:删命题前检查是否有【他章】的 knows/reader_knows 边仍引用该命题
         (ingest_seq != seq)。有则保留命题本身,只删本章的边——防止 B 章复用 A 章命题,
-        重 ingest A 时把命题删掉导致 B 的 knows 边悬空。"""
+        重 ingest A 时把命题删掉导致 B 的 knows 边悬空。
+
+        EH-03 / PR-EH-1：命题路径集合化（对 N 斜率 0），禁止 per-prop existence/count。
+        ``_qstats`` 可选：``{"prop_path": 0, "total": 0}`` 供单测统计 round-trip。
+        """
+        def _q(sql, vars=None):
+            if _qstats is not None:
+                _qstats["total"] = int(_qstats.get("total") or 0) + 1
+            return self._query(sql, vars or {})
+
+        def _w(sql, vars=None):
+            if _qstats is not None:
+                _qstats["total"] = int(_qstats.get("total") or 0) + 1
+            self._execute_write(sql, vars or {})
+
         # 1. 先删本章的 knows / reader_knows 边(无论命题是否保留)
-        self._execute_write("DELETE knows WHERE ingest_seq = $seq", {"seq": seq})
-        self._execute_write("DELETE reader_knows WHERE ingest_seq = $seq", {"seq": seq})
-        # 2. 查本章命题中哪些在他章仍有 knows 边引用(跨章复用命题)
-        #    先取本章全部命题 id
-        own_props = self._query(
+        _w("DELETE knows WHERE ingest_seq = $seq", {"seq": seq})
+        _w("DELETE reader_knows WHERE ingest_seq = $seq", {"seq": seq})
+
+        # 2. 命题路径（集合化，O(1) 次查询 vs N）
+        # 2a. 本章全部命题 id
+        if _qstats is not None:
+            _qstats["prop_path"] = int(_qstats.get("prop_path") or 0) + 1
+        own_props = _q(
             "SELECT meta::id(id) AS local FROM proposition WHERE ingest_seq = $seq",
             {"seq": seq})
-        for row in own_props:
-            local = row.get("local")
-            if not local:
-                continue
-            # 检查 knows 边:除本章外是否还有其它章的边指向该命题
-            other_knows = self._query(
-                "SELECT count() AS n FROM knows "
-                "WHERE out = type::record('proposition', $local) AND ingest_seq != $seq",
-                {"local": local, "seq": seq})
-            other_rk = self._query(
-                "SELECT count() AS n FROM reader_knows "
-                "WHERE proposition = type::record('proposition', $local) AND ingest_seq != $seq",
-                {"local": local, "seq": seq})
-            has_other = (
-                (other_knows and (other_knows[0].get("n") or 0) > 0) or
-                (other_rk and (other_rk[0].get("n") or 0) > 0)
-            )
-            if not has_other:
-                # 无他章引用:安全删除
-                self._execute_write(
-                    "DELETE type::record('proposition', $local)",
-                    {"local": local})
-            # 有他章引用:保留命题,仅边已在步骤1删除
+        own: set[str] = {
+            str(r["local"]) for r in (own_props or []) if r.get("local") is not None
+        }
+        if own:
+            # 2b. 他章 knows 引用的命题 local（一次扫）
+            if _qstats is not None:
+                _qstats["prop_path"] = int(_qstats.get("prop_path") or 0) + 1
+            kept_knows_rows = _q(
+                "SELECT meta::id(out) AS local FROM knows WHERE ingest_seq != $seq",
+                {"seq": seq})
+            kept: set[str] = {
+                str(r["local"]) for r in (kept_knows_rows or [])
+                if r.get("local") is not None and str(r["local"]) in own
+            }
+            # 2c. 他章 reader_knows 引用（一次扫 + fact: 剥前缀）
+            if _qstats is not None:
+                _qstats["prop_path"] = int(_qstats.get("prop_path") or 0) + 1
+            kept_rk_rows = _q(
+                "SELECT proposition FROM reader_knows WHERE ingest_seq != $seq",
+                {"seq": seq})
+            for r in kept_rk_rows or []:
+                pref = r.get("proposition")
+                if pref is None:
+                    continue
+                ps = str(pref)
+                pl = ps.split(":", 1)[-1] if ":" in ps else ps
+                if pl in own:
+                    kept.add(pl)
+            # 2d. 批量删无他章引用的本章命题
+            to_del = sorted(own - kept)
+            if to_del:
+                if _qstats is not None:
+                    _qstats["prop_path"] = int(_qstats.get("prop_path") or 0) + 1
+                # Surreal：按 local id 列表删（单条，非 per-prop 循环 count）
+                _w(
+                    "DELETE proposition WHERE ingest_seq = $seq AND "
+                    "meta::id(id) IN $locals",
+                    {"seq": seq, "locals": to_del},
+                )
+
         # 3. char_state 无跨章复用问题,直接清
-        self._execute_write("DELETE char_state WHERE ingest_seq = $seq", {"seq": seq})
+        _w("DELETE char_state WHERE ingest_seq = $seq", {"seq": seq})
         # 4. P2-a Fix5: 清本章 ingest_unverified 记录——重 ingest 时防止累积重复 pending。
         # 审计 C-3:只清 pending——accepted/ignored 是人的决策,re-ingest 不得抹掉
-        # (否则同名再被抽到即"复活"回待办,人反复裁同一个名字)。
-        self._execute_write("DELETE ingest_unverified WHERE seq = $seq AND status = 'pending'",
-                            {"seq": seq})
+        _w("DELETE ingest_unverified WHERE seq = $seq AND status = 'pending'",
+           {"seq": seq})
         # 审计 C-2:ingest 路径产的 voice_evolution_flag 同步幂等清除(re-ingest 防累积);
-        # 手动/无 ingest_seq 的 flag 不动。
-        self._execute_write("DELETE voice_evolution_flag WHERE ingest_seq = $seq", {"seq": seq})
+        _w("DELETE voice_evolution_flag WHERE ingest_seq = $seq", {"seq": seq})
         # 5. 母题章实例:随本章 ingest 幂等清除
-        self._execute_write("DELETE motif_instance WHERE ingest_seq = $seq", {"seq": seq})
+        _w("DELETE motif_instance WHERE ingest_seq = $seq", {"seq": seq})
         # 6. 伏笔章触及:随本章 ingest 幂等清除(手动登记 ingest_seq=NONE 不受影响)
-        self._execute_write("DELETE promise_touch WHERE ingest_seq = $seq", {"seq": seq})
-        # 6b. 方案B任务12:关系触碰(本章角色对之间的有效触碰),随本章 ingest 幂等清除。
-        #     relation_touch 无独立 ingest_seq 字段(表结构见 migrations/058),按 chapter 清除。
-        #     Minor(收尾清理批):手动登记的关系触碰会被同章重 ingest 冲掉(无 promise_touch
-        #     式 ingest_seq 保护),未来开放手动登记入口时需先加字段。
-        self._execute_write("DELETE relation_touch WHERE chapter = $seq", {"seq": seq})
-        # 7. 事件图(批D P1-5):随本章 ingest 幂等清除本章抽取的事件 + 图边。
-        #    先删图边(involves/causes/causal)再删事件本体——否则 RELATE 边悬挂指向已删事件。
-        #    只清 ingest_seq=seq:手动种 / MCP s3_add_event(ingest_seq=NONE)的事件不动。
-        # 审计 M2:原 causal 一句里子查询出现两次=执行两次;先取 ids 参数化,零子查询。
-        ev_ids = self._query("SELECT VALUE id FROM event WHERE ingest_seq = $seq", {"seq": seq})
+        _w("DELETE promise_touch WHERE ingest_seq = $seq", {"seq": seq})
+        # 6b. 关系触碰按 chapter 清除
+        _w("DELETE relation_touch WHERE chapter = $seq", {"seq": seq})
+        # 7. 事件图:先取 ids 再删边+本体
+        ev_ids = _q("SELECT VALUE id FROM event WHERE ingest_seq = $seq", {"seq": seq})
         if ev_ids:
-            self._execute_write("DELETE involves WHERE in IN $ids", {"ids": ev_ids})
-            self._execute_write("DELETE causes WHERE in IN $ids", {"ids": ev_ids})
-            self._execute_write("DELETE causal WHERE in IN $ids OR out IN $ids", {"ids": ev_ids})
-            self._execute_write("DELETE event WHERE ingest_seq = $seq", {"seq": seq})
+            _w("DELETE involves WHERE in IN $ids", {"ids": ev_ids})
+            _w("DELETE causes WHERE in IN $ids", {"ids": ev_ids})
+            _w("DELETE causal WHERE in IN $ids OR out IN $ids", {"ids": ev_ids})
+            _w("DELETE event WHERE ingest_seq = $seq", {"seq": seq})
             self._invalidate_chapter_quality_cache(seq)
 
     def chapter_recall(self, query: str, k: int = 5) -> list[dict]:

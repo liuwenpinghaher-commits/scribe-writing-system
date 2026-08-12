@@ -89,10 +89,10 @@ def get_fact(local: str, work: str = "main", reveal_secret: bool = False):
     item = _fact_item(f, reveal_secret=reveal_secret)
     # 软归档旗标:前端删批后轮询据此视为「已撤下」
     try:
-        rows = st._query(
-            "SELECT archived FROM type::record('proposition',$local) LIMIT 1",
-            {"local": local}) or []
-        item["archived"] = bool(rows and rows[0].get("archived"))
+        if hasattr(st, "get_proposition_archived"):
+            item["archived"] = bool(st.get_proposition_archived(local))
+        else:
+            item["archived"] = False
     except Exception:
         item["archived"] = False
     return item
@@ -127,16 +127,13 @@ def add_char(c: CharIn, work: str = "main"):
 def get_char(local: str, work: str = "main", reveal_secret: bool = False):
     """单条角色档案(设定详情禁止全表扫 entities)。不存在 → 404。"""
     st = _store_for(work)
-    # 直接 SELECT 全字段(entity() 只回 name,不够档案详情)
-    rows = st._query(
-        "SELECT meta::id(id) AS local, name, backstory, backstory_secret, aliases, personality_tags, "
-        "importance, appearance, personality_detail, abilities, weaknesses, "
-        "first_appearance, surface_goal, deep_need, internal_conflict, fear, archived FROM "
-        "type::record('character',$local) LIMIT 1",
-        {"local": local}) or []
-    if not rows:
+    # 档案详情：走 store 公开 API（EH-05）
+    if hasattr(st, "get_character_archive_row"):
+        r = st.get_character_archive_row(local)
+    else:
+        r = None
+    if not r:
         raise HTTPException(status_code=404, detail=f"character '{local}' 不存在")
-    r = rows[0]
     d = {
         "id": f"role:{r.get('local') or local}", "kind": "character", "name": r.get("name"),
         "backstory": r.get("backstory"),

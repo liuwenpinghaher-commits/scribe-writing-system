@@ -50,10 +50,7 @@ def pilot_step(req: PilotStepReq, work: str = "main"):
         raise HTTPException(status_code=404, detail=f"第 {req.seq} 章不存在(先建章或用 /pilot/run 自动建)")
     if req.steer.strip():
         # P2-8:与 /ideas 一致改追加(覆盖会清掉 Inbox 攒的想法),帽 2000
-        _prev_s = _pilot_steer(st, req.seq)
-        _merged = ((_prev_s + "\n") if _prev_s else "") + req.steer.strip()
-        st._execute_write("UPDATE type::record('chapter',$seq) SET pilot_steer=$s",
-                          {"seq": req.seq, "s": _merged[-2000:]})
+        st.append_pilot_steer(req.seq, req.steer.strip())
     cur = read_state(st, req.seq)["state"]
     nxt = NEXT.get(cur)
     if nxt and nxt[0] == "finalize":
@@ -148,10 +145,7 @@ def add_idea(req: IdeaIn, work: str = "main"):
     status = "routed"
     if kind in ("outline", "steer"):
         # 追加进该章 pilot_steer(想法可累积,帽 2000 字防膨胀;pilot 提案/草稿最高优先注入)
-        prev = _pilot_steer(st, tseq)
-        merged = ((prev + "\n") if prev else "") + text
-        st._execute_write("UPDATE type::record('chapter',$seq) SET pilot_steer=$s",
-                          {"seq": tseq, "s": merged[-2000:]})
+        st.append_pilot_steer(tseq, text)
         status = "done"
     elif kind in ("setting", "revise"):
         status = "pending_approval"   # 宪法:动圣经/改旧章永远等人
@@ -162,18 +156,20 @@ def add_idea(req: IdeaIn, work: str = "main"):
     q = (route.get("question") or "").strip() or DEFAULT_UNCLEAR_QUESTION
     if kind == "unclear":
         q = idea_unclear_question({"question": q, "note": route.get("note"), "text": text})
-    st._execute_write(
-        "CREATE idea SET text=$t, route_kind=$k, target_seq=$sq, note=$n, status=$st_, "
-        "question=$q, created_at=time::now()",
-        {"t": text, "k": kind, "sq": tseq, "n": route["note"], "st_": status,
-         "q": q if kind == "unclear" else None})
+    st.create_idea(
+        text=text,
+        route_kind=kind,
+        target_seq=tseq,
+        note=route["note"],
+        status=status,
+        question=q if kind == "unclear" else None,
+    )
     return {"kind": kind, "target_seq": tseq, "status": status,
             "note": route["note"], "question": q if kind == "unclear" else None}
 
 def resolve_idea(req: IdeaResolveReq, work: str = "main"):
     """审查 P1-4:想法处理完毕出收件箱(status→done)——决策收件箱不积压噪声。"""
-    _store_for(work)._execute_write(
-        "UPDATE type::record('idea',$id) SET status='done'", {"id": req.id})
+    _store_for(work).set_idea_status(req.id, "done")
     return {"ok": True}
 
 def pilot_dismiss(req: PilotDismissReq, work: str = "main"):
@@ -182,9 +178,7 @@ def pilot_dismiss(req: PilotDismissReq, work: str = "main"):
     if _pilot_run_state.get(work, {}).get("running"):
         raise HTTPException(status_code=409, detail="连写进行中——请先 /pilot/pause 再退出 pilot")
     # R2-13:一并清 pilot_steer——否则陈旧作者意图重启 pilot 时以「最高优先」静默复活(不可见的行为漂移)
-    _store_for(work)._execute_write(
-        "UPDATE type::record('chapter',$seq) SET pilot_state=NONE, pilot_state_at=NONE, "
-        "pilot_parked=NONE, pilot_card=NONE, pilot_steer=NONE", {"seq": req.seq})
+    _store_for(work).clear_pilot_fields(req.seq)
     return {"seq": req.seq, "pilot_state": None}
 
 def pilot_status(seq: int, work: str = "main"):
@@ -284,9 +278,8 @@ def decision_inbox(work: str = "main", seq: int | None = None):
     seen_nh: set[int] = set()
     _pilot_parked_seqs: set[int] = set()
     try:
-        for rr in st._query("SELECT seq, pilot_parked FROM chapter:.. WHERE pilot_parked != NONE"):
-            if (rr.get("pilot_parked") or "").strip():
-                _pilot_parked_seqs.add(rr.get("seq"))
+        for s in st.list_pilot_parked_seqs():
+            _pilot_parked_seqs.add(s)
     except Exception:
         _deg("needs_human")
     for s_, (_ns, fp) in latest.items():
@@ -322,9 +315,7 @@ def decision_inbox(work: str = "main", seq: int | None = None):
         _deg("lessons")
     # ⑤ pilot
     try:
-        rows = st._query(
-            "SELECT seq, pilot_state, pilot_parked, pilot_card, synopsis FROM chapter:.. "
-            "WHERE pilot_state != NONE ORDER BY seq")
+        rows = st.list_pilot_chapter_rows()
         for r in rows:
             ps, seq_p = r.get("pilot_state"), r.get("seq")
             if r.get("pilot_parked"):
@@ -365,18 +356,14 @@ def decision_inbox(work: str = "main", seq: int | None = None):
         _deg("pilot")
     # ④ ideas: pending_approval + unclear(含旧库无 question 的懒回填)
     try:
-        for r in st._query(
-                "SELECT meta::id(id) AS id, text, route_kind, note, status, question "
-                "FROM idea WHERE status IN ['pending_approval', 'unclear']"):
+        for r in st.list_inbox_ideas():
             item = idea_inbox_item(r)
             items.append(item)
             # 懒回填:旧 unclear 缺 question → 写入推导问句,下次不再空
             if needs_question_backfill(r) and r.get("id"):
                 try:
                     q = idea_unclear_question(r)
-                    st._execute_write(
-                        "UPDATE type::record('idea',$id) SET question=$q",
-                        {"id": r["id"], "q": q})
+                    st.set_idea_question(r["id"], q)
                 except Exception:
                     logging.getLogger("scribe3").debug(
                         "idea question 懒回填失败 id=%s", r.get("id"), exc_info=True)

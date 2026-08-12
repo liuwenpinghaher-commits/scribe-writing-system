@@ -19,22 +19,36 @@ class LoginIn(BaseModel):
     password: str = Field(min_length=1)
 
 
-def _cookie_secure() -> bool:
+def _cookie_secure(request: Request | None = None) -> bool:
+    """EH-05 / PR-EH-5：显式 env 优先；未设置时仅信任受信反代 HTTPS 推断。
+
+    - SCRIBE3_SESSION_SECURE=1/0 → 强制
+    - 未设置：若 request 有 X-Forwarded-Proto: https 或 scheme==https → True
+    - 否则 False（本地 HTTP 开发默认）
+    """
     flag = (os.environ.get("SCRIBE3_SESSION_SECURE") or "").strip().lower()
     if flag in {"1", "true", "yes", "on"}:
         return True
     if flag in {"0", "false", "no", "off"}:
         return False
-    # Default secure when public domain assumed in production notes
+    if request is not None:
+        try:
+            xfp = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+            if xfp == "https":
+                return True
+            if str(getattr(request.url, "scheme", "") or "").lower() == "https":
+                return True
+        except Exception:
+            pass
     return False
 
 
-def _set_session_cookie(response: Response, token: str) -> None:
+def _set_session_cookie(response: Response, token: str, request: Request | None = None) -> None:
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
         httponly=True,
-        secure=_cookie_secure(),
+        secure=_cookie_secure(request),
         samesite="lax",
         path="/",
         max_age=int(os.environ.get("SCRIBE3_SESSION_TTL_HOURS", "168") or "168") * 3600,
@@ -46,7 +60,7 @@ def _clear_session_cookie(response: Response) -> None:
 
 
 @router.post("/auth/login")
-def login(body: LoginIn, response: Response):
+def login(body: LoginIn, response: Response, request: Request):
     ensure_bootstrap_users()
     if not authenticate(body.username.strip(), body.password):
         return JSONResponse(
@@ -62,7 +76,7 @@ def login(body: LoginIn, response: Response):
             )
     uname = body.username.strip()
     token = issue_session_token(uname)
-    _set_session_cookie(response, token)
+    _set_session_cookie(response, token, request=request)
     u = get_user(uname) or {}
     return {
         "ok": True,

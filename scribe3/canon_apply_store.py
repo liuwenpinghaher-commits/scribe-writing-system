@@ -5,7 +5,7 @@ import logging
 import uuid
 from typing import Any
 
-from scribe3.canon_loop import ChangeItem, item_requires_human_approval
+from scribe3.canon_types import ChangeItem, item_requires_human_approval
 
 _log = logging.getLogger("scribe3.canon_apply")
 

@@ -176,15 +176,12 @@ def chapter_stage_advance_ep(seq: int, req: dict | None = None, work: str = "mai
             from scribe3.api import app_impl as core
             st = core._store_for(work)
             ss = {"phase": result["next"]}
-            if hasattr(st, "update_chapter_meta"):
+            if hasattr(st, "set_chapter_stage_state"):
+                ok = st.set_chapter_stage_state(int(seq), ss)
+                persisted = "ok" if ok else "skipped"
+            elif hasattr(st, "update_chapter_meta"):
                 ok = st.update_chapter_meta(int(seq), {"stage_state": ss})
                 persisted = "ok" if ok else "skipped"
-            elif hasattr(st, "_execute_write"):
-                st._execute_write(
-                    "UPDATE type::record('chapter',$seq) SET stage_state=$ss",
-                    {"seq": int(seq), "ss": ss},
-                )
-                persisted = "ok"
         except Exception:
             persisted = "skipped"
         result["persist"] = persisted

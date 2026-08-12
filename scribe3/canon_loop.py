@@ -14,6 +14,12 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable, Mapping, MutableMapping, Optional
 
+from scribe3.canon_types import (  # EH-04: re-export for callers
+    ChangeItem,
+    item_requires_human_approval,
+    _new_id as _types_new_id,
+)
+
 LAYERS = frozenset({"L0", "L1", "L2"})
 MODULES = frozenset({
     "intent", "character", "world_rule", "relation", "knowledge",
@@ -75,46 +81,7 @@ class CanonClaim:
             self.requires_approval = True
 
 
-@dataclass
-class ChangeItem:
-    id: str
-    layer: str
-    op: str
-    module: str
-    target: str
-    after: Any
-    evidence: str
-    risk: str
-    requires_approval: bool
-    field: str | None = None
-    before: Any = None
-    approved: bool = False
-    applied: bool = False
-
-    def to_dict(self) -> dict[str, Any]:
-        d = asdict(self)
-        conf = getattr(self, "_confidence", None)
-        if conf is not None:
-            d["confidence"] = conf
-        return d
-
-    @classmethod
-    def from_dict(cls, d: Mapping[str, Any]) -> "ChangeItem":
-        return cls(
-            id=str(d.get("id") or _new_id("ci")),
-            layer=str(d.get("layer") or "L1"),
-            op=str(d.get("op") or "patch"),
-            module=str(d.get("module") or "character"),
-            target=str(d.get("target") or ""),
-            after=d.get("after"),
-            evidence=str(d.get("evidence") or ""),
-            risk=str(d.get("risk") or "med"),
-            requires_approval=bool(d.get("requires_approval", True)),
-            field=d.get("field"),
-            before=d.get("before"),
-            approved=bool(d.get("approved", False)),
-            applied=bool(d.get("applied", False)),
-        )
+# ChangeItem / item_requires_human_approval: see canon_types (re-exported above)
 
 
 @dataclass
@@ -437,31 +404,6 @@ class InMemoryCanonStore:
 
 
 # 正典级模块：即使客户端把 layer 标成 L2 也必须人批（防 layer 侧信道静默写）
-_CANON_MODULES_REQUIRE_APPROVAL = frozenset({
-    "character", "world_rule", "intent", "relation", "faction", "item", "term",
-    "promise", "char_state", "fact", "motif",
-})
-# 仅这些模块允许 L2 客观落账（知识边等）
-_OBJECTIVE_L2_MODULES = frozenset({"knowledge"})
-
-
-def item_requires_human_approval(layer: str, module: str) -> bool:
-    """硬门：layer∈{L0,L1} 或 module 属正典类 → 必须人批。
-
-    不信任客户端 ``requires_approval`` / 把 character 标成 L2 的伪造。
-    """
-    mod = (module or "").strip().lower()
-    lay = (layer or "L1").upper()
-    if lay in ("L0", "L1"):
-        return True
-    if mod in _CANON_MODULES_REQUIRE_APPROVAL:
-        return True
-    if mod in _OBJECTIVE_L2_MODULES:
-        return False
-    # 未知 module：fail-closed，要求批准
-    return True
-
-
 def _dispatch_apply(store: Any, item: ChangeItem) -> dict[str, Any]:
     """InMemory 用 apply_item；SurrealStore 用 canon_apply_store。"""
     if isinstance(store, InMemoryCanonStore) or (

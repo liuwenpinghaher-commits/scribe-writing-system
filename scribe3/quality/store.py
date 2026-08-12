@@ -179,7 +179,8 @@ class QualityStore:
             if value is not None:
                 return value
             if attempt + 1 < attempts:
-                time.sleep(0.01 * (attempt + 1))
+                # EH-07: 短退避；避免长阻塞。同步路径保留 sleep，系数收紧。
+                time.sleep(min(0.05, 0.005 * (attempt + 1)))
         return None
 
     def save_contract_revision(

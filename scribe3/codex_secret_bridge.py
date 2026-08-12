@@ -130,14 +130,20 @@ def sync_faction_secrets(store, name: str, row: dict) -> dict:
                 # best-effort 语义索引 + 缓存失效（与 add_fact 对齐）
                 try:
                     store.semantic_index(f"fact:{existing_local}", text)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.getLogger("scribe3.codex_secret_bridge").warning(
+                        "bridge_side_effect_failed op=semantic_index entity=%s attr=%s err=%s",
+                        entity_id, key, type(e).__name__,
+                    )
                 try:
                     from scribe3.store.core_preamble import _emit_cache_invalidation
                     _emit_cache_invalidation(
                         "proposition", getattr(store, "db_name", None), store=store)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.getLogger("scribe3.codex_secret_bridge").warning(
+                        "bridge_side_effect_failed op=cache_invalidate entity=%s attr=%s err=%s",
+                        entity_id, key, type(e).__name__,
+                    )
             else:
                 store._execute_write(
                     "CREATE proposition SET entity_id=$eid, attribute=$attr, value=$val, "
@@ -149,14 +155,20 @@ def sync_faction_secrets(store, name: str, row: dict) -> dict:
                     loc = _find_bridge_local(store, entity_id, key) or existing_local
                     if loc:
                         store.semantic_index(f"fact:{loc}", text)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.getLogger("scribe3.codex_secret_bridge").warning(
+                        "bridge_side_effect_failed op=semantic_index entity=%s attr=%s err=%s",
+                        entity_id, key, type(e).__name__,
+                    )
                 try:
                     from scribe3.store.core_preamble import _emit_cache_invalidation
                     _emit_cache_invalidation(
                         "proposition", getattr(store, "db_name", None), store=store)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.getLogger("scribe3.codex_secret_bridge").warning(
+                        "bridge_side_effect_failed op=cache_invalidate entity=%s attr=%s err=%s",
+                        entity_id, key, type(e).__name__,
+                    )
         elif existing_local:
             store._execute_write(
                 "DELETE type::record('proposition', $local)", {"local": existing_local})
