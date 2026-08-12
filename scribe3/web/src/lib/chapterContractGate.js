@@ -10,13 +10,25 @@ import { softGateIssues, softGateSummary } from './deduceGate.js'
 
 /** GATE-B normal：非空 beat text 最少条数 */
 export const MIN_BEAT_TEXTS = 3
-/** synopsis / scene_truth 短于该字数 → warn（非 error） */
-export const SHORT_FIELD_CHARS = 40
+/**
+ * 可写 hard 下限（与 craft-loop / verify_craft_compliance gate_b cn_len≥80 对齐）。
+ * 去空白后短于该值 → error（未达可写），不再仅 warn。
+ */
+export const MIN_WRITABLE_CHARS = 80
+/** ≥可写 且 短于该值 → warn「可再写细」 */
+export const SHORT_HINT_CHARS = 120
+/** @deprecated 用 MIN_WRITABLE_CHARS；保留别名避免旧 import 炸 */
+export const SHORT_FIELD_CHARS = MIN_WRITABLE_CHARS
 /** 高压 role（与后端 parse_stakes_presence 对齐） */
 const HIGH_PRESSURE_ROLES = new Set(['高压', '推进', '高潮', '决战'])
 
 function trimText(value) {
   return String(value ?? '').trim()
+}
+
+/** 与后端 cn_len 一致：去掉全部空白后的长度 */
+export function cnLen(value) {
+  return trimText(value).replace(/\s+/g, '').length
 }
 
 /** 非空 beat text 条数（dict.text 或字符串） */
@@ -93,17 +105,26 @@ export function evaluateChapterContract(ch) {
   const stakes = parseOutlineStakes(synopsis)
   const issues = []
 
+  const synN = cnLen(synopsis)
+  const truthN = cnLen(truth)
+
   if (!synopsis) {
     issues.push({
       id: 'missingSynopsis',
       level: 'error',
       message: '本章大纲还是空的',
     })
-  } else if (synopsis.length < SHORT_FIELD_CHARS) {
+  } else if (synN < MIN_WRITABLE_CHARS) {
     issues.push({
       id: 'shortSynopsis',
+      level: 'error',
+      message: `大纲未达可写（${synN} 字，需要 ≥${MIN_WRITABLE_CHARS}，含起因·转折·结果更稳）`,
+    })
+  } else if (synN < SHORT_HINT_CHARS) {
+    issues.push({
+      id: 'briefSynopsis',
       level: 'warn',
-      message: `大纲过短（${synopsis.length} 字，建议 ≥${SHORT_FIELD_CHARS}）`,
+      message: `大纲可写但偏简（${synN} 字，可写到 ≥${SHORT_HINT_CHARS}）`,
     })
   }
 
@@ -121,11 +142,17 @@ export function evaluateChapterContract(ch) {
       level: 'error',
       message: '场景真相还是空的（本章客观事实）',
     })
-  } else if (truth.length < SHORT_FIELD_CHARS) {
+  } else if (truthN < MIN_WRITABLE_CHARS) {
     issues.push({
       id: 'shortSceneTruth',
+      level: 'error',
+      message: `场景真相未达可写（${truthN} 字，需要 ≥${MIN_WRITABLE_CHARS}）`,
+    })
+  } else if (truthN < SHORT_HINT_CHARS) {
+    issues.push({
+      id: 'briefSceneTruth',
       level: 'warn',
-      message: `场景真相过短（${truth.length} 字，建议 ≥${SHORT_FIELD_CHARS}）`,
+      message: `场景真相可写但偏简（${truthN} 字，可写到 ≥${SHORT_HINT_CHARS}）`,
     })
   }
 
@@ -153,13 +180,15 @@ export function evaluateChapterContract(ch) {
     issues,
     needsAttention: hasError || issues.some((i) => i.level === 'warn'),
     hasError,
-    synopsisOk: Boolean(synopsis),
+    synopsisOk: synN >= MIN_WRITABLE_CHARS,
     beatsOk: beatCount >= MIN_BEAT_TEXTS,
-    sceneTruthOk: Boolean(truth),
+    sceneTruthOk: truthN >= MIN_WRITABLE_CHARS,
     stakesOk: stakes.present || !stakes.highPressure,
     stakes,
     beatCount,
     deduce,
+    synopsisCnLen: synN,
+    sceneTruthCnLen: truthN,
   }
 }
 

@@ -54,30 +54,33 @@ await test('empty chapter → B1 B2 B3 errors', () => {
 
 await test('full contract → no error', () => {
   const ch = {
-    synopsis: '甲'.repeat(50),
+    synopsis: '甲'.repeat(90),
     beats: [{ text: '一' }, { text: '二' }, { text: '三' }],
-    scene_truth: '乙'.repeat(50),
+    scene_truth: '乙'.repeat(90),
   }
   const r = evaluateChapterContract(ch)
   assert.equal(r.hasError, false)
+  assert.equal(r.synopsisOk, true)
+  assert.equal(r.sceneTruthOk, true)
   assert.equal(contractNeedsAttention(ch), false)
 })
 
-await test('short synopsis is warn not error if non-empty', () => {
+await test('short synopsis under 80 is error (writable SSOT)', () => {
   const r = evaluateChapterContract({
-    synopsis: '短',
+    synopsis: '短纲只有二十一字左右够吗'.repeat(1),
     beats: [{ text: '一' }, { text: '二' }, { text: '三' }],
-    scene_truth: '丙'.repeat(50),
+    scene_truth: '丙'.repeat(90),
   })
-  assert.equal(r.hasError, false)
-  assert.ok(r.issues.some((i) => i.id === 'shortSynopsis' && i.level === 'warn'))
+  assert.equal(r.hasError, true)
+  assert.equal(r.synopsisOk, false)
+  assert.ok(r.issues.some((i) => i.id === 'shortSynopsis' && i.level === 'error'))
 })
 
 await test('two beats → missingBeats error', () => {
   const r = evaluateChapterContract({
-    synopsis: '甲'.repeat(50),
+    synopsis: '甲'.repeat(90),
     beats: [{ text: '一' }, { text: '二' }],
-    scene_truth: '乙'.repeat(50),
+    scene_truth: '乙'.repeat(90),
   })
   assert.equal(r.beatCount, 2)
   assert.ok(r.issues.some((i) => i.id === 'missingBeats'))
@@ -94,11 +97,11 @@ await test('contractSoftSummary lists errors', () => {
 })
 
 await test('high pressure missing stakes → warn not error', () => {
-  const syn = '压力级:4\nchapter_role:高压\n' + '甲'.repeat(40)
+  const syn = '压力级:4\nchapter_role:高压\n' + '甲'.repeat(90)
   const r = evaluateChapterContract({
     synopsis: syn,
     beats: [{ text: '一' }, { text: '二' }, { text: '三' }],
-    scene_truth: '乙'.repeat(50),
+    scene_truth: '乙'.repeat(90),
   })
   assert.equal(r.hasError, false)
   assert.equal(r.stakesOk, false)
@@ -109,11 +112,11 @@ await test('high pressure missing stakes → warn not error', () => {
 })
 
 await test('high pressure with stakes → no stakes warning', () => {
-  const syn = '压力级:5\nchapter_role:推进\nstakes: 铜钱易主则功名尽\n' + '甲'.repeat(20)
+  const syn = '压力级:5\nchapter_role:推进\nstakes: 铜钱易主则功名尽\n' + '甲'.repeat(90)
   const r = evaluateChapterContract({
     synopsis: syn,
     beats: [{ text: '一' }, { text: '二' }, { text: '三' }],
-    scene_truth: '乙'.repeat(50),
+    scene_truth: '乙'.repeat(90),
   })
   assert.equal(r.stakesOk, true)
   assert.ok(!r.issues.some((i) => i.id === 'missingOutlineStakes'))
@@ -122,9 +125,9 @@ await test('high pressure with stakes → no stakes warning', () => {
 
 await test('low pressure no stakes → no stakes warning', () => {
   const r = evaluateChapterContract({
-    synopsis: '压力级:2\n' + '甲'.repeat(40),
+    synopsis: '压力级:2\n' + '甲'.repeat(90),
     beats: [{ text: '一' }, { text: '二' }, { text: '三' }],
-    scene_truth: '乙'.repeat(50),
+    scene_truth: '乙'.repeat(90),
   })
   assert.ok(!r.issues.some((i) => i.id === 'missingOutlineStakes'))
   assert.equal(r.stakesOk, true)
@@ -140,12 +143,12 @@ await test('executionSoftSummary and merged banner', () => {
   const ch = { synopsis: '', beats: [], scene_truth: '' }
   const merged = mergedSoftBannerSummary(ch, soft)
   assert.ok(merged.includes('章前契约') || merged.includes('大纲'))
-  assert.ok(merged.includes('执行对照'))
+  assert.ok(merged.includes('写完对照') || merged.includes('对白'))
   assert.equal(shouldShowMergedSoftBanner(ch, soft), true)
   assert.equal(shouldShowMergedSoftBanner({
-    synopsis: '甲'.repeat(50),
+    synopsis: '甲'.repeat(90),
     beats: [{ text: '一' }, { text: '二' }, { text: '三' }],
-    scene_truth: '乙'.repeat(50),
+    scene_truth: '乙'.repeat(90),
   }, { soft_fulfill: { ok_soft: true }, drift: { drift: false } }), false)
 })
 

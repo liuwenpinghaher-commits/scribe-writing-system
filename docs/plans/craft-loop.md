@@ -7,7 +7,7 @@
 | **本轮 scratch** | `/tmp/grok-1000/grok-design-doc-b066a1b5.md` |
 | **摘要** | `/tmp/grok-1000/grok-design-summary-b066a1b5.md` |
 | **日期** | 2026-08-12 |
-| **状态** | **Accepted Draft 0.3.1** · 用户已决 Q1（B1 全绿才进 B2）· **MVP 会话已跑**（证据 `docs/evidence/craft-loop/20260812-book_qe_live5/` · `craft_loop_mvp_pass`） |
+| **状态** | **Accepted Draft 0.3.1** · 用户已决 Q1（B1 全绿才进 B2）· **MVP 会话已跑** · **F1/F2 假绿修复中**：gate_b 可写 hard cn_len≥80 与本协议对齐 |
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` |
 | **仓库** | `/home/admin/projects/scribe-writing-system` |
 | **验证环境** | **仅已部署 demo**（`https://tonglu.qing.blue`；本机反代 :3311·:3321）；禁止 Grok 机 `npm ci` / 本机 Surreal 重活 |
@@ -320,7 +320,7 @@ python3 scripts/v4_world_complete_gate.py --slug <work> --out machine/wcg-full.j
 
 | Hard ID | craft-loop 阈值（SSOT） | 可复用机判 | 缺口 |
 |---------|------------------------|------------|------|
-| **CL-B2-H1** | synopsis 去空白 **≥80** | `gate_b.check.B1`：**空→fail**；`len<40`→**warn only**；**40–79 仍 gate pass** | **必须自算长度**；`gate_b.ok` **≠** 本 hard |
+| **CL-B2-H1** | synopsis 去空白 **≥80** | `gate_b.check.B1`：**空→fail**；**cn_len&lt;80→hard fail**（与 craft-loop 对齐，2026-08-12 F1 修）；≥80 且 &lt;120→warn 偏简 | 自算 `cn_len` 与 gate 同源；**勿**再依赖旧 soft=40 假绿 |
 | **CL-B2-H2** | 含人物名 + 动作/冲突（人确认；可选关键词启发） | 无 hard 机判 | 人 |
 | **CL-B2-H3** | 可指出 **起因→转折→结果** 三点 | **无 C10 实现** | **人 hard**（见例句） |
 | **CL-B2-H4** | 与 CL-B0 红线不冲突；与 CL-B1 已 green 角色动机不 OOC | 无 | 人（B1 已全绿，按完整 settings_min 世界评） |
@@ -348,7 +348,7 @@ python3 scripts/v4_world_complete_gate.py --slug <work> --out machine/wcg-full.j
 
 | Hard ID | craft-loop 阈值（SSOT） | 可复用机判 | 缺口 |
 |---------|------------------------|------------|------|
-| **CL-B4-H1** | `scene_truth` 去空白 **≥80** | `gate_b.check.B3`：空 fail；&lt;40 warn；**不因 40–79 hard fail** | **自算长度** |
+| **CL-B4-H1** | `scene_truth` 去空白 **≥80** | `gate_b.check.B3`：空 fail；**cn_len&lt;80→hard fail**（F2 对齐）；≥80 且 &lt;120→warn 偏简 | 自算 `cn_len` 与 gate 同源 |
 | **CL-B4-H2** | involved 非空且 ⊆ 书中角色 | `gate_b.check.B4` 同类 | 可复用字段 |
 | **CL-B4-H3** | 每个 involved 有 deduction prose 非空 | `gate_b.check.B5` | 可复用 |
 | **CL-B4-H4a** | **verbatim 探针报告可读**；craft-loop：**若有投影则至少 1 条 prose 为 scene_truth 子串，否则人书面接受 soft 风险** | `gate_b.check.B6`：不对齐仅 **warn soft**，**不**挡 `gate_b.ok` | 本 hard **严于** GATE：不对齐且无书面接受 → red |

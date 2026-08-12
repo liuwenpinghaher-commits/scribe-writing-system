@@ -269,6 +269,31 @@ def triage(post: dict) -> dict:
                 },
             })
 
+    # F7 · open 伏笔未 touch → soft advisory（永不 blocking；需 post 带 prose + open_promises）
+    try:
+        _op = post.get("open_promises") or post.get("promises")
+        _pr = post.get("prose") or post.get("text") or ""
+        if _op and _pr:
+            from scribe3.promise_touch_soft import open_promise_touch_advisories
+            for a in open_promise_touch_advisories(
+                _pr, _op if isinstance(_op, list) else [],
+                chapter_skip_mark=bool(post.get("promise_skip_chapter")),
+            ):
+                advisory_items.append({
+                    "type": "promise.untouched",
+                    "message": str(a.get("message") or "")[:160],
+                    "text": str(a.get("text") or "")[:60],
+                    "range": None,
+                    "meta": {
+                        "severity": "advisory",
+                        "blocking": False,
+                        "promise_id": a.get("promise_id"),
+                        "source": "promise_touch_soft",
+                    },
+                })
+    except Exception:
+        pass
+
     # advisory → buckets（不改 verdict 逻辑）
     for a in advisory_items:
         buckets[_triage_bucket_for(a, is_block=False)].append(a)

@@ -13,6 +13,7 @@ PASS 默认公式(机判):
 """
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Callable, Literal
 
@@ -39,9 +40,12 @@ class CraftGateThresholds:
     min_open_promises: int = 1
     min_relations: int = 1
     min_facts_or_rules: int = 1
-    # 硬:非空;软 warn 字数提示(不单独 fail)
-    synopsis_soft_chars: int = 40
-    scene_truth_soft_chars: int = 40
+    # 可写 hard 下限（与 craft-loop CL-B2-H1 / CL-B4-H1 对齐：cn_len≥80）
+    synopsis_min_chars: int = 80
+    scene_truth_min_chars: int = 80
+    # 兼容旧名：曾作 soft 阈值；现仅作「可再写细」hint（≥min 且 <hint → warn，不挡 ok）
+    synopsis_soft_chars: int = 120
+    scene_truth_soft_chars: int = 120
     min_beats: int = 3
     bridge_min_beats: int = 1
     beat_cover_ratio: float = 2 / 3
@@ -139,6 +143,11 @@ def _work_name(st) -> str:
 
 def _strip(s: Any) -> str:
     return (s or "").strip() if isinstance(s, str) else str(s or "").strip()
+
+
+def cn_len(s: Any) -> int:
+    """craft-loop / gate_b 共用：去掉全部空白后的字符数。"""
+    return len(re.sub(r"\s+", "", _strip(s)))
 
 
 def _finalize(gate: Literal["A", "B", "C", "D"], st, seq: int | None,
@@ -424,18 +433,25 @@ def gate_b(st, seq: int, *, thresholds: CraftGateThresholds | None = None,
         return _finalize("B", st, seq, checks, max_warns=t.max_warns_before_fail)
 
     syn = _strip(ch.get("synopsis"))
+    syn_n = cn_len(syn)
     if not syn:
         checks.append(CheckResult(
             "B1", "fail", "大纲 synopsis 为空", root_cause_hint="RC-SKIP-STAGE"))
+    elif syn_n < t.synopsis_min_chars:
+        checks.append(CheckResult(
+            "B1", "fail",
+            f"大纲未达可写({syn_n}<{t.synopsis_min_chars})",
+            {"len": syn_n, "cn_len": syn_n, "min": t.synopsis_min_chars},
+            "RC-SKIP-STAGE", hard=True))
+    elif syn_n < t.synopsis_soft_chars:
+        checks.append(CheckResult(
+            "B1", "warn",
+            f"大纲可写但偏简({syn_n}<{t.synopsis_soft_chars})",
+            {"len": syn_n, "cn_len": syn_n}, hard=False))
     else:
-        if len(syn) < t.synopsis_soft_chars:
-            checks.append(CheckResult(
-                "B1", "warn",
-                f"大纲偏短({len(syn)}<{t.synopsis_soft_chars})",
-                {"len": len(syn)}, hard=False))
-        else:
-            checks.append(CheckResult("B1", "pass", f"大纲 {len(syn)} 字",
-                                      {"len": len(syn)}))
+        checks.append(CheckResult(
+            "B1", "pass", f"大纲 {syn_n} 字",
+            {"len": syn_n, "cn_len": syn_n}))
 
     beats = _beats_list(ch)
     min_b = t.bridge_min_beats if chapter_kind in ("bridge", "epilogue") else t.min_beats
@@ -449,18 +465,25 @@ def gate_b(st, seq: int, *, thresholds: CraftGateThresholds | None = None,
                                   {"count": len(beats)}))
 
     truth = _strip(ch.get("scene_truth"))
+    truth_n = cn_len(truth)
     if not truth:
         checks.append(CheckResult(
             "B3", "fail", "scene_truth 为空", root_cause_hint="RC-SKIP-STAGE"))
+    elif truth_n < t.scene_truth_min_chars:
+        checks.append(CheckResult(
+            "B3", "fail",
+            f"场景真相未达可写({truth_n}<{t.scene_truth_min_chars})",
+            {"len": truth_n, "cn_len": truth_n, "min": t.scene_truth_min_chars},
+            "RC-SKIP-STAGE", hard=True))
+    elif truth_n < t.scene_truth_soft_chars:
+        checks.append(CheckResult(
+            "B3", "warn",
+            f"场景真相可写但偏简({truth_n}<{t.scene_truth_soft_chars})",
+            {"len": truth_n, "cn_len": truth_n}, hard=False))
     else:
-        if len(truth) < t.scene_truth_soft_chars:
-            checks.append(CheckResult(
-                "B3", "warn",
-                f"场景真相偏短({len(truth)}<{t.scene_truth_soft_chars})",
-                {"len": len(truth)}, hard=False))
-        else:
-            checks.append(CheckResult("B3", "pass", f"scene_truth {len(truth)} 字",
-                                      {"len": len(truth)}))
+        checks.append(CheckResult(
+            "B3", "pass", f"scene_truth {truth_n} 字",
+            {"len": truth_n, "cn_len": truth_n}))
 
     involved = ch.get("involved_characters") or []
     if not isinstance(involved, list):

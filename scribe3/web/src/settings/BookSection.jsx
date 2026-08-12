@@ -100,6 +100,26 @@ export function BookSection({ work }) {
           </div>
         ))}
       </div>
+      {intent.total_word_goal == null || intent.total_word_goal === '' ? (
+        <div
+          className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-f13"
+          data-testid="book-word-goal-missing"
+          role="status"
+        >
+          <span className="text-ink/90">尚未设定全书目标字数（craft-loop 北极星建议 4–6 万）。</span>
+          <button
+            type="button"
+            className="ml-2 text-brand hover:underline cursor-pointer"
+            data-testid="book-word-goal-default-45k"
+            onClick={() => {
+              set('total_word_goal', 45000)
+              commitNum('total_word_goal', 45000)
+            }}
+          >
+            一键设为 45000
+          </button>
+        </div>
+      ) : null}
       <div className="grid sm:grid-cols-3 gap-3">
         {NUM_FIELDS.map(([k, label]) => (
           <div key={k}>

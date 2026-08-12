@@ -791,6 +791,8 @@ export function WriteLayout({ work, seq, sceneIdx }) {
                       {qcTotal > 0 ? (
                         <span>
                           {(guard.qc.repetition || 0) > 0 && <span>复读 {guard.qc.repetition} </span>}
+                          {(guard.qc.cross_repetition || 0) > 0 && <span>跨段重复 {guard.qc.cross_repetition} </span>}
+                          {(guard.qc.duplicate_lines || 0) > 0 && <span>重复行 {guard.qc.duplicate_lines} </span>}
                           {(guard.qc.structural || 0) > 0 && <span>排比 {guard.qc.structural} </span>}
                           {(guard.qc.purple || 0) > 0 && <span>升华 {guard.qc.purple} </span>}
                           {(guard.qc.ai_tics || 0) > 0 && <span>AI腔 {guard.qc.ai_tics} </span>}

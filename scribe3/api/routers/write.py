@@ -907,6 +907,15 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
             "findings": [],
             "error": str(e)[:160],
         }
+    # F7: triage 可读 open 伏笔 + 正文（永不 blocking；见 promise_touch_soft）
+    _open_for_touch: list = []
+    try:
+        for _p in (st.list_promises() if hasattr(st, "list_promises") else []) or []:
+            if isinstance(_p, dict) and (_p.get("status") or "open") == "open":
+                _open_for_touch.append(_p)
+    except Exception:
+        _open_for_touch = list(inherited_open_promises or [])
+
     resp = {
         "quality": {**qc_breakdown, "total": qc_total},
         "leaks": leaks,
@@ -920,6 +929,8 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
         "degraded": degraded,
         "degraded_stages": degraded_stages,
         "inherited_open_promises": inherited_open_promises,
+        "prose": req.prose or "",
+        "open_promises": _open_for_touch,
         "setting": setting,
         "issues": issues,
         "duplicate_lines": dup_lines,

@@ -54,9 +54,11 @@ def craft_world_min(store):
 
 
 def craft_chapter_scaffold(store, seq: int):
+    # cn_len≥80 hard（craft-loop / gate_b 可写下限）
     truth = (
         "客观上:灰契以炉心真名绑定立契人;老道知情;沈砚尚不知真名。"
         "本场沈砚推门夜访,对质灰契,老道只回半句。"
+        "信息差钉住:读者知真名绑定,沈砚不知,老道知而不全说;炉灰未冷。"
     )
 
     def _layers(*chunks: str) -> str:
@@ -70,7 +72,8 @@ def craft_chapter_scaffold(store, seq: int):
     store.update_chapter_meta(seq, {
         "synopsis": (
             "沈砚夜访棺材铺,逼问灰契来历与代价;"
-            "老道只给半句,冲突未决。再补字数避免 B1 soft。"
+            "起因是他循灰印上门,转折是老道只给半句且以炉灰压场,"
+            "结果冲突未决、真名仍锁。章末钩子:灰契反噬的气味已起,炉门未关死,夜色仍压着巷口。"
         ),
         "beats": [
             {"text": "沈砚推门"},
@@ -206,6 +209,46 @@ def test_gate_b_passes_on_full_scaffold(store):
     assert r.ok is True, r.to_dict()
 
 
+def test_gate_b_synopsis_under_80_fails_ok(store):
+    """F1: craft-loop 坐实 21 字大纲时不得 gate_b.ok（假绿源）。"""
+    from scribe3.verify_craft_compliance import cn_len
+
+    seq = craft_world_min(store)
+    craft_chapter_scaffold(store, seq)
+    short = "灰狸索物，灰七假片挡过，冷锅婆点破炉未冷。"
+    assert cn_len(short) < 80
+    store.update_chapter_meta(seq, {"synopsis": short})
+    r = gate_b(store, seq)
+    assert r.ok is False, r.to_dict()
+    b1 = next(c for c in r.checks if c.id == "B1")
+    assert b1.verdict == "fail"
+    assert b1.hard is True
+    assert "未达可写" in b1.detail
+
+
+def test_gate_b_scene_truth_under_80_fails_ok(store):
+    """F2: scene_truth 过短 hard fail。"""
+    from scribe3.verify_craft_compliance import cn_len
+
+    seq = craft_world_min(store)
+    craft_chapter_scaffold(store, seq)
+    short_t = "灰契绑定真名;老道知情。"
+    assert cn_len(short_t) < 80
+    store.update_chapter_meta(seq, {"scene_truth": short_t})
+    r = gate_b(store, seq)
+    assert r.ok is False, r.to_dict()
+    b3 = next(c for c in r.checks if c.id == "B3")
+    assert b3.verdict == "fail"
+    assert "未达可写" in b3.detail
+
+
+def test_cn_len_strips_all_whitespace():
+    from scribe3.verify_craft_compliance import cn_len
+
+    assert cn_len("甲 乙\n丙") == 3
+    assert cn_len("  ") == 0
+
+
 def test_gate_b_stage_journal_order(store):
     seq = craft_world_min(store)
     craft_chapter_scaffold(store, seq)
@@ -229,7 +272,13 @@ def test_gate_b_warns_stale_and_weak_layers(store):
             {"character_id": "role:老道", "prose": "同样缺标题的老道投影。"},
         ], ensure_ascii=False)},
     )
-    store.update_chapter_meta(seq, {"scene_truth": "客观上:灰契真名绑定；真相已改写一版。"})
+    store.update_chapter_meta(seq, {
+        "scene_truth": (
+            "客观上:灰契真名绑定；真相已改写一版。"
+            "老道仍知情；沈砚仍不知真名；本场对质只得半句。"
+            "读者知绑定规则，角色信息差维持到章末。"
+        ),
+    })
     r = gate_b(store, seq)
     ids = {c.id: c for c in r.checks}
     assert ids["B6s"].verdict == "warn"
