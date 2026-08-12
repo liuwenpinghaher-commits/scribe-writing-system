@@ -1,8 +1,8 @@
 /**
- * 故事线中枢 — 融合弧实体 + 章进度 + 情绪 + focus 因果（SL1–SL5）
- * - 一次 /storyline/hub 拉齐 gantt + 情绪 + 实体 + overlay + refs
+ * 规划看板 + 跨章弧登记（原「故事线」中枢）
+ * - 挂在「仪表盘」下：章进度/情绪/对标 = 规划参考；实体 = 可选跨章弧标签
  * - craft_only：仅「写入生成提示」勾选的 notes 会进写路径
- * - 对标轴 uncomputed 不画假中柱
+ * - 不替代大纲、伏笔、因果
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
@@ -73,7 +73,7 @@ function EmptyHint({ children }) {
   return <div className="text-f12 text-faint py-4 text-center">{children}</div>
 }
 
-export function StorylineHub({ work, onJumpChapter }) {
+export function StorylineHub({ work, onJumpChapter, embedded = false }) {
   const [gantt, setGantt] = useState(null)
   const [curve, setCurve] = useState(null)
   const [lines, setLines] = useState([])
@@ -206,11 +206,11 @@ export function StorylineHub({ work, onJumpChapter }) {
     try {
       if (typeof api.storylineCreate === 'function') {
         await api.storylineCreate({
-          title: title || '新故事线',
+          title: title || '新跨章弧',
           craft_only: true,
         }, work)
       } else {
-        await api.post('/storyline/lines', { title: title || '新故事线', craft_only: true, work }, work)
+        await api.post('/storyline/lines', { title: title || '新跨章弧', craft_only: true, work }, work)
       }
       setTitle('')
       load()
@@ -266,7 +266,7 @@ export function StorylineHub({ work, onJumpChapter }) {
 
   const onDelete = async () => {
     if (!activeId) return
-    if (!window.confirm('确定删除这条故事线？')) return
+    if (!window.confirm('确定删除这条跨章弧？')) return
     setBusy(true)
     try {
       if (typeof api.storylineDelete === 'function') {
@@ -288,7 +288,7 @@ export function StorylineHub({ work, onJumpChapter }) {
       <div className="h-full grid place-items-center text-f13 text-faint" data-testid="storyline-loading">
         <div className="flex items-center gap-2">
           <RefreshCw size={16} className="animate-spin opacity-60" />
-          加载故事线…
+          加载规划看板…
         </div>
       </div>
     )
@@ -310,12 +310,21 @@ export function StorylineHub({ work, onJumpChapter }) {
   const causalState = refs?.causal?.state
   const causalText = CAUSAL_LABEL[causalState] || '因果：—'
 
+  const shellClass = embedded
+    ? 'space-y-4'
+    : 'h-full min-h-0 overflow-y-auto bg-canvas'
+  const innerClass = embedded
+    ? 'space-y-4'
+    : 'max-w-5xl mx-auto px-5 py-5 md:px-7 md:py-6 space-y-4'
+
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-canvas" data-testid="storyline-hub">
-      <div className="max-w-5xl mx-auto px-5 py-5 md:px-7 md:py-6 space-y-4">
+    <div className={shellClass} data-testid="storyline-hub">
+      <div className={innerClass}>
         <div className="flex items-center gap-2 flex-wrap">
           <GitBranch size={18} className="text-brand shrink-0" />
-          <h1 className="type-page prose-serif text-ink">故事线</h1>
+          <h2 className={embedded ? 'text-f15 font-semibold text-ink' : 'type-page prose-serif text-ink'}>
+            规划看板 · 跨章弧
+          </h2>
           <span className="text-meta text-faint rounded bg-soft px-1.5 py-0.5">参考 · 不是打分</span>
           <div className="ml-auto flex items-center gap-2">
             <Btn
@@ -332,7 +341,10 @@ export function StorylineHub({ work, onJumpChapter }) {
           </div>
         </div>
         <p className="text-f12 text-faint -mt-2">
-          跨章弧意图登记 + 章进度 / 情绪起伏（参考）。不替代大纲、伏笔或因果校验。
+          <strong className="font-medium text-ink/80">规划看板</strong>
+          （章进度 / 情绪 / 节奏）来自章节数据，不创建弧也有；
+          <strong className="font-medium text-ink/80">跨章弧</strong>
+          是可选标签，不替代大纲、伏笔或因果。
         </p>
         {refs && (
           <div
@@ -356,12 +368,15 @@ export function StorylineHub({ work, onJumpChapter }) {
           </div>
         )}
 
-        <Section title="故事线实体" icon={BookOpen} testId="storyline-entities">
+        <Section title="跨章弧登记（可选）" icon={BookOpen} testId="storyline-entities">
+          <p className="text-f12 text-faint mb-2">
+            给主线/副线起名并写意图；勾选「写入生成提示」才会进写作提示。叙事主链仍是卷纲·大纲·节拍·伏笔。
+          </p>
           <div className="flex gap-2 mb-3 flex-wrap">
             <Input
               size="sm"
               className="flex-1 min-w-[10rem]"
-              placeholder="新故事线标题"
+              placeholder="新跨章弧标题（如：夺权线）"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               data-testid="storyline-title-input"
@@ -399,7 +414,7 @@ export function StorylineHub({ work, onJumpChapter }) {
               )
             })}
             {!lines.length && !loading && (
-              <li><EmptyHint>暂无故事线 · 上方输入标题后创建</EmptyHint></li>
+              <li><EmptyHint>暂无跨章弧 · 可选创建；不建也不影响大纲与伏笔</EmptyHint></li>
             )}
           </ul>
           <div className="flex gap-2 mt-3 flex-wrap items-center border-t border-line/50 pt-3">
@@ -422,7 +437,7 @@ export function StorylineHub({ work, onJumpChapter }) {
               <Link2 size={14} /> 关联到选中线
             </Btn>
             {!activeId && (
-              <span className="text-meta text-faint">先点选一条故事线</span>
+              <span className="text-meta text-faint">先点选一条跨章弧</span>
             )}
           </div>
           {activeId && (
@@ -481,7 +496,7 @@ export function StorylineHub({ work, onJumpChapter }) {
           )}
         </Section>
 
-        <Section title="章进度（轻量进度条）" icon={Activity} testId="storyline-gantt">
+        <Section title="章进度（规划看板）" icon={Activity} testId="storyline-gantt">
           <div className="space-y-1.5">
             {rows.map((r) => {
               const wPct = Math.max(8, Math.round((Number(r.seq) / maxSeq) * 100))

@@ -1,14 +1,14 @@
-import { Sun, Moon, BookOpen, ChevronDown, Network, Activity, Clock, Search, Settings, Compass, Shield, LogOut, GitBranch } from 'lucide-react'
+import { Sun, Moon, BookOpen, ChevronDown, Network, Activity, Clock, Search, Settings, Compass, Shield, LogOut } from 'lucide-react'
 import { PC_LAYOUT } from './layout/tokens'
 import { BrandMark } from './BrandMark'
 
 // F-06:write/codex 不再是顶栏 tab(已变成左侧项目树两支)。
 // 顶栏横切视图 + 写作旅程(导演状态页)。
+// 规划看板 + 跨章弧登记已并入「仪表盘」(不再单独占一个「故事线」Tab，避免与叙事主链混淆)。
 export const VIEWS = [
   { key: 'journey', label: '旅程', icon: Compass },
   { key: 'atlas', label: '图谱', icon: Network },
   { key: 'timeline', label: '时间线', icon: Clock },
-  { key: 'storyline', label: '故事线', icon: GitBranch },
   { key: 'insight', label: '仪表盘', icon: Activity },
 ]
 

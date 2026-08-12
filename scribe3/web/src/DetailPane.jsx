@@ -28,10 +28,9 @@ const OverviewView = lazyNamed(() => import('./views/OverviewView'), 'OverviewVi
 const TimelineView = lazyNamed(() => import('./views/TimelineView'), 'TimelineView')
 const JourneyView = lazyNamed(() => import('./views/JourneyView'), 'JourneyView')
 const CanonInboxView = lazyNamed(() => import('./views/CanonInboxView'), 'CanonInboxView')
-const StorylineHub = lazyNamed(() => import('./views/StorylineHub'), 'StorylineHub')
+// StorylineHub 已并入 InsightView（规划看板 + 跨章弧）；保留旧 viewKey 重定向
 const BenchmarkLibrary = lazyNamed(() => import('./views/BenchmarkLibrary'), 'BenchmarkLibrary')
 const EventGraphPanel = lazyNamed(() => import('./views/EventGraphPanel'), 'EventGraphPanel')
-
 function DetailLoading() {
   return <div className="h-full grid place-items-center text-f13 text-faint/60">加载视图…</div>
 }
@@ -91,7 +90,16 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
     const k = sel.viewKey
     const openView = (vk) => onSelectNode?.({ type: 'view', id: `view:${vk}` })
     if (k === 'atlas') return <AtlasView key={work} onNavigateToObject={onNavigateToObject} />
-    if (k === 'insight') return <InsightView key={work} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} />
+    if (k === 'insight') {
+      return (
+        <InsightView
+          key={work}
+          work={work}
+          onJumpChapter={onJumpChapter}
+          onNavigateToObject={onNavigateToObject}
+        />
+      )
+    }
     if (k === 'timeline') return <TimelineView key={work} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} />
     if (k === 'overview') return <OverviewView key={work} onJumpChapter={onJumpChapter} onOpenView={openView} />
     if (k === 'journey') {
@@ -115,13 +123,26 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
       )
     }
     if (k === 'settings') return <div className="p-8 text-f13 text-faint" data-testid="settings-moved">设置已迁至顶栏「系统中心」（全页）。请点齿轮打开。</div>
-    if (k === 'progress') return <InsightView key={`${work}-progress`} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} focus="progress" />  // 仪表盘聚焦码字进度面板
-    if (k === 'storyline') {
+    if (k === 'progress') {
       return (
-        <StorylineHub
-          key={`${work}-storyline`}
+        <InsightView
+          key={`${work}-progress`}
           work={work}
           onJumpChapter={onJumpChapter}
+          onNavigateToObject={onNavigateToObject}
+          focus="progress"
+        />
+      )
+    }
+    // 旧入口 storyline → 仪表盘规划区（跨章弧 + 章进度/情绪）
+    if (k === 'storyline' || k === 'arcs' || k === 'planning') {
+      return (
+        <InsightView
+          key={`${work}-planning`}
+          work={work}
+          onJumpChapter={onJumpChapter}
+          onNavigateToObject={onNavigateToObject}
+          focus="planning"
         />
       )
     }

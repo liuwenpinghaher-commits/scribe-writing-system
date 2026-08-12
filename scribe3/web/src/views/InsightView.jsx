@@ -7,6 +7,7 @@ import { showToast } from '../ui/Toast'
 import { useSelection } from '../selectionContext'
 import { scrollBehavior } from '../lib/utils'
 import { seedChiefCodexWrite } from '../lib/chiefSeed.js'
+import { StorylineHub } from './StorylineHub'
 
 // ── 通用 Metric(轻量,无重框套娃) ──────────────────────────────────────────
 function Metric({ icon: Icon, label, value, sub, tone = 'brand' }) {
@@ -636,7 +637,7 @@ function WordHeatmap({ heatmap, dailyGoal }) {
 }
 
 // ── 主视图 ───────────────────────────────────────────────────────────────────
-export function InsightView({ onJumpChapter, focus, onNavigateToObject }) {
+export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) {
   const [q, setQ] = useState(null)
   const [qErr, setQErr] = useState(null)
   const [intent, setIntent] = useState(null)
@@ -645,6 +646,7 @@ export function InsightView({ onJumpChapter, focus, onNavigateToObject }) {
   const [qualityKey, setQualityKey] = useState(0)
   const [qualityRefreshing, setQualityRefreshing] = useState(false)
   const progressRef = useRef(null)
+  const planningRef = useRef(null)
 
   useEffect(() => {
     let alive = true
@@ -661,6 +663,14 @@ export function InsightView({ onJumpChapter, focus, onNavigateToObject }) {
   useEffect(() => {
     if (focus === 'progress' && q) {
       const t = setTimeout(() => progressRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' }), 80)
+      return () => clearTimeout(t)
+    }
+  }, [focus, q])
+
+  // 旧「故事线」入口 / 概览链接：滚到规划看板 + 跨章弧
+  useEffect(() => {
+    if (focus === 'planning' && q) {
+      const t = setTimeout(() => planningRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' }), 100)
       return () => clearTimeout(t)
     }
   }, [focus, q])
@@ -697,7 +707,11 @@ export function InsightView({ onJumpChapter, focus, onNavigateToObject }) {
   return (
     <div className="h-full overflow-y-auto bg-canvas">
       <div className="max-w-5xl mx-auto px-6 py-6 md:px-8 md:py-8">
-        <div className="flex items-center gap-2 mb-5"><Activity size={18} className="text-brand" /><h1 className="type-page prose-serif text-ink">质量仪表盘</h1></div>
+        <div className="flex items-center gap-2 mb-5">
+          <Activity size={18} className="text-brand" />
+          <h1 className="type-page prose-serif text-ink">仪表盘</h1>
+          <span className="text-meta text-faint">质量 · 伏笔 · 规划看板 · 跨章弧</span>
+        </div>
 
         {cacheStale && (
           <section role="alert" className="mb-6 rounded-lg border border-fore/25 bg-fore/5 px-4 py-3 text-f13 text-ink flex items-center gap-3">
@@ -801,6 +815,19 @@ export function InsightView({ onJumpChapter, focus, onNavigateToObject }) {
                 </button>
               )
             })}
+        </div>
+
+        {/* 规划看板 + 跨章弧（原顶栏「故事线」整页内容） */}
+        <div
+          ref={planningRef}
+          className={`mt-8 pt-6 border-t border-line/60 ${focus === 'planning' ? 'scroll-mt-4 rounded-md ring-2 ring-brand/40' : ''}`}
+          data-testid="insight-planning-section"
+        >
+          <StorylineHub
+            work={work}
+            onJumpChapter={onJumpChapter}
+            embedded
+          />
         </div>
       </div>
     </div>

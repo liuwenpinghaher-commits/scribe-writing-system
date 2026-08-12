@@ -123,7 +123,7 @@ export function ChapterSoftCards({ seq, work, synopsis, beats }) {
 
   return (
     <div className="space-y-2" data-testid="chapter-soft-cards">
-      <div className="text-f12 font-medium text-faint">质量助手 · 开写前检查 / 梗概蒸馏 / 故事线预览</div>
+      <div className="text-f12 font-medium text-faint">质量助手 · 开写前检查 / 梗概蒸馏 / 弧意图注入预览</div>
       {err && <div className="text-f11 text-warn">{err}</div>}
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <Card title="开写前检查" testId="soft-card-precheck">
@@ -146,7 +146,7 @@ export function ChapterSoftCards({ seq, work, synopsis, beats }) {
             </div>
           )}
         </Card>
-        <Card title="故事线注入预览" testId="soft-card-inject">
+        <Card title="弧意图注入预览" testId="soft-card-inject">
           <Btn size="sm" disabled={!!busy} onClick={runInject} data-testid="soft-inject-run">
             {busy === 'inject' ? '…' : '预览'}
           </Btn>

@@ -56,9 +56,9 @@ export function OverviewView({ onJumpChapter, onOpenView }) {
           <BookText size={18} className="text-brand" />
           <h1 className="type-page prose-serif text-ink">概览</h1>
           <div className="ml-auto flex flex-wrap gap-2 text-f12">
-            <button type="button" onClick={() => onOpenView?.('storyline')}
+            <button type="button" onClick={() => onOpenView?.('insight')}
               className="text-brand hover:underline cursor-pointer" data-testid="overview-open-storyline">
-              故事线 Gantt
+              仪表盘 · 规划看板
             </button>
             <button type="button" onClick={() => onOpenView?.('event-graph')}
               className="text-brand hover:underline cursor-pointer" data-testid="overview-open-event-graph">
