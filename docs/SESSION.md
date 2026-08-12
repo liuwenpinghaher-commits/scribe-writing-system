@@ -49,12 +49,14 @@
 
 ### 5万字 CLI+Playwright 全程验收方案（2026-08-12）
 
-- **方案**：`docs/plans/2026-08-12-50k-cli-playwright-acceptance.md`
+- **方案 v1**：`docs/plans/2026-08-12-50k-cli-playwright-acceptance.md`（脚手架；审查 B-）
+- **硬化设计 v2 Draft 0.3**：`docs/plans/2026-08-12-50k-acceptance-hardening-v2-design.md`（design 循环共识；PR-0…7）
 - **入口**：`./scripts/run_50k_acceptance.sh`（`--resume` 断点续传）
 - **实现**：`scribe3/web/e2e/acceptance_50k/*`（复用 `lib.mjs` / `author_decisions.mjs` / craft gates）
 - **性质**：已部署栈长程自动化回归；**≠** v6.3.4 体验总 PASS（仍需真人 SPA）
-- **安全**：必须 `E2E_ALLOW_DEPLOYED=1`；禁止 API 灌库；闸绿≠质量（`verify_content_quality`）
-- **建议执行机**：demo 部署机（勿在 Grok 运行机 `npm ci` / 长跑 Playwright）
+- **v2 要点**：三级判定 `path_ok`/`gates_ok`/`strict_must_ok`；WCG-A/B 两段；M4=GATE-A∧WCG-A；checkpoint 迁移；分章 re-launch；M8/M12 Python 同源
+- **安全**：必须 `E2E_ALLOW_DEPLOYED=1`；禁止 API 灌库；闸绿≠质量
+- **建议执行机**：demo 部署机；下一步可按 PR Plan 实现 PR-0
 
 ### 控制面活地图（2026-08-10）
 
