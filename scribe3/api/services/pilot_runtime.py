@@ -1231,6 +1231,29 @@ def _pilot_executor(work: str) -> dict:
                     "pilot deliver triage buckets 失败(忽略): %s", e)
         if _buckets is not None:
             card["buckets"] = _buckets
+        # R3：structure advisory（不改变 craft finalize）
+        try:
+            from scribe3.structure_style import evaluate_structure_style
+            _ss = evaluate_structure_style(prose or "")
+            card["structure_advisory"] = {
+                "ending_formula_hit": bool(_ss.get("ending_formula_hit")),
+                "isomorphism_hit": bool(_ss.get("isomorphism_hit")),
+                "simile_like_per_1k": _ss.get("simile_like_per_1k"),
+                "severity": "advisory",
+            }
+            _hits = sum(1 for k in ("ending_formula_hit", "isomorphism_hit") if _ss.get(k))
+            try:
+                if float(_ss.get("simile_like_per_1k") or 0) >= 8:
+                    _hits += 1
+            except Exception:
+                pass
+            if _hits and isinstance(card.get("buckets"), dict):
+                card["buckets"]["style"] = int(card["buckets"].get("style") or 0) + _hits
+            if _hits:
+                card["structure_note"] = f"结构多样性 advisory {_hits} 项（非阻断）"
+        except Exception as e:
+            logging.getLogger("scribe3").debug(
+                "pilot deliver structure_advisory fail-soft: %s", e)
         # EC：保留 soft_fulfill / execution 摘要键（merge，非整卡抹掉）
         for _k in ("soft_fulfill", "execution"):
             if isinstance(_prev_card.get(_k), dict):

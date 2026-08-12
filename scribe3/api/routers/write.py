@@ -840,11 +840,20 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
 
     from scribe3.critique import _degen_visible_length
     _visible_chars = _degen_visible_length(req.prose or "")
+    # R2：结构多样性 advisory（不进 blocking）
+    structure_style = None
+    try:
+        from scribe3.structure_style import evaluate_structure_style
+        structure_style = evaluate_structure_style(req.prose or "")
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check structure_style 失败: %s", e)
+        degraded_stages.append("structure_style")
     resp = {
         "quality": {**qc_breakdown, "total": qc_total},
         "leaks": leaks,
         "leaks_degraded": leaks_degraded,
         "fulfillment": fulfillment,
+        "structure_style": structure_style,
         "s1_circuit_open": _s1_circuit_open(work),   # 1-A 熔断状态对调用方可见
         "visible_chars": _visible_chars,   # 2-B:A5 口径可见字数,triage 短文本降档判据源
         "discipline": discipline,

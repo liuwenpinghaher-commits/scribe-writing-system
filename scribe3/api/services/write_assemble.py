@@ -1694,6 +1694,19 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                         provenance_trace_items=_prov_items,
                         provenance_in_prompt_chars=_prov_chars,
                     )
+                    # R1：持久化 density 快照（跨请求 scorecard 可读；fail-soft）
+                    try:
+                        from scribe3.density_trace_store import upsert_density_trace
+                        _dt_persist = dict(envelope_trace["density_trace"] or {})
+                        _dt_persist["source"] = "write_assemble"
+                        _up = upsert_density_trace(st, int(chapter), _dt_persist)
+                        if _up.get("delta") is not None:
+                            envelope_trace["density_delta"] = _up["delta"]
+                        envelope_trace["density_persist_ok"] = bool(_up.get("ok"))
+                    except Exception:
+                        logging.getLogger("scribe3").debug(
+                            "density_trace persist fail-soft", exc_info=True,
+                        )
                 except Exception:
                     pass
         except Exception:

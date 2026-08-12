@@ -140,12 +140,20 @@ export function WriteLayout({ work, seq, sceneIdx }) {
   const [exploreMode, setExploreMode] = useState(() => {
     try { return localStorage.getItem('s3.create_mode') === 'explore' } catch { return false }
   })
+  // 最近一次存稿未 stamp final（持久黄条）
+  const [finalStampBlocked, setFinalStampBlocked] = useState(false)
   useEffect(() => {
     try {
       if (exploreMode) localStorage.setItem('s3.create_mode', 'explore')
       else localStorage.removeItem('s3.create_mode')
     } catch { /* */ }
   }, [exploreMode])
+  useEffect(() => {
+    try {
+      const k = `s3.final_stamp_blocked:${work || 'main'}:${chapter}`
+      setFinalStampBlocked(sessionStorage.getItem(k) === '1')
+    } catch { setFinalStampBlocked(false) }
+  }, [work, chapter])
   const [ingestFail, setIngestFail] = useState(null)  // {error,status} | null
   // dirty 切章防丢:用 ref 追踪当前章号 + 实时正文 + chTitle + focalizer + dirty 状态,
   // 全部从 ref 读,完全脱离 state 闭包,确保切章时拿到最新值。
@@ -394,6 +402,23 @@ export function WriteLayout({ work, seq, sceneIdx }) {
       </div>
       {postCheckResult && !postCheckResult.error && (
         <div className="space-y-1.5">
+          {postCheckResult.structure_style && (
+            <div
+              className="text-f12 rounded-lg px-2 py-1.5 bg-soft border border-line text-ink"
+              data-testid="checkup-structure-style"
+            >
+              <span className="font-medium text-faint">结构 · advisory</span>
+              <span className="ml-1">
+                {postCheckResult.structure_style.ending_formula_hit
+                  ? '章末公式感 · ' : '章末 OK · '}
+                {postCheckResult.structure_style.isomorphism_hit
+                  ? '段同构 · ' : '段型多样 · '}
+                {typeof postCheckResult.structure_style.simile_like_per_1k === 'number'
+                  ? `像≈${postCheckResult.structure_style.simile_like_per_1k}/千字`
+                  : ''}
+              </span>
+            </div>
+          )}
           {postCheckResult.issues && postCheckResult.issues.length > 0 && (
             <div className="rounded-lg border border-line divide-y divide-line/50 max-h-56 overflow-y-auto">
               {postCheckResult.issues.map((iss, idx) => (
@@ -517,6 +542,15 @@ export function WriteLayout({ work, seq, sceneIdx }) {
           && (r.final_stamp?.code === 'craft_finalize'
             || (r.final_stamp?.blocking || []).length)) {
         toast('正文已存；定稿版本未写入——须齐套 GATE-A/B 后再终选/stamp', { tone: 'warn' })
+        setFinalStampBlocked(true)
+        try {
+          sessionStorage.setItem(`s3.final_stamp_blocked:${work || 'main'}:${chapter}`, '1')
+        } catch { /* */ }
+      } else if (r.final_version_stamped === true) {
+        setFinalStampBlocked(false)
+        try {
+          sessionStorage.removeItem(`s3.final_stamp_blocked:${work || 'main'}:${chapter}`)
+        } catch { /* */ }
       }
     } catch { /* 提示失败不挡存稿 */ }
     // 存后拉 ingest 状态角标(KR3 可观测)
@@ -1007,6 +1041,33 @@ export function WriteLayout({ work, seq, sceneIdx }) {
                 try { localStorage.removeItem(stashKey(work, chapter)) } catch { /* */ }
                 setStash(null)
               }} className="h-7 px-2.5 rounded-lg text-faint hover:bg-soft cursor-pointer shrink-0 transition-colors">丢弃</button>
+            </div>
+          )}
+          {(exploreMode || finalStampBlocked) && (
+            <div
+              className="mb-3 px-3 py-2 rounded-md border border-brand/30 bg-brand/5 text-f12 text-ink space-y-0.5"
+              data-testid="write-enablement-banner"
+            >
+              {exploreMode && (
+                <div>探索模式：存稿工艺 soft · 定稿 / stamp 仍须 GATE 齐套</div>
+              )}
+              {finalStampBlocked && (
+                <div className="text-warn">
+                  上次存稿未写入定稿版本——补齐 GATE-A/B 后终选或再存
+                  <button
+                    type="button"
+                    className="ml-2 text-meta text-faint underline cursor-pointer"
+                    onClick={() => {
+                      setFinalStampBlocked(false)
+                      try {
+                        sessionStorage.removeItem(`s3.final_stamp_blocked:${work || 'main'}:${chapter}`)
+                      } catch { /* */ }
+                    }}
+                  >
+                    知道了
+                  </button>
+                </div>
+              )}
             </div>
           )}
           {renderCheckupCard()}

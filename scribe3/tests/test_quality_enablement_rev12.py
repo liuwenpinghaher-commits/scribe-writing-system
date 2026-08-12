@@ -139,6 +139,81 @@ def test_post_includes_structure_style_advisory():
     assert post.get("structure_style", {}).get("blocks_finalize") is False
 
 
+def test_density_trace_store_last_prev_delta():
+    from scribe3.density_trace_store import (
+        slim_density_trace, density_delta, upsert_density_trace, resolve_density_for_scorecard,
+    )
+    t1 = slim_density_trace({
+        "provenance_in_prompt_tokens": 0,
+        "audit_meta_share": 0.12,
+        "drama_core_share": 0.40,
+    })
+    t2 = slim_density_trace({
+        "provenance_in_prompt_tokens": 0,
+        "audit_meta_share": 0.08,
+        "drama_core_share": 0.45,
+    })
+    d = density_delta(t2, t1)
+    assert d is not None
+    assert abs(d["audit_meta_share"] - (-0.04)) < 1e-6
+    assert abs(d["drama_core_share"] - 0.05) < 1e-6
+
+    store: dict = {}
+
+    class St:
+        def _raw_query(self, *a, **k):
+            return None
+
+        def _query(self, q, vars=None):
+            seq = int((vars or {}).get("s") or 0)
+            row = store.get(seq) or {}
+            return [row] if row else []
+
+        def _execute_write(self, q, vars=None):
+            seq = int((vars or {}).get("s") or 0)
+            store[seq] = {
+                "density_trace_json": (vars or {}).get("cur"),
+                "density_trace_prev_json": (vars or {}).get("prev"),
+            }
+
+    st = St()
+    r1 = upsert_density_trace(st, 1, t1)
+    assert r1["ok"] is True
+    r2 = upsert_density_trace(st, 1, t2)
+    assert r2["ok"] is True
+    assert r2.get("prev") is not None
+    assert r2.get("delta") is not None
+    dens, delta = resolve_density_for_scorecard(st, 1)
+    assert dens is not None
+    assert dens.get("audit_meta_share") == 0.08
+    assert delta is not None
+
+
+def test_triage_structure_style_advisory_not_blocking():
+    from scribe3.loop import triage
+    post = {
+        "leaks": [],
+        "issues": [],
+        "degraded_stages": [],
+        "visible_chars": 200,
+        "structure_style": {
+            "ending_formula_hit": True,
+            "isomorphism_hit": False,
+            "simile_like_per_1k": 3.0,
+            "ending_formula": {"line": "铜匙凉了。"},
+            "blocks_finalize": False,
+        },
+        "ai_grade": {"grade": "light"},
+    }
+    t = triage(post)
+    assert t["verdict"] in ("pass", "advisory")
+    msgs = [a.get("message") or "" for a in (t.get("advisory_items") or [])]
+    assert any("章末公式" in m for m in msgs)
+    assert not any(
+        (b.get("kind") or "").startswith("ending") for b in (t.get("blocking") or [])
+    )
+
+
 def test_overcap_drops_material_before_outline():
     from scribe3.context_budget import apply_l2_trim, GEN_SEGMENT_PROTECTED
 

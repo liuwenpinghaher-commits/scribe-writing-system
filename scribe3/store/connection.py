@@ -541,25 +541,26 @@ class ConnectionMixin:
             advisory["structure_style"] = None
         try:
             from scribe3.api.services.write_assemble import get_last_write_budget_report
-            from scribe3.injection_registry import density_trace_for_segments
+            from scribe3.density_trace_store import resolve_density_for_scorecard
             _br = get_last_write_budget_report() or {}
-            _dt = None
-            if _br.get("domain_lengths") or _br.get("order_indices"):
-                _dt = density_trace_for_segments(
-                    domain_lengths=_br.get("domain_lengths"),
-                    order_indices=_br.get("order_indices"),
-                )
-            if isinstance(_dt, dict) and _dt:
+            _dens, _ddelta = resolve_density_for_scorecard(
+                self, int(seq), memory_report=_br or None,
+            )
+            if isinstance(_dens, dict) and _dens:
                 advisory["density"] = {
-                    "provenance_in_prompt_tokens": _dt.get("provenance_in_prompt_tokens"),
-                    "audit_meta_share": _dt.get("audit_meta_share"),
-                    "drama_core_share": _dt.get("drama_core_share"),
-                    "envelope_canon_share": _dt.get("envelope_canon_share"),
-                    "envelope_recent_share": _dt.get("envelope_recent_share"),
+                    "provenance_in_prompt_tokens": _dens.get("provenance_in_prompt_tokens"),
+                    "audit_meta_share": _dens.get("audit_meta_share"),
+                    "drama_core_share": _dens.get("drama_core_share"),
+                    "envelope_canon_share": _dens.get("envelope_canon_share"),
+                    "envelope_recent_share": _dens.get("envelope_recent_share"),
+                    "source": _dens.get("source"),
+                    "captured_at": _dens.get("captured_at"),
                 }
+                advisory["density_delta"] = _ddelta  # 相对 prev；无则 null
             else:
-                # 诚实：本轮无 assemble 上下文 → 不写假 0
+                # 诚实：无 assemble 且无持久化快照 → null（不伪造 0）
                 advisory["density"] = None
+                advisory["density_delta"] = None
             try:
                 from scribe3.quality_enablement_flags import create_mode
                 advisory["create_mode"] = create_mode()
@@ -568,6 +569,7 @@ class ConnectionMixin:
         except Exception:
             degraded.append("density")
             advisory["density"] = None
+            advisory["density_delta"] = None
         return {"seq": seq, "constraints": constraints, "advisory_scores": advisory,
                 "fulfillment": fulfillment, "degraded": degraded}
 

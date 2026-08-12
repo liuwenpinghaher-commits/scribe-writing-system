@@ -54,7 +54,9 @@ _STORY_KINDS = frozenset({
     "event_pace_cv",
 })
 _REDLINE_TYPES = frozenset({"leak", "degeneration", "discipline"})
-_STYLE_TYPES = frozenset({"punct", "ai_grade", "short_text_low_confidence", "setting"})
+_STYLE_TYPES = frozenset({
+    "punct", "ai_grade", "short_text_low_confidence", "setting", "structure_style",
+})
 
 
 def normalize_bucket_counts(buckets: dict | None) -> dict[str, int]:
@@ -207,6 +209,40 @@ def triage(post: dict) -> dict:
         # 2-B:降档必须显式可见——作者要知道"没拦"是因为置信度不足,不是稿子没问题
         advisory_items.append({"type": "short_text_low_confidence",
                                "message": _short_low_conf, "text": "", "range": None})
+
+    # R2：structure_style 仅 advisory（永不 blocking）
+    _ss = post.get("structure_style") if isinstance(post.get("structure_style"), dict) else None
+    if _ss:
+        if _ss.get("ending_formula_hit"):
+            advisory_items.append({
+                "type": "structure_style",
+                "message": "章末公式感（短句+意象回扣）· advisory，可改收束结构",
+                "text": str((_ss.get("ending_formula") or {}).get("line") or "")[:60],
+                "range": None,
+                "meta": {"kind": "ending_formula", "severity": "advisory"},
+            })
+        if _ss.get("isomorphism_hit"):
+            runs = _ss.get("paragraph_isomorphism") or []
+            n = runs[0].get("count") if runs else 3
+            advisory_items.append({
+                "type": "structure_style",
+                "message": f"连续段同构 run（≥{n}）· advisory，建议轮换段型",
+                "text": str((runs[0].get("sample") if runs else "") or "")[:60],
+                "range": None,
+                "meta": {"kind": "paragraph_isomorphism", "severity": "advisory"},
+            })
+        try:
+            sp = float(_ss.get("simile_like_per_1k") or 0)
+            if sp >= 8.0:
+                advisory_items.append({
+                    "type": "structure_style",
+                    "message": f"「像」密度约 {sp}/千字偏高 · advisory",
+                    "text": "",
+                    "range": None,
+                    "meta": {"kind": "simile_density", "severity": "advisory"},
+                })
+        except Exception:
+            pass
 
     # advisory → buckets（不改 verdict 逻辑）
     for a in advisory_items:
