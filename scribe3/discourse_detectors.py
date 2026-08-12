@@ -148,18 +148,30 @@ def aggregate_breath(
             telling = list(find_emotion_telling(body) or [])
         except Exception:
             telling = []
+    # 与 quality_issues 同口径：仅 verdict=="uniform" 才报「节奏过匀」；
+    # verdict=="ok" / None 不算 hit（高 CV 变化句长不得假报）。
     rhythm_hit = False
     rhythm_meta: dict[str, Any] = {}
     if rhythm is not None:
-        rhythm_meta = dict(rhythm) if isinstance(rhythm, dict) else {}
-        rhythm_hit = bool(rhythm_meta.get("hit") or rhythm_meta.get("uniform"))
+        if isinstance(rhythm, dict):
+            rhythm_meta = dict(rhythm)
+            rhythm_hit = str(rhythm_meta.get("verdict") or "") == "uniform" or bool(
+                rhythm_meta.get("hit") is True
+            ) or str(rhythm_meta.get("uniform") or "") in ("1", "true", "uniform")
+            # 显式 uniform=False / hit=False 不报
+            if rhythm_meta.get("hit") is False:
+                rhythm_hit = False
+            if rhythm_meta.get("verdict") == "ok":
+                rhythm_hit = False
+        elif rhythm:
+            rhythm_hit = True
     elif body.strip():
         try:
             from scribe3.critique import find_rhythm_uniformity
             r = find_rhythm_uniformity(body)
             if isinstance(r, dict):
                 rhythm_meta = r
-                rhythm_hit = True  # 返回 dict 即有信号
+                rhythm_hit = str(r.get("verdict") or "") == "uniform"
             elif r:
                 rhythm_hit = True
         except Exception:

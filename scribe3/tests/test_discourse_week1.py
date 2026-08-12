@@ -18,6 +18,71 @@ def test_tip_ssot_lookups():
     assert tip_for("hook_on_page")["tip"]
 
 
+def test_aggregate_breath_rhythm_only_uniform_not_ok():
+    """诚实路径：高 CV / verdict=ok 的句长变化正文不得出 rhythm tip，也不得仅因 rhythm 假 tight。
+
+    驱动 shipped ``aggregate_breath`` → 内部 ``find_rhythm_uniformity``，不重实现。
+    """
+    from scribe3.critique import find_rhythm_uniformity
+    from scribe3.discourse_detectors import aggregate_breath
+
+    # 长短交错：应判 ok 而非 uniform（需足够句数）
+    varied = "".join(
+        [
+            "他走了。",
+            "门外的雨越下越大，巷子深处有人提着灯笼，脚步声一下一下敲在青石板上。",
+            "灯灭了。",
+            "她忽然想起三年前的那封信，于是停住，又往前走，又停住。",
+            "风停。",
+            "铜炉里的灰还热着，像有人刚走不久，却又什么都没留下。",
+            "谁？",
+            "没有人回答，只有雨声把夜色一层层洗薄。",
+            "他抬手推门。",
+            "门开了，里面空无一人，桌上却摆着那枚她丢失多年的铜钱。",
+            "停。",
+            "她的呼吸乱了半拍，随即又平复下来，仿佛什么都没发生过。",
+            "远方有狗吠。",
+            "狗吠停了之后，世界重新安静得过分，连雨丝都像被按了静音。",
+            "她把铜钱握紧。",
+            "然后松开，放回桌上，退后一步，再退后一步，直到门槛外的冷风灌进领口。",
+            "走。",
+            "她没有回头，雨打在伞上，像无数细小的催促。",
+            "巷口有人影一闪。",
+            "那人影却再也不出现，只留下她一个人站在灯下，听着自己的心跳。",
+            "心跳慢下来。",
+            "她终于明白：有些事不是来得太快，而是来得太安静。",
+        ]
+    )
+    rhythm = find_rhythm_uniformity(varied)
+    assert rhythm is not None, "need n_sentences enough for verdict"
+    assert rhythm.get("verdict") == "ok", rhythm
+    assert rhythm.get("n_sentences", 0) >= 20, rhythm
+
+    # 无情绪贴标输入，避免 telling 干扰 tight
+    breath = aggregate_breath(varied, emotion_hits=[], god_view_count=0)
+    families = {t.get("family") for t in (breath.get("tips") or [])}
+    assert "rhythm" not in families, breath
+    assert breath.get("tight") is not True, breath
+
+    # 显式传入 verdict=ok 元数据同样不报
+    breath2 = aggregate_breath(
+        "短。",
+        emotion_hits=[],
+        rhythm={"verdict": "ok", "cv": 0.5, "n_sentences": 25},
+        god_view_count=0,
+    )
+    assert "rhythm" not in {t.get("family") for t in (breath2.get("tips") or [])}
+
+    # uniform 才报
+    breath3 = aggregate_breath(
+        "短。",
+        emotion_hits=[],
+        rhythm={"verdict": "uniform", "cv": 0.05, "n_sentences": 30},
+        god_view_count=0,
+    )
+    assert "rhythm" in {t.get("family") for t in (breath3.get("tips") or [])}
+
+
 def test_hook_plan_and_hook_on_page():
     from scribe3.discourse_detectors import detect_hook_plan, detect_hook_on_page
 
