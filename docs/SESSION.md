@@ -47,6 +47,15 @@
 - **清单脚本**：`scripts/v634_evidence_checklist.py` + pure tests  
 - **本轮执行**：工程脚手架 + demo runtime baseline；**无真人 SPA → 不得总 PASS**（见 evidence 包结案 PARTIAL）
 
+### 5万字 CLI+Playwright 全程验收方案（2026-08-12）
+
+- **方案**：`docs/plans/2026-08-12-50k-cli-playwright-acceptance.md`
+- **入口**：`./scripts/run_50k_acceptance.sh`（`--resume` 断点续传）
+- **实现**：`scribe3/web/e2e/acceptance_50k/*`（复用 `lib.mjs` / `author_decisions.mjs` / craft gates）
+- **性质**：已部署栈长程自动化回归；**≠** v6.3.4 体验总 PASS（仍需真人 SPA）
+- **安全**：必须 `E2E_ALLOW_DEPLOYED=1`；禁止 API 灌库；闸绿≠质量（`verify_content_quality`）
+- **建议执行机**：demo 部署机（勿在 Grok 运行机 `npm ci` / 长跑 Playwright）
+
 ### 控制面活地图（2026-08-10）
 
 - **P0a**：`mcp_catalog_build` 扫描 async def；gate 分档 world_write=48 / manuscript / ingest / read  
