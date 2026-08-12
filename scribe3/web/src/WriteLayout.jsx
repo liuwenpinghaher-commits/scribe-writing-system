@@ -532,6 +532,13 @@ export function WriteLayout({ work, seq, sceneIdx }) {
     if (r.finalize_gate?.danger_draft) {
       toast('已强制保存（跳过了质检拦截）——请稍后自行复查', { tone: 'warn' })
     }
+    // dual-lamp：若存稿响应带 reader_ready / anti_meta 提示（soft）
+    try {
+      const am = r.anti_meta || r.reader_ready?.anti_meta
+      if (am && am.ok_for_claim === false) {
+        toast('草稿已存；正文含验收腔，尚不可宣称「给读者看」', { tone: 'warn' })
+      }
+    } catch { /* */ }
     // 探索 soft-save / craft 未齐套未 stamp final（作者可感）
     try {
       const warns = Array.isArray(r.warnings) ? r.warnings : (r.craft_gate?.warnings || [])

@@ -362,7 +362,7 @@ python3 scripts/v4_world_complete_gate.py --slug <work> --out machine/wcg-full.j
 
 | Hard ID | craft-loop 阈值（SSOT） | 可复用机判 | 缺口 |
 |---------|------------------------|------------|------|
-| **CL-B5-H1** | 净文去空白 **≥1500** | `quality.Q1` 同 | 可复用 |
+| **CL-B5-H1** | **拆分（dual-lamp 2026-08-12）**：**H1-cover** 场面覆盖（scene_cover.ok）；**H1-length** soft 记录 cn_len；**H1m** anti_meta.ok_for_claim | `reader_ready` / `quality.Q1` 现 soft | **禁止**仅用 prose≥1500 宣称正文绿 |
 | **CL-B5-H2** | 提案卡/用此版路径；禁 API 灌 | 无 | 路径+截图 |
 | **CL-B5-H3** | **`focalizer` 非空**（否则 **hard fail**）；`find_leaks_for_chapter(prose,st,focalizer,seq)==[]` | 同源 Python；GATE-C C1 无 focalizer→**warn/skip 不 fail**——**craft-loop 更严** | post-check `degraded_stages` 含 `find_leaks` → 另 hard **CL-B5-H3b** fail（不得当零泄露） |
 | **CL-B5-H3b** | 若跑 post-check：`find_leaks ∉ degraded_stages` 且 leaks 空 | triage `degraded_stages` | 未跑 post-check → skip 本条，H3 仍要 |
@@ -794,6 +794,16 @@ craft_loop_full_pass ⇔
   ∧ 全 CL-B0…B6 green 含 B6 跨章项（章数≥2）
   ∧ 运营档建议均≥3
 ```
+
+#### 12.2b 双公式（dual-lamp · 2026-08-12）
+
+```text
+craft_loop_mvp_pass     = 块脚手架 hard 序贯绿（**默认不含**灯 R / may_claim_readable）
+craft_loop_readable_pass = mvp 路径完成 ∧ may_claim_readable ∧ CL-B5-H9
+  may_claim_readable   = machine_reader_ok ∧ human_acked(prose_fp)
+```
+
+**第四行 disclaimer（dual-lamp）：** `工程脚手架 PASS ≠ 可给读者看 / 可连载宣称`
 
 #### 12.3 PASS.md 三行 disclaimer（强制模板）
 

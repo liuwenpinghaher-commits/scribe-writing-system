@@ -83,18 +83,20 @@ def review_chapter_quality(
     checks: list[QualityCheck] = []
     scores: dict[str, float] = {}
 
-    # Q1 篇幅
+    # Q1 篇幅 — dual-lamp：长度 soft，不再单独否决 quality_ok（防灌水刷绿）
     if len(net) < t.min_prose_chars:
         checks.append(QualityCheck(
             "Q1_LENGTH", False,
-            f"净文 {len(net)} < {t.min_prose_chars}（小品/提纲级，非章级）",
+            f"净文 {len(net)} < {t.min_prose_chars}（偏短提示，非充分否决）",
             score=max(1.0, min(5.0, len(net) / t.min_prose_chars * 3)),
+            hard=False,
         ))
         scores["length"] = checks[-1].score or 1.0
     else:
         checks.append(QualityCheck(
             "Q1_LENGTH", True, f"净文 {len(net)}",
             score=min(5.0, 3.0 + len(net) / 2000),
+            hard=False,
         ))
         scores["length"] = checks[-1].score or 4.0
 

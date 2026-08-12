@@ -412,6 +412,20 @@ def collect_deterministic_post_for_prose(
     except Exception:
         degraded.append("structure_style")
 
+    # dual-lamp: anti_meta 顶键 + advisory issues（永不 is_blocking_issue）
+    anti_meta = None
+    try:
+        import os
+        if (os.environ.get("SCRIBE3_ANTI_META") or "1").strip().lower() not in (
+            "0", "false", "no", "off",
+        ):
+            from scribe3.anti_meta_narration import scan_anti_meta
+            from scribe3.reader_ready import anti_meta_issues_for_post
+            anti_meta = scan_anti_meta(prose or "")
+            issues.extend(anti_meta_issues_for_post(prose or ""))
+    except Exception:
+        degraded.append("anti_meta")
+
     post = build_deterministic_post(
         prose,
         leaks=leaks,
@@ -422,4 +436,7 @@ def collect_deterministic_post_for_prose(
     )
     if structure_style is not None:
         post["structure_style"] = structure_style
+    if anti_meta is not None:
+        post["anti_meta"] = anti_meta
+        post["prose"] = prose or ""
     return post

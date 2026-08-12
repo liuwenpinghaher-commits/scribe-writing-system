@@ -1,12 +1,7 @@
 #!/usr/bin/env python3
 """craft-loop SSOT 机算助手（禁止 if gate_*.ok → green）。
 
-用法示例:
-  export API_BASE=https://tonglu.qing.blue
-  export SCRIBE3_COOKIE_JAR=/path/to/cj.txt
-  python3 scripts/craft_loop_ssot.py --work book_qe_live5 --seq 2 --out /tmp/cl-ssot.json
-
-仅只读 GET；写路径请走合法 SPA/orch/save-chapter。
+导出双公式字段：mvp scaffold vs readable claims。
 """
 from __future__ import annotations
 
@@ -54,46 +49,74 @@ def main() -> int:
     promises = get(f"/api/promises?work={w}")
     entities = get(f"/api/entities?work={w}")
 
+    prose = ch.get("prose") or ""
     syn = cn_len(ch.get("synopsis") or "")
-    st = cn_len(ch.get("scene_truth") or "")
-    prose = cn_len(ch.get("prose") or "")
+    st_len = cn_len(ch.get("scene_truth") or "")
+    prose_n = cn_len(prose)
     beats = ch.get("beats") or []
     open_p = [p for p in (promises or []) if (p.get("status") or "") == "open"]
 
-    # craft-loop hard 机算子集（非 gate.ok）
-    cl = {
+    # dual-lamp local (same functions as shipped)
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scribe3.reader_ready import build_reader_ready
+
+    rr = build_reader_ready(
+        prose,
+        beats=beats,
+        require_scene_cover=True,
+        load_ack=False,
+        scaffold_ok=(gates.get("gate_b") or {}).get("ok"),
+    )
+
+    scaffold = {
         "CL-B0-H1": cn_len(intent.get("reader_feeling") or "") >= 10,
         "CL-B0-H4": isinstance(intent.get("total_word_goal"), int)
         and 40000 <= int(intent["total_word_goal"]) <= 60000,
         "CL-B2-H1": syn >= 80,
         "CL-B3-H1": len(beats) >= 3,
-        "CL-B4-H1": st >= 80,
-        "CL-B5-H1": prose >= 1500,
+        "CL-B4-H1": st_len >= 80,
+        "CL-B5-H1_cover": rr.get("scene_cover", {}).get("ok") is True,
+        "CL-B5-H1_length_soft": prose_n,  # not hard green alone
+        "CL-B5-H1m_anti_meta": bool(rr.get("anti_meta", {}).get("ok_for_claim")),
         "CL-B5-H3_focalizer": bool(ch.get("focalizer")),
         "CL-B6-H1": len(open_p) >= 1,
     }
+    claims = (rr.get("claims") or {})
     out = {
         "work": w,
         "seq": seq,
-        "disclaimer": "gate_a/b/c.ok 不得单独等于 craft-loop green",
+        "disclaimer": [
+            "gate_a/b/c.ok 不得单独等于 craft-loop green",
+            "mvp_pass 不含灯 R；readable 另计",
+            "prose>=1500 不是充分绿",
+        ],
         "cn_len": {
             "reader_feeling": cn_len(intent.get("reader_feeling") or ""),
             "synopsis": syn,
-            "scene_truth": st,
-            "prose": prose,
+            "scene_truth": st_len,
+            "prose": prose_n,
         },
-        "total_word_goal": intent.get("total_word_goal"),
-        "beats_count": len(beats),
-        "focalizer": ch.get("focalizer"),
-        "open_promises": len(open_p),
-        "characters": len(entities or []),
-        "craft_loop_machine_hard": cl,
+        "craft_loop_machine_hard_scaffold": scaffold,
+        "reader_ready": {
+            "machine_reader_ok": rr.get("machine_reader_ok"),
+            "phase": (rr.get("lamps") or {}).get("reader", {}).get("phase"),
+            "anti_meta": rr.get("anti_meta"),
+            "scene_cover": rr.get("scene_cover"),
+            "length_policy": rr.get("length_policy"),
+            "claims": claims,
+        },
+        "mvp_pass_hint": "scaffold 块序 + hard 人签；默认不含 may_claim_readable",
+        "craft_loop_readable_pass_hint": "mvp 路径 ∧ may_claim_readable ∧ H9",
+        "H9_gate": {
+            "rule": "H9=PASS ⇒ claims.may_claim_readable must be true after ack",
+            "may_claim_readable": claims.get("may_claim_readable"),
+        },
         "gate_snapshot_ok_only": {
             "gate_a": (gates.get("gate_a") or {}).get("ok"),
             "gate_b": (gates.get("gate_b") or {}).get("ok"),
-            "gate_c_det": (gates.get("gate_c_det") or gates.get("gate_c") or {}).get("ok"),
         },
-        "note": "human hard rows (H2/H3/H6/H9 等) 须人写 PASS/FAIL，本脚本不代签",
+        "characters": len(entities or []),
+        "open_promises": len(open_p),
     }
     text = json.dumps(out, ensure_ascii=False, indent=2)
     print(text)

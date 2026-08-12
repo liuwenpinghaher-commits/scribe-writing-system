@@ -48,16 +48,62 @@ def promise_keywords(text: str) -> list[str]:
 
 
 def prose_touches_promise(prose: str, promise_text: str) -> bool:
-    """正文是否触碰该伏笔关键词。"""
+    """正文是否触碰该伏笔关键词（场面路径；meta/SEO 段不计）。"""
+    ok, _ = prose_touches_promise_scene(prose, promise_text)
+    return ok
+
+
+def prose_touches_promise_scene(
+    prose: str,
+    promise_text: str,
+    *,
+    anti_hits: list | None = None,
+) -> tuple[bool, str]:
+    """Return (touched, reason). Meta spans and SEO lists do not count."""
     body = prose or ""
     if not body.strip() or not (promise_text or "").strip():
-        return False
-    # 优先较长关键词，减少虚触
+        return False, "empty"
+    hits = anti_hits
+    if hits is None:
+        try:
+            from scribe3.anti_meta_narration import scan_anti_meta
+            hits = scan_anti_meta(body).get("hits") or []
+        except Exception:
+            hits = []
     kws = sorted(promise_keywords(promise_text), key=len, reverse=True)
+    _verb = re.compile(r"[着了过]|是|在|把|被|说|看|摸|推|藏|问|退|疼|闪")
     for kw in kws:
-        if len(kw) >= 2 and kw in body:
-            return True
-    return False
+        if len(kw) < 2:
+            continue
+        start = 0
+        while True:
+            i = body.find(kw, start)
+            if i < 0:
+                break
+            j = i + len(kw)
+            # meta span?
+            try:
+                from scribe3.anti_meta_narration import is_meta_span
+                if is_meta_span(body, i, j, hits):
+                    start = j
+                    continue
+            except Exception:
+                pass
+            # sentence window for SEO list
+            lo = body.rfind("\n", 0, i)
+            lo = 0 if lo < 0 else lo + 1
+            hi = body.find("\n", j)
+            if hi < 0:
+                hi = len(body)
+            sent = body[lo:hi]
+            # 顿号/逗号分隔 ≥3 token 且无动词启发式 → SEO
+            parts = [p for p in re.split(r"[、，,]", sent) if p.strip()]
+            if len(parts) >= 3 and not _verb.search(sent):
+                start = j
+                continue
+            return True, "scene"
+        # continue next kw
+    return False, "no_hit"
 
 
 def open_promise_touch_advisories(

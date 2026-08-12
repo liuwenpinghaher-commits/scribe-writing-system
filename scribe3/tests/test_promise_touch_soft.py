@@ -42,3 +42,18 @@ def test_touched_no_advisory():
         [{"status": "open", "text": "铜匙齿边缺口要回收"}],
     )
     assert adv == []
+
+
+def test_meta_span_does_not_count_as_touch():
+    from scribe3.promise_touch_soft import prose_touches_promise_scene
+    # 关键词只在验收清单句里
+    prose = "伏笔触碰：齿边、铜匙、炉灰。信息差维持到章末。"
+    ok, reason = prose_touches_promise_scene(prose, "铜匙齿边缺口要回收")
+    assert ok is False
+    # 场面真写
+    ok2, reason2 = prose_touches_promise_scene(
+        "他摸了摸衣襟里的真匙，齿边缺口硌着皮肉。",
+        "铜匙齿边缺口要回收",
+    )
+    assert ok2 is True
+    assert reason2 == "scene"

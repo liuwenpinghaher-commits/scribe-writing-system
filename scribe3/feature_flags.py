@@ -79,6 +79,29 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
         "discourse",
         "danger",
     ),
+    # dual-lamp · 工程验收 vs 读者可读
+    Flag("SCRIBE3_ANTI_META", "1", "反元叙事检测进 post/collect 顶键", "anti_meta", "safe"),
+    Flag(
+        "SCRIBE3_ANTI_META_BLOCK_CLAIM",
+        "1",
+        "宣称可读路径 assert_reader_claim 生效",
+        "anti_meta",
+        "caution",
+    ),
+    Flag(
+        "SCRIBE3_ANTI_META_BLOCK_SAVE",
+        "0",
+        "存草稿也因验收腔 409（默认关）",
+        "anti_meta",
+        "danger",
+    ),
+    Flag(
+        "SCRIBE3_ANTI_META_ON_STAMP",
+        "0",
+        "kind=final stamp 前可读宣称检查（默认关）",
+        "anti_meta",
+        "caution",
+    ),
     Flag("SCRIBE3_DISCOURSE_RASHOMON", "0", "罗生门多版本工具预留（默认关）", "discourse", "caution"),
 )
 

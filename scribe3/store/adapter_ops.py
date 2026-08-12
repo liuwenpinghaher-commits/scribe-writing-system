@@ -238,6 +238,45 @@ class AdapterOpsMixin:
         ) or []
         return rows[0] if rows else None
 
+    # ── chapter_reader_ack（dual-lamp 人读确认）────────────────
+    def upsert_reader_ack(
+        self,
+        work: str,
+        seq: int,
+        *,
+        prose_fp: str,
+        note: str = "",
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        local = f"{work}_{int(seq)}"
+        self._execute_write(
+            "UPSERT type::record('chapter_reader_ack', $local) SET "
+            "work=$work, seq=$seq, prose_fp=$fp, note=$note, "
+            "user_id=$uid, updated_at=time::now()",
+            {
+                "local": local,
+                "work": work,
+                "seq": int(seq),
+                "fp": prose_fp,
+                "note": (note or "")[:200],
+                "uid": user_id or "",
+            },
+        )
+        return self.get_reader_ack(work, int(seq)) or {
+            "work": work, "seq": int(seq), "prose_fp": prose_fp, "note": note,
+        }
+
+    def get_reader_ack(self, work: str, seq: int) -> dict[str, Any] | None:
+        local = f"{work}_{int(seq)}"
+        try:
+            rows = self._query(
+                "SELECT * FROM type::record('chapter_reader_ack', $local) LIMIT 1",
+                {"local": local},
+            ) or []
+        except Exception:
+            return None
+        return rows[0] if rows else None
+
     # ── promise delete ──────────────────────────────────────
     def promise_exists(self, pid: str) -> bool:
         rows = self._query(

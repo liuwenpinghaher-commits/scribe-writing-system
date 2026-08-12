@@ -916,6 +916,36 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
     except Exception:
         _open_for_touch = list(inherited_open_promises or [])
 
+    # dual-lamp: reader_ready lamps/claims（store 加载 beats/ack）
+    reader_ready = None
+    try:
+        from scribe3.reader_ready import anti_meta_issues_for_post, build_reader_ready
+        from scribe3.anti_meta_narration import scan_anti_meta
+        _sc_ok = None
+        try:
+            from scribe3.verify_craft_compliance import gate_b
+            _gb = gate_b(st, int(seq))
+            _sc_ok = bool(_gb.ok)
+        except Exception:
+            _sc_ok = None
+        reader_ready = build_reader_ready(
+            req.prose or "",
+            st=st,
+            work=work,
+            seq=int(seq),
+            load_ack=True,
+            require_scene_cover=True,
+            scaffold_ok=_sc_ok,
+        )
+        # anti_meta issues advisory（与 degen 去重：同 range 优先 anti_meta）
+        _am_issues = anti_meta_issues_for_post(req.prose or "")
+        issues = list(issues or []) + _am_issues
+        if reader_ready.get("anti_meta") is None:
+            reader_ready["anti_meta"] = scan_anti_meta(req.prose or "")
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check reader_ready 失败: %s", e)
+        degraded_stages.append("reader_ready")
+
     resp = {
         "quality": {**qc_breakdown, "total": qc_total},
         "leaks": leaks,
@@ -931,6 +961,10 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
         "inherited_open_promises": inherited_open_promises,
         "prose": req.prose or "",
         "open_promises": _open_for_touch,
+        "reader_ready": reader_ready,
+        "lamps": (reader_ready or {}).get("lamps"),
+        "claims": (reader_ready or {}).get("claims"),
+        "anti_meta": (reader_ready or {}).get("anti_meta"),
         "setting": setting,
         "issues": issues,
         "duplicate_lines": dup_lines,
@@ -1081,6 +1115,70 @@ def checkpoint(req: CheckpointReq, seq: int, background: BackgroundTasks, work: 
 
 
 
+class ReaderAckReq(BaseModel):
+    seq: int
+    prose: str
+    note: str = ""
+
+
+class ReaderClaimReq(BaseModel):
+    seq: int
+    prose: str
+    require_ack: bool = True
+
+
+def reader_ack_ep(req: ReaderAckReq, work: str = "main"):
+    """人读确认：绑定当前正文 prose_fp。表未就绪 → 503 中文。"""
+    st = _store_for(work)
+    if not hasattr(st, "upsert_reader_ack"):
+        raise HTTPException(
+            status_code=503,
+            detail="读者确认存储未就绪（请先迁移 chapter_reader_ack）",
+        )
+    from scribe3.review.fp import prose_fp
+    try:
+        row = st.upsert_reader_ack(
+            work, int(req.seq), prose_fp=prose_fp(req.prose or ""), note=req.note or "",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"读者确认存储未就绪：{str(e)[:120]}",
+        ) from e
+    return {"ok": True, "work": work, "seq": int(req.seq), "ack": row}
+
+
+def reader_claim_ep(req: ReaderClaimReq, work: str = "main"):
+    """宣称可读硬门：机判红或未 ack → 409。"""
+    st = _store_for(work)
+    from scribe3.reader_ready import assert_reader_claim
+    scaffold_ok = None
+    try:
+        from scribe3.verify_craft_compliance import gate_b
+        scaffold_ok = bool(gate_b(st, int(req.seq)).ok)
+    except Exception:
+        scaffold_ok = None
+    out = assert_reader_claim(
+        req.prose or "",
+        st=st,
+        work=work,
+        seq=int(req.seq),
+        require_ack=bool(req.require_ack),
+        scaffold_ok=scaffold_ok,
+    )
+    if not out.get("allowed"):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": out.get("code") or "reader_claim",
+                "message": out.get("detail") or "不可宣称可读",
+                "blocking": out.get("blocking") or [],
+                "reader_ready": out.get("reader_ready"),
+            },
+        )
+    return out
+
+
 def _bind_and_register() -> None:
     """Rebind handlers onto app_impl globals so monkeypatch keeps working."""
     from scribe3.api import app_impl as core
@@ -1128,6 +1226,20 @@ def _bind_and_register() -> None:
     setattr(core, 'post_check', _re)
     g['post_check'] = _re
     router.add_api_route('/post-check', _re, methods=['POST'], name='post_check')
+
+    for _name, _path, _methods in (
+        ('reader_ack_ep', '/reader-ack', ['POST']),
+        ('reader_claim_ep', '/reader-claim', ['POST']),
+    ):
+        _fn = g[_name]
+        _re = types.FunctionType(
+            _fn.__code__, core.__dict__, _name, _fn.__defaults__, _fn.__closure__,
+        )
+        if _fn.__annotations__:
+            _re.__annotations__ = dict(_fn.__annotations__)
+        setattr(core, _name, _re)
+        g[_name] = _re
+        router.add_api_route(_path, _re, methods=_methods, name=_name)
 
     _fn = g['review_chapter']
     _re = types.FunctionType(_fn.__code__, core.__dict__, 'review_chapter', _fn.__defaults__, _fn.__closure__)
