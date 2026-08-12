@@ -481,6 +481,104 @@ def test_save_chapter_source_uses_try_stamp_kind_final():
     assert "try_stamp_kind_final" in src_mcp
 
 
+def test_loop_stamp_refuses_kind_final_when_craft_incomplete():
+    """真实 loop_stamp_kind_final（loop_chapter._finalize 委托）：不 stamp。"""
+    from scribe3.api.routers.chapters import loop_stamp_kind_final
+
+    stamps: list = []
+
+    class St(_EmptyStore):
+        def latest_version_prose(self, seq, kind):
+            return ""
+
+        def add_chapter_version(self, *a, **k):
+            stamps.append(k)
+            return "v"
+
+    r = loop_stamp_kind_final(St(), 1, "丁" * 100)
+    assert r["stamped"] is False
+    assert r["code"] == "craft_finalize"
+    assert stamps == []
+
+
+def test_loop_chapter_source_no_bare_kind_final():
+    """静态：loop_chapter / _finalize 不直接 add_chapter_version(kind=final)。"""
+    import inspect
+    import re
+    from scribe3.api.routers import chapters as ch_mod
+    src = inspect.getsource(ch_mod.loop_chapter)
+    assert "loop_stamp_kind_final" in src
+    # 禁止 bare kind=final 字符串在 add_chapter_version 调用旁
+    assert not re.search(
+        r"add_chapter_version\([^)]*kind\s*=\s*[\"']final[\"']",
+        src,
+        re.DOTALL,
+    )
+
+
+def test_checkpoint_kind_final_refuses_when_craft_incomplete(monkeypatch):
+    """真实 write.checkpoint(kind=final)：craft 未齐套 → 409，不 stamp。"""
+    from fastapi import HTTPException
+    from scribe3.api.routers import write as write_mod
+    from scribe3.api.models import CheckpointReq
+
+    stamps: list = []
+
+    class St(_EmptyStore):
+        def latest_version_prose(self, seq, kind):
+            return ""
+
+        def add_chapter_version(self, *a, **k):
+            stamps.append({"args": a, "kwargs": k})
+            return "v-bad"
+
+    st = St()
+    # router 经 app_impl rebind，_store_for 可能在多处
+    for mod_name in (
+        "scribe3.api.routers.write",
+        "scribe3.api.app_impl",
+    ):
+        try:
+            monkeypatch.setattr(f"{mod_name}._store_for", lambda work=None, _s=st: _s)
+        except Exception:
+            pass
+    # 直接改函数 globals（shipped rebind 真路径）
+    write_mod.checkpoint.__globals__["_store_for"] = lambda work=None, _s=st: _s
+    monkeypatch.setenv("SCRIBE3_CRAFT_FINALIZE", "1")
+
+    req = CheckpointReq(prose="戊" * 100, label="t", kind="final", qc={})
+    bg = type("BG", (), {"add_task": lambda *a, **k: None})()
+    with pytest.raises(HTTPException) as ei:
+        write_mod.checkpoint(req, seq=1, background=bg, work="book_explore_smoke")
+    assert ei.value.status_code == 409
+    detail = ei.value.detail
+    assert isinstance(detail, dict)
+    assert detail.get("code") == "craft_finalize"
+    assert stamps == [], f"checkpoint must not stamp: {stamps}"
+
+
+def test_checkpoint_kind_checkpoint_still_works(monkeypatch):
+    """非 final 的 checkpoint 仍可直接留版（不经 craft hard）。"""
+    from scribe3.api.routers import write as write_mod
+    from scribe3.api.models import CheckpointReq
+
+    stamps: list = []
+
+    class St(_EmptyStore):
+        def add_chapter_version(self, *a, **k):
+            stamps.append({"args": a, "kwargs": k})
+            return "v-ck"
+
+    st = St()
+    write_mod.checkpoint.__globals__["_store_for"] = lambda work=None, _s=st: _s
+    req = CheckpointReq(prose="己" * 20, label="t", kind="checkpoint", qc={})
+    bg = type("BG", (), {"add_task": lambda *a, **k: None})()
+    out = write_mod.checkpoint(req, seq=1, background=bg, work="main")
+    assert out.get("status") == "saved"
+    assert out.get("kind") == "checkpoint"
+    assert len(stamps) == 1
+
+
 def test_generation_forbidden_includes_provenance(monkeypatch):
     monkeypatch.setenv("SCRIBE3_PROVENANCE_IN_PROMPT", "0")
     from scribe3.api.services.write_assemble import (

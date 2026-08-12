@@ -53,6 +53,19 @@ def chapter_brief(seq: int = Query(ge=1), focalizer: str = "", work: str = "main
     from scribe3.brief import assemble_chapter_brief
     return assemble_chapter_brief(_store_for(work), seq, focalizer=focalizer)
 
+def loop_stamp_kind_final(st, chapter: int, prose: str, *, label: str = "loop过审") -> dict:
+    """loop 终选 stamp 的可测入口（G4 · 委托 try_stamp_kind_final）。"""
+    from scribe3.finalize_gate import try_stamp_kind_final
+    try:
+        stats = _prose_stats(prose)
+    except Exception:
+        stats = {}
+    return try_stamp_kind_final(
+        st, int(chapter), prose or "",
+        label=label, stage="final", stats=stats,
+    )
+
+
 def loop_chapter(req: LoopChapterReq, work: str = "main"):
     """北极星任务4:修复环编排端点(蓝图 §3-①)。同步长请求(D-009:单用户本地工具
     形态;响应带 journal_path 留 202 演进位)。编排纯逻辑在 scribe3/loop.py(依赖注入),
@@ -127,13 +140,25 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
     def _finalize(prose: str) -> dict:
         title = (st.get_chapter(req.chapter) or {}).get("title") or ""
         st.save_chapter(req.chapter, prose, title=title, focalizer=req.focalizer or None)
-        try:
-            st.add_chapter_version(req.chapter, prose, label="loop过审", kind="final",
-                                   stage="final", stats=_prose_stats(prose))
-        except Exception as e:
-            logging.getLogger("scribe3").warning("loop final 留版失败(不阻断): %s", e)
+        # G4：kind=final 唯一 choke · post_check pass ≠ craft GATE-A/B 齐套
+        _stamp = loop_stamp_kind_final(st, req.chapter, prose, label="loop过审")
+        if not _stamp.get("allowed") or (
+            not _stamp.get("stamped") and _stamp.get("code") == "craft_finalize"
+        ):
+            return {
+                "ok": False,
+                "error": _stamp.get("detail") or "craft incomplete: refuse kind=final",
+                "code": _stamp.get("code") or "craft_finalize",
+                "blocking": list(_stamp.get("blocking") or []),
+                "final_stamp": _stamp,
+                "final_version_stamped": False,
+            }
+        if _stamp.get("code") == "stamp_error":
+            logging.getLogger("scribe3").warning(
+                "loop final 留版失败(不阻断): %s", _stamp.get("detail"),
+            )
         # 经 IngestPolicy + 共享 lease(与 /ingest、MCP 同 choke point)。
-        # loop 仅在 pass finalize 时调用 → gate verdict=pass; distill 由单入口处理。
+        # loop 仅在 craft stamp 通过后继续 → gate verdict=pass; distill 由单入口处理。
         try:
             from scribe3.llm import hermes_complete
             from scribe3.ingest_policy import GateSnapshot

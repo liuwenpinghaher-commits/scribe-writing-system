@@ -935,16 +935,37 @@ def review_chapter(
 
 def checkpoint(req: CheckpointReq, seq: int, background: BackgroundTasks, work: str = "main"):
     st = _store_for(work)
-    vid = st.add_chapter_version(seq, req.prose, label=req.label,
-                                 kind=req.kind, qc=req.qc)
-    # kind=final → 正式定稿路径。KD18: active hold 优先于本第二跳,不得 silent enqueue。
-    # 无 gate snapshot → decide 安全 hold(禁止当 pass);同 prose_fp 已 held 则 supersede。
-    ingest_meta = None
-    if req.kind == "final":
+    kind = (req.kind or "checkpoint").strip().lower() or "checkpoint"
+    # G4：客户端传 kind=final 不得绕过 craft hard；须走 try_stamp_kind_final
+    if kind == "final":
+        from scribe3.finalize_gate import try_stamp_kind_final
+        _stamp = try_stamp_kind_final(
+            st, int(seq), req.prose or "",
+            label=req.label or "checkpoint",
+            stage="final",
+            stats=None,
+        )
+        if not _stamp.get("allowed") or (
+            not _stamp.get("stamped") and _stamp.get("code") == "craft_finalize"
+        ):
+            raise HTTPException(status_code=409, detail={
+                "code": _stamp.get("code") or "craft_finalize",
+                "message": _stamp.get("detail") or "checkpoint kind=final 要求 craft GATE 齐套",
+                "blocking": list(_stamp.get("blocking") or []),
+                "final_stamp": _stamp,
+            })
+        if _stamp.get("code") == "stamp_error":
+            raise HTTPException(status_code=503, detail={
+                "code": "stamp_error",
+                "message": _stamp.get("detail") or "kind=final stamp failed",
+            })
+        # craft 已过：try_stamp 已写或 unchanged
+        vid = f"final:{seq}" if _stamp.get("stamped") else f"final-unchanged:{seq}"
         from scribe3.ingest_policy import GateSnapshot
         from scribe3.api.services.ingest_bg import schedule_ingest
-        # checkpoint 本身无 craft/finalize 快照 → GateSnapshot 缺 verdict → hold
-        _gate = GateSnapshot(path="checkpoint", craft_allowed=None, finalize_verdict=None)
+        _gate = GateSnapshot(
+            path="checkpoint", craft_allowed=True, finalize_verdict="pass",
+        )
         _ing = schedule_ingest(
             st, work, seq,
             background=background,
@@ -962,10 +983,20 @@ def checkpoint(req: CheckpointReq, seq: int, background: BackgroundTasks, work: 
             "hold_reason": _ing.get("hold_reason"),
             "prose_fp": _ing.get("prose_fp"),
         }
-    out = {"status": "saved", "id": vid, "seq": seq, "kind": req.kind}
-    if ingest_meta is not None:
-        out["ingest"] = ingest_meta
-        out["ingesting"] = bool(ingest_meta.get("enqueued"))
+        return {
+            "status": "saved",
+            "id": vid,
+            "seq": seq,
+            "kind": "final",
+            "final_stamp": _stamp,
+            "final_version_stamped": bool(_stamp.get("stamped")),
+            "ingest": ingest_meta,
+            "ingesting": bool(ingest_meta.get("enqueued")),
+        }
+
+    vid = st.add_chapter_version(seq, req.prose, label=req.label,
+                                 kind=kind, qc=req.qc)
+    out = {"status": "saved", "id": vid, "seq": seq, "kind": kind}
     return out
 
 
