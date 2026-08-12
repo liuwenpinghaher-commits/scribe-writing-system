@@ -142,6 +142,7 @@ def test_eh02_emit_invalidation_fail_soft_logs(caplog):
 
 
 def test_eh06_bridge_logs_on_soft_fail(caplog, monkeypatch):
+    """Drive shipped sync_faction_secrets: semantic_index soft-fail → WARNING 日志。"""
     import scribe3.codex_secret_bridge as br
 
     class St:
@@ -153,21 +154,15 @@ def test_eh06_bridge_logs_on_soft_fail(caplog, monkeypatch):
         def semantic_index(self, *a, **k):
             raise RuntimeError("idx")
 
-    # force path with existing_local update
+    # force existing_local update path → semantic_index in try/except
     monkeypatch.setattr(br, "_find_bridge_local", lambda *a, **k: "loc1")
     monkeypatch.setattr(br, "_summarize", lambda x: "txt")
-    # minimal row with secret flag
     row = {"private_operation_secret": True, "private_operation": "hidden"}
     with caplog.at_level(logging.WARNING, logger="scribe3.codex_secret_bridge"):
-        try:
-            br.sync_faction_secrets(St(), "fac:1", row)  # type: ignore
-        except AttributeError:
-            # function name may differ
-            if hasattr(br, "sync_entity_secrets"):
-                br.sync_entity_secrets(St(), "fac:1", row)  # type: ignore
-            else:
-                pytest.skip("bridge sync API shape differs")
-    assert any("bridge_side_effect_failed" in r.message for r in caplog.records) or True
+        out = br.sync_faction_secrets(St(), "fac1", row)
+    assert out.get("updated", 0) >= 1 or out.get("created", 0) >= 1, out
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any("bridge_side_effect_failed" in m for m in msgs), msgs
 
 
 # ── EH-05 / dual_write contract ───────────────────────────
