@@ -321,6 +321,24 @@ def set_cron_enabled(name: str, enabled: bool) -> dict[str, Any]:
     }
 
 
+def run_audit_cleanup(store=None) -> dict[str, Any]:
+    """GAP-3 产品侧清理入口（供 cron/运维调用）。"""
+    from scribe3.audit_maintenance import purge_audit_events, audit_ttl_days
+    from scribe3.context_cache import purge_cache_watch
+    out: dict[str, Any] = {
+        "job": "audit_cleanup",
+        "ttl_days": audit_ttl_days(),
+    }
+    if store is None:
+        out["ok"] = False
+        out["error"] = "store required"
+        return out
+    out["audit"] = purge_audit_events(store)
+    out["cache_watch"] = {"purged": purge_cache_watch(store, max_age_seconds=3600)}
+    out["ok"] = bool((out.get("audit") or {}).get("ok"))
+    return out
+
+
 def clear_cron_overrides_for_tests() -> None:
     global _LOADED
     with _LOCK:

@@ -19,6 +19,62 @@ def _strip_v1(url: str) -> str:
     return url[:-3] if url.endswith("/v1") else url
 
 
+def soul_layers_enabled() -> bool:
+    """GAP-7：默认开启 SOUL 分层（可用 SCRIBE3_HERMES_SOUL_LAYERS=0 关闭）。"""
+    raw = (os.environ.get("SCRIBE3_HERMES_SOUL_LAYERS") or "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def build_hermes_request_body(
+    *,
+    input_text: Any,
+    instructions: str | None = None,
+    stream: bool | None = None,
+    store: bool | None = None,
+    model: str | None = None,
+    conversation: str | None = None,
+    previous_response_id: str | None = None,
+    tools: list | None = None,
+    session_id: str | None = None,
+    conversation_history: list | None = None,
+) -> dict[str, Any]:
+    """构造 Hermes 请求体（纯函数，可单测）。
+
+    启用 SOUL 时始终包含 system / instructions / personality 三层。
+    """
+    body: dict[str, Any] = {"input": input_text}
+    if instructions is not None:
+        body["instructions"] = instructions
+    if stream is not None:
+        body["stream"] = bool(stream)
+    if store is not None:
+        body["store"] = bool(store)
+    if model:
+        body["model"] = model
+    if conversation:
+        body["conversation"] = conversation
+    if previous_response_id:
+        body["previous_response_id"] = previous_response_id
+    if tools is not None:
+        body["tools"] = tools
+    if session_id:
+        body["session_id"] = session_id
+    if conversation_history is not None:
+        body["conversation_history"] = conversation_history
+    if soul_layers_enabled():
+        body["system"] = (
+            os.environ.get("SCRIBE3_HERMES_SYSTEM")
+            or "You are Scribe3 writing runtime. Obey epistemic and craft gates."
+        )
+        body["personality"] = (
+            os.environ.get("SCRIBE3_HERMES_PERSONALITY")
+            or "冷静、可审计的小说主编；不编造未批准正典。"
+        )
+        if "instructions" not in body:
+            body["instructions"] = ""
+    return body
+
+
 def _read_env_key(path: Path) -> str | None:
     try:
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -233,21 +289,17 @@ class HermesRuntime:
                          context_revision: int | None = None,
                          context_hash: str | None = None,
                          server_label: str = "scribe3_read"):
-        body: dict[str, Any] = {
-            "input": message,
-            "instructions": instructions,
-            "stream": True,
-            "store": bool(store),
-        }
-        if conversation:
-            body["conversation"] = conversation
-        # previous_response_id:Hermes 服务端会话续接锚(LRU 100 掉链常态,掉链后由 Scribe 重建)。
-        if previous_response_id:
-            body["previous_response_id"] = previous_response_id
-        if with_tools:
-            body["tools"] = [{"type": "mcp", "server_label": server_label}]
-        if model:
-            body["model"] = model
+        tools = [{"type": "mcp", "server_label": server_label}] if with_tools else None
+        body = build_hermes_request_body(
+            input_text=message,
+            instructions=instructions,
+            stream=True,
+            store=bool(store),
+            model=model,
+            conversation=conversation,
+            previous_response_id=previous_response_id,
+            tools=tools,
+        )
 
         with httpx.stream(
             "POST",
@@ -269,15 +321,13 @@ class HermesRuntime:
                    previous_response_id: str | None = None,
                    session_key: str | None = None,
                    timeout: float = 60.0) -> dict[str, Any]:
-        body: dict[str, Any] = {"input": input_text}
-        if instructions:
-            body["instructions"] = instructions
-        if session_id:
-            body["session_id"] = session_id
-        if conversation_history is not None:
-            body["conversation_history"] = conversation_history
-        if previous_response_id:
-            body["previous_response_id"] = previous_response_id
+        body = build_hermes_request_body(
+            input_text=input_text,
+            instructions=instructions,
+            session_id=session_id,
+            conversation_history=conversation_history,
+            previous_response_id=previous_response_id,
+        )
         response = httpx.post(
             f"{self.api_base}/runs",
             timeout=timeout,
@@ -334,11 +384,46 @@ class HermesRuntime:
 class HermesEventAdapter:
     """Normalize Hermes Responses SSE events for app-level streams."""
 
-    def __init__(self):
+    def __init__(self, *, phase: str | None = None, filter_tools: bool = False):
         # Hermes Runs 的 MCP 事件在实际网关中可缺 call_id；为同一 SSE 流内的
         # started/completed 成对事件分配稳定审计 ID，不能因协议缺字段而丢失工具完成证据。
         self._anonymous_call_count = 0
         self._unresolved_call_ids: dict[str, deque[str]] = defaultdict(deque)
+        # GAP-11：后验工具过滤默认 **关**（写路径/ai_run 必须放行 s3_add_*）。
+        # 仅 discuss/agentic 显式 filter_tools=True + phase=discuss|agentic。
+        self._phase = phase
+        self._filter_tools = bool(filter_tools) and bool((phase or "").strip())
+        self._blocked_calls: list[dict] = []
+
+    def _maybe_block_tool(self, name: str, arguments: Any = "") -> dict[str, Any] | None:
+        """若工具不在阶段白名单 → 返回 tool.blocked 事件；否则 None。
+
+        phase 为空或 filter_tools=False 时 **不 enforce**（避免写路径静默丢 tool.started）。
+        """
+        if not self._filter_tools or not name:
+            return None
+        phase = (self._phase or "").strip()
+        if not phase:
+            return None
+        try:
+            from scribe3.run_tool_filter import filter_tool_calls
+            out = filter_tool_calls(
+                [{"name": name, "arguments": arguments}],
+                phase=phase,
+            )
+            if out.get("enforced") and out.get("blocked"):
+                blocked = {
+                    "kind": "tool.blocked",
+                    "name": name,
+                    "reason": "not_in_allowlist",
+                    "phase": phase,
+                    "allowed": out.get("allowed"),
+                }
+                self._blocked_calls.append(blocked)
+                return blocked
+        except Exception:
+            return None
+        return None
 
     def _started_call_id(self, event: dict[str, Any], name: str,
                          item: dict[str, Any] | None = None) -> str | None:
@@ -421,6 +506,13 @@ class HermesEventAdapter:
             }
         if source_type in {"tool.start", "tool.started"}:
             name = self._tool_name(event)
+            blocked = self._maybe_block_tool(name, event.get("arguments", ""))
+            if blocked:
+                blocked["call_id"] = self._started_call_id(event, name)
+                blocked["source_type"] = source_type
+                if event.get("run_id") is not None:
+                    blocked["run_id"] = event.get("run_id")
+                return blocked
             out = {
                 "kind": "tool.started",
                 "name": name,
@@ -478,6 +570,11 @@ class HermesEventAdapter:
             item = event.get("item", {}) or {}
             if item.get("type") == "function_call":
                 name = self._tool_name(event, item)
+                blocked = self._maybe_block_tool(name, item.get("arguments", ""))
+                if blocked:
+                    blocked["call_id"] = self._started_call_id(event, name, item)
+                    blocked["source_type"] = source_type
+                    return blocked
                 return {
                     "kind": "tool.started",
                     "name": name,

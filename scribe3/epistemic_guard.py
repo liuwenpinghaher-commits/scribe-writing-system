@@ -126,6 +126,59 @@ def partition_facts_for_focalizer(
     return {"known": known, "observable_only": obs, "known_ids": known_ids}
 
 
+def discuss_epistemic_guard_enabled() -> bool:
+    """GAP-9：讨论/全知出口 soft 扫描（默认开）。"""
+    import os
+    raw = (os.environ.get("SCRIBE3_EPISTEMIC_DISCUSS_GUARD") or "1").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def scan_prompt_for_any_secrets(
+    prompt: str,
+    store,
+    *,
+    chapter: int | None = None,
+) -> list[dict[str, Any]]:
+    """GAP-9：扫描任意出口是否含 secret 明文（不依赖 focalizer）。
+
+    用于讨论/全知作者路径 soft 告警；不阻断。
+    """
+    if not (prompt or "").strip():
+        return []
+    ch = int(chapter) if chapter is not None else 1
+    hits: list[dict[str, Any]] = []
+    for row in collect_secret_surface_strings(store, ch):
+        for s in row.get("strings") or []:
+            if s and s in prompt:
+                hits.append({
+                    "fact_id": row.get("fact_id") or "",
+                    "entity_id": row.get("entity_id"),
+                    "marker": s[:80],
+                    "off_frame": True,
+                    "severity": "secret_plaintext_in_discuss_or_any_path",
+                    "soft": True,
+                })
+    return hits
+
+
+def guard_discuss_instructions(
+    instructions: str,
+    store,
+    *,
+    chapter: int | None = None,
+) -> tuple[str, list[dict[str, Any]]]:
+    """讨论路径 soft 守卫：命中则 WARNING 日志 + soft_leaked 元数据，不擦除不阻断。"""
+    if not discuss_epistemic_guard_enabled():
+        return instructions or "", []
+    hits = scan_prompt_for_any_secrets(instructions, store, chapter=chapter)
+    if hits:
+        _log.warning(
+            "GAP-9 discuss epistemic soft: %d secret plaintext hit(s) chapter=%s markers=%s",
+            len(hits), chapter, [h.get("marker") for h in hits][:5],
+        )
+    return instructions or "", hits
+
+
 def scan_prompt_for_off_frame_secrets(
     prompt: str,
     store,
@@ -135,8 +188,8 @@ def scan_prompt_for_off_frame_secrets(
 ) -> list[dict[str, Any]]:
     """扫描写路径 prompt：若含 **焦点者帧外** secret 明文 → 返回命中列表。
 
-    无 focalizer 时不做帧外裁决（作者视角）；仍可扫描但默认不报（避免讨论全知误报）。
-    质量事故 = 限知写路径 instructions 里出现帧外 secret 真值。
+    无 focalizer 时不做帧外 hard 裁决（作者视角限知 hard 路径）。
+    讨论/全知 soft 请用 :func:`scan_prompt_for_any_secrets`。
     """
     if not (prompt or "").strip() or not focalizer:
         return []
@@ -146,8 +199,6 @@ def scan_prompt_for_off_frame_secrets(
     for row in collect_secret_surface_strings(store, ch):
         fid = row.get("fact_id") or ""
         if fid and fid in known:
-            # 焦点者知道：value 仍可能被渲染层屏蔽；若 prompt 出现明文，属渲染 bug，仍报
-            # 但优先级低于帧外
             pass
         off_frame = (not fid) or (fid not in known)
         for s in row.get("strings") or []:
@@ -159,7 +210,6 @@ def scan_prompt_for_off_frame_secrets(
                     "off_frame": off_frame,
                     "severity": "secret_plaintext_in_write_prompt",
                 })
-    # 只把帧外命中当硬事故；帧内明文另计 soft
     return [h for h in hits if h.get("off_frame")]
 
 

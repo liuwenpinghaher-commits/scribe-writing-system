@@ -21,7 +21,8 @@ from scribe3.store.canon_candidates import CanonCandidatesMixin
 from scribe3.store.progress_stats import ProgressStatsMixin
 from scribe3.store.character_arc import CharacterArcMixin
 from scribe3.store.misc import MiscMixin
+from scribe3.store.storyline import StorylineStoreMixin
 
-class SurrealStore(ConnectionMixin, CharactersMixin, FactsKnowledgeMixin, EventsMixin, RecallMixin, ChaptersMixin, PromisesMixin, IntentMixin, CodexExtMixin, VoiceCraftMixin, MaterialsMixin, ChatAiMixin, StructureMixin, WorksMixin, MotifsMixin, UnverifiedIngestMixin, CanonCandidatesMixin, ProgressStatsMixin, CharacterArcMixin, MiscMixin):
+class SurrealStore(ConnectionMixin, CharactersMixin, FactsKnowledgeMixin, EventsMixin, RecallMixin, ChaptersMixin, PromisesMixin, IntentMixin, CodexExtMixin, VoiceCraftMixin, MaterialsMixin, ChatAiMixin, StructureMixin, WorksMixin, MotifsMixin, UnverifiedIngestMixin, CanonCandidatesMixin, ProgressStatsMixin, CharacterArcMixin, StorylineStoreMixin, MiscMixin):
     """组合各域 mixin;公开 API 与历史 store.SurrealStore 一致。"""
     pass

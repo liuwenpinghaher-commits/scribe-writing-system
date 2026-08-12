@@ -317,7 +317,8 @@ def _iter_persisted_ai_run_events(work: str, run_id: str, runtime, session_key: 
     from scribe3.hermes_runtime import HermesEventAdapter
     from scribe3.run_stage_policy import validate_tool_trace
 
-    adapter = HermesEventAdapter()
+    # GAP-11：ai_run 写阶段工具不得被 discuss 白名单误拦
+    adapter = HermesEventAdapter(phase=None, filter_tools=False)
     for ev in runtime.run_events(run_id, session_key=session_key):
         app_ev = adapter.adapt(ev)
         kind = app_ev.get("kind")

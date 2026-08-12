@@ -504,6 +504,19 @@ def apply_change_pack(
     applied: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
+    # GAP-13：canon 链进入统一审批观察面
+    try:
+        from scribe3.approval_audit import record_approval_event
+        record_approval_event(
+            chain="canon",
+            action="apply_change_pack",
+            work=str(getattr(p, "work", None) or (pack.get("work") if isinstance(pack, dict) else "") or "main"),
+            tool_or_pack=str(getattr(p, "id", None) or (pack.get("id") if isinstance(pack, dict) else "") or "change_pack"),
+            status="started",
+            detail={"approved_ids": list(approved_set)[:20]},
+        )
+    except Exception:
+        pass
 
     for item in p.items:
         layer = (item.layer or "L1").upper()
@@ -568,7 +581,7 @@ def apply_change_pack(
         p.status = "partially_approved"
     elif rejected and not applied:
         p.status = "proposed"
-    return {
+    result = {
         "pack_id": p.id,
         "status": p.status,
         "applied": applied,
@@ -580,6 +593,23 @@ def apply_change_pack(
             r.get("reason") == "l1_requires_approval_not_granted" for r in rejected
         ),
     }
+    try:
+        from scribe3.approval_audit import record_approval_event
+        record_approval_event(
+            chain="canon",
+            action="apply_change_pack",
+            work=str(getattr(p, "work", None) or "main"),
+            tool_or_pack=str(p.id or "change_pack"),
+            status=str(p.status or ""),
+            detail={
+                "applied_n": len(applied),
+                "rejected_n": len(rejected),
+                "skipped_n": len(skipped),
+            },
+        )
+    except Exception:
+        pass
+    return result
 
 
 def mark_items_approved(pack: ChangePack, item_ids: Iterable[str]) -> ChangePack:

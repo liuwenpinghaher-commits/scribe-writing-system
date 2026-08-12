@@ -96,13 +96,36 @@ def commit_if_approved(
         except Exception:
             fp = None
     if name in gated and accepted is None:
-        return {"status": "expired", "tool": name}
+        out_exp = {"status": "expired", "tool": name}
+        try:
+            from scribe3.approval_audit import record_approval_event
+            record_approval_event(
+                chain="mcp", action="commit", tool_or_pack=name, status="expired",
+            )
+        except Exception:
+            pass
+        return out_exp
     if name in gated and accepted is not True:
+        try:
+            from scribe3.approval_audit import record_approval_event
+            record_approval_event(
+                chain="mcp", action="commit", tool_or_pack=name, status="declined",
+            )
+        except Exception:
+            pass
         return {"status": "declined", "tool": name}
     try:
         result = do_write()
     except Exception as e:
         logging.exception("commit_if_approved write failed tool=%s", name)
+        try:
+            from scribe3.approval_audit import record_approval_event
+            record_approval_event(
+                chain="mcp", action="commit", tool_or_pack=name, status="error",
+                detail={"error": str(e)[:160]},
+            )
+        except Exception:
+            pass
         return {"status": "error", "tool": name, "error": str(e)}
     if result is False:
         return {
@@ -129,10 +152,25 @@ def commit_if_approved(
             out["status"] = result["status"]
         else:
             out["status"] = "written"
+        try:
+            from scribe3.approval_audit import record_approval_event
+            record_approval_event(
+                chain="mcp", action="commit", tool_or_pack=name,
+                status=str(out.get("status") or ""),
+            )
+        except Exception:
+            pass
         return out
     out: dict[str, Any] = {"status": "written", "tool": name}
     if result is not None:
         out["result"] = result
+    try:
+        from scribe3.approval_audit import record_approval_event
+        record_approval_event(
+            chain="mcp", action="commit", tool_or_pack=name, status="written",
+        )
+    except Exception:
+        pass
     if fp:
         out["fingerprint"] = fp
         try:
