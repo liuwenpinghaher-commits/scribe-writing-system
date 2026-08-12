@@ -472,8 +472,12 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
     # 工艺优先:实质正文须过 GATE-A(首篇)/GATE-B;见 verify_craft_compliance.evaluate_save_craft_gate
     try:
         from scribe3.verify_craft_compliance import evaluate_save_craft_gate
+        _cm = getattr(req, "create_mode", None)
         cg = evaluate_save_craft_gate(
-            st, req.seq, req.prose, skip=bool(req.skip_craft_gate))
+            st, req.seq, req.prose,
+            skip=bool(req.skip_craft_gate),
+            create_mode=_cm,
+        )
         if not cg.get("allowed"):
             raise HTTPException(status_code=409, detail={
                 "code": cg.get("code") or "craft_gate",
@@ -481,6 +485,8 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
                 "blocking": cg.get("blocking") or [],
                 "root_causes": cg.get("root_causes") or [],
                 "reports": cg.get("reports") or {},
+                "warnings": cg.get("warnings") or [],
+                "create_mode": cg.get("create_mode"),
             })
     except HTTPException:
         raise
@@ -645,6 +651,7 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
         finalize_verdict=_verdict,
         danger_draft=bool(req.danger_draft),
         ai_grade=_ai,
+        create_mode=getattr(req, "create_mode", None),
     )
     _ing = schedule_ingest(
         st, work, req.seq,

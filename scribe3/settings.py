@@ -294,8 +294,9 @@ REGISTRY: tuple[Setting, ...] = (
             "写路径 envelope novel 档（22k）",
             "与 V2 同开：canonical/recent 再抬；PROMPT_HARD→48k。质量优先默认开。"),
     Setting("SCRIBE3_CONTEXT_FIDELITY", "flags", "str", "novel", "hot",
-            "上下文保真档",
-            "compat|v2|literary|epic|novel；默认 novel。回滚：compat 或 V2=0。"),
+            "上下文保真档（产品主面：standard/v2 · novel）",
+            "产品主档 standard(=v2 18k) / novel(22k)。"
+            "compat|literary|epic 仅兼容/弃用保留；默认 novel。回滚：compat 或 V2=0。"),
     Setting("SCRIBE3_DRAMA_VACUUM_WARN", "flags", "bool", True, "hot",
             "无 GCD 时注入戏剧真空警告",
             "开=注入禁巡礼硬句；与 DRAMA_GATE park 分工（GATE=1 仍先 park）。"),

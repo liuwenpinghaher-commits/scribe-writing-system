@@ -39,6 +39,7 @@ class SegmentMeta:
 
 
 # 与 generation_physical_order_names 对齐的声明表
+# outline → SEGMENT_L1（rev.1.2 · 永不与 envelope-block L1 混名）
 SEGMENT_REGISTRY: tuple[SegmentMeta, ...] = (
     SegmentMeta("prefix", "L0", "head", "redline"),
     SegmentMeta("event_drive", "L0", "head", "redline"),
@@ -53,7 +54,7 @@ SEGMENT_REGISTRY: tuple[SegmentMeta, ...] = (
     SegmentMeta("revelation_discipline", "L0", "mid", "redline"),
     SegmentMeta("sincerity", "L0", "mid", "redline"),
     SegmentMeta("purpose", "L2", "mid", "frame"),
-    SegmentMeta("outline", "L2", "mid", "frame"),
+    SegmentMeta("outline", "L1", "mid", "frame"),  # SEGMENT_L1
     SegmentMeta("volume_intro", "L3", "mid", "world"),
     SegmentMeta("brief_must", "L2", "mid", "frame"),
     SegmentMeta("pressure_drive", "L2", "mid", "frame"),
@@ -65,21 +66,56 @@ SEGMENT_REGISTRY: tuple[SegmentMeta, ...] = (
     SegmentMeta("final_reminder", "L0", "tail", "redline"),
     SegmentMeta("scene_truth_proj", "L0", "mid", "redline"),
     SegmentMeta("request_constraint", "L3", "tail", "craft"),
+    SegmentMeta("structure_diversity", "L0", "head", "redline"),
 )
+
+# 次杠杆：审计/元数据段（不含 envelope 整包）
+META_SEGMENT_NAMES: frozenset[str] = frozenset({
+    "phase_role", "avoid", "material_recall", "seed_words", "volume_intro",
+})
+DRAMA_CORE_NAMES: frozenset[str] = frozenset({
+    "event_drive", "drama_contract", "drama_vacuum", "outline", "brief_must",
+})
 
 
 def density_trace_for_segments(
     domain_lengths: dict[str, int] | None = None,
     order_indices: dict[str, int] | None = None,
+    *,
+    envelope_block_lengths: dict[str, int] | None = None,
+    provenance_trace_items: int | None = None,
+    provenance_in_prompt_chars: int | None = None,
 ) -> dict[str, Any]:
-    """影子密度报告（可挂 envelope_trace）。"""
+    """密度报告：G1(a) provenance_in_prompt_tokens 硬字段 + G1(b) audit_meta_share。
+
+    - ``provenance_in_prompt_chars``：最终进生成 joined 的溯源字符；Assembler omit 后必须为 0。
+    - ``envelope_block_lengths``：八块各自渲染长度（含改前溯源，供相对基线）；omit 后
+      provenance 键应为 0。
+    - ``provenance_trace_items``：trace/manifest 条数，可与 in_prompt 解耦。
+    """
     lengths = dict(domain_lengths or {})
+    env = dict(envelope_block_lengths or {})
     by_tier: dict[str, int] = {"L0": 0, "L1": 0, "L2": 0, "L3": 0}
-    meta = {s.name: s for s in SEGMENT_REGISTRY}
+    meta_reg = {s.name: s for s in SEGMENT_REGISTRY}
     for name, n in lengths.items():
-        tier = meta[name].tier if name in meta else "L3"
+        tier = meta_reg[name].tier if name in meta_reg else "L3"
         by_tier[tier] = by_tier.get(tier, 0) + int(n)
-    total = sum(by_tier.values()) or 1
+    total = sum(lengths.values()) or 1
+    # G1(a)：进 prompt 的溯源；默认取 env/lengths 中 provenance，显式参数优先
+    if provenance_in_prompt_chars is not None:
+        prov_in = max(0, int(provenance_in_prompt_chars))
+    else:
+        prov_in = int(
+            env.get("provenance", 0)
+            or lengths.get("provenance", 0)
+            or 0
+        )
+    meta_seg = sum(int(lengths.get(n, 0) or 0) for n in META_SEGMENT_NAMES)
+    meta_total = meta_seg + prov_in
+    drama_core = sum(int(lengths.get(n, 0) or 0) for n in DRAMA_CORE_NAMES)
+    env_canon = int(env.get("canonical", 0) or 0)
+    env_recent = int(env.get("recent", 0) or 0)
+    audit_meta_share = round(meta_total / total, 4)
     return {
         "mode": registry_mode(),
         "by_tier": by_tier,
@@ -87,6 +123,24 @@ def density_trace_for_segments(
         "order_indices": dict(order_indices or {}),
         "segment_count": len(lengths),
         "registry_names": [s.name for s in SEGMENT_REGISTRY],
+        # G1(a) 硬验收
+        "provenance_in_prompt": prov_in > 0,
+        "provenance_in_prompt_tokens": prov_in,
+        "provenance_trace_items": (
+            int(provenance_trace_items)
+            if provenance_trace_items is not None
+            else 0
+        ),
+        # G1(b)
+        "audit_meta_share": audit_meta_share,
+        "audit_share": audit_meta_share,  # 别名
+        "meta_segments_share": round(meta_seg / total, 4),
+        "drama_core_share": round(drama_core / total, 4),
+        "envelope_canon_share": round(env_canon / total, 4),
+        "envelope_recent_share": round(env_recent / total, 4),
+        "drama_plus_canon_recent_share": round(
+            (drama_core + env_canon + env_recent) / total, 4
+        ),
         "primary_metric": "signal_density_for_drama",
         "not_a_kpi": "tokens_saved",
     }

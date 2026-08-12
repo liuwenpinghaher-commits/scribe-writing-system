@@ -424,6 +424,8 @@ class SaveChapterReq(BaseModel):
     danger_draft: bool = False
     # 测试/工具逃生;生产勿开。默认受 SCRIBE3_FINALIZE_GATE 约束
     skip_finalize_gate: bool = False
+    # rev.1.2：standard|explore；explore 实质 save soft + ingest hold
+    create_mode: str | None = None
 
 
 class CheckpointReq(BaseModel):

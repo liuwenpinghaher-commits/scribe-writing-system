@@ -52,7 +52,9 @@ def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None
     try:
         from scribe3.verify_craft_compliance import evaluate_save_craft_gate
         cg = evaluate_save_craft_gate(
-            st, seq, prose, skip=bool(skip_craft_gate))
+            st, seq, prose, skip=bool(skip_craft_gate),
+            create_mode=None,  # 读 SCRIBE3_CREATE_MODE / 默认 standard
+        )
         if not cg.get("allowed"):
             return {
                 "status": "blocked",
@@ -61,6 +63,7 @@ def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None
                 "message": cg.get("detail") or "工艺门闩未通过,正文未落库",
                 "blocking": cg.get("blocking") or [],
                 "root_causes": cg.get("root_causes") or [],
+                "warnings": cg.get("warnings") or [],
             }
     except Exception as e:
         import logging

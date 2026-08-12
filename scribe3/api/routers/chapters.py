@@ -688,16 +688,17 @@ def select_finalize(req: SelectFinalizeReq, background: BackgroundTasks, work: s
     prose = ver.get("prose") or ""
     title = (st.get_chapter(req.chapter) or {}).get("title") or ""
     foc = (st.get_chapter(req.chapter) or {}).get("focalizer")
-    # 门A:终选共用 check_finalize_for_save 单源(危险旁路不提供——终选即人审)
+    # 门A+craft：终选共用 check_persist_gates（craft hard + 质控；无 danger 旁路 craft）
     try:
-        from scribe3.finalize_gate import check_finalize_for_save
-        _fg = check_finalize_for_save(
+        from scribe3.finalize_gate import check_persist_gates
+        _fg = check_persist_gates(
             st, req.chapter, prose, focalizer=foc or None, danger_draft=False)
         if not _fg.get("allowed"):
             raise HTTPException(status_code=409, detail={
                 "code": _fg.get("code") or "finalize_gate",
                 "message": _fg.get("detail") or "终选定稿被定稿门闩拦截",
                 "blocking": _fg.get("blocking") or [],
+                "craft": _fg.get("craft"),
             })
     except HTTPException:
         raise

@@ -170,12 +170,63 @@ def check_finalize_for_save(
 
     由 /save-chapter、select_finalize、s3_save_chapter、dedup/polish 等 final 覆写
     路径调用。返回 evaluate_finalize_gate 同构 dict;调用方据 allowed 决定是否落库。
+
+    注意：本函数 **仅** 质控 triage；craft GATE 见 ``check_persist_gates`` /
+    ``evaluate_craft_finalize_gate``。danger_draft 只旁路本门，不旁路 craft。
     """
     if skip or not finalize_gate_env_enabled():
         return evaluate_finalize_gate(None, danger_draft=False, skip=True)
     post = collect_deterministic_post_for_prose(
         prose, st=st, seq=seq, focalizer=focalizer or None)
     return evaluate_finalize_gate(post, danger_draft=bool(danger_draft), skip=False)
+
+
+def check_persist_gates(
+    st,
+    seq: int,
+    prose: str,
+    *,
+    focalizer: str | None = None,
+    danger_draft: bool = False,
+    skip_finalize_qc: bool = False,
+    skip_craft: bool = False,
+) -> dict[str, Any]:
+    """定稿落库双门：craft hard（永不 explore soft）+ 质控 finalize。
+
+    - craft 失败 → allowed=False, code=craft_finalize（danger_draft **不可**旁路）
+    - craft 过、质控失败 → 同 check_finalize_for_save
+    - danger_draft 仅旁路质控 triage
+    """
+    from scribe3.verify_craft_compliance import evaluate_craft_finalize_gate
+
+    craft = evaluate_craft_finalize_gate(st, int(seq), skip=bool(skip_craft))
+    if not craft.get("allowed"):
+        return {
+            "allowed": False,
+            "code": "craft_finalize",
+            "verdict": "blocking",
+            "detail": craft.get("detail") or "craft finalize blocked",
+            "blocking": list(craft.get("blocking") or []),
+            "advisory_items": [],
+            "craft": craft,
+            "triage": {
+                "verdict": "blocking",
+                "blocking": list(craft.get("blocking") or []),
+                "advisory_count": 0,
+                "advisory_items": [],
+                "degraded_stages": [],
+                "leaks": [],
+            },
+        }
+    fg = check_finalize_for_save(
+        st, int(seq), prose,
+        focalizer=focalizer or None,
+        danger_draft=bool(danger_draft),
+        skip=bool(skip_finalize_qc),
+    )
+    fg = dict(fg)
+    fg["craft"] = craft
+    return fg
 
 
 def build_ingest_status_row(

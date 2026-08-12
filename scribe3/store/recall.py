@@ -438,16 +438,21 @@ class RecallMixin:
         限知时间门(chapter)过滤未来事实与已失效命题(valid_to)。
         knowers 经 knowers_at_chapter 过滤(不依赖图边 SQL 无时间门的默认 FETCH)。"""
         from scribe3.embed import embed
+        import os as _os
         qv = embed([query])[0]
+        # rev.1.2 WS-5：产品路径不依赖死字段 entity_link；co_present 默认关
+        _co = (_os.environ.get("SCRIBE3_GRAPH_CO_PRESENT") or "0").strip().lower()
+        _co_on = _co in ("1", "true", "yes", "on")
+        _co_sel = (
+            "  <-causes<-event->involves->character.name AS co_present, "
+            if _co_on else ""
+        )
         rows = self._query(
-            # entity_link:疑似死(P2-15)——migration 026 定义字段+索引但"数据迁移后切换"从未落地,
-            #   全仓无写入方,此处 entity_link.name 恒 null,subject 回退 entity_id(下方 or 兜底)。
-            #   保留待确认(移除牵动 live 召回查询+idx_prop_entity_link 索引)。
+            # subject 仅 entity_id（entity_link SELECT 已删除；idx 可留 obsolete）
             f"SELECT meta::id(id) AS local, entity_id, attribute, value, valid_from, valid_to, secret, "
-            f"  entity_link.name AS subject, "
             f"  <-knows<-character.name AS knowers, "
             f"  <-causes<-event.event_type AS source_events, "
-            f"  <-causes<-event->involves->character.name AS co_present, "
+            f"{_co_sel}"
             f"  vector::distance::knn() AS dist "
             f"FROM proposition WHERE embedding <|{int(k)},{max(40, int(k))}|> $qv "
             f"  AND valid_from <= $ch AND (archived = NONE OR archived != true) "
@@ -465,10 +470,10 @@ class RecallMixin:
                 "attribute": r.get("attribute", ""),
                 "valid_from": r.get("valid_from", 0),
                 "secret": bool(r.get("secret", False)),
-                "subject": r.get("subject") or r.get("entity_id") or "",
+                "subject": r.get("entity_id") or "",
                 "knowers": self.knowers_at_chapter(r["local"], ch),
                 "source_events": r.get("source_events") or [],
-                "co_present": r.get("co_present") or [],
+                "co_present": (r.get("co_present") or []) if _co_on else [],
                 "distance": r.get("dist", 0),
             })
             if len(out) >= k:

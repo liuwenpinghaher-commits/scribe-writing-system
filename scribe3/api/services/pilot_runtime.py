@@ -1242,6 +1242,32 @@ def _pilot_executor(work: str) -> dict:
     def finalize(st, seq):
         ch = st.get_chapter(seq) or {}
         prose = ch.get("prose") or ""
+        # rev.1.2：写 kind=final 前强制 craft hard + 质控 finalize（danger 不旁路 craft）
+        try:
+            from scribe3.finalize_gate import check_persist_gates
+            foc = (ch.get("focalizer") or ch.get("pov") or "") or None
+            _pg = check_persist_gates(
+                st, int(seq), prose or "",
+                focalizer=foc, danger_draft=False,
+            )
+            if not _pg.get("allowed"):
+                return {
+                    "finalized": False,
+                    "error": _pg.get("code") or "persist_gate",
+                    "detail": _pg.get("detail") or "",
+                    "blocking": list(_pg.get("blocking") or []),
+                    "gate": _pg,
+                }
+        except Exception as e:
+            logging.getLogger("scribe3").warning(
+                "pilot finalize persist gates 失败(阻断) seq=%s: %s", seq, e,
+            )
+            return {
+                "finalized": False,
+                "error": "persist_gate_error",
+                "detail": str(e)[:200],
+                "blocking": [],
+            }
         if st.latest_version_prose(seq, "final") != prose:
             st.add_chapter_version(seq, prose, label="pilot终选", kind="final",
                                    stage="final", stats=_prose_stats(prose))

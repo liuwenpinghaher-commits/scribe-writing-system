@@ -5,9 +5,143 @@
 """
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from scribe3.pilot import NEXT, STATES, read_state, status as pilot_status
+
+
+def director_creative_enabled() -> bool:
+    v = (os.environ.get("SCRIBE3_DIRECTOR_CREATIVE") or "1").strip().lower()
+    return v not in ("0", "false", "no", "off", "")
+
+
+def build_creative_suggestions(
+    st,
+    *,
+    work: str = "main",
+    seq: int | None = None,
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    """store-grounded 创意建议（0–3 条）。fail-soft 空列表。
+
+    kinds: open_promise | motif_gap | drama_gap | char_pressure | quality_dim
+    """
+    if not director_creative_enabled():
+        return []
+    out: list[dict[str, Any]] = []
+    try:
+        # open promises
+        promises = []
+        if hasattr(st, "effective_open_promises"):
+            promises = list(st.effective_open_promises() or [])
+        elif hasattr(st, "open_promises"):
+            promises = list(st.open_promises() or [])
+        elif hasattr(st, "list_promises"):
+            raw = st.list_promises() or []
+            promises = [
+                p for p in raw
+                if str((p or {}).get("status") or "").lower()
+                in ("", "open", "active", "pending")
+            ]
+        if promises:
+            n = len(promises)
+            sample = promises[0] if isinstance(promises[0], dict) else {}
+            label = (
+                str(sample.get("text") or sample.get("title") or sample.get("id") or "")
+            )[:40]
+            out.append({
+                "kind": "open_promise",
+                "title": f"有 {n} 条开放伏笔可回收",
+                "detail": (
+                    f"其中一条：{label or '（未命名）'}。"
+                    + (f"可考虑在第{seq}章推进或回收。" if seq else "择章推进或回收。")
+                ),
+                "evidence": {"count": n, "sample_id": sample.get("id")},
+            })
+    except Exception:
+        pass
+    try:
+        from scribe3.bible_motifs import evaluate_motif_gap
+        mg = evaluate_motif_gap(st)
+        if not mg.get("ok"):
+            out.append({
+                "kind": "motif_gap",
+                "title": "母题覆盖不足",
+                "detail": (
+                    f"已有 {mg.get('count', 0)} 条，目标 ≥{mg.get('min_required', 3)}。"
+                    "补母题可增强主题回响。"
+                ),
+                "evidence": mg,
+            })
+    except Exception:
+        pass
+    try:
+        if seq is not None and hasattr(st, "get_chapter"):
+            ch = st.get_chapter(int(seq)) or {}
+            beats = ch.get("beats") or []
+            syn = (ch.get("synopsis") or "").strip()
+            if not beats and not syn:
+                out.append({
+                    "kind": "drama_gap",
+                    "title": "本章戏剧骨架偏空",
+                    "detail": "尚无 synopsis/节拍；先钉冲突与章末钩子再写正文。",
+                    "evidence": {"seq": int(seq)},
+                })
+            elif beats and len(beats) < 3:
+                out.append({
+                    "kind": "drama_gap",
+                    "title": "节拍偏少",
+                    "detail": f"当前 {len(beats)} 拍；补足冲突升级/转折可抬张力。",
+                    "evidence": {"seq": int(seq), "beat_count": len(beats)},
+                })
+    except Exception:
+        pass
+    try:
+        if hasattr(st, "characters"):
+            chars = list(st.characters() or [])
+            # 挑一个缺内在冲突的角色作压力提示
+            for c in chars[:8]:
+                if not isinstance(c, dict):
+                    continue
+                traits = c.get("traits") or c
+                if not (traits.get("internal_conflict") or traits.get("deep_need")):
+                    name = str(c.get("name") or c.get("id") or "角色")
+                    out.append({
+                        "kind": "char_pressure",
+                        "title": f"{name} 内在冲突未铺",
+                        "detail": "可在近章加一场「想要 vs 需要」的小爆发，避免扁平。",
+                        "evidence": {"character_id": c.get("id"), "name": name},
+                    })
+                    break
+    except Exception:
+        pass
+    try:
+        if seq is not None:
+            from scribe3.quality.dim_scores import load_chapter_dim_scores
+            dims = load_chapter_dim_scores(st, work, int(seq)) or {}
+            if isinstance(dims, dict) and dims:
+                # 找最低分维度作建议
+                weak = None
+                weak_v = 999.0
+                for k, v in dims.items():
+                    try:
+                        fv = float(v)
+                    except Exception:
+                        continue
+                    if fv < weak_v:
+                        weak_v = fv
+                        weak = k
+                if weak is not None and weak_v < 7.0:
+                    out.append({
+                        "kind": "quality_dim",
+                        "title": f"维度「{weak}」偏弱",
+                        "detail": f"最近评分约 {weak_v}；可针对性加笔（advisory，不拦写）。",
+                        "evidence": {"dim": weak, "score": weak_v},
+                    })
+    except Exception:
+        pass
+    return out[: max(0, int(limit))]
 
 # 人话与 UI 提示（与 pilot 状态对齐）
 PILOT_LABELS: dict[str, str] = {
@@ -370,12 +504,17 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
             prompt = "请添加第 1 章并起草大纲（目标、冲突、章末钩子）。"
             ui = {"entry": "manuscript", "phase": None, "node": None, "right_tab": "chief",
                   "layout_mode": "collaboration"}
+        creative0 = build_creative_suggestions(st, work=work, seq=None, limit=3)
+        if creative0:
+            next_step = dict(next_step)
+            next_step["creative_suggestions"] = creative0
         return {
             "work": work,
             "journey": journey,
             "chapter_lane": None,
             "current_focus": {"type": "work", "id": f"work:{work}", "label": work},
             "next_step": next_step,
+            "creative_suggestions": creative0,
             "blockers": blockers,
             "suggested_prompt": prompt,
             "ui_directive": ui,
@@ -508,6 +647,11 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
         else _suggested_prompt(picked, pstate, parked)
     )
 
+    creative = build_creative_suggestions(st, work=work, seq=picked, limit=3)
+    if creative:
+        next_step = dict(next_step)
+        next_step["creative_suggestions"] = creative
+
     return {
         "work": work,
         "journey": journey,
@@ -518,6 +662,7 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
             "label": title or f"第{picked}章",
         },
         "next_step": next_step,
+        "creative_suggestions": creative,
         "blockers": blockers,
         "suggested_prompt": suggested,
         "ui_directive": ui_directive,

@@ -13,7 +13,7 @@ PASS 默认公式(机判):
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Callable, Literal
 
 Verdict = Literal["pass", "warn", "fail", "skip"]
@@ -910,16 +910,105 @@ def craft_gate_env_enabled() -> bool:
     return v not in ("0", "false", "no", "off", "")
 
 
+def resolve_create_mode(explicit: str | None = None) -> str:
+    """standard | explore。默认 standard；显式 / env SCRIBE3_CREATE_MODE。"""
+    import os
+    raw = (explicit if explicit is not None else os.environ.get("SCRIBE3_CREATE_MODE")) or "standard"
+    m = str(raw).strip().lower()
+    return "explore" if m == "explore" else "standard"
+
+
+def explore_soft_save_enabled() -> bool:
+    import os
+    v = (os.environ.get("SCRIBE3_EXPLORE_SOFT_SAVE") or "1").strip().lower()
+    return v not in ("0", "false", "no", "off", "")
+
+
+def craft_finalize_env_enabled() -> bool:
+    """SCRIBE3_CRAFT_FINALIZE 默认 1；关=危险运维旁路 craft 定稿。"""
+    import os
+    v = (os.environ.get("SCRIBE3_CRAFT_FINALIZE") or "1").strip().lower()
+    return v not in ("0", "false", "no", "off", "")
+
+
+def thresholds_for_create_mode(mode: str | None = None) -> CraftGateThresholds:
+    """explore：max_warns_before_fail=0，禁止 WARN-BUDGET 把 soft 升 hard。"""
+    t = CraftGateThresholds()
+    if resolve_create_mode(mode) == "explore":
+        t = replace(t, max_warns_before_fail=0)
+    return t
+
+
+def _soft_map_gate_report(report: GateReport) -> GateReport:
+    """将 hard fail 降为 warn（explore soft-save）；保留 check id/detail。"""
+    for c in report.checks:
+        if c.verdict == "fail" and c.hard:
+            c.verdict = "warn"
+            c.hard = False
+    # 重算 ok（warn 不拦；max_warns 已在 thresholds 置 0）
+    hard_fails = [c for c in report.checks if c.hard and c.verdict == "fail"]
+    report.ok = not hard_fails
+    return report
+
+
+def evaluate_craft_finalize_gate(
+    st, seq: int, *,
+    thresholds: CraftGateThresholds | None = None,
+    skip: bool = False,
+) -> dict:
+    """定稿路径 craft 硬门：GATE-A + 本章 GATE-B。**永不** explore soft 映射。
+
+    danger_draft 不得旁路本函数（仅旁路质控 triage）。
+    """
+    if skip or not craft_finalize_env_enabled():
+        return {
+            "allowed": True, "code": "skipped",
+            "detail": "craft finalize off or skip",
+            "blocking": [], "reports": {},
+        }
+    # 始终 DEFAULT（或显式 thresholds），含 max_warns=3
+    t = _thr(thresholds)
+    reports: dict[str, Any] = {}
+    ga = gate_a(st, thresholds=t)
+    reports["gate_a"] = ga.to_dict()
+    gb = gate_b(st, int(seq), thresholds=t)
+    reports["gate_b"] = gb.to_dict()
+    blocking: list[str] = []
+    if not ga.ok:
+        blocking.extend(
+            c.id for c in ga.checks if c.hard and c.verdict == "fail"
+        )
+    if not gb.ok:
+        blocking.extend(
+            c.id for c in gb.checks if c.hard and c.verdict == "fail"
+        )
+    ok = ga.ok and gb.ok
+    return {
+        "allowed": bool(ok),
+        "code": "ok" if ok else "craft_finalize",
+        "detail": (
+            "craft finalize gates pass" if ok
+            else "定稿要求 GATE-A/B 齐套（explore soft-save 不可旁路）"
+        ),
+        "blocking": blocking,
+        "gate_a": reports["gate_a"],
+        "gate_b": reports["gate_b"],
+        "reports": reports,
+    }
+
+
 def evaluate_save_craft_gate(
     st, seq: int, prose: str, *,
     skip: bool = False,
     thresholds: CraftGateThresholds | None = None,
+    create_mode: str | None = None,
 ) -> dict:
-    """存正文前评估。返回 {allowed, code, detail, reports}。
+    """存正文前评估。返回 {allowed, code, detail, reports, warnings?}。
 
     - skip / 环境关闭 → allowed
     - prose 短于阈值 → allowed(骨架占位)
-    - 否则需 GATE-B 硬项通过;若全书尚无实质正文,另需 GATE-A
+    - explore + EXPLORE_SOFT_SAVE：A/B hard→warn，max_warns=0，allowed=true + warnings
+    - standard：需 GATE-B 硬项;若全书尚无实质正文,另需 GATE-A
     """
     if skip or not craft_gate_env_enabled():
         return {"allowed": True, "code": "skipped", "detail": "craft gate off or skip",
@@ -929,8 +1018,12 @@ def evaluate_save_craft_gate(
         return {"allowed": True, "code": "short_prose", "detail": f"prose<{_PROSE_ENFORCE_MIN}",
                 "reports": {}}
 
-    t = _thr(thresholds)
+    mode = resolve_create_mode(create_mode)
+    explore = mode == "explore" and explore_soft_save_enabled()
+    t = thresholds if thresholds is not None else thresholds_for_create_mode(mode)
+    t = _thr(t)
     reports: dict[str, Any] = {}
+    warnings: list[dict[str, Any]] = []
 
     # 是否「第一篇实质正文」:其它章均无长 prose
     first_substantial = True
@@ -949,6 +1042,11 @@ def evaluate_save_craft_gate(
 
     if first_substantial:
         ga = gate_a(st, thresholds=t)
+        if explore:
+            ga = _soft_map_gate_report(ga)
+            for c in ga.checks:
+                if c.verdict == "warn":
+                    warnings.append({"id": c.id, "detail": c.detail, "gate": "A"})
         reports["gate_a"] = ga.to_dict()
         if not ga.ok:
             return {
@@ -958,9 +1056,15 @@ def evaluate_save_craft_gate(
                 "blocking": [c.id for c in ga.checks if c.hard and c.verdict == "fail"],
                 "root_causes": ga.root_causes,
                 "reports": reports,
+                "create_mode": mode,
             }
 
     gb = gate_b(st, seq, thresholds=t)
+    if explore:
+        gb = _soft_map_gate_report(gb)
+        for c in gb.checks:
+            if c.verdict == "warn":
+                warnings.append({"id": c.id, "detail": c.detail, "gate": "B"})
     reports["gate_b"] = gb.to_dict()
     if not gb.ok:
         return {
@@ -970,6 +1074,20 @@ def evaluate_save_craft_gate(
             "blocking": [c.id for c in gb.checks if c.hard and c.verdict == "fail"],
             "root_causes": gb.root_causes,
             "reports": reports,
+            "create_mode": mode,
         }
 
-    return {"allowed": True, "code": "ok", "detail": "craft gates pass", "reports": reports}
+    out = {
+        "allowed": True,
+        "code": "ok_explore_soft" if (explore and warnings) else "ok",
+        "detail": (
+            "explore soft-save: craft gaps as warnings"
+            if (explore and warnings)
+            else "craft gates pass"
+        ),
+        "reports": reports,
+        "create_mode": mode,
+    }
+    if warnings:
+        out["warnings"] = warnings
+    return out

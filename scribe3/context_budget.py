@@ -10,15 +10,16 @@ import os
 from typing import Any, Iterable
 
 # ── 现网默认（V1 · flag 关）──────────────────────────────────────────
+# rev.1.2：provenance 出生成 prompt；freed 回灌 canon 60% / recent 40%
 BLOCK_BUDGETS_V1: dict[str, int] = {
     "focus": 800,
     "global": 1200,
-    "canonical": 2800,
-    "recent": 1600,
+    "canonical": 3280,  # +480（原 provenance 800×0.6）
+    "recent": 1920,     # +320（800×0.4）
     "procedural": 900,
     "reference": 1400,
     "uncertainty": 500,
-    "provenance": 800,
+    "provenance": 0,
 }
 DEFAULT_ENVELOPE_TOKEN_BUDGET_V1 = 10_000
 assert sum(BLOCK_BUDGETS_V1.values()) == DEFAULT_ENVELOPE_TOKEN_BUDGET_V1
@@ -27,12 +28,12 @@ assert sum(BLOCK_BUDGETS_V1.values()) == DEFAULT_ENVELOPE_TOKEN_BUDGET_V1
 BLOCK_BUDGETS_V2: dict[str, int] = {
     "focus": 1000,
     "global": 1600,
-    "canonical": 6800,
-    "recent": 4000,
+    "canonical": 7400,  # +600
+    "recent": 4400,     # +400
     "procedural": 1200,
     "reference": 1600,
     "uncertainty": 800,
-    "provenance": 1000,
+    "provenance": 0,
 }
 DEFAULT_ENVELOPE_TOKEN_BUDGET_V2 = 18_000
 assert sum(BLOCK_BUDGETS_V2.values()) == DEFAULT_ENVELOPE_TOKEN_BUDGET_V2
@@ -41,12 +42,12 @@ assert sum(BLOCK_BUDGETS_V2.values()) == DEFAULT_ENVELOPE_TOKEN_BUDGET_V2
 BLOCK_BUDGETS_NOVEL: dict[str, int] = {
     "focus": 1000,
     "global": 1800,
-    "canonical": 8600,
-    "recent": 5600,
+    "canonical": 9200,  # +600
+    "recent": 6000,     # +400
     "procedural": 1400,
     "reference": 1800,
     "uncertainty": 800,
-    "provenance": 1000,
+    "provenance": 0,
 }
 NOVEL_ENVELOPE_TOKEN_BUDGET = 22_000
 assert sum(BLOCK_BUDGETS_NOVEL.values()) == NOVEL_ENVELOPE_TOKEN_BUDGET
@@ -79,46 +80,45 @@ EPIC_ENVELOPE_TOKEN_BUDGET = 18_000
 assert sum(BLOCK_BUDGETS_EPIC.values()) == EPIC_ENVELOPE_TOKEN_BUDGET
 
 # 场景自适应：同总额重配，禁止砍半 envelope
-# V2/epic 档（18k）
+# V2/epic 档（18k）· provenance 回灌 canon 60% / recent 40%
 SCENE_BUDGET_PROFILES: dict[str, dict[str, int]] = {
     "dialogue_heavy": {
-        "focus": 1200, "global": 1400, "canonical": 6200, "recent": 4800,
-        "procedural": 1000, "reference": 1400, "uncertainty": 800, "provenance": 1200,
+        "focus": 1200, "global": 1400, "canonical": 6920, "recent": 5280,
+        "procedural": 1000, "reference": 1400, "uncertainty": 800, "provenance": 0,
     },
     "action_heavy": {
-        "focus": 1400, "global": 1600, "canonical": 6000, "recent": 5000,
-        "procedural": 1200, "reference": 1200, "uncertainty": 800, "provenance": 800,
+        "focus": 1400, "global": 1600, "canonical": 6480, "recent": 5320,
+        "procedural": 1200, "reference": 1200, "uncertainty": 800, "provenance": 0,
     },
     "exposition": {
-        "focus": 800, "global": 2000, "canonical": 7200, "recent": 3600,
-        "procedural": 1000, "reference": 1800, "uncertainty": 800, "provenance": 800,
+        "focus": 800, "global": 2000, "canonical": 7680, "recent": 3920,
+        "procedural": 1000, "reference": 1800, "uncertainty": 800, "provenance": 0,
     },
 }
 for _name, _tbl in SCENE_BUDGET_PROFILES.items():
     assert sum(_tbl.values()) == 18_000, _name
+    assert int(_tbl.get("provenance", 0) or 0) == 0, _name
 
-# Novel 档（22k）：相对 NOVEL 基表重配 recent/canonical/procedural，禁止砍总额
+# Novel 档（22k）：provenance=0 + 回灌
 SCENE_BUDGET_PROFILES_NOVEL: dict[str, dict[str, int]] = {
     "dialogue_heavy": {
-        # 对白重：抬 recent（近文/对白节奏），略压 canonical
-        "focus": 1100, "global": 1600, "canonical": 7600, "recent": 6600,
-        "procedural": 1300, "reference": 1700, "uncertainty": 800, "provenance": 1300,
+        "focus": 1100, "global": 1600, "canonical": 8380, "recent": 7120,
+        "procedural": 1300, "reference": 1700, "uncertainty": 800, "provenance": 0,
     },
     "action_heavy": {
-        # 动作重：抬 focus + recent，略压 reference
-        "focus": 1300, "global": 1700, "canonical": 7800, "recent": 6200,
-        "procedural": 1500, "reference": 1500, "uncertainty": 800, "provenance": 1200,
+        "focus": 1300, "global": 1700, "canonical": 8520, "recent": 6680,
+        "procedural": 1500, "reference": 1500, "uncertainty": 800, "provenance": 0,
     },
     "exposition": {
-        # 说明/世界：抬 canonical + global，压 recent
-        "focus": 900, "global": 2200, "canonical": 9200, "recent": 4800,
-        "procedural": 1300, "reference": 2000, "uncertainty": 800, "provenance": 800,
+        "focus": 900, "global": 2200, "canonical": 9680, "recent": 5120,
+        "procedural": 1300, "reference": 2000, "uncertainty": 800, "provenance": 0,
     },
 }
 for _name, _tbl in SCENE_BUDGET_PROFILES_NOVEL.items():
     assert sum(_tbl.values()) == NOVEL_ENVELOPE_TOKEN_BUDGET, (
         f"SCENE_BUDGET_PROFILES_NOVEL[{_name}] sum={sum(_tbl.values())}"
     )
+    assert int(_tbl.get("provenance", 0) or 0) == 0, _name
 
 DEFAULT_CODEX_INJECT_CAP = 4_500
 DEFAULT_SUPPLEMENTAL_SOFT = 14_000
@@ -127,23 +127,37 @@ DEFAULT_SUPPLEMENTAL_HARD = 18_000
 DEFAULT_PROMPT_HARD = 42_000
 NOVEL_PROMPT_HARD = 48_000
 
-# L2 可裁段优先级（数字越大越先丢）
-L2_DROP_PRIORITY: dict[str, int] = {
-    "material_recall": 90,
-    "reference_craft": 85,
-    "author_prefs": 80,
-    "seed_words": 75,
-    "craft": 70,
-    "pressure_drive": 60,
-    "brief_must": 55,
-    "volume_intro": 50,
-    "outline": 40,
-    "purpose": 35,
-    "phase_role": 30,
-    "avoid": 28,
-    "codex": 25,  # 已有 cap；仍可进一步裁
-    "request_constraint": 20,
+# ── L2 四档 DROP（唯一真源 · rev.1.2 WS-6）──────────────────────────
+# 数字越大越先丢；T0/GEN_SEGMENT_PROTECTED 不进 victim 或极低优先级
+L2_DROP_TIER: dict[str, tuple[str, ...]] = {
+    "T3": ("material_recall", "reference_craft", "seed_words", "author_prefs"),
+    "T2": ("craft", "phase_role", "avoid", "volume_intro", "request_constraint"),
+    "T1": ("codex", "purpose", "pressure_drive"),
 }
+# 生成段保护集（outline 等）：超 cap 时后于 T3→T2→T1 才考虑半裁
+GEN_SEGMENT_PROTECTED: frozenset[str] = frozenset({
+    "outline", "brief_must", "voice_anchor",
+})
+
+
+def _build_l2_drop_priority() -> dict[str, int]:
+    """由 L2_DROP_TIER 派生 priority map（禁止另写第二份 14 键真源）。"""
+    pri: dict[str, int] = {}
+    # T3 先丢：90, 88, 86, …
+    for i, name in enumerate(L2_DROP_TIER["T3"]):
+        pri[name] = 90 - i
+    for i, name in enumerate(L2_DROP_TIER["T2"]):
+        pri[name] = 60 - i
+    for i, name in enumerate(L2_DROP_TIER["T1"]):
+        pri[name] = 30 - i
+    # 保护段：仅在 T* 裁尽后才可被选为 victim（priority 极低但仍 > envelope 的 12）
+    for name in GEN_SEGMENT_PROTECTED:
+        pri[name] = 8
+    return pri
+
+
+# 兼容旧名：运行时唯一由四档派生
+L2_DROP_PRIORITY: dict[str, int] = _build_l2_drop_priority()
 
 # 永不作为 L2 victim
 L0_NEVER_CUT: frozenset[str] = frozenset({
@@ -153,6 +167,8 @@ L0_NEVER_CUT: frozenset[str] = frozenset({
     "event_drive", "drama_contract", "drama_vacuum", "envelope",
     "revelation_discipline", "sincerity", "final_reminder",
     "deduction_final", "scene_truth_proj",
+    # prefix / structure_diversity 等同 redline 待遇
+    "prefix", "structure_diversity",
 })
 
 # O1 全域硬顶：默认跟 PROMPT_HARD；SCRIBE3_TOTAL_BUDGET=999999 禁用
@@ -201,7 +217,9 @@ def enforce_total_prompt_budget(
         return sum(estimate_tokens(s.get("text")) for s in segs)
 
     def _victim_idx() -> int | None:
+        # 先裁 T3→T2→T1；GEN_SEGMENT_PROTECTED 仅当无更高 priority victim 时才选
         best_i, best_pri = None, -1
+        protected_i, protected_pri = None, -1
         for i, s in enumerate(segs):
             name = str(s.get("name") or "")
             layer = str(s.get("layer") or "")
@@ -211,10 +229,17 @@ def enforce_total_prompt_budget(
                 pri = 12
             else:
                 pri = int(L2_DROP_PRIORITY.get(name, 55))
+            if name in GEN_SEGMENT_PROTECTED:
+                if pri > protected_pri:
+                    protected_pri = pri
+                    protected_i = i
+                continue
             if pri > best_pri:
                 best_pri = pri
                 best_i = i
-        return best_i
+        if best_i is not None:
+            return best_i
+        return protected_i
 
     while _total() > cap:
         vi = _victim_idx()
@@ -655,6 +680,8 @@ def apply_l2_trim(
     def _victim_idx() -> int | None:
         best_i = None
         best_pri = -1
+        protected_i = None
+        protected_pri = -1
         for i, s in enumerate(segs):
             if s.get("layer") != "supplemental":
                 continue
@@ -662,10 +689,17 @@ def apply_l2_trim(
             if name in L0_NEVER_CUT:
                 continue
             pri = L2_DROP_PRIORITY.get(name, 55)
+            if name in GEN_SEGMENT_PROTECTED:
+                if pri > protected_pri:
+                    protected_pri = pri
+                    protected_i = i
+                continue
             if pri > best_pri:
                 best_pri = pri
                 best_i = i
-        return best_i
+        if best_i is not None:
+            return best_i
+        return protected_i
 
     # hard: while L2 > cap
     while _l2_total() > cap:

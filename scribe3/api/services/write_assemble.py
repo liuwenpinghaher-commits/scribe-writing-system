@@ -511,6 +511,19 @@ def _anti_slop_floor_block() -> str:
     )
 
 
+def provenance_in_prompt_enabled() -> bool:
+    """SCRIBE3_PROVENANCE_IN_PROMPT 默认 0：溯源清单不进生成 prompt（trace 仍可有）。"""
+    v = (os.environ.get("SCRIBE3_PROVENANCE_IN_PROMPT") or "0").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
+def generation_forbidden_source_kinds() -> tuple[str, ...]:
+    """写路径禁用 source_kind；默认含 provenance（双保险）。调试旗可恢复旧行为。"""
+    if provenance_in_prompt_enabled():
+        return ()
+    return ("provenance",)
+
+
 def _editor_write_system(st, focalizer: str = "", chapter: int = None) -> str:
     # 旧路径字节一致:_editor_system(身份+设定数据) + _write_protocol_block(静态硬协议/文风)
     # U-003:这是唯一的"生成"入口——限知章续写(_stream_write/_collect_write 最终都靠
@@ -1096,6 +1109,22 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     # v1 让 envelope 独占 facts/promises/角色/北极星的数据注入,身份层只留身份+硬协议+文风。
     prefix = (_editor_identity_block() + _write_protocol_block()
               + _write_revision_block() + _anti_slop_floor_block())
+    # WS-2：结构多样性短纪律（默认开 · fail-soft）
+    try:
+        from scribe3.structure_style import (
+            structure_diversity_block,
+            structure_diversity_inject_enabled,
+        )
+        if structure_diversity_inject_enabled():
+            _sd = structure_diversity_block()
+            if _sd:
+                prefix += _domain_input(
+                    f"work:{work or 'main'}:structure-diversity",
+                    "structure_diversity",
+                    "\n\n" + _sd,
+                )
+    except Exception:
+        pass
     # 经验压力 E4:续写快照并入真实组装链(单源,非平行 builder)
     try:
         from scribe3.experience.continue_rite import (
@@ -1290,16 +1319,35 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 f"work:{work or 'main'}:craft", "craft", "\n\n" + craft,
             )
             _push("craft", "supplemental", _cr)
+        # WS-1 C.2：phase_role 与 craft/anti_slop 去重
+        _pr_raw = _phase_role_block(phase)
+        try:
+            from scribe3.injection_compact import dedup_phase_role
+            _pr_raw = dedup_phase_role(
+                _pr_raw,
+                craft_text=craft or "",
+                anti_slop_text=_anti_slop_floor_block() or "",
+            )
+        except Exception:
+            pass
         _pr = _domain_input(
             f"chapter:{chapter}:phase-role", "phase_role",
-            _phase_role_block(phase),
+            _pr_raw,
         )
         _push("phase_role", "supplemental", _pr)
-        _av = _domain_input(
-            f"chapter:{chapter}:avoid", "avoid",
-            _avoid_directive(st, chapter),
-        )
-        _push("avoid", "supplemental", _av)
+        # WS-1 C.3：avoid 并入 anti_slop 时不推独立段
+        _skip_avoid = False
+        try:
+            from scribe3.injection_compact import should_omit_avoid_domain
+            _skip_avoid = should_omit_avoid_domain()
+        except Exception:
+            _skip_avoid = False
+        if not _skip_avoid:
+            _av = _domain_input(
+                f"chapter:{chapter}:avoid", "avoid",
+                _avoid_directive(st, chapter),
+            )
+            _push("avoid", "supplemental", _av)
         _rev = _domain_input(
             f"chapter:{chapter}:revelation-discipline", "revelation_discipline",
             _revelation_discipline_block(focalizer),
@@ -1331,8 +1379,29 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _ol_raw,
         )
         _push("outline", "supplemental", _ol)
-        # 当前卷 intro 摘要(flag 默开;空 intro/无卷 → 空串)
+        # 当前卷 intro 摘要(flag 默开;空 intro/无卷 → 空串) · WS-1 C.1 compact
         _vol_intro = _volume_intro_block(st, chapter, focalizer=focalizer or "")
+        try:
+            from scribe3.injection_compact import compact_volume_intro
+            _ch_meta = st.get_chapter(chapter) or {}
+            _syn = str(_ch_meta.get("synopsis") or "")
+            _vt, _vg = "", ""
+            _vid_tmp = _ch_meta.get("volume")
+            if _vid_tmp not in (None, ""):
+                for _v in (st.list_volumes() or []):
+                    if str(_v.get("id")) == str(_vid_tmp):
+                        _vt = str(_v.get("title") or "")
+                        _vg = str(_v.get("goal") or _v.get("intro") or "")
+                        break
+            _vol_intro = compact_volume_intro(
+                _vol_intro,
+                synopsis=_syn,
+                outline_text=_ol_raw or "",
+                volume_title=_vt,
+                volume_goal=_vg,
+            )
+        except Exception:
+            pass
         _vid = "none"
         if _vol_intro:
             try:
@@ -1348,9 +1417,34 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _brief_must_sections_write_block(st, chapter, focalizer=focalizer or ""),
         )
         _push("brief_must", "supplemental", _bm)
+        # WS-1 C.4：pressure 与 drama 结构化差集（drama 仅渲染串则整块保留）
+        _pd_txt = _pressure_drive_write_block(st, chapter)
+        try:
+            from scribe3.injection_compact import pressure_diff_keys
+            from scribe3.pressure_drive import load_pdc, render_pressure_drive_block
+            _ch_p = st.get_chapter(int(chapter)) if chapter is not None else None
+            _pdc = load_pdc(_ch_p) if _ch_p else None
+            _drama_obj = None
+            if isinstance(_ch_p, dict):
+                raw_d = _ch_p.get("drama_contract") or _ch_p.get("drama")
+                if isinstance(raw_d, dict):
+                    _drama_obj = raw_d
+            _emit = pressure_diff_keys(_pdc, _drama_obj)
+            if _emit is not None and _pdc is not None:
+                if not _emit:
+                    _pd_txt = ""
+                else:
+                    slim = {k: _pdc.get(k) for k in _emit if k in _pdc}
+                    # 保留最小结构键以免 render 全空
+                    for _keep in ("fork", "progress", "role"):
+                        if _keep in _pdc and _keep not in slim:
+                            pass
+                    _pd_txt = render_pressure_drive_block(slim) or ""
+        except Exception:
+            pass
         _pd = _domain_input(
             f"chapter:{chapter}:pressure-drive", "pressure_drive",
-            _pressure_drive_write_block(st, chapter),
+            _pd_txt,
         )
         _push("pressure_drive", "supplemental", _pd)
         _ap = _domain_input(
@@ -1499,7 +1593,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         actor_role="writer",
         pov_character=focalizer or None,
         required_slots=("focus", "global"),
-        forbidden_source_kinds=(),
+        forbidden_source_kinds=generation_forbidden_source_kinds(),
         policy_version="generation.v1",
     )
     compiled = CreativeContextEngine(
@@ -1563,9 +1657,34 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 envelope_trace["soft_fail_counters"] = get_write_soft_fail_counters()
                 try:
                     from scribe3.injection_registry import density_trace_for_segments
+                    _env_lens: dict[str, int] = {}
+                    _prov_items = 0
+                    try:
+                        for _blk in (getattr(envelope, "blocks", None) or []):
+                            _bn = str(getattr(_blk, "name", "") or "")
+                            _bt = str(getattr(_blk, "text", "") or "")
+                            _env_lens[_bn] = len(_bt)
+                            if _bn == "provenance":
+                                _prov_items = len(
+                                    getattr(_blk, "sources", None) or []
+                                ) or (1 if _bt else 0)
+                        # 若 budget=0 或 forbidden 已 omit，joined 中无溯源
+                        _joined_has_prov = (
+                            "## 溯源清单" in (envelope_trace.get("joined_preview") or "")
+                        )
+                        # 以实际 blocks 为准：provenance 文本长度即 in-prompt 字符
+                        _prov_chars = int(_env_lens.get("provenance", 0) or 0)
+                        if not provenance_in_prompt_enabled():
+                            _prov_chars = 0
+                    except Exception:
+                        _prov_chars = 0
+                        _prov_items = 0
                     envelope_trace["density_trace"] = density_trace_for_segments(
                         domain_lengths=_br.get("domain_lengths"),
                         order_indices=_br.get("order_indices"),
+                        envelope_block_lengths=_env_lens,
+                        provenance_trace_items=_prov_items,
+                        provenance_in_prompt_chars=_prov_chars,
                     )
                 except Exception:
                     pass

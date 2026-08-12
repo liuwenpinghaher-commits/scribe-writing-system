@@ -26,6 +26,7 @@ class GateSnapshot:
     soft_qc: dict | None = None
     ai_grade: str | None = None
     degraded_stages: list = field(default_factory=list)
+    create_mode: str | None = None  # standard|explore
 
 
 @dataclass
@@ -126,6 +127,11 @@ def clear_hold(st, seq: int) -> None:
         pass
 
 
+def explore_ingest_hold_enabled() -> bool:
+    v = (os.environ.get("SCRIBE3_EXPLORE_INGEST_HOLD") or "1").strip().lower()
+    return v not in ("0", "false", "no", "off", "")
+
+
 def decide_ingest(
     st,
     work: str,
@@ -217,6 +223,23 @@ def decide_ingest(
         return DecideResult(
             action="hold", reason="danger_draft",
             hold_reason="danger_draft", confirm_token=tok, prose_fp=fp,
+        )
+    # WS-3：explore 实质稿默认 hold，防 dual-truth 自动进正典
+    _cm = (getattr(g, "create_mode", None) or os.environ.get("SCRIBE3_CREATE_MODE") or "standard")
+    if (
+        not force
+        and explore_ingest_hold_enabled()
+        and str(_cm).strip().lower() == "explore"
+        and len((prose or "").strip()) >= 80
+    ):
+        tok = secrets.token_hex(12)
+        return DecideResult(
+            action="hold",
+            reason="explore_draft",
+            hold_reason="explore_draft",
+            confirm_token=tok,
+            prose_fp=fp,
+            allow_distill=False,
         )
     if (g.ai_grade or "").lower() == "heavy" and not force:
         # save path: if blocking already rejected, we wouldn't be here
