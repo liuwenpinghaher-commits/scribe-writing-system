@@ -137,6 +137,7 @@ def test_routes_and_ui_artifacts():
     for p in (
         "/storyline/gantt",
         "/storyline/emotion-curve",
+        "/storyline/hub",
         "/chapters/{seq}/stage",
         "/chapters/{seq}/deduce/parallel",
         "/agent-crons",

@@ -9,18 +9,44 @@ from fastapi import APIRouter, Query
 router = APIRouter(tags=["product_backlog"])
 
 
+def _storyline_chapters(st) -> list:
+    """故事线用窄章列表：优先 chapters_lite（synopsis/beats），避免全量 prose。"""
+    if st is None:
+        return []
+    if hasattr(st, "chapters_lite"):
+        try:
+            return list(st.chapters_lite() or [])
+        except Exception:
+            pass
+    if hasattr(st, "list_chapters"):
+        try:
+            return list(st.list_chapters() or [])
+        except Exception:
+            pass
+    return []
+
+
+def _storyline_promises(st) -> list:
+    if st is None:
+        return []
+    try:
+        if hasattr(st, "open_promises"):
+            return list(st.open_promises() or [])
+        if hasattr(st, "list_promises"):
+            return list(st.list_promises() or [])
+    except Exception:
+        pass
+    return []
+
+
 def storyline_gantt_ep(work: str = "main"):
     """O30：故事线 Gantt 投影（只读）。"""
     from scribe3.storyline_project import project_gantt_rows
     try:
         from scribe3.api import app_impl as core
         st = core._store_for(work)
-        chapters = list(st.list_chapters() or []) if hasattr(st, "list_chapters") else []
-        prom = []
-        if hasattr(st, "open_promises"):
-            prom = list(st.open_promises() or [])
-        elif hasattr(st, "list_promises"):
-            prom = list(st.list_promises() or [])
+        chapters = _storyline_chapters(st)
+        prom = _storyline_promises(st)
     except Exception:
         chapters, prom = [], []
     return project_gantt_rows(chapters, open_promises=prom)
@@ -32,10 +58,55 @@ def storyline_emotion_ep(work: str = "main"):
     try:
         from scribe3.api import app_impl as core
         st = core._store_for(work)
-        chapters = list(st.list_chapters() or []) if hasattr(st, "list_chapters") else []
+        chapters = _storyline_chapters(st)
     except Exception:
         chapters = []
     return project_emotion_curve(chapters)
+
+
+def storyline_hub_ep(work: str = "main"):
+    """故事线中枢一次打包：单次取章，避免 4 次 list_chapters + 串行往返。"""
+    from scribe3.storyline_project import project_gantt_rows, project_emotion_curve
+    from scribe3.storyline_store import list_storylines as mem_list
+    try:
+        from scribe3.api import app_impl as core
+        st = core._store_for(work)
+    except Exception:
+        st = None
+    chapters = _storyline_chapters(st)
+    prom = _storyline_promises(st)
+    gantt = project_gantt_rows(chapters, open_promises=prom)
+    emotion = project_emotion_curve(chapters)
+    lines: list = []
+    backend = "memory"
+    try:
+        if st is not None and hasattr(st, "list_storylines"):
+            lines = list(st.list_storylines() or [])
+            backend = "surreal"
+        else:
+            lines = list(mem_list(work) or [])
+    except Exception:
+        try:
+            lines = list(mem_list(work) or [])
+        except Exception:
+            lines = []
+    align = emotion.get("craft_align")
+    if not align:
+        try:
+            from scribe3.craft_ruler import craft_ruler_report
+            align = craft_ruler_report(emotion.get("points") or [])
+        except Exception:
+            align = None
+    return {
+        "work": work,
+        "gantt": gantt,
+        "emotion": emotion,
+        "storylines": lines,
+        "count_lines": len(lines),
+        "align": align,
+        "backend": backend,
+        "chapter_source": "chapters_lite",
+    }
 
 
 def chapter_stage_get_ep(seq: int, work: str = "main"):
@@ -385,7 +456,7 @@ def storyline_craft_align_ep(work: str = "main"):
     try:
         from scribe3.api import app_impl as core
         st = core._store_for(work)
-        chapters = list(st.list_chapters() or []) if hasattr(st, "list_chapters") else []
+        chapters = _storyline_chapters(st)
     except Exception:
         chapters = []
     emo = project_emotion_curve(chapters)
@@ -399,9 +470,14 @@ def storyline_craft_align_ep(work: str = "main"):
 def _bind_and_register() -> None:
     from scribe3.api import app_impl as core
     g = globals()
+    # 供 rebind 后的 endpoint 全局可见（FunctionType 用 core.__dict__ 作 globals）
+    for helper in ("_storyline_chapters", "_storyline_promises"):
+        if helper in g:
+            setattr(core, helper, g[helper])
     routes = [
         ("storyline_gantt_ep", "/storyline/gantt", ["GET"]),
         ("storyline_emotion_ep", "/storyline/emotion-curve", ["GET"]),
+        ("storyline_hub_ep", "/storyline/hub", ["GET"]),
         ("storyline_list_ep", "/storyline/lines", ["GET"]),
         ("storyline_create_ep", "/storyline/lines", ["POST"]),
         ("storyline_patch_ep", "/storyline/lines/{sid}", ["PATCH"]),

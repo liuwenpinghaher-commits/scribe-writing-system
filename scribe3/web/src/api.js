@@ -546,8 +546,12 @@ export const api = {
   recall: (text, k = 6) => j(`/recall?q=${enc(text)}&k=${k}`),
 
   // ── 延期产品 / 做厚表面（H3–H7 · 命名方法避免裸 fetch 脆弱）──
+  storylineHub: (work) => j('/storyline/hub', work),
   storylineGantt: (work) => j('/storyline/gantt', work),
   storylineEmotion: (work) => j('/storyline/emotion-curve', work),
+  storylineLines: (work) => j('/storyline/lines', work),
+  storylineCreate: (body, work) => post('/storyline/lines', body || {}, work),
+  storylineLink: (sid, body, work) => post(`/storyline/lines/${enc(sid)}/link`, body || {}, work),
   storylineInjectPreview: (body, work) => post('/storyline/inject-preview', body || {}, work),
   chapterStage: (seq, work) => j(`/chapters/${enc(seq)}/stage`, work),
   chapterStageAdvance: (seq, body, work) => post(`/chapters/${enc(seq)}/stage/advance`, body || {}, work),

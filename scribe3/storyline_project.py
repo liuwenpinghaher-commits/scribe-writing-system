@@ -15,6 +15,11 @@ def _phase_of(ch: dict[str, Any]) -> str:
         pass
     if (ch.get("prose") or "").strip():
         return "draft"
+    # chapters_lite 无 prose：用 beats / scene_truth 推断
+    if ch.get("beats") or ch.get("scene_truth"):
+        return "beats"
+    if (ch.get("synopsis") or ch.get("outline") or "").strip():
+        return "outline"
     return "outline"
 
 

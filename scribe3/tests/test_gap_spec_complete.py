@@ -172,7 +172,46 @@ def test_p2_hub_uses_recharts():
     assert "recharts" in text
     assert "LineChart" in text
     assert "BarChart" in text
+    assert "storyline-hub" in text
+    assert "storylineHub" in text or "/storyline/hub" in text
+    assert "border-line" in text  # design tokens, not raw border-black
     assert text.count("\n") > 120  # not ~86 line CSS bars only
+
+
+def test_storyline_hub_bundle_once():
+    """Hub 打包：一次 chapters 源，gantt+emotion+lines 同包。"""
+    from scribe3.api.routers import product_backlog as pb
+    from scribe3.storyline_store import clear_for_tests, create_storyline
+
+    clear_for_tests()
+    create_storyline("hubw", title="T", chapter_seqs=[1])
+
+    class St:
+        def chapters_lite(self):
+            return [
+                {"seq": 1, "title": "一", "synopsis": "赌注：生死"},
+                {"seq": 2, "title": "二", "beats": [{"conflict": "x"}]},
+            ]
+
+        def open_promises(self):
+            return []
+
+        def list_storylines(self):
+            return [{"id": "s1", "title": "T", "chapter_seqs": [1], "arc_kind": "main"}]
+
+    import scribe3.api.app_impl as core
+    old = getattr(core, "_store_for", None)
+    core._store_for = lambda work="main": St()  # type: ignore
+    try:
+        pack = pb.storyline_hub_ep(work="hubw")
+        assert pack["gantt"]["count"] == 2
+        assert pack["emotion"]["count"] == 2
+        assert pack["storylines"]
+        assert pack.get("chapter_source") == "chapters_lite"
+        assert pack["gantt"]["rows"][1]["phase"] == "beats"
+    finally:
+        if old is not None:
+            core._store_for = old
 
 
 def test_p2_leader_election():
