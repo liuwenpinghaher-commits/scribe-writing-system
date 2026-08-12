@@ -97,7 +97,7 @@ export function evaluateChapterContract(ch) {
     issues.push({
       id: 'missingSynopsis',
       level: 'error',
-      message: '大纲 synopsis 为空',
+      message: '本章大纲还是空的',
     })
   } else if (synopsis.length < SHORT_FIELD_CHARS) {
     issues.push({
@@ -119,7 +119,7 @@ export function evaluateChapterContract(ch) {
     issues.push({
       id: 'missingSceneTruth',
       level: 'error',
-      message: '场景真相 scene_truth 为空',
+      message: '场景真相还是空的（本章客观事实）',
     })
   } else if (truth.length < SHORT_FIELD_CHARS) {
     issues.push({
@@ -134,7 +134,7 @@ export function evaluateChapterContract(ch) {
     issues.push({
       id: 'missingOutlineStakes',
       level: 'warn',
-      message: '高压章大纲缺 stakes/赌注 标签（建议补一句代价）',
+      message: '这是高压章，大纲里最好写清「谁会付出什么代价」',
     })
   }
 
@@ -209,8 +209,8 @@ export function executionSoftSummary(softStatus) {
     parts.push(drift.advisory ? String(drift.advisory).slice(0, 60) : '事件驱动相对成稿已变，建议强制重写核对')
   }
   const stakes = softStatus.stakes
-  if (stakes && stakes.warning === 'missing_outline_stakes' && !parts.some((p) => p.includes('stakes') || p.includes('赌注'))) {
-    parts.push('高压缺 stakes')
+  if (stakes && stakes.warning === 'missing_outline_stakes' && !parts.some((p) => p.includes('代价') || p.includes('赌注'))) {
+    parts.push('高压章缺「代价」说明')
   }
   return parts.join('；') || ''
 }
@@ -219,9 +219,9 @@ export function executionSoftSummary(softStatus) {
 export function mergedSoftBannerSummary(ch, softStatus) {
   const contract = contractSoftSummary(ch)
   const exec = executionSoftSummary(softStatus)
-  if (contract && exec) return `章前契约：${contract}。执行对照：${exec}`
-  if (contract) return `章前契约：${contract}`
-  if (exec) return `执行对照：${exec}`
+  if (contract && exec) return `开写前：${contract}。写完对照：${exec}`
+  if (contract) return `开写前：${contract}`
+  if (exec) return `写完对照：${exec}`
   return ''
 }
 

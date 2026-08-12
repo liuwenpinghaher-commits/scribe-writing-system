@@ -23,7 +23,7 @@ function SynopsisCell({ chapter }) {
   const ask = () => seedChiefNarrativeWrite(
     'outline',
     `第 ${chapter.seq} 章大纲`,
-    `请更新第 ${chapter.seq} 章 synopsis。当前:\n${chapter.synopsis || '（空）'}`,
+    `请更新第 ${chapter.seq} 章大纲。当前:\n${chapter.synopsis || '（空）'}`,
   )
   return (
     <button type="button" onClick={ask} title="让主编写入梗概(章级大纲)"

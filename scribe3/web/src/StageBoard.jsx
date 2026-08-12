@@ -49,7 +49,7 @@ export function StageBoard({
     try {
       const r = await api.chapterStageAdvance(seq, { action: 'advance', current }, work)
       if (r?.blocked) {
-        setErr(r.reason || '推进被拦（soft/hard）')
+        setErr(r.reason || '还不能推进到下一阶段（材料未齐或被拦住）')
       } else if (r?.next) {
         setRemote((prev) => ({ ...(prev || {}), phase: r.next }))
         onPhaseChange?.(r.next)
@@ -129,7 +129,7 @@ export function StageBoard({
           disabled={busy || current === 'final'}
           onClick={advance}
           data-testid="stage-board-advance"
-          title="调用后端 stage/advance（默认 soft）"
+          title="推进到下一阶段（默认不硬拦，仅提示）"
         >
           {busy ? '…' : '推进'}
         </Btn>

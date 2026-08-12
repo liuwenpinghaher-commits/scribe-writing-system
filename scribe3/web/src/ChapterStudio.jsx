@@ -38,25 +38,25 @@ import { loadIaDensity, saveIaDensity, auxVisibleForDensity } from './lib/iaDens
 // 辅助面:简报/关联/评分卡/经验复盘——读着写,不参与阶段时钟。
 
 const PHASES = [
-  { key: 'outline', label: '大纲', icon: AlignLeft, duty: '章级梗概与 stakes 种子（synopsis 真源）' },
-  { key: 'beats', label: '节拍', icon: ListChecks, duty: 'GCD 戏剧合同与拍级执行（主杠杆）' },
-  { key: 'deduce', label: '演绎', icon: Sparkles, duty: '场景真相与限知投影（认知，不写戏）' },
-  { key: 'draft', label: '草稿', icon: FileEdit, duty: '执行戏剧与声口（draft 分列）' },
-  { key: 'final', label: '正文', icon: BookText, duty: '落库长散文（prose 分列）' },
+  { key: 'outline', label: '大纲', icon: AlignLeft, duty: '写清本章讲什么：谁、想干什么、会付出什么代价' },
+  { key: 'beats', label: '节拍', icon: ListChecks, duty: '把本章拆成几场戏：冲突怎么升级、怎么收' },
+  { key: 'deduce', label: '演绎', icon: Sparkles, duty: '写清「事实真相」和「每人知道什么」——还没开写正文' },
+  { key: 'draft', label: '草稿', icon: FileEdit, duty: '先放开写一版，不急着过严检' },
+  { key: 'final', label: '正文', icon: BookText, duty: '定稿用的正文：保存、检查、打磨都在这里' },
 ]
-// 辅助入口:评分卡≠作品意图;经验复盘≠力学合同。渐进披露见 s3.ia.density。
+// 辅助入口：读着写；与顶栏「作品意图」不是同一物。渐进披露见信息密度。
 const AUX_ENTRIES = [
-  { key: 'brief', label: '简报', icon: ScrollText, tip: '只读本章创作简报' },
-  { key: 'frame', label: '关联', icon: Eye, tip: '设定/素材/伏笔/限知边界' },
-  { key: 'northstar', label: '评分卡', icon: Compass, tip: '机器评分卡 · 与顶栏「作品意图」不是同一物' },
-  { key: 'pressure', label: '经验复盘', icon: Gauge, tip: '六格/问诊 · 与写路径力学合同不是同一物' },
+  { key: 'brief', label: '简报', icon: ScrollText, tip: '本章写作备忘（只读）：伏笔、提醒等' },
+  { key: 'frame', label: '关联', icon: Eye, tip: '本章能用的设定、素材、伏笔，以及视角不能写破的边界' },
+  { key: 'northstar', label: '评分卡', icon: Compass, tip: '机器给的参考分，不是你的写作目标' },
+  { key: 'pressure', label: '经验复盘', icon: Gauge, tip: '写后复盘提示，不是大纲里的冲突安排' },
 ]
 const PHASE_KEYS = new Set(PHASES.map((p) => p.key))
 /** 阶段编辑器仍可 loading 占位的 phase；final 也拉契约 meta，但不挡 WriteLayout */
 const META_EDITOR_PHASES = new Set(['outline', 'beats', 'deduce', 'draft'])
 const normalizePhase = (phase) => PHASE_KEYS.has(phase) ? phase : 'final'
 
-/** 正文顶栏：章前契约 + 执行 soft 合一 banner（不阻断生成；存实质正文仍可能 GATE-B 硬拦） */
+/** 正文顶栏：开写前材料 + 写完对照 合一 banner（不拦聊天；存正式正文仍可能硬拦缺项） */
 function ContractSoftBanner({ work, seq, meta, executionSoft, onGoFix, onDismiss }) {
   if (!meta && !executionSoft) return null
   if (!shouldShowMergedSoftBanner(meta, executionSoft)) return null
@@ -65,7 +65,7 @@ function ContractSoftBanner({ work, seq, meta, executionSoft, onGoFix, onDismiss
     || contractSoftSummary(meta)
     || executionSoftSummary(executionSoft)
   const hasContractGap = meta ? contractNeedsAttention(meta) : false
-  const title = hasContractGap ? '章前契约 / 执行对照' : '执行对照'
+  const title = hasContractGap ? '开写前材料 / 写完对照' : '写完对照'
   return (
     <div
       role="status"
@@ -74,14 +74,14 @@ function ContractSoftBanner({ work, seq, meta, executionSoft, onGoFix, onDismiss
     >
       <span className="font-medium text-warn shrink-0">{title}</span>
       <span className="flex-1 min-w-[12rem] text-faint leading-relaxed">
-        {summary || '大纲/节拍/场景真相或执行 soft 有缺口'}。
+        {summary || '大纲、节拍、场景真相或写完对照还有缺口'}。
         {hasContractGap ? (
           <>
             <strong className="text-ink font-medium">不建议开写</strong>
-            （本提示不阻断对话生成；存实质正文时工艺门仍可能硬拦缺项）。
+            （本提示不拦聊天；保存正式正文时缺项仍可能被拦住）。
           </>
         ) : (
-          <>（advisory only · 不阻断生成；有 drift 时建议章节信息页【强制重写】核对，不自动清稿）。</>
+          <>（仅建议，不拦生成；若正文与大纲/驱动脱节，可到「章节信息」用【强制重写】核对，不会自动清空正文）。</>
         )}
       </span>
       {typeof onGoFix === 'function' && (
@@ -382,7 +382,7 @@ function BeatsTab({ seq, work, value, meta, onSaved }) {
   const askChief = () => seedChiefNarrativeWrite(
     'beats',
     `第 ${seq} 章节拍`,
-    `请更新第 ${seq} 章节拍列表(beats,含 GCD:goal/conflict/turn/cost/hook)。当前 ${beats.length} 条:\n`
+    `请更新第 ${seq} 章节拍列表（每拍可含：目标/冲突/转折/代价/钩子）。当前 ${beats.length} 条:\n`
       + beats.map((b, i) => formatBeatForChief(b, i)).join('\n'),
   )
 
@@ -390,7 +390,7 @@ function BeatsTab({ seq, work, value, meta, onSaved }) {
     <div className={STAGE_WRAP} data-testid="chapter-workbench-shell" data-phase="beats">
       <StageTitle
         title="节拍"
-        subtitle="戏剧卡(目标/冲突/转折/代价/钩子)可手改保存;条数增删可由主编审批写入。"
+        subtitle="每拍可补「目标·冲突·转折·代价·钩子」并手改保存；增删条数请让主编审批。"
         actions={(
           <>
             <Btn
@@ -399,7 +399,7 @@ function BeatsTab({ seq, work, value, meta, onSaved }) {
               data-testid="beats-save"
               disabled={!dirty || saving}
               onClick={save}
-              title={dirty ? '保存 GCD 与摘要到章 meta' : '无未保存更改'}
+              title={dirty ? '保存节拍摘要与戏核字段' : '无未保存更改'}
             >
               {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
               {saving ? '保存中…' : '保存节拍'}
@@ -477,7 +477,7 @@ function BeatsTab({ seq, work, value, meta, onSaved }) {
                       data-testid={`beat-gcd-expand-${i}`}
                       onClick={() => setForceGcd((m) => ({ ...m, [i]: true }))}
                     >
-                      补戏剧卡（目标/冲突/转折/代价/钩子）
+                      补戏核（目标/冲突/转折/代价/钩子）
                     </button>
                   )}
                 </div>
@@ -487,7 +487,9 @@ function BeatsTab({ seq, work, value, meta, onSaved }) {
         })}
       </div>
       <div className="text-f12 text-faint leading-snug">
-        {dirty ? '有未保存更改 · 点「保存节拍」写入章 meta。' : 'GCD 字段有值时自动展卡；无则点「补戏剧卡」。保存走 PATCH …/gcd-fields（闸外）。'}
+        {dirty
+          ? '有未保存更改 · 点「保存节拍」写入。'
+          : '已写戏核的拍会自动展开；没有的可点「补戏核」。改完点保存即可。'}
       </div>
     </div>
   )
@@ -953,7 +955,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
           </div>
           <span className="w-px h-4 bg-line mx-0.5" aria-hidden="true" />
           <Btn variant="ghost" size="sm" onClick={() => { setAuxView(null); setChapterMetaOpen(true) }}
-            title="章前契约：元数据、大纲/节拍/真相摘要与齐套" aria-label="章节信息"><Settings2 size={14} />章节信息</Btn>
+            title="本章开工前要齐的材料：大纲、节拍、场景真相等摘要" aria-label="章节信息"><Settings2 size={14} />章节信息</Btn>
           <span className="w-px h-4 bg-line mx-0.5" aria-hidden="true" />
         </>
       )}
@@ -1015,7 +1017,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
             data-testid="phase-duty-open-meta"
             onClick={() => { setAuxView(null); setChapterMetaOpen(true) }}
           >
-            阶段机 · 章节信息
+            进度与准备 →
           </button>
         </div>
       )}

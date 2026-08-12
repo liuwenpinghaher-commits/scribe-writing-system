@@ -293,8 +293,8 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
               </div>
             </div>
             <p className="mb-2 text-f12 text-faint leading-relaxed" data-testid="volume-intro-hint">
-              卷纲为作者备忘（非章大纲）：有内容时写作本章可注入约 400 字摘要；空则跳过。
-              下方为本地草稿缓冲，无「保存到库」按钮；点「让主编写入」经 s3_patch_volume 审批落库。
+              卷纲是整卷备忘，不是单章大纲：写本章时系统可能摘一小段当背景；空则跳过。
+              下方是本地草稿，不会直接入库；点「让主编写入」经主编审批后才会落库。
             </p>
             <div className="grid gap-3" data-testid="volume-meta-fields">
               <FieldLabel>
@@ -340,7 +340,7 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
                   value={form.intro}
                   onChange={(e) => setForm((f) => ({ ...f, intro: e.target.value }))}
                   rows={8}
-                  placeholder="本卷主冲突、角色弧、应付的账（勿当章 synopsis/GCD）。"
+                  placeholder="本卷主冲突、角色弧、应付的账（这是卷纲，不是单章大纲/节拍）。"
                   className="min-h-40"
                 />
               </FieldLabel>
@@ -371,7 +371,7 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
                   <span className="min-w-0 truncate font-medium text-ink">{`${chapter.seq} ${chapter.title || ''}`.trim()}</span>
                   <span className="text-meta text-faint">{chapter.label || '未设'}</span>
                   {!String(chapter.synopsis || '').trim() ? (
-                    <span className="text-meta text-warn" title="缺大纲 synopsis">缺大纲</span>
+                    <span className="text-meta text-warn" title="本章还没有写大纲">缺大纲</span>
                   ) : (
                     <span className="text-meta text-faint" aria-hidden>·</span>
                   )}

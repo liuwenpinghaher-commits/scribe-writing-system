@@ -164,7 +164,7 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
       ...prev,
       chapters: prev.chapters.map((c) => c.seq === seq ? { ...c, synopsis } : c),
     }))
-    seedChiefNarrativeWrite('outline', `第 ${seq} 章大纲`, `请更新 synopsis:\n${synopsis || '（空）'}`)
+    seedChiefNarrativeWrite('outline', `第 ${seq} 章大纲`, `请更新本章大纲:\n${synopsis || '（空）'}`)
   }
 
   // 章状态(label): 乐观本地展示 + 主编种子

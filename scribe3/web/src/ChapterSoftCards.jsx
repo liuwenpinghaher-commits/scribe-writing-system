@@ -120,10 +120,10 @@ export function ChapterSoftCards({ seq, work, synopsis, beats }) {
 
   return (
     <div className="space-y-2" data-testid="chapter-soft-cards">
-      <div className="text-f12 font-medium text-faint">质量 soft · 预检 / 蒸馏 / 故事线注入</div>
+      <div className="text-f12 font-medium text-faint">质量助手 · 开写前检查 / 梗概蒸馏 / 故事线预览</div>
       {err && <div className="text-f11 text-warn">{err}</div>}
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <Card title="Soft 预检" testId="soft-card-precheck">
+        <Card title="开写前检查" testId="soft-card-precheck">
           <Btn size="sm" disabled={!!busy} onClick={runPrecheck} data-testid="soft-precheck-run">
             {busy === 'precheck' ? '…' : '运行'}
           </Btn>
@@ -153,7 +153,7 @@ export function ChapterSoftCards({ seq, work, synopsis, beats }) {
             </pre>
           )}
         </Card>
-        <Card title="事件履约 soft" testId="soft-card-event-led">
+        <Card title="事件是否写进正文" testId="soft-card-event-led">
           <div className="flex flex-wrap gap-1">
             <Btn size="sm" disabled={!!busy} onClick={() => runEventLed(false)} data-testid="soft-event-led-run">
               {busy === 'event-led' ? '…' : 'L0'}

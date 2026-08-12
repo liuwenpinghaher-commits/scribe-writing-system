@@ -256,8 +256,8 @@ export function ExperiencePressurePanel({ seq }) {
             <div className="mt-2 flex flex-wrap gap-2">
               <Btn size="sm" variant="ghost" disabled={busy === 'fill-gcd'} onClick={onFillFromGcd}
                 data-testid="exp-fill-from-gcd"
-                title="从节拍 GCD 单向建议填充；不写回 chapter.beats">
-                {busy === 'fill-gcd' ? '填充中…' : '从节拍 GCD 填充'}
+                title="根据节拍冲突建议填充；不会改你已写好的节拍原文">
+                {busy === 'fill-gcd' ? '填充中…' : '从节拍戏核填充'}
               </Btn>
               <Btn size="sm" disabled={busy === 'grid'} onClick={onSaveGrid}>
                 {busy === 'grid' ? '保存中…' : '保存六格'}

@@ -23,7 +23,7 @@ export function ChapterCard({ chapter, colorMode, onOpen, onPatchLabel, dragHand
     seedChiefNarrativeWrite(
       'outline',
       `第 ${seq} 章大纲`,
-      `请更新第 ${seq} 章 synopsis。当前:\n${chapter.synopsis || '（空）'}`,
+      `请更新第 ${seq} 章大纲。当前:\n${chapter.synopsis || '（空）'}`,
     )
   }
 

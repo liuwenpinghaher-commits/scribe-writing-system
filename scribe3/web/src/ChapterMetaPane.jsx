@@ -183,10 +183,10 @@ export function ChapterMetaPane({
     seedChiefNarrativeWrite(
       'chapter-event-drive',
       `第 ${seq} 章事件驱动`,
-      `请按冲突/事件补全第 ${seq} 章：大纲 stakes 标签、对白对立、引爆/对立/章末钩。` +
+      `请按冲突与事件补全第 ${seq} 章：大纲里写清「谁会付出什么代价」、对白对立、引爆/对立/章末钩。` +
         `当前驱动：引爆=${ds.inciting || '（空）'}；对立=${ds.opposition || '（空）'}；钩子=${ds.end_hook || '（空）'}。` +
         (execSoft?.soft_fulfill?.gaps?.length
-          ? ` 执行 soft gaps：${(execSoft.soft_fulfill.gaps || []).join(', ')}。`
+          ? ` 写后对照缺口：${(execSoft.soft_fulfill.gaps || []).map(gapLabel).join('、')}。`
           : ''),
     )
   }
@@ -202,13 +202,12 @@ export function ChapterMetaPane({
     <div className="w-full max-w-[42rem] mx-auto px-5 py-5" data-testid="chapter-meta-pane">
       <div className="flex items-start justify-between gap-3 mb-4">
         <div className="min-w-0">
-          <h3 className="type-section text-ink">章节信息（章前契约）</h3>
+          <h3 className="type-section text-ink">章节信息</h3>
           <p className="mt-1 text-f13 text-faint">
             第 {seq} 章 · {title || '未命名'} · {labelText} · 卷 {volTitle}
           </p>
           <p className="mt-0.5 text-f12 text-faint">
-            只读合成；大纲/节拍/真相与写作台同源。写入走主编审批，不表单直写。
-            未分卷合法（按需后建卷）。
+            开写前要齐的材料摘要（只读）。改内容请让右侧主编代写并批准，不要在这里直接当表单改。
           </p>
         </div>
         <Btn variant="ghost" size="sm" onClick={onClose}>返回写作</Btn>
@@ -217,7 +216,7 @@ export function ChapterMetaPane({
       {/* 阶段机唯一常驻入口：与写作台顶栏五阶段页签分工——
           页签 = 切编辑面；此处 = 服务端 stage 进度 / 推进 / 本地-服务端同步。 */}
       <section className="mb-4" data-testid="chapter-meta-stage-board">
-        <div className="text-meta text-faint mb-1.5">阶段机（进度与推进 · 非第二套大纲/正文导航）</div>
+        <div className="text-meta text-faint mb-1.5">写作进度（推进到下一阶段；上方页签才是切换编辑面）</div>
         <StageBoard
           seq={seq}
           work={work}
@@ -240,7 +239,7 @@ export function ChapterMetaPane({
           data-testid="chapter-volume-intro-peek"
           aria-label="本卷卷纲摘要"
         >
-          <div className="text-meta text-faint mb-1">本卷卷纲摘要（注入参考 · ≠ 章大纲）</div>
+          <div className="text-meta text-faint mb-1">本卷卷纲摘要（写章时的背景参考，不是本章大纲）</div>
           <p className="text-f13 text-ink leading-snug break-words whitespace-pre-wrap">
             {clip(volIntro, 120)}
           </p>
@@ -252,14 +251,14 @@ export function ChapterMetaPane({
         data-testid="chapter-contract-checklist"
         aria-label="写前齐套"
       >
-        <div className="flex items-center justify-between gap-2 mb-2">
-          <h4 className="text-f13 font-medium text-ink">写前齐套（对齐 GATE-B）</h4>
+        <div className="flex items-center gap-2 mb-2">
+          <h4 className="text-f13 font-medium text-ink">开写前要齐的材料</h4>
           {contract.hasError ? (
             <span className="text-f12 text-danger" data-testid="contract-attention">
-              不建议开写
+              还不齐 · 不建议开写
             </span>
           ) : (
-            <span className="text-f12 text-ok">契约可开写</span>
+            <span className="text-f12 text-ok">材料够了，可以开写</span>
           )}
         </div>
         <ul className="space-y-1.5 text-f13 text-ink">
@@ -268,18 +267,18 @@ export function ChapterMetaPane({
               ok={contract.synopsisOk && !contract.issues.some((i) => i.id === 'shortSynopsis')}
               warn={contract.synopsisOk && contract.issues.some((i) => i.id === 'shortSynopsis')}
             />
-            <span>大纲 synopsis{!contract.synopsisOk ? ' · 空' : contract.issues.some((i) => i.id === 'shortSynopsis') ? ' · 偏短' : ''}</span>
+            <span>本章大纲{!contract.synopsisOk ? ' · 还没写' : contract.issues.some((i) => i.id === 'shortSynopsis') ? ' · 偏短' : ''}</span>
           </li>
           <li className="flex items-center gap-2">
             <StatusDot ok={contract.beatsOk} />
-            <span>节拍 beats · {contract.beatCount}/3 条非空</span>
+            <span>节拍 · {contract.beatCount}/3 条（建议至少 3 条）</span>
           </li>
           <li className="flex items-center gap-2">
             <StatusDot
               ok={contract.sceneTruthOk && !contract.issues.some((i) => i.id === 'shortSceneTruth')}
               warn={contract.sceneTruthOk && contract.issues.some((i) => i.id === 'shortSceneTruth')}
             />
-            <span>场景真相 scene_truth{!contract.sceneTruthOk ? ' · 空' : ''}</span>
+            <span>场景真相（本章客观事实）{!contract.sceneTruthOk ? ' · 还没写' : ''}</span>
           </li>
           <li className="flex items-center gap-2" data-testid="contract-stakes-row">
             <StatusDot
@@ -287,19 +286,19 @@ export function ChapterMetaPane({
               warn={!contract.stakesOk && contract.stakes?.highPressure}
             />
             <span>
-              赌注 stakes
+              会付出什么代价
               {!contract.stakes?.highPressure
-                ? ' · 非高压（可选）'
+                ? ' · 普通章可先不写'
                 : contract.stakesOk
-                  ? ` · 已标${contract.stakes?.stakes ? `：${clip(contract.stakes.stakes, 24)}` : ''}`
-                  : ' · 高压缺标签（建议）'}
+                  ? ` · 已写清${contract.stakes?.stakes ? `：${clip(contract.stakes.stakes, 24)}` : ''}`
+                  : ' · 高压章建议写清（失败会失去什么）'}
             </span>
           </li>
           <li className="flex items-center gap-2 text-faint">
             <span className="w-2 shrink-0" aria-hidden />
             <span>
               演绎：{doneDeduce}/{involved.length}
-              {deduce.stale?.length ? ` · stale ${deduce.stale.length}` : ''}
+              {deduce.stale?.length ? ` · ${deduce.stale.length} 人需重演` : ''}
             </span>
           </li>
         </ul>
@@ -315,8 +314,8 @@ export function ChapterMetaPane({
           <Btn variant="ghost" size="sm" data-testid="contract-go-final" onClick={() => goPhase('final')}>去正文</Btn>
         </div>
         <p className="mt-2 text-f11 text-faint leading-relaxed">
-          以上为写前建议，不阻断进入正文或对话生成。
-          存实质正文时工艺门仍可能硬拦缺大纲/节拍/场景真相。
+          以上是写前建议，不拦你进正文或和主编聊天。
+          真要保存成正式正文时，缺大纲/节拍/场景真相仍可能被拦住。
         </p>
       </section>
 
@@ -326,26 +325,26 @@ export function ChapterMetaPane({
         aria-label="本章事件驱动"
       >
         <div className="flex items-center justify-between gap-2 mb-2">
-          <h4 className="text-f13 font-medium text-ink">本章事件驱动</h4>
+          <h4 className="text-f13 font-medium text-ink">本章怎么往前推（事件驱动）</h4>
           <Btn variant="ghost" size="xs" data-testid="contract-seed-event-drive" onClick={askEventDrive}>
-            让主编按驱动补 stakes/对白
+            让主编补代价与对白
           </Btn>
         </div>
         {driveSummary?.present ? (
           <ul className="space-y-1.5 text-f13 text-ink">
             <li><span className="text-faint">引爆 · </span>{driveSummary.inciting || '（空）'}</li>
             <li><span className="text-faint">对立 · </span>{driveSummary.opposition || '（空）'}</li>
-            <li><span className="text-faint">钩子 · </span>{driveSummary.end_hook || '（空）'}</li>
+            <li><span className="text-faint">章末钩 · </span>{driveSummary.end_hook || '（空）'}</li>
             {driveSummary.scene_turn ? (
               <li><span className="text-faint">转折 · </span>{driveSummary.scene_turn}</li>
             ) : null}
           </ul>
         ) : (
           <p className="text-f13 text-faint">
-            尚未合成事件驱动 · 可进大纲补 stakes/冲突，或跑 pilot / ensure 后刷新。
+            还没有事件驱动摘要 · 可去「大纲」写清冲突与代价，或让主编按驱动补一版后再回来看。
           </p>
         )}
-        <p className="mt-2 text-f11 text-faint">只读 · 真源 narrative_drive；引导优先，不默认硬 park。</p>
+        <p className="mt-2 text-f11 text-faint">只读摘要，用来提醒你章里冲突怎么走；不会自动清空正文。</p>
       </section>
 
       <section
@@ -353,11 +352,11 @@ export function ChapterMetaPane({
         data-testid="chapter-execution-soft"
         aria-label="写后执行对照"
       >
-        <h4 className="text-f13 font-medium text-ink mb-2">写后执行对照</h4>
+        <h4 className="text-f13 font-medium text-ink mb-2">写完对照（正文是否写到点子上）</h4>
         {!execSoft ? (
           <p className="text-f13 text-faint">加载中或暂不可用…</p>
         ) : !execSoft.has_prose ? (
-          <p className="text-f13 text-faint">尚无正文 · 成稿后显示 soft 对白/长度 gaps 与 drift（advisory）。</p>
+          <p className="text-f13 text-faint">还没有正文 · 成稿后会提示对白、长度、是否偏离大纲等建议。</p>
         ) : (
           <div className="space-y-1.5 text-f13 text-ink">
             {execSoft.soft_fulfill ? (
@@ -365,9 +364,9 @@ export function ChapterMetaPane({
                 <p>
                   <span className="text-faint">状态 · </span>
                   {execSoft.soft_fulfill.ok_soft
-                    ? 'soft 通过'
+                    ? '对照通过（仅建议）'
                     : `建议关注：${(execSoft.soft_fulfill.gaps || []).map(gapLabel).join('、') || '未达标'}`}
-                  <span className="text-faint"> · {execSoft.soft_fulfill.severity || 'advisory'}</span>
+                  <span className="text-faint"> · 仅建议，不强制</span>
                 </p>
                 <p className="text-faint tnum">
                   引号 {execSoft.soft_fulfill.quotes ?? '—'}
@@ -375,14 +374,14 @@ export function ChapterMetaPane({
                 </p>
               </>
             ) : (
-              <p className="text-faint">无 soft_fulfill 数据</p>
+              <p className="text-faint">暂无对照数据</p>
             )}
             {execSoft.drift?.drift ? (
               <p className="text-warn" data-testid="chapter-execution-drift">
-                drift · {execSoft.drift.advisory || '事件驱动相对成稿已变，建议【强制重写】核对（不自动清稿）'}
+                与大纲/驱动有偏差 · {execSoft.drift.advisory || '事件安排相对成稿已变，建议【强制重写】核对（不会自动清空正文）'}
               </p>
             ) : (
-              <p className="text-faint">drift · 无（或尚未打 stamp）</p>
+              <p className="text-faint">与大纲/驱动基本一致（或尚未正式定稿对照）</p>
             )}
             {executionSoftSummary(execSoft) ? (
               <p className="text-f12 text-warn" data-testid="chapter-execution-soft-summary">
@@ -392,7 +391,7 @@ export function ChapterMetaPane({
           </div>
         )}
         <p className="mt-2 text-f11 text-faint">
-          与 full_check soft_fulfill 同源 · 仅 advisory，不阻断生成。
+          只作提醒，不拦你继续生成；要正式定稿时再按提示补齐。
         </p>
       </section>
 
