@@ -5,11 +5,11 @@
 | **标题** | 50k CLI+Playwright 验收方案硬化（防假绿 / 三级判定 / WCG 前置 / 断点与熔断） |
 | **作者** | （待填） |
 | **日期** | 2026-08-12 |
-| **状态** | Draft 0.3（审查修订） |
+| **状态** | Accepted Draft 0.3 |
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` |
 | **仓库** | `scribe-writing-system` |
 | **基线** | v1 已合入 main（约 `c19ead0`）：`docs/plans/2026-08-12-50k-cli-playwright-acceptance.md` + `scribe3/web/e2e/acceptance_50k/*` |
-| **审查基线** | B- → 0.2 关闭 P0 假绿规格；0.3 补 s3_add_fact.valid_from、角色 oid、M7 真终态、M4=WCG-A、volumes 措辞 |
+| **审查基线** | B- → 0.2/0.3 审查关闭；用户 2026-08-12 已决 Q3/Q5；**实现暂缓**（先只看设计） |
 | **验证环境** | 已部署 demo（`tonglu.qing.blue` / 本机 :3311·:3321）；禁止 Grok 运行机 `npm ci` / 本机 Surreal 重活 |
 
 ---
@@ -1022,6 +1022,8 @@ flowchart LR
 - `E2E_ALLOW_QUALITY_HTTP` / `E2E_FULL_POSTCHECK` / `E2E_PERF_HARD` / `E2E_EXIT_ON` / `E2E_FUSE_ON_QUALITY_TRUST`  
 - `E2E_RUN_MODE` 可选覆盖自动推断的 `run_mode`
 
+**实现状态（用户 2026-08-12）**：设计 **Accepted Draft 0.3**，审查与关键 Open Q 已关闭；用户选择 **先只看设计、暂不实现**。PR-0…7 计划保留，**待用户明确要求后再开工编码/部署**。
+
 ---
 
 ## Risks
@@ -1040,10 +1042,12 @@ flowchart LR
 ## Key Decisions
 
 1. **三级判定 + full 默认 exit=`strict_must_ok`；smoke/phase_subset exit=`path_ok` 且强制 strict false**  
-   - *理由*：审查核心是假绿；单一 ok 无法诚实；冒烟永不 strict 绿，避免 CI 误读。
+   - *理由*：审查核心是假绿；单一 ok 无法诚实；冒烟永不 strict 绿，避免 CI 误读。  
+   - *用户 2026-08-12*：GATE-D ≥70% **保持 SHOULD**，不进 `gates_ok` / 默认 exit。
 
-2. **WCG 两段 + `E2E_WCG_MODE` 唯一命名（full|settings_only|bypass）；默认阻断写正文；CLI `--profile` 默认 full**  
-   - *理由*：完整 WCG 含章大纲；统一 flag 防双名；默认 full 不破坏 v6.3.4 人工路径。
+2. **WCG 两段 + `E2E_WCG_MODE` 唯一命名（full|settings_only|bypass）；full 时 WCG-B 挡第 1 章正文；CLI `--profile` 默认 full**  
+   - *理由*：完整 WCG 含章大纲；统一 flag 防双名；默认 full 不破坏 v6.3.4 人工路径。  
+   - *用户 2026-08-12*：确认 full 挡正文（推荐）；`settings_only` 不挡。
 
 3. **质量 HTTP fallback 诊断用不计入 strict；默认不计入写路径熔断**  
    - *理由*：启发式十维假绿；Surreal 瞬断不应 exit 3 杀掉已落库进度。
@@ -1080,14 +1084,16 @@ flowchart LR
 
 ## Open Questions
 
-1. **Demo 鉴权是否强制？** 凭证是否统一 `SCRIBE3_BOOTSTRAP_USERS`？Open mode 探测已设计；若 demo 永开 L1，需运维保证 env 注入。  
+1. **Demo 鉴权是否强制？** 凭证是否统一 `SCRIBE3_BOOTSTRAP_USERS`？Open mode 探测已设计；若 demo 永开 L1，需运维保证 env 注入。（实现期再钉）  
 2. **`API_BASE` 与 `E2E_API` 的 `/api` 前缀**：bridge 双试策略已定；**demo 一次实测后**把胜出组合写死为默认（实现 PR-2 验收项）。  
-3. **WCG-B 失败是否在 `settings_only` 外也允许写正文？** 当前：`full` 模式 WCG-B 挡第 1 章正文；`settings_only` 不挡。是否需产品确认「大纲未齐仍连载」的发布口径。  
+3. ~~WCG-B 失败是否挡正文？~~ → **已决（用户 2026-08-12）**：**full 模式挡正文（推荐）**——`E2E_WCG_MODE=full` 时 WCG-B 失败 **禁止** 第 1 章正文；`settings_only` 不挡。与 §3.5 / Key Decision 2 默认一致。  
 4. ~~WCG 旁路命名~~ → **已决** `E2E_WCG_MODE`。  
-5. **GATE-D 是否升级进 `gates_ok`**：当前 should；工艺政策若收紧需产品点头。  
+5. ~~GATE-D 是否升级进 `gates_ok`？~~ → **已决（用户 2026-08-12）**：**保持 SHOULD（推荐）**——GATE-D ≥70% 只记 `should`，**不进** `gates_ok` / 默认 exit。  
 6. ~~post-check 成本~~ → **已决** M8/M12 默认 deterministic Python；`E2E_FULL_POSTCHECK=1` 可选。  
-7. **失败章同 seq 重试次数**：建议默认 1 次 soft retry 再计入 consecutive_failures——实现 PR-4 可调 `E2E_CHAPTER_RETRIES=1`。  
-8. **run-traces 端点**：`/ai/runs/{id}` 与 `/trace` 已注册；不可用时 should 覆盖率不足即可，不降 path。
+7. **失败章同 seq 重试次数**：建议默认 1 次 soft retry 再计入 consecutive_failures——实现 PR-4 可调 `E2E_CHAPTER_RETRIES=1`。（实现期）  
+8. **run-traces 端点**：`/ai/runs/{id}` 与 `/trace` 已注册；不可用时 should 覆盖率不足即可，不降 path。（实现期）
+
+**实现 deferred**：用户 2026-08-12 决定 **先只看设计，暂不实现**；在用户另行要求前 **不启动** PR-0…7 编码、demo 部署或 50k 试跑。
 
 ## References
 
@@ -1226,3 +1232,4 @@ PR-3 ──┘（PR-4 依赖 auth）
 | 0.1 | 2026-08-12 | 初稿：基于 v1 代码与 B- 审查的完整硬化设计 |
 | 0.2 | 2026-08-12 | 审查修订：钉死 post-check prose+focalizer；WCG-A 燃料/profile 表；finalize Python SSOT；run_mode exit；熔断与 quality 解耦；全局 apiFetch；E2E_WCG_MODE；P0 matrix；关闭 Q4/Q6 |
 | 0.3 | 2026-08-12 | 补 s3_add_fact.valid_from=1；角色稳定 oid；关系 since_chapter；M7 成功子集对齐 isTerminalHermesRunStatus（删 succeeded）；M4=GATE-A∧WCG-A only；volumes WCG-B 前必须 |
+| 0.3-accepted | 2026-08-12 | 状态 **Accepted Draft 0.3**；用户已决 Q3（full 挡正文）、Q5（GATE-D 保持 SHOULD）；**暂不实现** PR-0…7 直至用户另行要求 |
