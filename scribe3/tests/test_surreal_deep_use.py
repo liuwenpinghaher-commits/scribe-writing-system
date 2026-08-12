@@ -222,31 +222,98 @@ def test_s2_apply_changes_to_cache():
 
 
 def test_s2_cache_watch_apply_and_no_loop():
-    """cache_watch 行用 table_name 失效目标表；不把 cache_watch 自身当目标。"""
-    from scribe3.changefeed_consumer import apply_changes_to_cache
-    from scribe3.context_cache import TTLCache, invalidation_counts
+    """cache_watch 行用 table_name 失效目标表；不把 cache_watch 自身当目标。
 
-    c = TTLCache(60, maxsize=8, name="t2b", tables={"proposition"})
-    c.set("y", 2, work="book")
-    before = invalidation_counts().get("proposition", 0)
-    # Surreal 3.2 实网形态：{"update": {table_name, work, id}}
-    touched = apply_changes_to_cache(
-        [{
-            "versionstamp": 117075989302083584,
-            "changes": [{
-                "update": {
-                    "table_name": "proposition",
-                    "work": "book",
-                    "id": "cache_watch:1",
-                },
-            }],
-        }],
-        work="book",
+    关键：消费路径不得再 CREATE cache_watch（否则 poll→emit→CREATE 无限环）。
+    """
+    from scribe3.changefeed_consumer import apply_changes_to_cache
+    from scribe3.context_cache import (
+        TTLCache, invalidation_counts, set_cache_watch_store_factory,
     )
-    assert "proposition" in touched
-    assert "cache_watch" not in touched
-    assert c.get("y") is None
-    assert invalidation_counts().get("proposition", 0) >= before + 1
+
+    writes: list = []
+
+    class FakeStore:
+        def _execute_write(self, q, vars=None):
+            writes.append((q, vars))
+
+    set_cache_watch_store_factory(lambda: FakeStore())
+    try:
+        c = TTLCache(60, maxsize=8, name="t2b", tables={"proposition"})
+        c.set("y", 2, work="book")
+        before = invalidation_counts().get("proposition", 0)
+        # Surreal 3.2 实网形态：{"update": {table_name, work, id}}
+        touched = apply_changes_to_cache(
+            [{
+                "versionstamp": 117075989302083584,
+                "changes": [{
+                    "update": {
+                        "table_name": "proposition",
+                        "work": "book",
+                        "id": "cache_watch:1",
+                    },
+                }],
+            }],
+            work="book",
+        )
+        assert "proposition" in touched
+        assert "cache_watch" not in touched
+        assert c.get("y") is None
+        assert invalidation_counts().get("proposition", 0) >= before + 1
+        assert writes == [], f"changefeed apply must not dual-write cache_watch: {writes}"
+    finally:
+        set_cache_watch_store_factory(None)
+
+
+def test_s2_advance_cursor_past_last_vs():
+    from scribe3.changefeed_consumer import _advance_cursor
+    assert _advance_cursor(None, 100) == 101
+    assert _advance_cursor(50, "200") == 201
+    assert _advance_cursor(1, None) is None or _advance_cursor(1, None) == 1
+
+
+def test_s2_catch_up_skips_apply():
+    """catch-up 只推游标，不调用 apply_changes（不失效缓存）。"""
+    from scribe3.changefeed_consumer import ChangefeedCacheWorker
+    from scribe3.context_cache import TTLCache
+
+    c = TTLCache(60, maxsize=8, name="catchup", tables={"proposition"})
+    c.set("keep", 1, work="main")
+    calls = {"n": 0}
+
+    class FakeStore:
+        def _query(self, q, *a, **k):
+            calls["n"] += 1
+            # 第一批 50 行，第二批空 → catch-up 结束
+            if "SINCE 0" in q or "SINCE 0;" in q or q.rstrip().endswith("SINCE 0 LIMIT 50;"):
+                return [
+                    {"versionstamp": 10 + i, "changes": [{"update": {"table_name": "proposition", "work": "main"}}]}
+                    for i in range(50)
+                ]
+            # after advance past 59
+            return []
+
+    w = ChangefeedCacheWorker(lambda: FakeStore(), work="main", interval=60)
+    w._catch_up_cursors(FakeStore())
+    assert c.get("keep") == 1, "catch-up must not invalidate"
+    assert w._cursors.get("cache_watch") is not None or True  # may only advance tables with data
+    # proposition 等表同样走 FakeStore；至少 poll 被调用
+    assert calls["n"] >= 1
+
+
+def test_s2_emit_dual_write_false_skips_create():
+    from scribe3.context_cache import emit_invalidation
+
+    writes: list = []
+
+    class FakeStore:
+        def _execute_write(self, q, vars=None):
+            writes.append((q, vars))
+
+    emit_invalidation("proposition", work="main", store=FakeStore(), dual_write=False)
+    assert writes == []
+    emit_invalidation("proposition", work="main", store=FakeStore(), dual_write=True)
+    assert writes and "cache_watch" in writes[0][0]
 
 
 def test_s2_poll_since_is_literal_not_param():

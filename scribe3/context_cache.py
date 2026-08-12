@@ -158,18 +158,28 @@ _INVALIDATION_LOCK = threading.Lock()
 _log_cache = __import__("logging").getLogger("scribe3")
 
 
+# zero_keys 日志节流：空转时曾刷数万行/秒打爆磁盘与 CPU
+_ZERO_KEY_LOG_LAST: dict[str, float] = {}
+_ZERO_KEY_LOG_INTERVAL_S = 30.0
+
+
 def record_cache_invalidation(cache_name: str, keys_cleared: int, *, work=None) -> None:
-    """记录一次失效；keys_cleared==0 时 WARNING（可能漏失效）。"""
+    """记录一次失效；keys_cleared==0 时节流 WARNING（可能漏失效）。"""
     global _INVALIDATION_TOTAL, _INVALIDATION_ZERO
     n = int(keys_cleared or 0)
     with _INVALIDATION_LOCK:
         _INVALIDATION_TOTAL += 1
         if n == 0:
             _INVALIDATION_ZERO += 1
-            _log_cache.warning(
-                "cache_invalidation zero_keys cache=%s work=%s",
-                cache_name, work,
-            )
+            key = f"{cache_name}:{work}"
+            now = time.time()
+            last = _ZERO_KEY_LOG_LAST.get(key, 0.0)
+            if now - last >= _ZERO_KEY_LOG_INTERVAL_S:
+                _ZERO_KEY_LOG_LAST[key] = now
+                _log_cache.warning(
+                    "cache_invalidation zero_keys cache=%s work=%s (throttled %ss)",
+                    cache_name, work, int(_ZERO_KEY_LOG_INTERVAL_S),
+                )
 
 
 def cache_invalidation_stats() -> dict:
@@ -225,7 +235,38 @@ def set_cache_watch_store_factory(factory) -> None:
     _cache_watch_store_factory = factory
 
 
-def emit_invalidation(table: str, work: str | None = None, *, store=None) -> None:
+def purge_cache_watch(store, *, max_age_seconds: int = 3600) -> int:
+    """GAP-6：清理过旧 cache_watch 行，防止只增不删。
+
+    返回尝试删除的条数估计（best-effort，失败返回 0）。
+    """
+    if store is None:
+        return 0
+    age = max(60, int(max_age_seconds or 3600))
+    try:
+        # Surreal：删除超过 age 的旁路失效行
+        store._execute_write(
+            f"DELETE cache_watch WHERE at < time::now() - {age}s;",
+            {},
+        )
+        return 1
+    except Exception:
+        try:
+            store._raw_query(
+                f"DELETE cache_watch WHERE created_at < time::now() - {age}s;"
+            )
+            return 1
+        except Exception:
+            return 0
+
+
+def emit_invalidation(
+    table: str,
+    work: str | None = None,
+    *,
+    store=None,
+    dual_write: bool = True,
+) -> None:
     """表级失效事件:清订阅该表的缓存;正典表额外 bump authority_revision。
 
     正典写入 / 记忆 supersede / 素材 archive·pin 的 store 写点调用本函数。
@@ -233,6 +274,10 @@ def emit_invalidation(table: str, work: str | None = None, *, store=None) -> Non
 
     store 若提供：双写 ``cache_watch``（CHANGEFEED 旁路，不改 SCHEMAFULL 表）。
     store 缺省且已 set_cache_watch_store_factory：尝试 factory() 双写。
+
+    dual_write=False：只做进程内失效，**禁止**再写 cache_watch。
+    Changefeed 消费路径必须 dual_write=False，否则会
+    poll → invalidate → CREATE cache_watch → poll 无限环（demo 曾 3.5 万次/秒）。
     """
     try:
         with _REGISTRY_LOCK:
@@ -244,7 +289,7 @@ def emit_invalidation(table: str, work: str | None = None, *, store=None) -> Non
             if not cache.tables or table in cache.tables:
                 cache.invalidate_by_table(table, work)
         # S-2 旁路：写入 cache_watch 供 SHOW CHANGES 消费（fail-soft；禁环）
-        if table and table != "cache_watch":
+        if dual_write and table and table != "cache_watch":
             st = store
             if st is None and _cache_watch_store_factory is not None:
                 try:
