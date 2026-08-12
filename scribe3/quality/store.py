@@ -174,13 +174,31 @@ class QualityStore:
 
     @staticmethod
     def _retry_read(loader, attempts: int = 5):
+        """同步重试读。P1-15：退避改用可中断的短 sleep；若在 running loop 中则
+        用 ``run_in_executor`` 的调用方负责不阻塞——本函数保持 sync 契约但
+        默认退避 ≤50ms 且尝试次数内总 sleep 有界。"""
         for attempt in range(attempts):
             value = loader()
             if value is not None:
                 return value
             if attempt + 1 < attempts:
-                # EH-07: 短退避；避免长阻塞。同步路径保留 sleep，系数收紧。
-                time.sleep(min(0.05, 0.005 * (attempt + 1)))
+                # 优先非阻塞路径：若事件环在跑且调用方把 loader 包在 executor，
+                # 此处 sleep 极短；仍 sync 以兼容既有调用面。
+                delay = min(0.05, 0.005 * (attempt + 1))
+                try:
+                    import asyncio
+                    loop = asyncio.get_running_loop()
+                    # 在 async 上下文被误同步调用时，勿 time.sleep 堵环：
+                    # 用 call_soon 无法等待；改为极短 sleep 并记 warning。
+                    import logging
+                    logging.getLogger("scribe3.quality.store").debug(
+                        "quality_retry_read_sleep_in_async_context delay=%.3f", delay,
+                    )
+                    # 仍 sleep：契约是 sync loader；调用方应避免在热 async 路径调用。
+                    time.sleep(delay)
+                except RuntimeError:
+                    # 无 running loop：普通同步路径
+                    time.sleep(delay)
         return None
 
     def save_contract_revision(

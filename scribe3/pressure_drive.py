@@ -29,19 +29,31 @@ _COST_CORE = ("空过", "收不回", "三日空过", "装不知道", "接不上"
 _CHOICE_CORE = ("拧开", "接名", "退回", "插匙", "空过三日", "半寸")
 
 
-def pdc_flag_enabled() -> bool:
-    v = (os.environ.get("SCRIBE3_PDC") or "0").strip().lower()
+def _flag_bool(key: str, default: str = "0") -> bool:
+    """P1-4/5：优先 settings 注册表，回落 os.environ。"""
+    try:
+        from scribe3.settings import get_setting
+        v = get_setting(key)
+        if isinstance(v, bool):
+            return v
+        if v is not None and str(v).strip() != "":
+            return str(v).strip().lower() in ("1", "true", "yes", "on")
+    except Exception:
+        pass
+    v = (os.environ.get(key) or default).strip().lower()
     return v in ("1", "true", "yes", "on")
+
+
+def pdc_flag_enabled() -> bool:
+    return _flag_bool("SCRIBE3_PDC", "0")
 
 
 def pdc_gate_enabled() -> bool:
-    v = (os.environ.get("SCRIBE3_PDC_GATE") or "0").strip().lower()
-    return v in ("1", "true", "yes", "on")
+    return _flag_bool("SCRIBE3_PDC_GATE", "0")
 
 
 def pdc_blocking_env_enabled() -> bool:
-    v = (os.environ.get("SCRIBE3_PDC_BLOCKING") or "0").strip().lower()
-    return v in ("1", "true", "yes", "on")
+    return _flag_bool("SCRIBE3_PDC_BLOCKING", "0")
 
 
 def _clip(s: Any, n: int) -> str:

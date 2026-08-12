@@ -26,11 +26,15 @@ def _cookie_secure(request: Request | None = None) -> bool:
     - 未设置：若 request 有 X-Forwarded-Proto: https 或 scheme==https → True
     - 否则 False（本地 HTTP 开发默认）
     """
-    flag = (os.environ.get("SCRIBE3_SESSION_SECURE") or "").strip().lower()
-    if flag in {"1", "true", "yes", "on"}:
-        return True
-    if flag in {"0", "false", "no", "off"}:
-        return False
+    # 1) 显式 env 优先
+    raw = os.environ.get("SCRIBE3_SESSION_SECURE")
+    if raw is not None and str(raw).strip() != "":
+        flag = str(raw).strip().lower()
+        if flag in {"1", "true", "yes", "on"}:
+            return True
+        if flag in {"0", "false", "no", "off"}:
+            return False
+    # 2) 请求侧 HTTPS 推断（env 未设时）
     if request is not None:
         try:
             xfp = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
@@ -40,6 +44,19 @@ def _cookie_secure(request: Request | None = None) -> bool:
                 return True
         except Exception:
             pass
+    # 3) settings 注册表（仅当 DB/env 有有效值；默认 False 不抢在 XFP 之前）
+    try:
+        from scribe3 import settings as _settings
+        if "SCRIBE3_SESSION_SECURE" in getattr(_settings, "_BY_KEY", {}):
+            # 仅当存在 override 才用 settings 真值
+            try:
+                if _settings.settings_store.has_override("SCRIBE3_SESSION_SECURE"):
+                    v = _settings.get_setting("SCRIBE3_SESSION_SECURE")
+                    return bool(v)
+            except Exception:
+                pass
+    except Exception:
+        pass
     return False
 
 

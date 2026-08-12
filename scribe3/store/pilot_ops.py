@@ -127,3 +127,141 @@ class PilotOpsMixin:
             {"local": local},
         ) or []
         return rows[0] if rows else None
+
+    # ── P1-2：业务模块公共读/写（pilot / pulse / ingest / audit）──
+
+    def get_pilot_state_fields(self, seq: int) -> dict[str, Any]:
+        """pilot.read_state 用：窄字段 pilot_state / at / parked。"""
+        rows = self._query(
+            "SELECT pilot_state, pilot_state_at, pilot_parked FROM type::record('chapter',$seq)",
+            {"seq": int(seq)},
+        ) or []
+        return rows[0] if rows else {}
+
+    def set_pilot_state(self, seq: int, state: str, parked: str = "", *, at: int | None = None) -> None:
+        import time as _time
+        self._execute_write(
+            "UPDATE type::record('chapter',$seq) SET pilot_state=$s, pilot_state_at=$t, pilot_parked=$p",
+            {
+                "seq": int(seq),
+                "s": state,
+                "t": int(at if at is not None else _time.time()),
+                "p": parked or "",
+            },
+        )
+
+    def get_chapter_quality_fields(self, seq: int) -> dict[str, Any]:
+        """pulse 质量维：ingest_status / error / qc_issues。"""
+        rows = self._query(
+            "SELECT ingest_status, ingest_error, qc_issues FROM type::record('chapter',$seq)",
+            {"seq": int(seq)},
+        ) or []
+        return rows[0] if rows else {}
+
+    def get_chapter_ingest_prose_fp(self, seq: int) -> str | None:
+        rows = self._query(
+            "SELECT ingest_prose_fp, ingest_status FROM type::record('chapter', $seq)",
+            {"seq": int(seq)},
+        ) or []
+        if not rows:
+            return None
+        return (rows[0].get("ingest_prose_fp") or "").strip() or None
+
+    def find_active_learned_fact_local(self, fact_text: str) -> str | None:
+        """ingest learned 去重：attribute=获知 且 value 完全相等。"""
+        needle = (fact_text or "").strip()
+        if not needle:
+            return None
+        rows = self._query(
+            "SELECT meta::id(id) AS local, value FROM proposition "
+            "WHERE attribute = '获知' AND valid_to IS NONE"
+        ) or []
+        for r in rows:
+            if (r.get("value") or "").strip() == needle:
+                return str(r["local"])
+        return None
+
+    def reader_knows_exists(self, proposition_ref: str) -> bool:
+        rows = self._query(
+            "SELECT proposition FROM reader_knows WHERE proposition = $p",
+            {"p": proposition_ref},
+        ) or []
+        return bool(rows)
+
+    def purge_audit_events_older_than(self, days: int) -> None:
+        d = max(1, int(days))
+        self._execute_write(
+            f"DELETE audit_event WHERE at < time::now() - {d}d;",
+            {},
+        )
+
+    def query_audit_events(
+        self,
+        *,
+        table: str | None = None,
+        kind: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        lim = max(1, min(500, int(limit or 50)))
+        if table and kind:
+            rows = self._query(
+                "SELECT * FROM audit_event WHERE source_table=$t AND kind=$k "
+                f"ORDER BY at DESC LIMIT {lim};",
+                {"t": table, "k": kind},
+            ) or []
+        elif table:
+            rows = self._query(
+                "SELECT * FROM audit_event WHERE source_table=$t "
+                f"ORDER BY at DESC LIMIT {lim};",
+                {"t": table},
+            ) or []
+        elif kind:
+            rows = self._query(
+                "SELECT * FROM audit_event WHERE kind=$k "
+                f"ORDER BY at DESC LIMIT {lim};",
+                {"k": kind},
+            ) or []
+        else:
+            rows = self._query(
+                f"SELECT * FROM audit_event ORDER BY at DESC LIMIT {lim};",
+            ) or []
+        return [r for r in rows if isinstance(r, dict)]
+
+    def upsert_bridge_proposition(
+        self,
+        *,
+        local: str | None,
+        entity_id: str,
+        attribute: str,
+        value: str,
+        source: str,
+    ) -> str:
+        """codex_secret_bridge：CREATE 或 UPDATE 桥接命题，返回 local id。"""
+        if local:
+            self._execute_write(
+                "UPDATE type::record('proposition', $local) SET value=$val, secret=true, source=$src",
+                {"local": local, "val": value, "src": source},
+            )
+            return local
+        self._execute_write(
+            "CREATE proposition SET entity_id=$eid, attribute=$attr, value=$val, "
+            "valid_from=1, secret=true, source=$src",
+            {"eid": entity_id, "attr": attribute, "val": value, "src": source},
+        )
+        return ""
+
+    def delete_bridge_proposition(self, local: str) -> None:
+        self._execute_write(
+            "DELETE type::record('proposition', $local)",
+            {"local": local},
+        )
+
+    def find_bridge_proposition_local(
+        self, entity_id: str, attribute: str, source: str
+    ) -> str | None:
+        rows = self._query(
+            "SELECT meta::id(id) AS local FROM proposition "
+            "WHERE entity_id=$eid AND attribute=$attr AND source=$src LIMIT 1",
+            {"eid": entity_id, "attr": attribute, "src": source},
+        ) or []
+        return rows[0]["local"] if rows else None
