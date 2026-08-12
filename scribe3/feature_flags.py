@@ -66,6 +66,20 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
         "storyline_inject",
         "caution",
     ),
+    # 话语层 Week-1（方案 E · advisory only；永不 finalize blocking）
+    Flag("SCRIBE3_DISCOURSE_ADVISORY", "1", "话语层 soft + post-check 顶键总开关", "discourse", "safe"),
+    Flag("SCRIBE3_DISCOURSE_MESO", "1", "discourse_soft meso 子块（W2；W1 无段无影响）", "discourse", "caution"),
+    Flag("SCRIBE3_DISCOURSE_SERIAL", "1", "discourse_soft serial 子块（W2）", "discourse", "safe"),
+    Flag("SCRIBE3_DISCOURSE_INFO_DELTA", "1", "信息增量 info_delta 检测", "discourse", "safe"),
+    Flag("SCRIBE3_DISCOURSE_STAKES", "1", "stakes_on_page 检测（展示级）", "discourse", "safe"),
+    Flag(
+        "SCRIBE3_DISCOURSE_BLOCKING",
+        "0",
+        "仅改 discourse 展示 severity；finalize/is_blocking_issue 不读",
+        "discourse",
+        "danger",
+    ),
+    Flag("SCRIBE3_DISCOURSE_RASHOMON", "0", "罗生门多版本工具预留（默认关）", "discourse", "caution"),
 )
 
 

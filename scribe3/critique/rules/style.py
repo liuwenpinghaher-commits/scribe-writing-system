@@ -8,6 +8,18 @@ globals().update({
     if not k.startswith("__")
 })
 
+
+def _pkg(name: str):
+    """Resolve symbol from fully-built critique package (package C free-name fix)."""
+    if name in globals() and not callable(globals().get(name)):
+        return globals()[name]
+    try:
+        from scribe3 import critique as _c
+        return getattr(_c, name)
+    except Exception:
+        return globals().get(name)
+
+
 def find_structural_repeats(text: str, min_anaphora: int = 4, max_short: int = 4) -> list[dict]:
     """排比开头(同3字开头≥min_anaphora句)+ 单字/极短断句滥用。字面 n-gram 查不到这些。
     引号内(台词/弹幕)豁免——体裁正常形态,只判叙述层。"""
@@ -227,18 +239,19 @@ def find_ai_tics(text: str, allow_words: set[str] | None = None) -> list[dict]:
     - toxic_pattern:oh-story 毒句式命中即报 advisory;wandai 类命中≥craft.wandai_block_hits
       处时该类全部升 blocking。
     """
-    banned_density_per_k = _th("craft.banned_density_per_k")
-    banned_min_sents = _th("craft.banned_min_sents")
-    contextual_per_k = _th("craft.contextual_per_k")
-    contextual_min_hits = _th("craft.contextual_min_hits")
-    wandai_block_hits = _th("craft.wandai_block_hits")
+    _th_fn = _pkg("_th")
+    banned_density_per_k = _th_fn("craft.banned_density_per_k")
+    banned_min_sents = _th_fn("craft.banned_min_sents")
+    contextual_per_k = _th_fn("craft.contextual_per_k")
+    contextual_min_hits = _th_fn("craft.contextual_min_hits")
+    wandai_block_hits = _th_fn("craft.wandai_block_hits")
     s = text or ""
     out: list[dict] = []
     dash = s.count("——")
     wc = len("".join(s.split()))
     if wc > 0 and dash * 1000 / wc > 2:
         out.append({"kind": "em_dash", "count": dash})
-    for hit in find_negation_flips(s):
+    for hit in _pkg("find_negation_flips")(s):
         out.append({"kind": "not_a_but_b", "phrase": hit["phrase"], "variant": hit["variant"]})
 
     # toxic_pattern 先算:banned_word 去重需要其区间(毒句式是更完整的病灶单位,
@@ -331,9 +344,10 @@ def find_adverb_density(text: str, per_k_max: float | None = None) -> dict | Non
     """副词密度检测(oh-story anti-ai-writing 模式2)。_strip_quoted 后按可见字数
     (_degen_visible_length,复用 A5 口径)计千字密度——单次出现合法,密度超阈才报;
     未超阈或全文无命中返回 None(report-only,advisory 性质)。"""
-    per_k_max = per_k_max if per_k_max is not None else _th("craft.adverb_per_k_max")
-    s = _strip_quoted(text or "")
-    wc = _degen_visible_length(s)
+    _th_fn = _pkg("_th")
+    per_k_max = per_k_max if per_k_max is not None else _th_fn("craft.adverb_per_k_max")
+    s = _pkg("_strip_quoted")(text or "")
+    wc = _pkg("_degen_visible_length")(s)
     if wc == 0:
         return None
     words: dict[str, int] = {w: c for w in _ADVERB_WORDS if (c := s.count(w)) > 0}
@@ -353,7 +367,7 @@ def find_rule_of_three(text: str) -> list[dict]:
     quality_issues 聚合处实现,见 _rule_of_three_gated)。"""
     s = text or ""
     quoted = _quoted_ranges(s)
-    item_max = _th("craft.rule_of_three_item_max")
+    item_max = _pkg("_th")("craft.rule_of_three_item_max")
     out: list[dict] = []
     for m in _RULE_OF_THREE_SEG_RE.finditer(s):
         seg = m.group(0)
@@ -379,9 +393,9 @@ def _rule_of_three_gated(text: str) -> list[dict]:
     hits = find_rule_of_three(text)
     if not hits:
         return []
-    wc = _degen_visible_length(_strip_quoted(text or "")) or 1
+    wc = _pkg("_degen_visible_length")(_pkg("_strip_quoted")(text or "")) or 1
     per_k = len(hits) * 1000 / wc
-    return hits if per_k > _th("craft.rule_of_three_gate_per_k") else []
+    return hits if per_k > _pkg("_th")("craft.rule_of_three_gate_per_k") else []
 
 
 def find_elegant_variation(text: str, names: list[str], window: int = 200) -> list[dict]:

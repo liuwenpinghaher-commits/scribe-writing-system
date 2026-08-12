@@ -8,6 +8,16 @@ globals().update({
     if not k.startswith("__")
 })
 
+
+def _pkg(name: str):
+    """Resolve free names from fully-built critique package (package C)."""
+    try:
+        from scribe3 import critique as _c
+        return getattr(_c, name)
+    except Exception:
+        return globals().get(name)
+
+
 def _find_positive_flip(candidate: str) -> tuple[int, str] | None:
     """在以"不是"开头的候选串里找肯定翻转点。返回 (候选串内结束下标, variant) 或 None。
     逐字符扫描,移植自 findPositiveFlipEnd(#166 假阳性坑验证过)。对 JS 的唯一主动扩展:
@@ -147,7 +157,7 @@ def find_filler_signals(text: str) -> list[dict]:
 
     # ② static_scene:单段可见字数超阈 + 无对话 + 无动作词。
     for idx, p in enumerate(paragraphs):
-        visible = _degen_visible_length(p)
+        visible = _pkg("_degen_visible_length")(p)
         if visible <= 500:
             continue
         if any(rx.search(p) for rx in _QUOTED_SPANS):
@@ -185,17 +195,17 @@ def quality_flags(text: str, extra_patterns: list[str] | None = None,
     "filler"(方案B任务21:水字数确定性信号)键为 find_filler_signals 的命中列表,
     与其余"命中列表"键(repetition/structural/…)同一读取惯例(空列表=无命中)。"""
     return {
-        "repetition": find_repetitions(text),
-        "structural": find_structural_repeats(text),
-        "purple": find_purple_prose(text, extra_patterns, allow_patterns),
-        "ai_tics": find_ai_tics(text, allow_words),
-        "oversaturation": find_oversaturation(text),
-        "god_view": find_god_view(text),
-        "degeneration": find_degeneration(text),
-        "rhythm": find_rhythm_uniformity(text),
-        "adverb": find_adverb_density(text),
-        "rule_of_three": _rule_of_three_gated(text),
-        "filler": find_filler_signals(text),
+        "repetition": _pkg("find_repetitions")(text),
+        "structural": _pkg("find_structural_repeats")(text),
+        "purple": _pkg("find_purple_prose")(text, extra_patterns, allow_patterns),
+        "ai_tics": _pkg("find_ai_tics")(text, allow_words),
+        "oversaturation": _pkg("find_oversaturation")(text),
+        "god_view": _pkg("find_god_view")(text),
+        "degeneration": _pkg("find_degeneration")(text),
+        "rhythm": _pkg("find_rhythm_uniformity")(text),
+        "adverb": _pkg("find_adverb_density")(text),
+        "rule_of_three": _pkg("_rule_of_three_gated")(text),
+        "filler": _pkg("find_filler_signals")(text),
     }
 
 

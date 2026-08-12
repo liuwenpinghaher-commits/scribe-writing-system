@@ -98,6 +98,9 @@ def _triage_bucket_for(iss: dict | None, *, is_block: bool = False) -> str:
     t = str(iss.get("type") or iss.get("detector") or "")
     meta = iss.get("meta") if isinstance(iss.get("meta"), dict) else {}
     kind = str(meta.get("kind") or iss.get("kind") or "")
+    # 话语层连载 findings → story（禁止落入 style 默认桶）
+    if t.startswith("discourse."):
+        return "story"
     if t in ("leak", "find_leaks") or kind == "leak" or t == "degeneration" or t == "find_degeneration":
         return "redline"
     if t in ("discipline", "findings_schema") and is_block:
@@ -243,6 +246,28 @@ def triage(post: dict) -> dict:
                 })
         except Exception:
             pass
+
+    # Week-1 话语层：顶键 findings → advisory_items（story 桶；永不 blocking）
+    _da = post.get("discourse_advisory") if isinstance(post.get("discourse_advisory"), dict) else None
+    if _da:
+        for f in _da.get("findings") or []:
+            if not isinstance(f, dict):
+                continue
+            t = str(f.get("type") or "")
+            if not t.startswith("discourse."):
+                t = f"discourse.{t}" if t else "discourse.unknown"
+            advisory_items.append({
+                "type": t,
+                "message": str(f.get("message") or "")[:160],
+                "text": "",
+                "range": None,
+                "meta": {
+                    **(f.get("meta") if isinstance(f.get("meta"), dict) else {}),
+                    "severity": "advisory",
+                    "not_a_kpi": True,
+                    "source": "discourse_advisory",
+                },
+            })
 
     # advisory → buckets（不改 verdict 逻辑）
     for a in advisory_items:

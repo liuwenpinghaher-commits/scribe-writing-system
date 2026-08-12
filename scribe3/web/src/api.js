@@ -569,6 +569,8 @@ export const api = {
   benchmarkDelete: (bid) => del(`/benchmarks/${enc(bid)}`),
   softPrecheck: (body, work) => post('/soft-precheck', body || {}, work),
   softEventLed: (body, work) => post('/soft/event-led', body || {}, work),
+  /** Week-1 话语/呼吸：只传 {seq} 即可；服务端取 prose|draft */
+  discourseSoft: (body, work) => post('/soft/discourse', body || {}, work),
   soak: (body, work) => post('/soak', body || {}, work),
   literaryDistill: (body, work) => post('/literary-distill', body || {}, work),
   injectionTrace: () => j('/debug/injection-trace'),

@@ -22,6 +22,7 @@ export function ChapterSoftCards({ seq, work, synopsis, beats }) {
   const [distill, setDistill] = useState(null)
   const [inject, setInject] = useState(null)
   const [eventLed, setEventLed] = useState(null)
+  const [discourse, setDiscourse] = useState(null)
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
 
@@ -121,11 +122,31 @@ export function ChapterSoftCards({ seq, work, synopsis, beats }) {
     }
   }
 
+  const runDiscourse = async () => {
+    setBusy('discourse')
+    setErr('')
+    try {
+      // G2：只传 seq + work；服务端取 prose|draft
+      const body = { seq: Number(seq) }
+      let r
+      if (typeof api.discourseSoft === 'function') {
+        r = await api.discourseSoft(body, work)
+      } else {
+        r = await api.post('/soft/discourse', body, work)
+      }
+      setDiscourse(r)
+    } catch (e) {
+      setErr(e?.body?.detail || e?.message || '话语/呼吸检查失败')
+    } finally {
+      setBusy('')
+    }
+  }
+
   return (
     <div className="space-y-2" data-testid="chapter-soft-cards">
-      <div className="text-f12 font-medium text-faint">质量助手 · 开写前检查 / 梗概蒸馏 / 弧意图注入预览</div>
+      <div className="text-f12 font-medium text-faint">质量助手 · 开写前检查 / 话语呼吸 / 弧意图预览</div>
       {err && <div className="text-f11 text-warn">{err}</div>}
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <Card title="开写前检查" testId="soft-card-precheck">
           <Btn size="sm" disabled={!!busy} onClick={runPrecheck} data-testid="soft-precheck-run">
             {busy === 'precheck' ? '…' : '运行'}
@@ -169,6 +190,30 @@ export function ChapterSoftCards({ seq, work, synopsis, beats }) {
             <pre className="text-f11 text-faint whitespace-pre-wrap max-h-32 overflow-auto">
               {JSON.stringify(eventLed.l0 || eventLed, null, 0).slice(0, 500)}
             </pre>
+          )}
+        </Card>
+        <Card title="话语/呼吸" testId="soft-card-discourse">
+          <Btn size="sm" disabled={!!busy} onClick={runDiscourse} data-testid="soft-discourse-run">
+            {busy === 'discourse' ? '…' : '检查'}
+          </Btn>
+          {discourse && (
+            <div className="text-f11 text-ink space-y-1 max-h-36 overflow-auto" data-testid="soft-discourse-result">
+              <div className="text-faint">
+                状态 {discourse.status || '—'}
+                {discourse.breath?.tight ? ' · 呼吸偏紧' : ''}
+              </div>
+              {(discourse.breath?.tips || []).slice(0, 3).map((t, i) => (
+                <div key={i}>· {t.product_label || t.family}：{t.tip || ''}</div>
+              ))}
+              {(discourse.findings || []).slice(0, 4).map((f, i) => (
+                <div key={`f${i}`} className="text-warn">
+                  · {f.message || f.type}
+                </div>
+              ))}
+              {discourse.status === 'no_prose' && !(discourse.findings || []).length && (
+                <div className="text-faint">尚无正文 · 仅计划侧提示（若有）</div>
+              )}
+            </div>
           )}
         </Card>
       </div>

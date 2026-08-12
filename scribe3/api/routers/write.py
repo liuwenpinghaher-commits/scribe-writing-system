@@ -848,12 +848,72 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
     except Exception as e:
         logging.getLogger("scribe3").warning("post_check structure_style 失败: %s", e)
         degraded_stages.append("structure_style")
+    # Week-1 话语层：顶键 discourse_advisory + annotate only（不 append discourse.* issues）
+    discourse_advisory = None
+    try:
+        from scribe3.feature_flags import flag_truthy as _ft
+        if _ft("SCRIBE3_DISCOURSE_ADVISORY"):
+            from scribe3.discourse_advisory import run_discourse_advisory
+            ch_dict = None
+            near = []
+            if seq is not None:
+                try:
+                    ch_dict = st.get_chapter(int(seq)) or {}
+                    s = int(seq)
+                    for nseq in (s - 1, s + 1):
+                        if nseq < 1:
+                            continue
+                        try:
+                            nc = st.get_chapter(nseq) or {}
+                            if nc:
+                                near.append(nc)
+                        except Exception:
+                            pass
+                except Exception:
+                    ch_dict = None
+            # 先装 post 挂载面再 annotate
+            post_for_ann = {
+                "emotion_telling": emotion_telling,
+                "issues": issues,
+                "structure_style": structure_style,
+            }
+            discourse_advisory = run_discourse_advisory(
+                req.prose or "",
+                ch_dict,
+                near_chapters=near,
+                mode="post_check_annotate",
+                existing_post=post_for_ann,
+            )
+            # annotate 写回（列表/dict 已原地改）
+            emotion_telling = post_for_ann.get("emotion_telling") or emotion_telling
+            issues = post_for_ann.get("issues") or issues
+            structure_style = post_for_ann.get("structure_style") or structure_style
+            # 硬保证：issues 不得含 discourse.*
+            if isinstance(issues, list):
+                issues = [
+                    i for i in issues
+                    if not (
+                        isinstance(i, dict)
+                        and str(i.get("type") or "").startswith("discourse.")
+                    )
+                ]
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check discourse_advisory 失败: %s", e)
+        degraded_stages.append("discourse_advisory")
+        discourse_advisory = {
+            "severity": "advisory",
+            "not_a_kpi": True,
+            "status": "degraded",
+            "findings": [],
+            "error": str(e)[:160],
+        }
     resp = {
         "quality": {**qc_breakdown, "total": qc_total},
         "leaks": leaks,
         "leaks_degraded": leaks_degraded,
         "fulfillment": fulfillment,
         "structure_style": structure_style,
+        "discourse_advisory": discourse_advisory,
         "s1_circuit_open": _s1_circuit_open(work),   # 1-A 熔断状态对调用方可见
         "visible_chars": _visible_chars,   # 2-B:A5 口径可见字数,triage 短文本降档判据源
         "discipline": discipline,

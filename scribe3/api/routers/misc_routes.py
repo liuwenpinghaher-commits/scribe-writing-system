@@ -1268,6 +1268,61 @@ def soft_event_led_ep(req: dict | None = None, work: str = "main"):
     }
 
 
+def soft_discourse_ep(req: dict | None = None, work: str = "main"):
+    """Week-1 话语层 soft 唯一入口。Body 可只含 seq；服务端取 prose|draft。
+
+    有正文 → status=ok；无正文 → status=no_prose（HTTP 200，不 5xx）。
+    """
+    payload = req if isinstance(req, dict) else {}
+    w = str(payload.get("work") or work or "main")
+    seq = payload.get("seq") or payload.get("chapter")
+    prose = str(payload.get("prose") or "")
+    ch: dict = {}
+    near: list = []
+    try:
+        from scribe3.api import app_impl as core
+        st = core._store_for(w)
+        if seq is not None:
+            ch = st.get_chapter(int(seq)) or {}
+            if not prose.strip():
+                prose = str(ch.get("prose") or ch.get("draft") or "")
+            # 近章 ±1 synopsis（info_delta）
+            s = int(seq)
+            for nseq in (s - 1, s + 1):
+                if nseq < 1:
+                    continue
+                try:
+                    nc = st.get_chapter(nseq) or {}
+                    if nc:
+                        near.append(nc)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    try:
+        from scribe3.discourse_advisory import run_discourse_advisory
+        out = run_discourse_advisory(
+            prose if prose.strip() else None,
+            ch or None,
+            near_chapters=near,
+            mode="soft",
+        )
+    except Exception as e:
+        out = {
+            "severity": "advisory",
+            "not_a_kpi": True,
+            "status": "degraded",
+            "findings": [],
+            "breath": {},
+            "serial": {},
+            "error": str(e)[:160],
+        }
+    out["surface"] = "soft.discourse"
+    out["seq"] = int(seq) if seq is not None else None
+    out["work"] = w
+    return out
+
+
 def soft_precheck_ep(req: dict | None = None):
     """P2 residual：大纲/节拍软预检 API → soft_precheck_plan（advisory）。
 
@@ -1460,6 +1515,7 @@ def _bind_and_register() -> None:
         ('post_debug_audit_purge', '/debug/audit-purge', ['POST']),
         ('get_debug_stats', '/debug/stats', ['GET']),
         ('soft_event_led_ep', '/soft/event-led', ['POST']),
+        ('soft_discourse_ep', '/soft/discourse', ['POST']),
         ('soft_precheck_ep', '/soft-precheck', ['POST']),
         ('literary_distill_ep', '/literary-distill', ['POST']),
         ('event_graph_ep', '/event-graph', ['POST']),
