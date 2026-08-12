@@ -247,22 +247,16 @@ class QualityStore:
         expected = contract.model_copy(update={"approved": False})
         try:
             with self._store.transaction():
-                self._store._execute_write(
-                    "CREATE ONLY type::record('quality_contract_revision',$record_id) SET "
-                    "contract_key=$key, contract_id=$contract_id, work=$work, revision=$revision, "
-                    "payload=$payload, approved=false, approval_version=0",
-                    {"record_id": record_id, "key": key, "contract_id": contract.contract_id,
-                     "work": contract.work, "revision": contract.revision, "payload": payload},
+                self._store.create_only_quality_contract_revision(
+                    record_id, key=key, contract_id=contract.contract_id,
+                    work=contract.work, revision=contract.revision, payload=payload,
                 )
                 for ordinal, target in enumerate(contract.reference_targets):
-                    self._store._execute_write(
-                        "CREATE ONLY type::record('reference_target',$record_id) SET "
-                        "target_key=$target_key, contract_revision=$contract_revision, "
-                        "ordinal=$ordinal, payload=$payload",
-                        {"record_id": _digest(f"{key}:{ordinal}"),
-                         "target_key": f"{key}:{ordinal}",
-                         "contract_revision": RecordID("quality_contract_revision", record_id),
-                         "ordinal": ordinal, "payload": target.model_dump(mode="json")},
+                    self._store.create_only_reference_target(
+                        _digest(f"{key}:{ordinal}"),
+                        target_key=f"{key}:{ordinal}",
+                        contract_revision=RecordID("quality_contract_revision", record_id),
+                        ordinal=ordinal, payload=target.model_dump(mode="json"),
                     )
         except Exception as conflict:
             existing = self._retry_read(
@@ -276,22 +270,13 @@ class QualityStore:
         return expected
 
     def _get_contract(self, contract_id: str, revision: int) -> QualityContractRevision | None:
-        rows = self._store._query(
-            "SELECT payload, approved FROM quality_contract_revision "
-            "WHERE contract_id=$contract_id AND revision=$revision LIMIT 1",
-            {"contract_id": contract_id, "revision": revision},
-        )
-        if not rows:
+        row = self._store.get_quality_contract_row(contract_id, revision)
+        if not row:
             return None
-        payload = dict(rows[0]["payload"])
-        targets = self._store._query(
-            "SELECT payload, ordinal FROM reference_target WHERE contract_revision = "
-            "(SELECT VALUE id FROM quality_contract_revision WHERE contract_id=$contract_id "
-            "AND revision=$revision LIMIT 1)[0] ORDER BY ordinal",
-            {"contract_id": contract_id, "revision": revision},
-        )
-        payload["reference_targets"] = [row["payload"] for row in targets]
-        payload["approved"] = bool(rows[0].get("approved"))
+        payload = dict(row["payload"])
+        targets = self._store.list_reference_targets_for_contract(contract_id, revision)
+        payload["reference_targets"] = [r["payload"] for r in targets]
+        payload["approved"] = bool(row.get("approved"))
         return QualityContractRevision.model_validate(payload)
 
     def get_contract(self, contract_id: str, revision: int) -> QualityContractRevision:
@@ -306,12 +291,7 @@ class QualityStore:
     ) -> QualityContractRevision:
         if expected_approved:
             raise ValueError("CAS 只允许从未批准单向转为已批准")
-        rows = self._store._query(
-            "UPDATE quality_contract_revision SET approved=true, approval_version += 1, "
-            "approved_at=time::now() WHERE contract_id=$contract_id AND revision=$revision "
-            "AND approved=false AND approval_version=0 RETURN AFTER",
-            {"contract_id": contract_id, "revision": revision},
-        )
+        rows = self._store.approve_quality_contract_cas(contract_id, revision)
         if len(rows) != 1:
             raise ValueError("合同批准 CAS 失败：修订不存在、状态已批准或已变化")
         approved = self._get_contract(contract_id, revision)
@@ -329,13 +309,9 @@ class QualityStore:
         key = f"{work.reference_work_id}:{work.import_revision}"
         record_id = _digest(key)
         try:
-            self._store._execute_write(
-                "CREATE ONLY type::record('reference_work',$record_id) SET "
-                "reference_key=$key, reference_work_id=$reference_work_id, work=$work, "
-                "title=$title, source_hash=$source_hash, import_revision=$import_revision, "
-                "status=$status, source_text=$source_text",
-                {"record_id": record_id, "key": key, "source_text": source_text,
-                 **work.model_dump(mode="json")},
+            self._store.create_only_reference_work(
+                record_id, key=key, source_text=source_text,
+                fields=work.model_dump(mode="json"),
             )
         except Exception as conflict:
             existing = self._retry_read(
@@ -346,53 +322,36 @@ class QualityStore:
             if existing != work:
                 raise ValueError("参考作品修订与既有当前真相冲突") from conflict
             # 兼容旧版只保存 source_hash 的记录：同 hash 重导入可补齐原文。
-            rows = self._store._query(
-                "SELECT source_text FROM type::record('reference_work',$record_id) LIMIT 1",
-                {"record_id": record_id},
-            )
-            if rows and not (rows[0].get("source_text") or "").strip():
-                self._store._execute_write(
-                    "UPDATE type::record('reference_work',$record_id) SET source_text=$source_text",
-                    {"record_id": record_id, "source_text": source_text},
-                )
+            row = self._store.get_reference_work_source_text_by_id(record_id)
+            if row and not (row.get("source_text") or "").strip():
+                self._store.update_reference_work_source_text(record_id, source_text)
             return existing
         return work
 
     def _get_reference_work(
         self, reference_work_id: str, import_revision: int,
     ) -> ReferenceWorkRecord | None:
-        rows = self._store._query(
-            "SELECT reference_work_id, work, title, source_hash, import_revision, status "
-            "FROM reference_work WHERE reference_work_id=$reference_work_id "
-            "AND import_revision=$import_revision LIMIT 1",
-            {"reference_work_id": reference_work_id, "import_revision": import_revision},
+        row = self._store.get_reference_work_revision_row(
+            reference_work_id, import_revision,
         )
-        return ReferenceWorkRecord.model_validate(rows[0]) if rows else None
+        return ReferenceWorkRecord.model_validate(row) if row else None
 
     def save_reference_fingerprint(
         self, fingerprint: ReferenceFingerprintRecord,
     ) -> ReferenceFingerprintRecord:
-        works = self._store._query(
-            "SELECT id, source_hash, import_revision FROM reference_work WHERE "
-            "reference_work_id=$reference_work_id AND source_hash=$source_hash "
-            "ORDER BY import_revision DESC LIMIT 1",
-            {"reference_work_id": fingerprint.reference_work_id,
-             "source_hash": fingerprint.source_hash},
+        work_row = self._store.get_reference_work_by_hash(
+            fingerprint.reference_work_id, fingerprint.source_hash,
         )
-        if not works or works[0]["source_hash"] != fingerprint.source_hash:
+        if not work_row or work_row["source_hash"] != fingerprint.source_hash:
             raise ValueError("参考指纹必须绑定 source_hash 一致的参考作品修订")
+        works = [work_row]
         record_id = fingerprint.fingerprint_id
         try:
-            self._store._execute_write(
-                "CREATE ONLY type::record('reference_fingerprint',$record_id) SET "
-                "fingerprint_id=$fingerprint_id, reference_work=$reference_work, "
-                "reference_work_id=$reference_work_id, revision=$revision, "
-                "source_hash=$source_hash, status=$status, fingerprint=$fingerprint, "
-                "provider=$provider, model=$model, provider_request_id=$provider_request_id, "
-                "usage=$usage",
-                {"record_id": record_id, "fingerprint_id": fingerprint.fingerprint_id,
-                 "reference_work": works[0]["id"],
-                 **fingerprint.model_dump(mode="json", exclude={"fingerprint_id"})},
+            self._store.create_only_reference_fingerprint(
+                record_id,
+                fingerprint_id=fingerprint.fingerprint_id,
+                reference_work=works[0]["id"],
+                fields=fingerprint.model_dump(mode="json", exclude={"fingerprint_id"}),
             )
         except Exception as conflict:
             existing = self._retry_read(lambda: self._get_fingerprint(record_id))
@@ -404,32 +363,18 @@ class QualityStore:
         return fingerprint
 
     def _get_fingerprint(self, fingerprint_id: str) -> ReferenceFingerprintRecord | None:
-        rows = self._store._query(
-            "SELECT fingerprint_id, reference_work_id, revision, source_hash, status, fingerprint, "
-            "provider, model, provider_request_id, usage "
-            "FROM reference_fingerprint WHERE fingerprint_id=$fingerprint_id LIMIT 1",
-            {"fingerprint_id": fingerprint_id},
-        )
-        return ReferenceFingerprintRecord.model_validate(rows[0]) if rows else None
+        row = self._store.get_reference_fingerprint_row(fingerprint_id)
+        return ReferenceFingerprintRecord.model_validate(row) if row else None
 
     def approved_reference_fingerprints(
         self, work: str,
     ) -> tuple[ReferenceFingerprintRecord, ...]:
         """返回当前作品每部参考作品的最新已批准指纹。"""
-        reference_rows = self._store._query(
-            "SELECT VALUE reference_work_id FROM reference_work WHERE work=$work",
-            {"work": work},
-        )
+        reference_rows = self._store.list_reference_work_ids_for_work(work)
         reference_ids = tuple(str(row) for row in reference_rows if row is not None)
         if not reference_ids:
             return ()
-        rows = self._store._query(
-            "SELECT fingerprint_id, reference_work_id, revision, source_hash, status, fingerprint, "
-            "provider, model, provider_request_id, usage "
-            "FROM reference_fingerprint WHERE status='approved' "
-            "AND reference_work_id IN $reference_ids ORDER BY revision DESC",
-            {"reference_ids": list(reference_ids)},
-        )
+        rows = self._store.list_approved_fingerprints_for_ids(list(reference_ids))
         latest: dict[str, ReferenceFingerprintRecord] = {}
         for row in rows:
             record = ReferenceFingerprintRecord.model_validate(row)
@@ -438,10 +383,7 @@ class QualityStore:
 
     def reference_titles(self, work: str) -> dict[str, str]:
         """安全编译器用于阻止参考书名从 LLM 指纹回流到生成提示词。"""
-        rows = self._store._query(
-            "SELECT reference_work_id, title FROM reference_work WHERE work=$work",
-            {"work": work},
-        )
+        rows = self._store.list_reference_work_titles(work)
         return {
             str(row["reference_work_id"]): str(row["title"]).strip()
             for row in rows
@@ -460,29 +402,20 @@ class QualityStore:
         ]
         use_id = _digest({"request_id": request_id, "manifest_id": manifest_id})
         try:
-            self._store._execute_write(
-                "CREATE ONLY type::record('reference_craft_use',$record_id) SET "
-                "use_id=$use_id, work=$work, chapter=$chapter, request_id=$request_id, "
-                "manifest_id=$manifest_id, reference_fingerprint_ids=$fingerprint_ids, "
-                "mechanism_ids=$mechanism_ids",
-                {"record_id": use_id, "use_id": use_id, "work": work,
-                 "chapter": chapter, "request_id": request_id, "manifest_id": manifest_id,
-                 "fingerprint_ids": fingerprint_ids, "mechanism_ids": mechanism_ids},
+            self._store.create_only_reference_craft_use(
+                use_id, use_id=use_id, work=work, chapter=chapter,
+                request_id=request_id, manifest_id=manifest_id,
+                fingerprint_ids=fingerprint_ids, mechanism_ids=mechanism_ids,
             )
         except Exception as conflict:
-            rows = self._store._query(
-                "SELECT use_id, work, chapter, request_id, manifest_id, "
-                "reference_fingerprint_ids, mechanism_ids "
-                "FROM type::record('reference_craft_use',$record_id) LIMIT 1",
-                {"record_id": use_id},
-            )
+            row = self._store.get_reference_craft_use_row(use_id)
             expected = {
                 "use_id": use_id, "work": work, "chapter": chapter,
                 "request_id": request_id, "manifest_id": manifest_id,
                 "reference_fingerprint_ids": fingerprint_ids,
                 "mechanism_ids": mechanism_ids,
             }
-            if not rows or any(rows[0].get(key) != value for key, value in expected.items()):
+            if not row or any(row.get(key) != value for key, value in expected.items()):
                 raise conflict
 
     def create_chapter_snapshot(
@@ -510,33 +443,22 @@ class QualityStore:
         )
         try:
             with self._store.transaction():
-                self._store._execute_write(
-                    "CREATE ONLY type::record('quality_snapshot',$record_id) SET "
-                    "snapshot_id=$snapshot_id, work=$work, snapshot_hash=$snapshot_hash, "
-                    "member_count=$member_count",
-                    {"record_id": snapshot.snapshot_id, "snapshot_id": snapshot.snapshot_id,
-                     "work": work, "snapshot_hash": snapshot_hash,
-                     "member_count": len(members)},
+                self._store.create_only_quality_snapshot(
+                    snapshot.snapshot_id, snapshot_id=snapshot.snapshot_id,
+                    work=work, snapshot_hash=snapshot_hash, member_count=len(members),
                 )
                 for member in members:
                     member_id = _digest(f"{snapshot.snapshot_id}:{member.ordinal}")
                     bare_vid = _bare(member.chapter_version_id, "chapter_version")
-                    self._store._execute_write(
-                        "CREATE ONLY type::record('quality_snapshot_member',$record_id) SET "
-                        "member_key=$member_key, snapshot=$snapshot, ordinal=$ordinal, "
-                        "chapter_version=$chapter_version, content_hash=$content_hash",
-                        {"record_id": member_id,
-                         "member_key": f"{snapshot.snapshot_id}:{member.ordinal}",
-                         "snapshot": RecordID("quality_snapshot", snapshot.snapshot_id),
-                         "ordinal": member.ordinal,
-                         "chapter_version": RecordID("chapter_version", bare_vid),
-                         "content_hash": member.content_hash},
+                    self._store.create_only_quality_snapshot_member(
+                        member_id,
+                        member_key=f"{snapshot.snapshot_id}:{member.ordinal}",
+                        snapshot=RecordID("quality_snapshot", snapshot.snapshot_id),
+                        ordinal=member.ordinal,
+                        chapter_version=RecordID("chapter_version", bare_vid),
+                        content_hash=member.content_hash,
                     )
-                    self._store._execute_write(
-                        "UPDATE type::record('chapter_version',$vid) SET "
-                        "quality_snapshot_ref_count += 1",
-                        {"vid": bare_vid},
-                    )
+                    self._store.bump_chapter_version_quality_ref(bare_vid)
         except Exception as conflict:
             existing = self._retry_read(lambda: self._get_snapshot(snapshot.snapshot_id))
             if existing is None:
@@ -547,21 +469,16 @@ class QualityStore:
         return snapshot
 
     def _get_snapshot(self, snapshot_id: str) -> QualitySnapshotRecord | None:
-        rows = self._store._query(
-            "SELECT snapshot_id, work, snapshot_hash, member_count FROM quality_snapshot "
-            "WHERE snapshot_id=$snapshot_id LIMIT 1", {"snapshot_id": snapshot_id},
-        )
-        if not rows:
+        row = self._store.get_quality_snapshot_row(snapshot_id)
+        if not row:
             return None
-        member_rows = self._store._query(
-            "SELECT (IF chapter_version IS NONE THEN NONE ELSE <string>chapter_version END) AS chapter_version_id, content_hash, ordinal "
-            "FROM quality_snapshot_member WHERE snapshot=$snapshot ORDER BY ordinal",
-            {"snapshot": RecordID("quality_snapshot", snapshot_id)},
+        member_rows = self._store.list_quality_snapshot_members(
+            RecordID("quality_snapshot", snapshot_id),
         )
         return QualitySnapshotRecord(
-            snapshot_id=rows[0]["snapshot_id"], work=rows[0]["work"],
-            snapshot_hash=rows[0]["snapshot_hash"],
-            members=tuple(QualitySnapshotMember.model_validate(row) for row in member_rows),
+            snapshot_id=row["snapshot_id"], work=row["work"],
+            snapshot_hash=row["snapshot_hash"],
+            members=tuple(QualitySnapshotMember.model_validate(r) for r in member_rows),
         )
 
     def get_snapshot(self, snapshot_id: str) -> QualitySnapshotRecord:
@@ -583,14 +500,11 @@ class QualityStore:
     def _queue_snapshot_guard(self, snapshot: QualitySnapshotRecord) -> None:
         """把正文 hash 断言排入调用方的同一 SurrealDB 写事务。"""
         for member in snapshot.members:
-            self._store._execute_write(
-                "LET $current = (SELECT prose FROM $chapter_version); "
-                "IF array::len($current) != 1 OR "
-                "crypto::sha256($current[0].prose) != $content_hash "
-                "{ THROW 'quality_snapshot_drift' }",
-                {"chapter_version": RecordID(
+            self._store.queue_quality_snapshot_guard(
+                RecordID(
                     "chapter_version", _bare(member.chapter_version_id, "chapter_version")
-                ), "content_hash": member.content_hash},
+                ),
+                member.content_hash,
             )
 
     def create_job(
@@ -628,27 +542,14 @@ class QualityStore:
         try:
             with self._store.transaction():
                 self._queue_snapshot_guard(snapshot)
-                self._store._execute_write(
-                    "CREATE ONLY type::record('quality_job',$record_id) SET job_id=$job_id, "
-                    "idempotency_key=$idempotency_key, work=$work, snapshot=$snapshot, "
-                    "snapshot_id=$snapshot_id, contract_revision=$contract_revision_record, "
-                    "contract_id=$contract_id, contract_revision_number=$contract_revision, "
-                    "rubric_revision=$rubric_revision, "
-                    "reference_fingerprints=$reference_fingerprints, "
-                    "reference_fingerprint_ids=$reference_fingerprint_ids, "
-                    "model_config=$model_settings, "
-                    "actual_input_hash=$actual_input_hash, request_id=$request_id, "
-                    "manifest_id=$manifest_id, provider_request_id=$provider_request_id, "
-                    "provider_model=$provider_model, provider_usage=$provider_usage, "
-                    "execution_status='queued', execution_attempts=0, execution_error_code=NONE, "
-                    "execution_error_message=NONE, execution_started_at=NONE, execution_finished_at=NONE",
-                    {**params, "record_id": job.job_id,
-                     "snapshot": RecordID("quality_snapshot", snapshot_id),
-                     "contract_revision_record": RecordID(
-                         "quality_contract_revision", _digest(f"{contract_id}:{contract_revision}")
-                     ),
-                     "reference_fingerprints": fingerprints},
-                )
+                self._store.create_only_quality_job({
+                    **params, "record_id": job.job_id,
+                    "snapshot": RecordID("quality_snapshot", snapshot_id),
+                    "contract_revision_record": RecordID(
+                        "quality_contract_revision", _digest(f"{contract_id}:{contract_revision}")
+                    ),
+                    "reference_fingerprints": fingerprints,
+                })
         except Exception as conflict:
             try:
                 self._assert_snapshot_current(snapshot)
@@ -663,24 +564,12 @@ class QualityStore:
         return job
 
     def _get_job_by_key(self, idempotency_key: str) -> QualityJobRecord | None:
-        rows = self._store._query(
-            "SELECT job_id, idempotency_key, work, snapshot.snapshot_id AS snapshot_id, "
-            "contract_revision.contract_id AS contract_id, "
-            "contract_revision.revision AS contract_revision, rubric_revision, "
-            "reference_fingerprints.fingerprint_id AS reference_fingerprint_ids, "
-            "model_config AS model_settings, actual_input_hash, request_id, manifest_id, provider_request_id, "
-            "provider_model, provider_usage FROM quality_job "
-            "WHERE idempotency_key=$idempotency_key LIMIT 1",
-            {"idempotency_key": idempotency_key},
-        )
-        return QualityJobRecord.model_validate(rows[0]) if rows else None
+        row = self._store.get_quality_job_by_idempotency(idempotency_key)
+        return QualityJobRecord.model_validate(row) if row else None
 
     def _get_job(self, job_id: str) -> QualityJobRecord | None:
-        rows = self._store._query(
-            "SELECT idempotency_key FROM quality_job WHERE job_id=$job_id LIMIT 1",
-            {"job_id": _bare(job_id, "quality_job")},
-        )
-        return self._get_job_by_key(rows[0]["idempotency_key"]) if rows else None
+        key = self._store.get_quality_job_idempotency_key(_bare(job_id, "quality_job"))
+        return self._get_job_by_key(key) if key else None
 
     def get_job(self, job_id: str) -> QualityJobRecord:
         """读取冻结的质量作业输入；执行态请经 ``get_job_status`` 单独读取。"""
@@ -690,15 +579,9 @@ class QualityStore:
         return job
 
     def get_job_status(self, job_id: str) -> QualityJobExecutionStatus:
-        rows = self._store._query(
-            "SELECT job_id, execution_status, execution_attempts, execution_error_code, "
-            "execution_error_message, execution_started_at, execution_finished_at "
-            "FROM quality_job WHERE job_id=$job_id LIMIT 1",
-            {"job_id": _bare(job_id, "quality_job")},
-        )
-        if not rows:
+        row = self._store.get_quality_job_status_row(_bare(job_id, "quality_job"))
+        if not row:
             raise ValueError("质量作业不存在")
-        row = rows[0]
         return QualityJobExecutionStatus(
             job_id=row["job_id"], status=row.get("execution_status") or "queued",
             attempts=int(row.get("execution_attempts") or 0),
@@ -712,11 +595,8 @@ class QualityStore:
             current = self.get_job_status(job_id)
             if current.status not in ("queued", "retryable_failed"):
                 raise ValueError(f"质量作业当前状态不可启动: {current.status}")
-            self._store._execute_write(
-                "UPDATE type::record('quality_job',$job_id) SET execution_status='running', "
-                "execution_attempts=$attempts, execution_error_code=NONE, execution_error_message=NONE, "
-                "execution_started_at=time::now(), execution_finished_at=NONE",
-                {"job_id": _bare(job_id, "quality_job"), "attempts": current.attempts + 1},
+            self._store.start_quality_job(
+                _bare(job_id, "quality_job"), current.attempts + 1,
             )
         return self.get_job_status(job_id)
 
@@ -729,32 +609,24 @@ class QualityStore:
         expected_axes = len(snapshot.members) * len(CORE_DIMENSIONS)
         if job.reference_fingerprint_ids:
             expected_axes *= 2
-        rows = self._store._query(
-            "SELECT count() AS count FROM quality_judgment WHERE job=$job GROUP ALL",
-            {"job": RecordID("quality_job", _bare(job_id, "quality_job"))},
+        actual_axes = self._store.count_quality_judgments_for_job(
+            RecordID("quality_job", _bare(job_id, "quality_job")),
         )
-        actual_axes = int((rows[0].get("count") if rows else 0) or 0)
         if actual_axes != expected_axes:
             raise ValueError(
                 f"质量作业判断轴不完整: expected={expected_axes}, actual={actual_axes}",
             )
-        self._store._execute_write(
-            "UPDATE type::record('quality_job',$job_id) SET execution_status='completed', "
-            "execution_error_code=NONE, execution_error_message=NONE, execution_finished_at=time::now()",
-            {"job_id": _bare(job_id, "quality_job")},
-        )
+        self._store.finish_quality_job(_bare(job_id, "quality_job"))
         return self.get_job_status(job_id)
 
     def fail_job(self, job_id: str, error_code: str, error_message: str, *, retryable: bool = True) -> QualityJobExecutionStatus:
         current = self.get_job_status(job_id)
         if current.status != "running":
             raise ValueError(f"质量作业当前状态不可失败: {current.status}")
-        self._store._execute_write(
-            "UPDATE type::record('quality_job',$job_id) SET execution_status=$status, "
-            "execution_error_code=$error_code, execution_error_message=$error_message, execution_finished_at=time::now()",
-            {"job_id": _bare(job_id, "quality_job"),
-             "status": "retryable_failed" if retryable else "failed",
-             "error_code": str(error_code)[:80], "error_message": str(error_message)[:300]},
+        self._store.fail_quality_job(
+            _bare(job_id, "quality_job"),
+            status="retryable_failed" if retryable else "failed",
+            error_code=error_code, error_message=error_message,
         )
         return self.get_job_status(job_id)
 
@@ -780,13 +652,8 @@ class QualityStore:
         elapsed = (datetime.now(timezone.utc) - started_at.astimezone(timezone.utc)).total_seconds()
         if elapsed <= max_running_seconds:
             return current
-        self._store._execute_write(
-            "UPDATE type::record('quality_job',$job_id) SET execution_status='retryable_failed', "
-            "execution_error_code='worker_lost', "
-            "execution_error_message='后台执行超过时限，已释放为可重试状态', "
-            "execution_finished_at=time::now() "
-            "WHERE execution_status='running' AND execution_started_at=$started_at",
-            {"job_id": _bare(job_id, "quality_job"), "started_at": current.started_at},
+        self._store.recover_stale_quality_job(
+            _bare(job_id, "quality_job"), current.started_at,
         )
         return self.get_job_status(job_id)
 
@@ -828,18 +695,15 @@ class QualityStore:
                     f"{table} 只接受 system/reference，不接受 "
                     f"{judgment.evaluator_kind} 判断"
                 )
-            outcome_rows = self._store._query(
-                "SELECT outcome_id, request_id, manifest_id, actual_input_hash, status, provider, "
-                "model, provider_request_id, usage FROM context_outcome_trace "
-                "WHERE outcome_id=$outcome_id LIMIT 1",
-                {"outcome_id": bound.trace.outcome_id},
+            outcome_row = self._store.get_context_outcome_for_judgment(
+                bound.trace.outcome_id,
             )
-            if not outcome_rows:
+            if not outcome_row:
                 raise ValueError("LLM 判断没有绑定既有 ContextOutcome")
-            if outcome_rows[0].get("status") != "succeeded":
+            if outcome_row.get("status") != "succeeded":
                 raise ValueError("LLM 判断只能绑定 status=succeeded 的成功 Outcome")
             persisted_trace = JudgmentTraceBinding.model_validate({
-                key: value for key, value in outcome_rows[0].items()
+                key: value for key, value in outcome_row.items()
                 if key != "status"
             })
             if persisted_trace != bound.trace:
@@ -853,26 +717,22 @@ class QualityStore:
                     judgment = bound.judgment
                     identity = f"{job.job_id}:{unit}:{judgment.dimension}:{judgment.evaluator_kind}"
                     judgment_id = _digest(identity)
-                    self._store._execute_write(
-                        f"CREATE ONLY type::record('{table}',$record_id) SET "
-                        "judgment_id=$judgment_id, job=$job, job_id=$job_id, unit=$unit, "
-                        "unit_id=$unit_id, dimension=$dimension, evaluator_kind=$evaluator_kind, "
-                        "payload=$payload, context_outcome=$context_outcome, "
-                        "outcome_id=$outcome_id, request_id=$request_id, manifest_id=$manifest_id, "
-                        "actual_input_hash=$actual_input_hash, provider=$provider, model=$model, "
-                        "provider_request_id=$provider_request_id, usage=$usage",
-                        {"record_id": judgment_id, "judgment_id": judgment_id,
-                         "job": RecordID("quality_job", job.job_id),
-                         "job_id": job.job_id,
-                         "unit": RecordID("chapter_version", _bare(unit, "chapter_version")),
-                         "unit_id": unit,
-                         "dimension": judgment.dimension,
-                         "evaluator_kind": judgment.evaluator_kind,
-                         "payload": judgment.model_dump(mode="json"),
-                         "context_outcome": RecordID(
-                             "context_outcome_trace", bound.trace.outcome_id
-                         ),
-                         **bound.trace.model_dump(mode="json")},
+                    self._store.create_only_quality_axis_judgment(
+                        table, judgment_id,
+                        {
+                            "judgment_id": judgment_id,
+                            "job": RecordID("quality_job", job.job_id),
+                            "job_id": job.job_id,
+                            "unit": RecordID("chapter_version", _bare(unit, "chapter_version")),
+                            "unit_id": unit,
+                            "dimension": judgment.dimension,
+                            "evaluator_kind": judgment.evaluator_kind,
+                            "payload": judgment.model_dump(mode="json"),
+                            "context_outcome": RecordID(
+                                "context_outcome_trace", bound.trace.outcome_id
+                            ),
+                            **bound.trace.model_dump(mode="json"),
+                        },
                     )
         except Exception as conflict:
             try:
@@ -916,15 +776,17 @@ class QualityStore:
         try:
             with self._store.transaction():
                 self._queue_snapshot_guard(snapshot)
-                self._store._execute_write(
-                    "CREATE ONLY type::record('quality_author_judgment',$record_id) SET "
-                    "judgment_id=$judgment_id, job=$job, job_id=$job_id, unit=$unit, "
-                    "unit_id=$unit_id, dimension=$dimension, evaluator_kind='author', payload=$payload",
-                    {"record_id": _digest(identity), "judgment_id": _digest(identity),
-                     "job": RecordID("quality_job", job.job_id), "job_id": job.job_id,
-                     "unit": RecordID("chapter_version", _bare(unit, "chapter_version")),
-                     "unit_id": unit, "dimension": judgment.dimension,
-                     "payload": judgment.model_dump(mode="json")},
+                self._store.create_only_quality_axis_judgment(
+                    "quality_author_judgment", _digest(identity),
+                    {
+                        "judgment_id": _digest(identity),
+                        "job": RecordID("quality_job", job.job_id),
+                        "job_id": job.job_id,
+                        "unit": RecordID("chapter_version", _bare(unit, "chapter_version")),
+                        "unit_id": unit,
+                        "dimension": judgment.dimension,
+                        "payload": judgment.model_dump(mode="json"),
+                    },
                 )
         except Exception as conflict:
             try:
@@ -975,16 +837,14 @@ class QualityStore:
         try:
             with self._store.transaction():
                 self._queue_snapshot_guard(snapshot)
-                self._store._execute_write(
-                    "CREATE ONLY type::record('quality_author_verdict',$record_id) SET "
-                    "verdict_id=$verdict_id, job=$job, job_id=$job_id, unit=$unit, unit_id=$unit_id, "
-                    "dimension=$dimension, revision=$revision, decision=$decision, reason=$reason, "
-                    "payload=$payload",
-                    {"record_id": verdict.verdict_id,
-                     "job": RecordID("quality_job", job.job_id),
-                     "unit": RecordID("chapter_version", _bare(unit, "chapter_version")),
-                     "payload": judgment.model_dump(mode="json"),
-                     **verdict.model_dump(mode="json", exclude={"judgment"})},
+                self._store.create_only_quality_author_verdict(
+                    verdict.verdict_id,
+                    {
+                        "job": RecordID("quality_job", job.job_id),
+                        "unit": RecordID("chapter_version", _bare(unit, "chapter_version")),
+                        "payload": judgment.model_dump(mode="json"),
+                        **verdict.model_dump(mode="json", exclude={"judgment"}),
+                    },
                 )
         except Exception as conflict:
             persisted = next(
@@ -999,19 +859,18 @@ class QualityStore:
     def _read_author_verdicts(
         self, job_id: str, unit: str | None = None,
     ) -> tuple[AuthorVerdictRecord, ...]:
-        query = ("SELECT verdict_id, job_id, unit_id, dimension, revision, decision, reason, payload "
-                 "FROM quality_author_verdict WHERE job=$job")
-        params: dict[str, Any] = {"job": RecordID("quality_job", _bare(job_id, "quality_job"))}
-        if unit is not None:
-            query += " AND unit=$unit"
-            params["unit"] = RecordID("chapter_version", _bare(unit, "chapter_version"))
-        query += " ORDER BY dimension, revision DESC"
+        job = RecordID("quality_job", _bare(job_id, "quality_job"))
+        unit_rec = (
+            RecordID("chapter_version", _bare(unit, "chapter_version"))
+            if unit is not None else None
+        )
+        rows = self._store.query_quality_author_verdicts(job, unit_rec)
         return tuple(
             AuthorVerdictRecord.model_validate({
                 **{key: value for key, value in row.items() if key != "payload"},
                 "judgment": row["payload"],
             })
-            for row in self._store._query(query, params)
+            for row in rows
         )
 
     def get_author_verdicts(
@@ -1020,15 +879,12 @@ class QualityStore:
         return self._read_author_verdicts(job_id, unit)
 
     def _read_axis(self, table: str, job_id: str, unit: str | None = None) -> tuple[BoundQualityJudgment, ...]:
-        query = (f"SELECT payload, outcome_id, request_id, manifest_id, actual_input_hash, "
-                 f"provider, model, provider_request_id, usage, dimension, evaluator_kind "
-                 f"FROM {table} WHERE job=$job")
-        params: dict[str, Any] = {"job": RecordID("quality_job", _bare(job_id, "quality_job"))}
-        if unit is not None:
-            query += " AND unit=$unit"
-            params["unit"] = RecordID("chapter_version", _bare(unit, "chapter_version"))
-        query += " ORDER BY dimension, evaluator_kind"
-        rows = self._store._query(query, params)
+        job = RecordID("quality_job", _bare(job_id, "quality_job"))
+        unit_rec = (
+            RecordID("chapter_version", _bare(unit, "chapter_version"))
+            if unit is not None else None
+        )
+        rows = self._store.query_quality_axis_rows(table, job, unit_rec)
         parsed = [BoundQualityJudgment(
             judgment=QualityJudgment.model_validate(row["payload"]),
             trace=JudgmentTraceBinding.model_validate({
@@ -1051,15 +907,14 @@ class QualityStore:
             latest.setdefault(verdict.dimension, verdict.judgment)
         if latest:
             return tuple(latest[key] for key in sorted(latest))
-        query = "SELECT payload, dimension FROM quality_author_judgment WHERE job=$job"
-        params: dict[str, Any] = {"job": RecordID("quality_job", _bare(job_id, "quality_job"))}
-        if unit is not None:
-            query += " AND unit=$unit"
-            params["unit"] = RecordID("chapter_version", _bare(unit, "chapter_version"))
-        query += " ORDER BY dimension"
+        job = RecordID("quality_job", _bare(job_id, "quality_job"))
+        unit_rec = (
+            RecordID("chapter_version", _bare(unit, "chapter_version"))
+            if unit is not None else None
+        )
         return tuple(
             QualityJudgment.model_validate(row["payload"])
-            for row in self._store._query(query, params)
+            for row in self._store.query_quality_author_judgment_payloads(job, unit_rec)
         )
 
     def get_evaluation(self, job_id: str) -> QualityEvaluation:

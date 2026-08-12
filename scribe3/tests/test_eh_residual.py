@@ -400,20 +400,15 @@ def test_adapter_ops_public_surface():
 
 
 def test_next_layer_adapters_no_private_store():
-    """业务适配层（除 quality/store 域适配器）无私有 store 调用。"""
+    """业务适配层（含 quality/store）无私有 store 调用。"""
     import pathlib
     import re
 
     pat = re.compile(r"\._(?:query|execute_write|raw_query)\s*\(")
-    allow = {
-        "scribe3/quality/store.py",  # 域适配器，对标 ContextStore 已迁移前形态
-    }
     roots = []
     for p in pathlib.Path("scribe3").rglob("*.py"):
         s = str(p).replace("\\", "/")
         if "/store/" in s or "/tests/" in s or "/tools/" in s or "__pycache__" in s:
-            continue
-        if s in allow:
             continue
         roots.append(s)
     hits = []
@@ -424,3 +419,20 @@ def test_next_layer_adapters_no_private_store():
             if pat.search(line):
                 hits.append(f"{rel}:{i}:{line.strip()[:100]}")
     assert not hits, "private store calls remain:\n" + "\n".join(hits[:40])
+
+
+def test_quality_ops_public_surface():
+    from scribe3.store.surreal import SurrealStore
+    from scribe3.store.quality_ops import QualityOpsMixin
+
+    for name in (
+        "create_only_quality_contract_revision",
+        "approve_quality_contract_cas",
+        "create_only_quality_job",
+        "get_quality_job_status_row",
+        "create_only_quality_axis_judgment",
+        "query_quality_axis_rows",
+        "queue_quality_snapshot_guard",
+    ):
+        assert hasattr(SurrealStore, name), name
+        assert hasattr(QualityOpsMixin, name), name
