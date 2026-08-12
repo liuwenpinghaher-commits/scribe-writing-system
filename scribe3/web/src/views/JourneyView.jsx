@@ -127,6 +127,9 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
   const debt = snap?.canon_debt || {}
   const motifGap = snap?.bible_motif_gap || null
   const motifProposal = snap?.motif_seed_proposal || null
+  const creativeSuggestions = Array.isArray(snap?.creative_suggestions)
+    ? snap.creative_suggestions
+    : (Array.isArray(next?.creative_suggestions) ? next.creative_suggestions : [])
 
   const handleContinue = () => {
     onContinue?.(snap)
@@ -155,6 +158,26 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
             <RefreshCw size={15} />
           </button>
         </header>
+
+        {/* 导演 store-grounded 创意建议 */}
+        {creativeSuggestions.length > 0 && (
+          <section
+            className="rounded-lg border border-line bg-soft/40 p-3 space-y-2"
+            data-testid="journey-creative-suggestions"
+          >
+            <div className="text-meta text-faint uppercase tracking-wider">创意建议</div>
+            <ul className="space-y-2">
+              {creativeSuggestions.slice(0, 3).map((s, i) => (
+                <li key={s.kind || i} className="text-f13 text-ink">
+                  <span className="font-medium">{s.title || s.kind}</span>
+                  {s.detail && (
+                    <p className="text-meta text-faint mt-0.5 leading-snug">{s.detail}</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {/* 开书母题缺口 → 一键批准草案 */}
         {motifGap && !motifGap.ok && (

@@ -13,19 +13,35 @@ def _flag(name: str, default: str = "1") -> bool:
 
 
 def volume_intro_compact_enabled() -> bool:
-    return _flag("SCRIBE3_VOLUME_INTRO_COMPACT", "1")
+    try:
+        from scribe3.quality_enablement_flags import volume_intro_compact_enabled as _f
+        return bool(_f())
+    except Exception:
+        return _flag("SCRIBE3_VOLUME_INTRO_COMPACT", "1")
 
 
 def phase_role_dedup_enabled() -> bool:
-    return _flag("SCRIBE3_PHASE_ROLE_DEDUP", "1")
+    try:
+        from scribe3.quality_enablement_flags import phase_role_dedup_enabled as _f
+        return bool(_f())
+    except Exception:
+        return _flag("SCRIBE3_PHASE_ROLE_DEDUP", "1")
 
 
 def avoid_merge_antislop_enabled() -> bool:
-    return _flag("SCRIBE3_AVOID_MERGE_ANTISLOP", "1")
+    try:
+        from scribe3.quality_enablement_flags import avoid_merge_antislop_enabled as _f
+        return bool(_f())
+    except Exception:
+        return _flag("SCRIBE3_AVOID_MERGE_ANTISLOP", "1")
 
 
 def pressure_diff_only_enabled() -> bool:
-    return _flag("SCRIBE3_PRESSURE_DIFF_ONLY", "1")
+    try:
+        from scribe3.quality_enablement_flags import pressure_diff_only_enabled as _f
+        return bool(_f())
+    except Exception:
+        return _flag("SCRIBE3_PRESSURE_DIFF_ONLY", "1")
 
 
 def _norm(s: str) -> str:

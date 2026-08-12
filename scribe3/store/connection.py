@@ -526,6 +526,48 @@ class ConnectionMixin:
         except Exception:
             degraded.append("pressure")
             advisory["pressure"] = None
+        # U5/U6：结构多样性 + density 观测（均 advisory；无 assemble 不伪造 provenance=0）
+        try:
+            from scribe3.structure_style import evaluate_structure_style
+            _ss = evaluate_structure_style(prose or "")
+            advisory["structure_style"] = {
+                "ending_formula_hit": bool(_ss.get("ending_formula_hit")),
+                "isomorphism_hit": bool(_ss.get("isomorphism_hit")),
+                "simile_like_per_1k": _ss.get("simile_like_per_1k"),
+                "severity": _ss.get("severity") or "advisory",
+            }
+        except Exception:
+            degraded.append("structure_style")
+            advisory["structure_style"] = None
+        try:
+            from scribe3.api.services.write_assemble import get_last_write_budget_report
+            from scribe3.injection_registry import density_trace_for_segments
+            _br = get_last_write_budget_report() or {}
+            _dt = None
+            if _br.get("domain_lengths") or _br.get("order_indices"):
+                _dt = density_trace_for_segments(
+                    domain_lengths=_br.get("domain_lengths"),
+                    order_indices=_br.get("order_indices"),
+                )
+            if isinstance(_dt, dict) and _dt:
+                advisory["density"] = {
+                    "provenance_in_prompt_tokens": _dt.get("provenance_in_prompt_tokens"),
+                    "audit_meta_share": _dt.get("audit_meta_share"),
+                    "drama_core_share": _dt.get("drama_core_share"),
+                    "envelope_canon_share": _dt.get("envelope_canon_share"),
+                    "envelope_recent_share": _dt.get("envelope_recent_share"),
+                }
+            else:
+                # 诚实：本轮无 assemble 上下文 → 不写假 0
+                advisory["density"] = None
+            try:
+                from scribe3.quality_enablement_flags import create_mode
+                advisory["create_mode"] = create_mode()
+            except Exception:
+                advisory["create_mode"] = None
+        except Exception:
+            degraded.append("density")
+            advisory["density"] = None
         return {"seq": seq, "constraints": constraints, "advisory_scores": advisory,
                 "fulfillment": fulfillment, "degraded": degraded}
 

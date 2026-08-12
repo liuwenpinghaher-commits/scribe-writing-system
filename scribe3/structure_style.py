@@ -10,13 +10,21 @@ from typing import Any
 
 
 def structure_diversity_inject_enabled() -> bool:
-    v = (os.environ.get("SCRIBE3_STRUCTURE_DIVERSITY_INJECT") or "1").strip().lower()
-    return v not in ("0", "false", "no", "off", "")
+    try:
+        from scribe3.quality_enablement_flags import structure_diversity_inject_enabled as _f
+        return bool(_f())
+    except Exception:
+        v = (os.environ.get("SCRIBE3_STRUCTURE_DIVERSITY_INJECT") or "1").strip().lower()
+        return v not in ("0", "false", "no", "off", "")
 
 
 def ending_formula_blocking() -> bool:
-    v = (os.environ.get("SCRIBE3_ENDING_FORMULA_BLOCKING") or "0").strip().lower()
-    return v in ("1", "true", "yes", "on")
+    try:
+        from scribe3.quality_enablement_flags import ending_formula_blocking as _f
+        return bool(_f())
+    except Exception:
+        v = (os.environ.get("SCRIBE3_ENDING_FORMULA_BLOCKING") or "0").strip().lower()
+        return v in ("1", "true", "yes", "on")
 
 
 def structure_diversity_block() -> str:

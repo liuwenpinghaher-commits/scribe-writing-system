@@ -620,6 +620,14 @@ export const api = {
     seq, prose, title, focalizer,
     ...(opts.dangerDraft ? { danger_draft: true } : {}),
     ...(opts.skipCraftGate ? { skip_craft_gate: true } : {}),
+    // 第一原则收尾：探索模式透传（默认读 localStorage s3.create_mode）
+    ...((() => {
+      let mode = opts.createMode
+      if (mode == null) {
+        try { mode = localStorage.getItem('s3.create_mode') || undefined } catch { /* */ }
+      }
+      return mode ? { create_mode: mode } : {}
+    })()),
   }, work),
   // 版本存档恢复:跳过工艺门、留 checkpoint、默认知重抽(与 save-chapter 分离)
   restoreChapterVersion: (seq, body, work) => post(

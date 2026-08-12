@@ -128,8 +128,12 @@ def clear_hold(st, seq: int) -> None:
 
 
 def explore_ingest_hold_enabled() -> bool:
-    v = (os.environ.get("SCRIBE3_EXPLORE_INGEST_HOLD") or "1").strip().lower()
-    return v not in ("0", "false", "no", "off", "")
+    try:
+        from scribe3.quality_enablement_flags import explore_ingest_hold_enabled as _f
+        return bool(_f())
+    except Exception:
+        v = (os.environ.get("SCRIBE3_EXPLORE_INGEST_HOLD") or "1").strip().lower()
+        return v not in ("0", "false", "no", "off", "")
 
 
 def decide_ingest(
@@ -225,7 +229,13 @@ def decide_ingest(
             hold_reason="danger_draft", confirm_token=tok, prose_fp=fp,
         )
     # WS-3：explore 实质稿默认 hold，防 dual-truth 自动进正典
-    _cm = (getattr(g, "create_mode", None) or os.environ.get("SCRIBE3_CREATE_MODE") or "standard")
+    _cm = getattr(g, "create_mode", None)
+    if not _cm:
+        try:
+            from scribe3.quality_enablement_flags import create_mode as _cm_fn
+            _cm = _cm_fn()
+        except Exception:
+            _cm = os.environ.get("SCRIBE3_CREATE_MODE") or "standard"
     if (
         not force
         and explore_ingest_hold_enabled()

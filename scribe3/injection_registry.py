@@ -39,12 +39,14 @@ class SegmentMeta:
 
 
 # 与 generation_physical_order_names 对齐的声明表
-# outline → SEGMENT_L1（rev.1.2 · 永不与 envelope-block L1 混名）
+# outline → SEGMENT_L1，默认物理序在 drama_vacuum 后、envelope 前（U4）
 SEGMENT_REGISTRY: tuple[SegmentMeta, ...] = (
     SegmentMeta("prefix", "L0", "head", "redline"),
+    SegmentMeta("structure_diversity", "L0", "head", "redline"),
     SegmentMeta("event_drive", "L0", "head", "redline"),
     SegmentMeta("drama_contract", "L0", "head", "redline"),
     SegmentMeta("drama_vacuum", "L0", "head", "redline"),
+    SegmentMeta("outline", "L1", "head", "frame"),  # SEGMENT_L1 · 高注意力
     SegmentMeta("envelope", "L1", "mid", "frame"),
     SegmentMeta("codex", "L2", "mid", "world"),
     SegmentMeta("seed_words", "L3", "mid", "craft"),
@@ -54,7 +56,6 @@ SEGMENT_REGISTRY: tuple[SegmentMeta, ...] = (
     SegmentMeta("revelation_discipline", "L0", "mid", "redline"),
     SegmentMeta("sincerity", "L0", "mid", "redline"),
     SegmentMeta("purpose", "L2", "mid", "frame"),
-    SegmentMeta("outline", "L1", "mid", "frame"),  # SEGMENT_L1
     SegmentMeta("volume_intro", "L3", "mid", "world"),
     SegmentMeta("brief_must", "L2", "mid", "frame"),
     SegmentMeta("pressure_drive", "L2", "mid", "frame"),
@@ -66,7 +67,6 @@ SEGMENT_REGISTRY: tuple[SegmentMeta, ...] = (
     SegmentMeta("final_reminder", "L0", "tail", "redline"),
     SegmentMeta("scene_truth_proj", "L0", "mid", "redline"),
     SegmentMeta("request_constraint", "L3", "tail", "craft"),
-    SegmentMeta("structure_diversity", "L0", "head", "redline"),
 )
 
 # 次杠杆：审计/元数据段（不含 envelope 整包）
@@ -149,13 +149,24 @@ def density_trace_for_segments(
 def registry_physical_order_names(*, v2: bool = True) -> list[str]:
     """注册表声明序；active 时作为 ordered_generation_segments 的 order_names。
 
-    主干 marker（event_drive→drama→envelope→codex→final_reminder）保持与
-    generation_physical_order 一致的相对先后，以免破坏 V2 合同。
+    优先与 ``generation_physical_order_names`` 对齐（含 outline-after-drama 旗），
+    再补上注册表独有段名。
     """
-    names = [s.name for s in SEGMENT_REGISTRY]
+    try:
+        from scribe3.context_budget import generation_physical_order_names
+        base = generation_physical_order_names(v2=v2)
+    except Exception:
+        base = [s.name for s in SEGMENT_REGISTRY]
+        if not v2:
+            base = [n for n in base if n != "codex"]
+        return base
+    reg = [s.name for s in SEGMENT_REGISTRY]
     if not v2:
-        return [n for n in names if n != "codex"]
-    return list(names)
+        reg = [n for n in reg if n != "codex"]
+        base = [n for n in base if n != "codex"]
+    seen = set(base)
+    extra = [n for n in reg if n not in seen]
+    return list(base) + extra
 
 
 def registry_l3_names() -> frozenset[str]:

@@ -136,6 +136,16 @@ export function WriteLayout({ work, seq, sceneIdx }) {
   const [saved, setSaved] = useState(true)
   // 门A:危险草稿旁路——默认关;勾选后存稿带 danger_draft=true(UI 红字标危险)
   const [dangerDraft, setDangerDraft] = useState(false)
+  // 探索模式：create_mode=explore（工艺 soft-save；定稿仍 hard）
+  const [exploreMode, setExploreMode] = useState(() => {
+    try { return localStorage.getItem('s3.create_mode') === 'explore' } catch { return false }
+  })
+  useEffect(() => {
+    try {
+      if (exploreMode) localStorage.setItem('s3.create_mode', 'explore')
+      else localStorage.removeItem('s3.create_mode')
+    } catch { /* */ }
+  }, [exploreMode])
   const [ingestFail, setIngestFail] = useState(null)  // {error,status} | null
   // dirty 切章防丢:用 ref 追踪当前章号 + 实时正文 + chTitle + focalizer + dirty 状态,
   // 全部从 ref 读,完全脱离 state 闭包,确保切章时拿到最新值。
@@ -479,6 +489,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
     try {
       r = await api.saveChapter(chapter, text, chTitle, focalizer, work, {
         dangerDraft: !!dangerDraft,
+        createMode: exploreMode ? 'explore' : 'standard',
       })
     } catch (e) {
       // 定稿门闩 409:展示 blocking 与危险旁路提示
@@ -496,6 +507,18 @@ export function WriteLayout({ work, seq, sceneIdx }) {
     if (r.finalize_gate?.danger_draft) {
       toast('已以危险草稿旁路落库(定稿门闩未拦)', { tone: 'warn' })
     }
+    // 探索 soft-save / craft 未齐套未 stamp final（作者可感）
+    try {
+      const warns = Array.isArray(r.warnings) ? r.warnings : (r.craft_gate?.warnings || [])
+      if (warns.length) {
+        toast(`探索模式：工艺脚手架有 ${warns.length} 条警告（已放行存稿）`, { tone: 'warn' })
+      }
+      if (r.final_version_stamped === false
+          && (r.final_stamp?.code === 'craft_finalize'
+            || (r.final_stamp?.blocking || []).length)) {
+        toast('正文已存；定稿版本未写入——须齐套 GATE-A/B 后再终选/stamp', { tone: 'warn' })
+      }
+    } catch { /* 提示失败不挡存稿 */ }
     // 存后拉 ingest 状态角标(KR3 可观测)
     try {
       const ist = await api.ingestStatus(chapter, work)
@@ -827,6 +850,24 @@ export function WriteLayout({ work, seq, sceneIdx }) {
           )
         })()}
 
+        {/* 探索模式：create_mode=explore */}
+        <label
+          className={`inline-flex items-center gap-1 h-7 px-2 rounded-md border text-meta cursor-pointer select-none shrink-0 ${
+            exploreMode
+              ? 'border-brand/40 bg-brand/10 text-brand'
+              : 'border-line bg-soft text-faint hover:text-ink'
+          }`}
+          title="探索模式：工艺脚手架不全也可存草稿；定稿/stamp 仍须齐套 GATE"
+          data-testid="explore-mode-toggle"
+        >
+          <input
+            type="checkbox"
+            className="accent-brand"
+            checked={exploreMode}
+            onChange={(e) => setExploreMode(e.target.checked)}
+          />
+          探索
+        </label>
         {/* 危险草稿旁路:默认关;勾选后存稿跳过定稿门闩(宪法显式危险) */}
         <label
           className={`inline-flex items-center gap-1 h-7 px-2 rounded-md border text-meta cursor-pointer select-none shrink-0 ${

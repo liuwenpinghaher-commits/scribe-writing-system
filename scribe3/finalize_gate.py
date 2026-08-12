@@ -404,7 +404,15 @@ def collect_deterministic_post_for_prose(
             leaks_degraded = True
             degraded.append("find_leaks")
 
-    return build_deterministic_post(
+    structure_style = None
+    try:
+        from scribe3.structure_style import evaluate_structure_style
+        structure_style = evaluate_structure_style(prose or "")
+        # 默认 advisory：不写入 blocking issues（ENDING_FORMULA_BLOCKING 另议）
+    except Exception:
+        degraded.append("structure_style")
+
+    post = build_deterministic_post(
         prose,
         leaks=leaks,
         leaks_degraded=leaks_degraded,
@@ -412,3 +420,6 @@ def collect_deterministic_post_for_prose(
         ai_grade=ai_grade,
         degraded_stages=degraded,
     )
+    if structure_style is not None:
+        post["structure_style"] = structure_style
+    return post

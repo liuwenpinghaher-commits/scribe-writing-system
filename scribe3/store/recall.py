@@ -438,11 +438,15 @@ class RecallMixin:
         限知时间门(chapter)过滤未来事实与已失效命题(valid_to)。
         knowers 经 knowers_at_chapter 过滤(不依赖图边 SQL 无时间门的默认 FETCH)。"""
         from scribe3.embed import embed
-        import os as _os
         qv = embed([query])[0]
         # rev.1.2 WS-5：产品路径不依赖死字段 entity_link；co_present 默认关
-        _co = (_os.environ.get("SCRIBE3_GRAPH_CO_PRESENT") or "0").strip().lower()
-        _co_on = _co in ("1", "true", "yes", "on")
+        try:
+            from scribe3.quality_enablement_flags import graph_co_present_enabled
+            _co_on = bool(graph_co_present_enabled())
+        except Exception:
+            import os as _os
+            _co = (_os.environ.get("SCRIBE3_GRAPH_CO_PRESENT") or "0").strip().lower()
+            _co_on = _co in ("1", "true", "yes", "on")
         _co_sel = (
             "  <-causes<-event->involves->character.name AS co_present, "
             if _co_on else ""

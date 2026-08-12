@@ -98,6 +98,47 @@ def test_outline_is_segment_l1():
     assert m["outline"].tier == "L1"
 
 
+def test_outline_after_drama_physical_order(monkeypatch):
+    monkeypatch.setenv("SCRIBE3_OUTLINE_AFTER_DRAMA", "1")
+    from scribe3.context_budget import generation_physical_order_names
+    order = generation_physical_order_names(v2=True)
+    assert order.index("outline") == order.index("drama_vacuum") + 1
+    assert order.index("outline") < order.index("envelope")
+
+
+def test_registry_contains_quality_enablement_flags():
+    from scribe3.settings import REGISTRY, get_setting
+    keys = {s.key for s in REGISTRY}
+    for k in (
+        "SCRIBE3_PROVENANCE_IN_PROMPT",
+        "SCRIBE3_CREATE_MODE",
+        "SCRIBE3_EXPLORE_SOFT_SAVE",
+        "SCRIBE3_CRAFT_FINALIZE",
+        "SCRIBE3_STRUCTURE_DIVERSITY_INJECT",
+        "SCRIBE3_DIRECTOR_CREATIVE",
+        "SCRIBE3_OUTLINE_AFTER_DRAMA",
+        "SCRIBE3_GRAPH_CO_PRESENT",
+    ):
+        assert k in keys, k
+    assert get_setting("SCRIBE3_PROVENANCE_IN_PROMPT") is False
+    assert get_setting("SCRIBE3_CREATE_MODE") == "standard"
+    assert get_setting("SCRIBE3_CRAFT_FINALIZE") is True
+
+
+def test_post_includes_structure_style_advisory():
+    from scribe3.finalize_gate import collect_deterministic_post_for_prose
+    body = (
+        "铜匙在怀里发烫。他摸了摸铜匙的齿边。"
+        "雨还在下。铜匙又硌了一下。炉灰还温着。\n"
+        "铜匙凉了。"
+    )
+    post = collect_deterministic_post_for_prose(body)
+    assert "structure_style" in post
+    assert post["structure_style"].get("ending_formula_hit") is True
+    # 不进 blocking 假门
+    assert post.get("structure_style", {}).get("blocks_finalize") is False
+
+
 def test_overcap_drops_material_before_outline():
     from scribe3.context_budget import apply_l2_trim, GEN_SEGMENT_PROTECTED
 

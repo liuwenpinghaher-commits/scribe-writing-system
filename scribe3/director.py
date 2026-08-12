@@ -12,8 +12,12 @@ from scribe3.pilot import NEXT, STATES, read_state, status as pilot_status
 
 
 def director_creative_enabled() -> bool:
-    v = (os.environ.get("SCRIBE3_DIRECTOR_CREATIVE") or "1").strip().lower()
-    return v not in ("0", "false", "no", "off", "")
+    try:
+        from scribe3.quality_enablement_flags import director_creative_enabled as _f
+        return bool(_f())
+    except Exception:
+        v = (os.environ.get("SCRIBE3_DIRECTOR_CREATIVE") or "1").strip().lower()
+        return v not in ("0", "false", "no", "off", "")
 
 
 def build_creative_suggestions(

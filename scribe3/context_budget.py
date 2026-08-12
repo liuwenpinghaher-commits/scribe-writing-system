@@ -748,17 +748,32 @@ def apply_l2_trim(
 
 
 def generation_physical_order_names(*, v2: bool = True) -> list[str]:
-    """目标物理序域名列表（V2）；与 join_generation_segments / write_assemble 同 SSOT。"""
+    """目标物理序域名列表（V2）；与 join_generation_segments / write_assemble 同 SSOT。
+
+    默认（SCRIBE3_OUTLINE_AFTER_DRAMA=1）：outline 紧随 drama_vacuum、envelope 前
+    （高注意力区 · 第一原则收尾 U4）。
+    """
+    outline_after = True
+    try:
+        from scribe3.quality_enablement_flags import outline_after_drama_enabled
+        outline_after = bool(outline_after_drama_enabled())
+    except Exception:
+        import os as _os
+        raw = (_os.environ.get("SCRIBE3_OUTLINE_AFTER_DRAMA") or "1").strip().lower()
+        outline_after = raw not in ("0", "false", "no", "off", "")
+
     base = [
         "prefix",
         "event_drive",
         "drama_contract",
         "drama_vacuum",
-        "envelope",
     ]
+    if outline_after:
+        base.append("outline")
+    base.append("envelope")
     if v2:
         base.append("codex")
-    base.extend([
+    mid = [
         "seed_words",
         "craft",
         "phase_role",
@@ -766,7 +781,10 @@ def generation_physical_order_names(*, v2: bool = True) -> list[str]:
         "revelation_discipline",
         "sincerity",
         "purpose",
-        "outline",
+    ]
+    if not outline_after:
+        mid.append("outline")
+    mid.extend([
         "volume_intro",
         "brief_must",
         "pressure_drive",
@@ -779,6 +797,7 @@ def generation_physical_order_names(*, v2: bool = True) -> list[str]:
         "scene_truth_proj",
         "request_constraint",
     ])
+    base.extend(mid)
     return base
 
 

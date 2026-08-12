@@ -49,6 +49,10 @@ export function WorkflowCapsule({ work, onOpenJourney, onContinue }) {
   const chapterBit = lane
     ? `第${lane.seq}章 · ${lane.pilot_state_label || lane.pilot_state}`
     : stationLabel
+  const suggestions = Array.isArray(snap.creative_suggestions)
+    ? snap.creative_suggestions
+    : (Array.isArray(next?.creative_suggestions) ? next.creative_suggestions : [])
+  const tip0 = suggestions[0]
 
   return (
     <div
@@ -70,6 +74,15 @@ export function WorkflowCapsule({ work, onOpenJourney, onContinue }) {
           <span className="text-brand font-medium">{next.title}</span>
         </span>
       </button>
+      {tip0?.title && (
+        <span
+          data-testid="workflow-creative-suggestion"
+          className="hidden lg:inline truncate max-w-[12rem] text-faint/90 px-1.5 py-0.5 rounded bg-soft border border-line"
+          title={[tip0.detail, tip0.kind].filter(Boolean).join(' · ')}
+        >
+          💡 {tip0.title}
+        </span>
+      )}
       <button
         type="button"
         data-testid="workflow-capsule-continue"

@@ -911,24 +911,39 @@ def craft_gate_env_enabled() -> bool:
 
 
 def resolve_create_mode(explicit: str | None = None) -> str:
-    """standard | explore。默认 standard；显式 / env SCRIBE3_CREATE_MODE。"""
-    import os
-    raw = (explicit if explicit is not None else os.environ.get("SCRIBE3_CREATE_MODE")) or "standard"
-    m = str(raw).strip().lower()
-    return "explore" if m == "explore" else "standard"
+    """standard | explore。默认 standard；显式 / settings / env。"""
+    if explicit is not None and str(explicit).strip():
+        m = str(explicit).strip().lower()
+        return "explore" if m == "explore" else "standard"
+    try:
+        from scribe3.quality_enablement_flags import create_mode
+        return create_mode()
+    except Exception:
+        import os
+        raw = os.environ.get("SCRIBE3_CREATE_MODE") or "standard"
+        m = str(raw).strip().lower()
+        return "explore" if m == "explore" else "standard"
 
 
 def explore_soft_save_enabled() -> bool:
-    import os
-    v = (os.environ.get("SCRIBE3_EXPLORE_SOFT_SAVE") or "1").strip().lower()
-    return v not in ("0", "false", "no", "off", "")
+    try:
+        from scribe3.quality_enablement_flags import explore_soft_save_enabled as _f
+        return bool(_f())
+    except Exception:
+        import os
+        v = (os.environ.get("SCRIBE3_EXPLORE_SOFT_SAVE") or "1").strip().lower()
+        return v not in ("0", "false", "no", "off", "")
 
 
 def craft_finalize_env_enabled() -> bool:
-    """SCRIBE3_CRAFT_FINALIZE 默认 1；关=危险运维旁路 craft 定稿。"""
-    import os
-    v = (os.environ.get("SCRIBE3_CRAFT_FINALIZE") or "1").strip().lower()
-    return v not in ("0", "false", "no", "off", "")
+    """SCRIBE3_CRAFT_FINALIZE 默认开；关=危险运维旁路 craft 定稿。"""
+    try:
+        from scribe3.quality_enablement_flags import craft_finalize_enabled
+        return bool(craft_finalize_enabled())
+    except Exception:
+        import os
+        v = (os.environ.get("SCRIBE3_CRAFT_FINALIZE") or "1").strip().lower()
+        return v not in ("0", "false", "no", "off", "")
 
 
 def thresholds_for_create_mode(mode: str | None = None) -> CraftGateThresholds:

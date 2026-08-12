@@ -512,9 +512,13 @@ def _anti_slop_floor_block() -> str:
 
 
 def provenance_in_prompt_enabled() -> bool:
-    """SCRIBE3_PROVENANCE_IN_PROMPT 默认 0：溯源清单不进生成 prompt（trace 仍可有）。"""
-    v = (os.environ.get("SCRIBE3_PROVENANCE_IN_PROMPT") or "0").strip().lower()
-    return v in ("1", "true", "yes", "on")
+    """SCRIBE3_PROVENANCE_IN_PROMPT 默认关：溯源清单不进生成 prompt（trace 仍可有）。"""
+    try:
+        from scribe3.quality_enablement_flags import provenance_in_prompt_enabled as _f
+        return bool(_f())
+    except Exception:
+        v = (os.environ.get("SCRIBE3_PROVENANCE_IN_PROMPT") or "0").strip().lower()
+        return v in ("1", "true", "yes", "on")
 
 
 def generation_forbidden_source_kinds() -> tuple[str, ...]:
