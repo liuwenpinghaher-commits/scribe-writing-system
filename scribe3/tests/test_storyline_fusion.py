@@ -205,7 +205,7 @@ def test_fail_soft_storyline_meta_shape_and_promise_hint_flag():
 
 
 def test_assemble_writes_storyline_inject_key_fail_soft(monkeypatch=None):
-    """轻量：mock 组装路径上的 feed 异常仍应写入 storyline_inject 键——测预算报告写入形状。"""
+    """轻量：budget_report 可承载 fail-soft storyline_inject 形状。"""
     from scribe3.api.services import write_assemble as wa
 
     rep = {
@@ -224,6 +224,216 @@ def test_assemble_writes_storyline_inject_key_fail_soft(monkeypatch=None):
     assert got["storyline_inject"].get("fed") is False
 
 
+def test_prepare_write_storyline_inject_fail_soft_never_raises():
+    """热路径助手：feed 抛错时仍返回 meta（fed=false + error），不抛。"""
+    from scribe3 import storyline_inject_polish as sip
+
+    class Boom:
+        def chapters_lite(self):
+            raise RuntimeError("chapters_lite boom")
+
+    # store 本身炸仍 fail-soft
+    out = sip.prepare_write_storyline_inject(Boom(), chapter=1, work="ut")
+    assert "meta" in out and "text" in out
+    assert out["meta"].get("promise_mode") == "omit"
+    # chapters 炸 → 空章仍可 fed（feed 成功）或 error；关键：不抛
+    assert isinstance(out["meta"], dict)
+
+    # 强制 feed 抛错
+    real = sip.build_storyline_feed_context
+
+    def _boom(**kw):
+        raise RuntimeError("feed explode")
+
+    sip.build_storyline_feed_context = _boom  # type: ignore
+    try:
+        out2 = sip.prepare_write_storyline_inject(
+            type("St", (), {"chapters_lite": lambda self: [{"seq": 1, "synopsis": "a"}]})(),
+            chapter=1,
+            work="ut",
+        )
+        assert out2["meta"]["fed"] is False
+        assert out2["meta"].get("error")
+        assert "explode" in str(out2["meta"]["error"])
+        assert out2["text"] == ""
+        assert out2["meta"]["promise_mode"] == "omit"
+    finally:
+        sip.build_storyline_feed_context = real  # type: ignore
+
+
+def test_prepare_write_happy_path_omit_and_craft_only():
+    from scribe3.storyline_inject_polish import prepare_write_storyline_inject
+
+    class St:
+        def chapters_lite(self):
+            return [{"seq": 1, "title": "一", "synopsis": "代价：命", "beats": [{"text": "a"}]}]
+
+        def list_storylines(self):
+            return [
+                {
+                    "id": "ok",
+                    "title": "主",
+                    "chapter_seqs": [1],
+                    "notes": "公开注",
+                    "craft_only": True,
+                },
+                {
+                    "id": "sec",
+                    "title": "秘",
+                    "chapter_seqs": [1],
+                    "notes": "机密",
+                    "craft_only": False,
+                },
+            ]
+
+        def open_promises(self):
+            return [{"text": "伏笔甲", "setup_chapter": 1}]
+
+    out = prepare_write_storyline_inject(St(), chapter=1, work="ut")
+    assert out["meta"]["fed"] is True
+    assert out["meta"]["promise_mode"] == "omit"
+    assert out["meta"]["applied"] is True
+    assert "开放伏笔：" not in out["text"]
+    assert "公开注" in out["text"]
+    assert "机密" not in out["text"]
+
+
+def test_storyline_crud_endpoints_memory_path():
+    """驱动真实 product_backlog 端点（memory 降级），含 craft_only 与 DELETE。"""
+    from scribe3.api.routers import product_backlog as pb
+    from scribe3.storyline_store import clear_for_tests, get_storyline
+    import scribe3.api.app_impl as core
+
+    clear_for_tests()
+    old = getattr(core, "_store_for", None)
+
+    def _raise_store(work="main"):
+        raise RuntimeError("no surreal in unit")
+
+    core._store_for = _raise_store  # type: ignore
+    try:
+        created = pb.storyline_create_ep(
+            {
+                "title": "端点弧",
+                "notes": "n1",
+                "craft_only": False,
+                "chapter_seqs": [1],
+                "work": "ep_ut",
+            },
+            work="ep_ut",
+        )
+        assert created.get("id")
+        assert created.get("craft_only") is False
+        sid = created["id"]
+        patched = pb.storyline_patch_ep(
+            sid,
+            {"craft_only": True, "notes": "应注入", "arc_kind": "side", "work": "ep_ut"},
+            work="ep_ut",
+        )
+        assert patched["craft_only"] is True
+        assert patched["notes"] == "应注入"
+        assert patched["arc_kind"] == "side"
+        # inject preview use_store：无 store 时仍 omit
+        prev = pb.storyline_inject_preview_ep(
+            {"focus_seq": 1, "use_store": 0, "promise_mode": "omit", "open_promises": ["x"]},
+            work="ep_ut",
+        )
+        assert "开放伏笔：" not in (prev.get("text") or "")
+        deleted = pb.storyline_delete_ep(sid, work="ep_ut")
+        assert deleted.get("ok") is True
+        assert get_storyline("ep_ut", sid) is None
+    finally:
+        if old is not None:
+            core._store_for = old
+
+
+def test_storyline_hub_has_overlay_and_focus_refs():
+    from scribe3.api.routers import product_backlog as pb
+    from scribe3.storyline_store import clear_for_tests, create_storyline
+    import scribe3.api.app_impl as core
+
+    clear_for_tests()
+    create_storyline("hub2", title="T", chapter_seqs=[1], notes="x", craft_only=True)
+
+    class St:
+        def chapters_lite(self):
+            return [
+                {"seq": 1, "title": "一", "synopsis": "代价：生死"},
+                {"seq": 2, "title": "二", "beats": [{"conflict": "x"}]},
+            ]
+
+        def open_promises(self):
+            return [{"setup_chapter": 1, "text": "坑"}]
+
+        def list_storylines(self):
+            return [
+                {
+                    "id": "s1",
+                    "title": "T",
+                    "chapter_seqs": [1],
+                    "arc_kind": "main",
+                    "craft_only": True,
+                }
+            ]
+
+        def events_at(self, ch):
+            return []
+
+    old = getattr(core, "_store_for", None)
+    core._store_for = lambda work="main": St()  # type: ignore
+    try:
+        pack = pb.storyline_hub_ep(work="hub2")
+        assert pack.get("overlay")
+        assert pack.get("focus_seq") in (1, 2)
+        assert "causal" in (pack.get("refs") or {})
+        assert (pack["refs"]["causal"] or {}).get("state") in (
+            "no-data",
+            "complete",
+            "violations",
+        )
+        rows = (pack.get("overlay") or {}).get("rows") or []
+        assert any((r.get("arcs") or r.get("arc_titles")) for r in rows) or pack.get(
+            "storylines"
+        )
+    finally:
+        if old is not None:
+            core._store_for = old
+
+
+def test_app_impl_write_path_rebind_ready():
+    """rebind 后写路径必需全局齐全（防 package-C NameError 回归）。"""
+    import scribe3.api.app_impl as app_impl
+    from scribe3.api.services.write_assemble import (
+        WRITE_ASSEMBLE_REBIND_NAMES,
+        assert_write_assemble_rebind_ready,
+    )
+
+    if hasattr(app_impl, "_rebind_services"):
+        app_impl._rebind_services()
+    # 本包白名单必须全在 app_impl
+    missing_local = [
+        n for n in WRITE_ASSEMBLE_REBIND_NAMES if n not in app_impl.__dict__
+    ]
+    assert not missing_local, f"rebind missing: {missing_local}"
+    # v1 函数 globals 必须能解析关键符号
+    assem = app_impl._assemble_write_instructions_v1
+    for name in (
+        "generation_forbidden_source_kinds",
+        "_record_write_soft_fail",
+        "_store_write_budget_report",
+        "_pressure_drive_write_block",
+    ):
+        assert name in assem.__globals__, name
+    # 跨模块 external 至少应有 final_reminder
+    assert "_final_reminder" in assem.__globals__ or "_final_reminder" in app_impl.__dict__
+    # 自检 API
+    if hasattr(app_impl, "assert_write_path_rebind_ready"):
+        miss = app_impl.assert_write_path_rebind_ready()
+        # external 可能因命名空间检查用 globals() 含 external: 前缀
+        hard = [m for m in miss if not str(m).startswith("external:")]
+        assert not hard, hard
+
+
 if __name__ == "__main__":
     # 无 pytest 时直接跑
     test_craft_only_roundtrip_memory_store()
@@ -234,4 +444,9 @@ if __name__ == "__main__":
     test_default_focus_and_overlay_and_causal_refs()
     test_fail_soft_storyline_meta_shape_and_promise_hint_flag()
     test_assemble_writes_storyline_inject_key_fail_soft()
+    test_prepare_write_storyline_inject_fail_soft_never_raises()
+    test_prepare_write_happy_path_omit_and_craft_only()
+    test_storyline_crud_endpoints_memory_path()
+    test_storyline_hub_has_overlay_and_focus_refs()
+    test_app_impl_write_path_rebind_ready()
     print("ALL_STORYLINE_FUSION_OK")

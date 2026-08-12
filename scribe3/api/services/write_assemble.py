@@ -109,6 +109,70 @@ def _record_write_soft_fail(kind: str) -> None:
     record_write_soft_fail(kind)
 
 
+# ── write_assemble 包 rebind 白名单 SSOT（app_impl._rebind_services 必须消费本表）──
+WRITE_ASSEMBLE_REBIND_NAMES: tuple[str, ...] = (
+    "_faction_prompt_block",
+    "_codex_block",
+    "_editor_system",
+    "_editor_identity_block",
+    "_write_protocol_block",
+    "_write_revision_block",
+    "inject_floor_env_enabled",
+    "_anti_slop_floor_block",
+    "generation_forbidden_source_kinds",
+    "provenance_in_prompt_enabled",
+    "record_write_soft_fail",
+    "_record_write_soft_fail",
+    "_store_write_budget_report",
+    "get_last_write_budget_report",
+    "get_write_soft_fail_counters",
+    "_WRITE_OBS_LOCK",
+    "_WRITE_SOFT_FAIL_COUNTERS",
+    "_LAST_WRITE_BUDGET_REPORT",
+    "_editor_write_system",
+    "_voice_anchor_block",
+    "_outline_block",
+    "_volume_intro_block",
+    "_volume_intro_inject_enabled",
+    "_event_drive_block",
+    "_drama_block",
+    "_deduction_context_segments",
+    "_purpose_and_lessons_write_block",
+    "_brief_must_sections_write_block",
+    "_pressure_drive_write_block",
+    "_material_recall_block",
+    "_clip_chars",
+    "_assemble_write_instructions_v1",
+    "_assemble_write_instructions",
+)
+
+# 跨模块但 v1 rebind 后也必须出现在 app_impl 全局的名字（由其它 rebind 表注入）
+WRITE_ASSEMBLE_EXTERNAL_GLOBALS: tuple[str, ...] = (
+    "_final_reminder",
+    "_final_reminder_full",
+    "_get_write_retriever",
+    "_build_write_retrieval_query",
+    "_phase_role_block",
+    "_avoid_directive",
+    "_author_prefs_block_safe",
+    "_secret_guard_block",
+    "_revelation_discipline_block",
+)
+
+
+def assert_write_assemble_rebind_ready(ns: dict | None = None) -> list[str]:
+    """检查 rebind 后命名空间是否含写路径必需符号；返回缺失名列表（空=就绪）。"""
+    g = ns if ns is not None else globals()
+    missing: list[str] = []
+    for name in WRITE_ASSEMBLE_REBIND_NAMES:
+        if name not in g:
+            missing.append(name)
+    for name in WRITE_ASSEMBLE_EXTERNAL_GLOBALS:
+        if name not in g:
+            missing.append(f"external:{name}")
+    return missing
+
+
 def check_generate_reread_gate(work: str, chapter: int) -> dict:
     """供 /chat/write 等生成入口:硬续写模式未 ack 则拒。"""
     from scribe3.experience import exp_state

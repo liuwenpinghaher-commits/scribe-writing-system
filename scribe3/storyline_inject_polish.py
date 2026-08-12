@@ -232,6 +232,89 @@ def build_storyline_inject_segment(
     }
 
 
+def prepare_write_storyline_inject(
+    st: Any,
+    *,
+    chapter: int | None,
+    work: str | None = "main",
+    window: int = 2,
+    promise_mode: str = "omit",
+) -> dict[str, Any]:
+    """写路径热入口：组装 storyline 段 text + budget meta。
+
+    **永不抛出**（fail-soft）：异常时仍返回可写入 budget_report 的 meta。
+    调用方负责 join 前 `_push("storyline_polish", …)` 与 `bud_rep["storyline_inject"]=meta`。
+    """
+    meta: dict[str, Any] = {
+        "fed": False,
+        "promise_mode": (promise_mode or "omit").strip().lower() or "omit",
+        "applied": False,
+        "enabled": False,
+    }
+    try:
+        if not storyline_inject_enabled():
+            return {"meta": meta, "text": ""}
+        chapters: list = []
+        lines: list = []
+        prom: list = []
+        try:
+            if st is not None and hasattr(st, "chapters_lite"):
+                chapters = list(st.chapters_lite() or [])
+            elif st is not None and hasattr(st, "list_chapters"):
+                chapters = list(st.list_chapters() or [])
+        except Exception:
+            chapters = []
+        try:
+            if st is not None and hasattr(st, "list_storylines"):
+                lines = list(st.list_storylines() or [])
+        except Exception:
+            try:
+                from scribe3.storyline_store import list_storylines as mem_list
+                lines = list(mem_list(str(work or "main")) or [])
+            except Exception:
+                lines = []
+        try:
+            if st is not None and hasattr(st, "open_promises"):
+                prom = list(st.open_promises() or [])
+            elif st is not None and hasattr(st, "list_promises"):
+                prom = list(st.list_promises() or [])
+        except Exception:
+            prom = []
+        feed = build_storyline_feed_context(
+            focus_seq=int(chapter) if chapter is not None else None,
+            chapters=chapters,
+            storylines=lines,
+            open_promises=prom,
+            window=window,
+            promise_mode=promise_mode or "omit",
+        )
+        seg = feed.get("segment") or {}
+        text = str(seg.get("text") or "")
+        meta = {
+            "fed": bool(feed.get("fed")),
+            "promise_mode": str(feed.get("promise_mode") or "omit"),
+            "applied": bool(text.strip()),
+            "enabled": True,
+            "window_seqs": list(feed.get("window_seqs") or []),
+            "notes_in_prompt": bool(feed.get("notes_in_prompt")),
+            "craft_only_injected_ids": list(feed.get("craft_only_injected_ids") or []),
+            "craft_only_skipped": list(feed.get("craft_only_skipped") or []),
+            "audit": seg.get("audit"),
+        }
+        return {"meta": meta, "text": text}
+    except Exception as e:
+        return {
+            "meta": {
+                "fed": False,
+                "promise_mode": "omit",
+                "applied": False,
+                "enabled": True,
+                "error": str(e)[:160],
+            },
+            "text": "",
+        }
+
+
 def build_storyline_feed_context(
     *,
     focus_seq: int | None,

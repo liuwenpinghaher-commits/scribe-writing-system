@@ -517,100 +517,20 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             )
             _push("request_constraint", "supplemental", _rc)
 
-        # SL2：故事线 polish — join 前 _push + 窗口 feed；默认 omit 伏笔正文；fail-soft 仍写键
-        _storyline_meta: dict = {
-            "fed": False,
-            "promise_mode": "omit",
-            "applied": False,
-            "enabled": False,
-        }
-        try:
-            from scribe3.storyline_inject_polish import (
-                build_storyline_feed_context,
-                storyline_inject_enabled,
+        # SL2：故事线 polish — join 前 _push；prepare_* 永不抛（fail-soft 仍写键）
+        from scribe3.storyline_inject_polish import prepare_write_storyline_inject
+        _sl_prep = prepare_write_storyline_inject(
+            st, chapter=int(chapter) if chapter is not None else None, work=work,
+        )
+        _storyline_meta = dict(_sl_prep.get("meta") or {})
+        _txt = str(_sl_prep.get("text") or "")
+        if _txt.strip():
+            _sl = _domain_input(
+                f"chapter:{chapter}:storyline-polish",
+                "storyline_polish",
+                _txt if _txt.startswith("\n") else ("\n" + _txt),
             )
-            _sl_on = bool(storyline_inject_enabled())
-            _storyline_meta["enabled"] = _sl_on
-            if _sl_on:
-                _chapters = []
-                _lines = []
-                _prom = []
-                try:
-                    if hasattr(st, "chapters_lite"):
-                        _chapters = list(st.chapters_lite() or [])
-                    elif hasattr(st, "list_chapters"):
-                        _chapters = list(st.list_chapters() or [])
-                except Exception:
-                    _chapters = []
-                try:
-                    if hasattr(st, "list_storylines"):
-                        _lines = list(st.list_storylines() or [])
-                except Exception:
-                    try:
-                        from scribe3.storyline_store import list_storylines as _mem_sl
-                        _lines = list(_mem_sl(str(work or "main")) or [])
-                    except Exception:
-                        _lines = []
-                try:
-                    if hasattr(st, "open_promises"):
-                        _prom = list(st.open_promises() or [])
-                    elif hasattr(st, "list_promises"):
-                        _prom = list(st.list_promises() or [])
-                except Exception:
-                    _prom = []
-                _feed = build_storyline_feed_context(
-                    focus_seq=int(chapter) if chapter is not None else None,
-                    chapters=_chapters,
-                    storylines=_lines,
-                    open_promises=_prom,
-                    window=2,
-                    promise_mode="omit",
-                )
-                _seg = _feed.get("segment") or {}
-                _txt = str(_seg.get("text") or "")
-                if _txt.strip():
-                    _sl = _domain_input(
-                        f"chapter:{chapter}:storyline-polish",
-                        "storyline_polish",
-                        _txt if _txt.startswith("\n") else ("\n" + _txt),
-                    )
-                    _push("storyline_polish", "supplemental", _sl)
-                _storyline_meta = {
-                    "fed": bool(_feed.get("fed")),
-                    "promise_mode": str(_feed.get("promise_mode") or "omit"),
-                    "applied": bool(_txt.strip()),
-                    "enabled": True,
-                    "window_seqs": list(_feed.get("window_seqs") or []),
-                    "notes_in_prompt": bool(_feed.get("notes_in_prompt")),
-                    "craft_only_injected_ids": list(
-                        _feed.get("craft_only_injected_ids") or []
-                    ),
-                    "craft_only_skipped": list(_feed.get("craft_only_skipped") or []),
-                    "audit": _seg.get("audit"),
-                }
-            else:
-                _storyline_meta = {
-                    "fed": False,
-                    "promise_mode": "omit",
-                    "applied": False,
-                    "enabled": False,
-                }
-        except Exception as _sf_e:
-            from scribe3.soft_fail import soft_fail
-            import logging as _sf_logging
-            soft_fail(
-                "write_assemble_soft_10",
-                _sf_e,
-                logger="scribe3.write_assemble",
-                level=_sf_logging.DEBUG,
-            )
-            _storyline_meta = {
-                "fed": False,
-                "promise_mode": "omit",
-                "applied": False,
-                "enabled": True,
-                "error": str(_sf_e)[:160],
-            }
+            _push("storyline_polish", "supplemental", _sl)
 
         # P2：软 lore 激活（仅 material/reference/codex 类；红线免疫）
         try:

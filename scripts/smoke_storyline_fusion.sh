@@ -33,6 +33,8 @@ curl_j() {
 }
 
 log "== SL6 storyline fusion smoke · BASE=$BASE work=$WORK =="
+log "note: omit 默认在 SL2 已生效；SL3 PROMISE_HINT 默认关，仅可选一行计数"
+log "note: injection-trace 为进程内状态，须与 chat/write 同实例"
 
 log "-- 1) hub (lite default focus)"
 HUB=$(curl_j GET "/storyline/hub?work=${WORK}" || true)
