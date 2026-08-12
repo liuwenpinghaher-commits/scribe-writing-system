@@ -1115,19 +1115,7 @@ def checkpoint(req: CheckpointReq, seq: int, background: BackgroundTasks, work: 
 
 
 
-class ReaderAckReq(BaseModel):
-    seq: int
-    prose: str
-    note: str = ""
-
-
-class ReaderClaimReq(BaseModel):
-    seq: int
-    prose: str
-    require_ack: bool = True
-
-
-def reader_ack_ep(req: ReaderAckReq, work: str = "main"):
+def reader_ack_ep(body: dict = Body(...), work: str = "main"):
     """人读确认：绑定当前正文 prose_fp。表未就绪 → 503 中文。"""
     st = _store_for(work)
     if not hasattr(st, "upsert_reader_ack"):
@@ -1136,34 +1124,44 @@ def reader_ack_ep(req: ReaderAckReq, work: str = "main"):
             detail="读者确认存储未就绪（请先迁移 chapter_reader_ack）",
         )
     from scribe3.review.fp import prose_fp
+    seq = int(body.get("seq") or 0)
+    prose = body.get("prose") or ""
+    note = body.get("note") or ""
+    if seq < 1:
+        raise HTTPException(status_code=422, detail="seq required")
     try:
         row = st.upsert_reader_ack(
-            work, int(req.seq), prose_fp=prose_fp(req.prose or ""), note=req.note or "",
+            work, seq, prose_fp=prose_fp(prose), note=str(note)[:200],
         )
     except Exception as e:
         raise HTTPException(
             status_code=503,
             detail=f"读者确认存储未就绪：{str(e)[:120]}",
         ) from e
-    return {"ok": True, "work": work, "seq": int(req.seq), "ack": row}
+    return {"ok": True, "work": work, "seq": seq, "ack": row}
 
 
-def reader_claim_ep(req: ReaderClaimReq, work: str = "main"):
+def reader_claim_ep(body: dict = Body(...), work: str = "main"):
     """宣称可读硬门：机判红或未 ack → 409。"""
     st = _store_for(work)
     from scribe3.reader_ready import assert_reader_claim
+    seq = int(body.get("seq") or 0)
+    prose = body.get("prose") or ""
+    require_ack = body.get("require_ack", True)
+    if seq < 1:
+        raise HTTPException(status_code=422, detail="seq required")
     scaffold_ok = None
     try:
         from scribe3.verify_craft_compliance import gate_b
-        scaffold_ok = bool(gate_b(st, int(req.seq)).ok)
+        scaffold_ok = bool(gate_b(st, seq).ok)
     except Exception:
         scaffold_ok = None
     out = assert_reader_claim(
-        req.prose or "",
+        prose,
         st=st,
         work=work,
-        seq=int(req.seq),
-        require_ack=bool(req.require_ack),
+        seq=seq,
+        require_ack=bool(require_ack),
         scaffold_ok=scaffold_ok,
     )
     if not out.get("allowed"):
