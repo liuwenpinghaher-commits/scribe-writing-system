@@ -63,26 +63,15 @@ def authz_for(overrides: dict | None) -> dict:
 
 
 def read_state(st, seq: int) -> dict:
-    # 窄字段(get_chapter 显式列表不含 pilot_*)——走 store 公共 API（P1-2）
-    if hasattr(st, "get_pilot_state_fields"):
-        ch = st.get_pilot_state_fields(seq) or {}
-    else:
-        rows = st._query(
-            "SELECT pilot_state, pilot_state_at, pilot_parked FROM type::record('chapter',$seq)",
-            {"seq": seq})
-        ch = rows[0] if rows else {}
+    # 窄字段(get_chapter 显式列表不含 pilot_*)——仅 store 公共 API（P1-2 清零）
+    ch = st.get_pilot_state_fields(seq) or {}
     return {"state": ch.get("pilot_state") or "idle",
             "at": ch.get("pilot_state_at"),
             "parked": ch.get("pilot_parked") or ""}
 
 
 def write_state(st, seq: int, state: str, parked: str = "") -> None:
-    if hasattr(st, "set_pilot_state"):
-        st.set_pilot_state(seq, state, parked)
-        return
-    st._execute_write(
-        "UPDATE type::record('chapter',$seq) SET pilot_state=$s, pilot_state_at=$t, pilot_parked=$p",
-        {"seq": seq, "s": state, "t": int(time.time()), "p": parked})
+    st.set_pilot_state(seq, state, parked)
 
 
 def gate_of(action: str, authz: dict, mode: str) -> str:

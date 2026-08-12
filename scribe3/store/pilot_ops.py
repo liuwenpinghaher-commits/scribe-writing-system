@@ -150,6 +150,13 @@ class PilotOpsMixin:
             },
         )
 
+    def set_pilot_parked(self, seq: int, parked: str) -> None:
+        """仅写 pilot_parked（连写异常停靠等，不改 pilot_state）。"""
+        self._execute_write(
+            "UPDATE type::record('chapter',$seq) SET pilot_parked=$p",
+            {"seq": int(seq), "p": parked or ""},
+        )
+
     def get_chapter_quality_fields(self, seq: int) -> dict[str, Any]:
         """pulse 质量维：ingest_status / error / qc_issues。"""
         rows = self._query(

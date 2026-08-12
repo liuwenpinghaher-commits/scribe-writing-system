@@ -24,8 +24,8 @@ prompt 门控权威判定)、`_secret_guard_block`(app.py,泄露检测硬约束)
   (`store.facts_at()`)、`_secret_guard_block`(`store.facts_at()`)——全部是直接查库,
   不经 `context_cache`,也不依赖 embedding 是否存在;跳过这两步不影响限知门控本身是否
   生效,只是桥接命题当前不可被语义召回(可接受的范围裁剪,不在本任务 8 条断言内)。
-  故直接走 `store._execute_write`/`store._query`——这本身就是仓内既有惯例
-  (app.py/ingest.py/pilot.py/pulse.py 等模块都直接调用 store 这两个方法,并非本文件自创)。
+  写路径现经 store 公共 API（`upsert_bridge_proposition` / `find_bridge_proposition_local`
+  / `delete_bridge_proposition`，P1-2 清零），内部仍落库到 Surreal。
 - **幂等键 = (entity_id, attribute, source),不是自造的确定性 record id**:任务原话
   "幂等:同 (entity_id, attribute, source='codex_bridge') 唯一"——按内容查询而非按 id
   猜测,天然避免"势力名/字段名拼接出的 record id 恰好撞车"的边角风险。
@@ -86,13 +86,7 @@ def _find_bridge_local(store, entity_id: str, attribute: str) -> str | None:
     """按幂等键 (entity_id, attribute, source) 查已存在的桥接命题,返回其 record id 的
     本地部分(无则 None)。LIMIT 1 是防御性写法——本模块自身的 create/update 分支保证
     该键至多一行,不依赖这里的 LIMIT 掩盖潜在重复(测试②③用不带 LIMIT 的裸查询验证)。"""
-    if hasattr(store, "find_bridge_proposition_local"):
-        return store.find_bridge_proposition_local(entity_id, attribute, SOURCE)
-    rows = store._query(
-        "SELECT meta::id(id) AS local FROM proposition "
-        "WHERE entity_id=$eid AND attribute=$attr AND source=$src LIMIT 1",
-        {"eid": entity_id, "attr": attribute, "src": SOURCE})
-    return rows[0]["local"] if rows else None
+    return store.find_bridge_proposition_local(entity_id, attribute, SOURCE)
 
 
 def sync_faction_secrets(store, name: str, row: dict) -> dict:
@@ -100,8 +94,7 @@ def sync_faction_secrets(store, name: str, row: dict) -> dict:
     否则(无值,或未标/取消标 secret)删除对应的既有桥接命题——幂等,可任意次重放。
 
     Args:
-        store: SurrealStore 实例(需支持 `_query`/`_execute_write`,与仓内既有跨模块用法
-            一致,见本文件头部说明)。
+        store: SurrealStore 实例(需支持 bridge 公共 API，见本文件头部说明)。
         name: 势力名(`faction.name`,用于拼 `entity_id = f"faction:{name}"`)。
         row: 该势力当前的**完整**落库行(如 `store.get_faction(name)` 的回读结果)——
             必须是完整行而非本次请求的增量 `sent` dict,否则"这次没提交但之前已标
@@ -124,16 +117,11 @@ def sync_faction_secrets(store, name: str, row: dict) -> dict:
         if flagged and has_value:
             text = _summarize(row.get(key))
             if existing_local:
-                # 策略 B：镜像 UPSERT — 优先公共 API（P1-2）
-                if hasattr(store, "upsert_bridge_proposition"):
-                    store.upsert_bridge_proposition(
-                        local=existing_local, entity_id=entity_id,
-                        attribute=key, value=text, source=SOURCE,
-                    )
-                else:
-                    store._execute_write(
-                        "UPDATE type::record('proposition', $local) SET value=$val, secret=true, source=$src",
-                        {"local": existing_local, "val": text, "src": SOURCE})
+                # 策略 B：镜像 UPSERT — 仅公共 API（P1-2 清零）
+                store.upsert_bridge_proposition(
+                    local=existing_local, entity_id=entity_id,
+                    attribute=key, value=text, source=SOURCE,
+                )
                 counts["updated"] += 1
                 try:
                     store.semantic_index(f"fact:{existing_local}", text)
@@ -152,16 +140,10 @@ def sync_faction_secrets(store, name: str, row: dict) -> dict:
                         entity_id, key, type(e).__name__,
                     )
             else:
-                if hasattr(store, "upsert_bridge_proposition"):
-                    store.upsert_bridge_proposition(
-                        local=None, entity_id=entity_id,
-                        attribute=key, value=text, source=SOURCE,
-                    )
-                else:
-                    store._execute_write(
-                        "CREATE proposition SET entity_id=$eid, attribute=$attr, value=$val, "
-                        "valid_from=1, secret=true, source=$src",
-                        {"eid": entity_id, "attr": key, "val": text, "src": SOURCE})
+                store.upsert_bridge_proposition(
+                    local=None, entity_id=entity_id,
+                    attribute=key, value=text, source=SOURCE,
+                )
                 counts["created"] += 1
                 try:
                     loc = _find_bridge_local(store, entity_id, key) or existing_local
@@ -182,11 +164,7 @@ def sync_faction_secrets(store, name: str, row: dict) -> dict:
                         entity_id, key, type(e).__name__,
                     )
         elif existing_local:
-            if hasattr(store, "delete_bridge_proposition"):
-                store.delete_bridge_proposition(existing_local)
-            else:
-                store._execute_write(
-                    "DELETE type::record('proposition', $local)", {"local": existing_local})
+            store.delete_bridge_proposition(existing_local)
             counts["deleted"] += 1
     return counts
 

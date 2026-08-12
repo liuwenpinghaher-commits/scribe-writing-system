@@ -26,13 +26,7 @@ def purge_audit_events(store: Any, *, days: int | None = None) -> dict[str, Any]
     """删除超过 TTL 的审计行。best-effort。"""
     d = audit_ttl_days() if days is None else max(1, int(days))
     try:
-        if hasattr(store, "purge_audit_events_older_than"):
-            store.purge_audit_events_older_than(d)
-        else:
-            store._execute_write(
-                f"DELETE audit_event WHERE at < time::now() - {d}d;",
-                {},
-            )
+        store.purge_audit_events_older_than(d)
         return {"ok": True, "ttl_days": d, "action": "deleted_older_than"}
     except Exception as e:
         _log.warning("purge_audit_events failed: %s", e)
@@ -49,31 +43,7 @@ def query_audit_log(
     """读取审计日志（最近 N 条）。"""
     lim = max(1, min(500, int(limit or 50)))
     try:
-        if hasattr(store, "query_audit_events"):
-            return store.query_audit_events(table=table, kind=kind, limit=lim)
-        if table and kind:
-            rows = store._query(
-                "SELECT * FROM audit_event WHERE source_table=$t AND kind=$k "
-                f"ORDER BY at DESC LIMIT {lim};",
-                {"t": table, "k": kind},
-            ) or []
-        elif table:
-            rows = store._query(
-                "SELECT * FROM audit_event WHERE source_table=$t "
-                f"ORDER BY at DESC LIMIT {lim};",
-                {"t": table},
-            ) or []
-        elif kind:
-            rows = store._query(
-                "SELECT * FROM audit_event WHERE kind=$k "
-                f"ORDER BY at DESC LIMIT {lim};",
-                {"k": kind},
-            ) or []
-        else:
-            rows = store._query(
-                f"SELECT * FROM audit_event ORDER BY at DESC LIMIT {lim};",
-            ) or []
-        return [r for r in rows if isinstance(r, dict)]
+        return store.query_audit_events(table=table, kind=kind, limit=lim)
     except Exception as e:
         _log.debug("query_audit_log: %s", e)
         return []

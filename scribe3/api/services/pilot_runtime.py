@@ -475,9 +475,8 @@ def _pilot_run_bg(work: str, start: int, until: int) -> None:
         try:
             _cur = state.get("cur_seq")
             if _cur is not None:
-                _store_for(work)._execute_write(
-                    "UPDATE type::record('chapter',$seq) SET pilot_parked=$p",
-                    {"seq": _cur, "p": f"连写异常停靠:{str(e)[:100]}"})
+                _store_for(work).set_pilot_parked(
+                    _cur, f"连写异常停靠:{str(e)[:100]}")
         except Exception:
             pass
     finally:

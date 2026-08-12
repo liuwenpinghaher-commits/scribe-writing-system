@@ -234,14 +234,8 @@ def _causal_dim(st, seq: int) -> dict:
 
 
 def _quality_dim(st, seq: int) -> dict:
-    # 审查 P1-6:get_chapter 显式字段列表不含 qc_issues——走公共 API（P1-2）
-    if hasattr(st, "get_chapter_quality_fields"):
-        ch = st.get_chapter_quality_fields(seq) or {}
-    else:
-        rows = st._query(
-            "SELECT ingest_status, ingest_error, qc_issues FROM type::record('chapter',$seq)",
-            {"seq": seq})
-        ch = rows[0] if rows else {}
+    # get_chapter 显式字段列表不含 qc_issues——仅 store 公共 API（P1-2 清零）
+    ch = st.get_chapter_quality_fields(seq) or {}
     items: list[dict] = []
     ist = ch.get("ingest_status")
     if ist in ("failed", "parse_failed"):

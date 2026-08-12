@@ -171,21 +171,11 @@ def _find_existing_learned_prop(store, fact_text: str) -> str | None:
         needle = fact_text.strip()
         if not needle:
             return None
-        # 全量扫描【仍生效】的"获知"命题——优先 store 公共 API（P1-2）
-        if hasattr(store, "find_active_learned_fact_local"):
-            loc = store.find_active_learned_fact_local(needle)
-            if loc:
-                return f"fact:{loc}"
-            return None
-        rows = store._query(
-            "SELECT meta::id(id) AS local, value FROM proposition "
-            "WHERE attribute = '获知' AND valid_to IS NONE")
-        for r in rows:
-            existing = (r.get("value") or "").strip()
-            if not existing:
-                continue
-            if existing == needle:
-                return f"fact:{r['local']}"
+        # 全量扫描【仍生效】的"获知"命题——仅 store 公共 API（P1-2 清零）
+        loc = store.find_active_learned_fact_local(needle)
+        if loc:
+            return f"fact:{loc}"
+        return None
     except Exception as e:
         _log.warning("learned 去重查找失败(fail-safe,将新建命题): %s", e)
     return None
@@ -199,14 +189,8 @@ def _upsert_reader_knows(store, fid: str, seq: int) -> None:
     import logging
     _log = logging.getLogger("scribe3.ingest")
     try:
-        if hasattr(store, "reader_knows_exists"):
-            if store.reader_knows_exists(fid):
-                return
-        else:
-            existing = store._query(
-                "SELECT proposition FROM reader_knows WHERE proposition = $p", {"p": fid})
-            if existing:
-                return
+        if store.reader_knows_exists(fid):
+            return
         store.add_knowledge(KnowledgeEdge("reader", fid, since_chapter=seq,
                                           acquired_via="narrated"),
                             ingest_seq=seq)
@@ -543,15 +527,7 @@ def _store_work_name(store, work: str | None = None) -> str:
 
 def _chapter_ingest_prose_fp(store, seq: int) -> str | None:
     try:
-        if hasattr(store, "get_chapter_ingest_prose_fp"):
-            return store.get_chapter_ingest_prose_fp(int(seq))
-        rows = store._query(
-            "SELECT ingest_prose_fp, ingest_status FROM type::record('chapter', $seq)",
-            {"seq": int(seq)},
-        )
-        if not rows:
-            return None
-        return (rows[0].get("ingest_prose_fp") or "").strip() or None
+        return store.get_chapter_ingest_prose_fp(int(seq))
     except Exception:
         return None
 

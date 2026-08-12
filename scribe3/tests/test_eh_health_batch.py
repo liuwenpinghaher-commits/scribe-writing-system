@@ -151,6 +151,15 @@ def test_eh06_bridge_logs_on_soft_fail(caplog, monkeypatch):
         def _execute_write(self, *a, **k):
             return True
 
+        def upsert_bridge_proposition(self, **kwargs):
+            return kwargs.get("local") or "new"
+
+        def delete_bridge_proposition(self, local):
+            return None
+
+        def find_bridge_proposition_local(self, *a, **k):
+            return "loc1"
+
         def semantic_index(self, *a, **k):
             raise RuntimeError("idx")
 

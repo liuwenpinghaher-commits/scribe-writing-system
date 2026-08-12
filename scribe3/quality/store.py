@@ -173,32 +173,51 @@ class QualityStore:
         self._store = store
 
     @staticmethod
+    def _retry_delay(attempt: int) -> float:
+        """单步退避秒数，有界 ≤50ms。"""
+        return min(0.05, 0.005 * (attempt + 1))
+
+    @staticmethod
     def _retry_read(loader, attempts: int = 5):
-        """同步重试读。P1-15：退避改用可中断的短 sleep；若在 running loop 中则
-        用 ``run_in_executor`` 的调用方负责不阻塞——本函数保持 sync 契约但
-        默认退避 ≤50ms 且尝试次数内总 sleep 有界。"""
+        """同步重试读（sync 契约）。
+
+        P1-15：总 sleep 有界（每步 ≤50ms）。**勿在 async 热路径直接调用**——
+        若事件环正在跑，请用 :meth:`_retry_read_async`（``await asyncio.sleep``）。
+        误在 running loop 中调用时仍极短 ``time.sleep`` 并打 debug，避免长堵环。
+        """
         for attempt in range(attempts):
             value = loader()
             if value is not None:
                 return value
             if attempt + 1 < attempts:
-                # 优先非阻塞路径：若事件环在跑且调用方把 loader 包在 executor，
-                # 此处 sleep 极短；仍 sync 以兼容既有调用面。
-                delay = min(0.05, 0.005 * (attempt + 1))
+                delay = QualityStore._retry_delay(attempt)
                 try:
                     import asyncio
-                    loop = asyncio.get_running_loop()
-                    # 在 async 上下文被误同步调用时，勿 time.sleep 堵环：
-                    # 用 call_soon 无法等待；改为极短 sleep 并记 warning。
+                    asyncio.get_running_loop()
                     import logging
                     logging.getLogger("scribe3.quality.store").debug(
-                        "quality_retry_read_sleep_in_async_context delay=%.3f", delay,
+                        "quality_retry_read_sleep_in_async_context delay=%.3f "
+                        "(prefer _retry_read_async)",
+                        delay,
                     )
-                    # 仍 sleep：契约是 sync loader；调用方应避免在热 async 路径调用。
                     time.sleep(delay)
                 except RuntimeError:
-                    # 无 running loop：普通同步路径
                     time.sleep(delay)
+        return None
+
+    @staticmethod
+    async def _retry_read_async(loader, attempts: int = 5):
+        """异步安全重试读：退避用 ``asyncio.sleep``，不堵事件环。
+
+        ``loader`` 仍可为同步 callable（与既有 Surreal SDK 一致）；仅 sleep 异步化。
+        """
+        import asyncio
+        for attempt in range(attempts):
+            value = loader()
+            if value is not None:
+                return value
+            if attempt + 1 < attempts:
+                await asyncio.sleep(QualityStore._retry_delay(attempt))
         return None
 
     def save_contract_revision(

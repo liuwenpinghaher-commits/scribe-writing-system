@@ -19,22 +19,45 @@ class LoginIn(BaseModel):
     password: str = Field(min_length=1)
 
 
-def _cookie_secure(request: Request | None = None) -> bool:
-    """EH-05 / PR-EH-5：显式 env 优先；未设置时仅信任受信反代 HTTPS 推断。
+def _session_bool_from_env(key: str) -> bool | None:
+    """显式 env 非空 → True/False；未设或空 → None（继续后续规则）。"""
+    raw = os.environ.get(key)
+    if raw is None or str(raw).strip() == "":
+        return None
+    flag = str(raw).strip().lower()
+    if flag in {"1", "true", "yes", "on"}:
+        return True
+    if flag in {"0", "false", "no", "off"}:
+        return False
+    return None
 
-    - SCRIBE3_SESSION_SECURE=1/0 → 强制
-    - 未设置：若 request 有 X-Forwarded-Proto: https 或 scheme==https → True
-    - 否则 False（本地 HTTP 开发默认）
+
+def _cookie_secure(request: Request | None = None) -> bool:
+    """EH-05 / P1-4/5：显式 env 优先；settings 覆盖次之；未设时 HTTPS 推断。
+
+    - SCRIBE3_SESSION_SECURE=1/0（env）→ 强制
+    - settings 注册表有 override → 用 settings 真值
+    - 否则：X-Forwarded-Proto: https 或 scheme==https → True
+    - 默认 False（本地 HTTP 开发）
     """
-    # 1) 显式 env 优先
-    raw = os.environ.get("SCRIBE3_SESSION_SECURE")
-    if raw is not None and str(raw).strip() != "":
-        flag = str(raw).strip().lower()
-        if flag in {"1", "true", "yes", "on"}:
-            return True
-        if flag in {"0", "false", "no", "off"}:
-            return False
-    # 2) 请求侧 HTTPS 推断（env 未设时）
+    # 1) 显式 env 优先（进程注入 / docker -e）
+    env_flag = _session_bool_from_env("SCRIBE3_SESSION_SECURE")
+    if env_flag is not None:
+        return env_flag
+    # 2) settings 注册表（DB 热覆盖）
+    try:
+        from scribe3 import settings as _settings
+        try:
+            if getattr(_settings, "settings_store", None) and _settings.settings_store.has_override(
+                "SCRIBE3_SESSION_SECURE"
+            ):
+                return bool(_settings.get_setting("SCRIBE3_SESSION_SECURE"))
+        except Exception:
+            pass
+        # 无 override 时 get_setting 可能回落 env（已空）或默认 False——不在此抢在 XFP 之前
+    except Exception:
+        pass
+    # 3) 请求侧 HTTPS 推断
     if request is not None:
         try:
             xfp = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
@@ -44,20 +67,24 @@ def _cookie_secure(request: Request | None = None) -> bool:
                 return True
         except Exception:
             pass
-    # 3) settings 注册表（仅当 DB/env 有有效值；默认 False 不抢在 XFP 之前）
-    try:
-        from scribe3 import settings as _settings
-        if "SCRIBE3_SESSION_SECURE" in getattr(_settings, "_BY_KEY", {}):
-            # 仅当存在 override 才用 settings 真值
-            try:
-                if _settings.settings_store.has_override("SCRIBE3_SESSION_SECURE"):
-                    v = _settings.get_setting("SCRIBE3_SESSION_SECURE")
-                    return bool(v)
-            except Exception:
-                pass
-    except Exception:
-        pass
     return False
+
+
+def _session_ttl_seconds() -> int:
+    """会话 Cookie max_age：settings 优先，env 回落，默认 168h。"""
+    hours = 168
+    try:
+        from scribe3.settings import get_setting
+        v = get_setting("SCRIBE3_SESSION_TTL_HOURS")
+        if v is not None and str(v).strip() != "":
+            hours = max(1, int(v))
+    except Exception:
+        raw = os.environ.get("SCRIBE3_SESSION_TTL_HOURS", "168") or "168"
+        try:
+            hours = max(1, int(raw))
+        except ValueError:
+            hours = 168
+    return int(hours) * 3600
 
 
 def _set_session_cookie(response: Response, token: str, request: Request | None = None) -> None:
@@ -68,7 +95,7 @@ def _set_session_cookie(response: Response, token: str, request: Request | None 
         secure=_cookie_secure(request),
         samesite="lax",
         path="/",
-        max_age=int(os.environ.get("SCRIBE3_SESSION_TTL_HOURS", "168") or "168") * 3600,
+        max_age=_session_ttl_seconds(),
     )
 
 
