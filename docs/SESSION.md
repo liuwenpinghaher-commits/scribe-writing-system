@@ -34,6 +34,14 @@
 实现暂缓；按 PR Plan 开工再说。
 ```
 
+### craft-loop · 真人视角块门改进闭环（短入口）
+
+```
+继续 craft-loop
+先读 docs/plans/craft-loop.md 与 docs/SESSION.md。
+性质：第一性块门 + 运营 + 改系统复验；≠ 50k-e2e；≠ v6.3.4 总 PASS。
+```
+
 ---
 
 ## 当前状态
@@ -55,6 +63,16 @@
 - **清单脚本**：`scripts/v634_evidence_checklist.py` + pure tests  
 - **本轮执行**：工程脚手架 + demo runtime baseline；**无真人 SPA → 不得总 PASS**（见 evidence 包结案 PARTIAL）
 
+### craft-loop · 真人视角块门 + 改进闭环（2026-08-12）
+
+> **短名：`craft-loop`** · `继续 craft-loop` 或读 [`docs/plans/craft-loop.md`](./plans/craft-loop.md)
+
+- **状态**：Accepted Draft **0.3.1**（design 循环共识；**实现暂缓**）
+- **证据模板**：`docs/evidence/craft-loop-TEMPLATE/`
+- **性质**：CL-B0…B6 第一性 hard + 运营 + P/C/T/M/A/K 根因 + 改系统 + `deploy_demo` 同场景复验；**≠** 50k-e2e；**≠** v6.3.4 总 PASS
+- **用户已决**：CL-B1 **全绿**才进 B2（无 partial）；先只看设计
+- **下一步**：用户再要求时再开 PR-1 CLI / demo 试点
+
 ### 50k-e2e · 5 万字 CLI+Playwright 验收（2026-08-12）
 
 > **短名：`50k-e2e`** · 新会话直接说「继续 50k-e2e」或「读 docs/plans/50k-e2e.md」
@@ -64,8 +82,8 @@
 - **方案 v1 脚手架**：`docs/plans/2026-08-12-50k-cli-playwright-acceptance.md`（B- 基线）
 - **入口脚本**：`./scripts/run_50k_acceptance.sh`
 - **实现目录**：`scribe3/web/e2e/acceptance_50k/*`
-- **性质**：已部署栈长程自动化；**≠** v6.3.4 体验总 PASS
-- **要点**：三级判定；WCG-A/B；checkpoint 迁移；分章 re-launch；M8/M12 Python 同源
+- **性质**：已部署栈长程自动化；**≠** v6.3.4 体验总 PASS；**≠** craft-loop
+- **要点**：三级判定；WCG；checkpoint 迁移；分章 re-launch
 
 ### 控制面活地图（2026-08-10）
 
