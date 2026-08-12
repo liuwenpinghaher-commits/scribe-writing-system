@@ -1,0 +1,39 @@
+{
+  "block": "CL-B0",
+  "verdict": "green",
+  "hard": {
+    "CL-B0-H1": {
+      "pass": true,
+      "value": 18,
+      "ssot": "cn_len(reader_feeling)>=10"
+    },
+    "CL-B0-H2": {
+      "pass": true,
+      "value": 13,
+      "human": "PASS 弧=压抑→试探→裂缝→余烬未冷",
+      "ssot": "cn_len(emotional_arc)>=4 + human direction"
+    },
+    "CL-B0-H3": {
+      "pass": true,
+      "value": {
+        "lines": 3,
+        "cn_len": 21
+      }
+    },
+    "CL-B0-H4": {
+      "pass": true,
+      "value": 45000
+    },
+    "CL-B0-H5": {
+      "pass": true,
+      "human": "PASS 意图来自既有 live 验证书 UI 种子/合法通道，非本轮无追溯 REST 灌 intent 叙事字段；total_word_goal 经 PUT /intent-goals（工程配额闸外）"
+    },
+    "CL-B0-H6": {
+      "pass": true,
+      "human": "PASS 读者要感到铜腥夜里的克制悬念、指尖发凉；弧压抑→试探→裂缝→余烬；红线不系统流/升级文/不写明铜匙用途给灰狸。",
+      "evidence_len": 48
+    }
+  },
+  "protocol": "craft-loop",
+  "protocol_version": "0.3.1"
+}
