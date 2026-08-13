@@ -3,7 +3,7 @@
 | 项 | 值 |
 |----|----|
 | **短名** | `write-path-story-constraints` / `写路径故事约束` |
-| **文档状态** | **Reviewed · design consensus（0 open）** · R3；待人审签执行 |
+| **文档状态** | **Superseded for schedule/defaults by R8** · 规格附录仍有效 · R3 |
 | **作者** | Grok Design（待人审签） |
 | **日期** | 2026-08-13 |
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` |
@@ -12,6 +12,8 @@
 | **验证环境** | **仅已部署 demo** `https://tonglu.qing.blue` · SSH `ubuntu@82.157.130.140` · 应用 `/opt/scribe3/app` |
 | **运维 env SSOT** | **`/opt/scribe3/app/.env`**（不是 `.env.production.local`） |
 | **合法写通道** | orch proposal/apply、`save-chapter`、intent-goals、MCP `s3_patch_chapter_*` / `s3_add_chapter`；**禁止** EMERGENCY 默认。`POST /revise-span` / `s3_revise_span` **v1 只预览，不落库**，不算第三条正文覆写通道 |
+| **最终方案入口** | [`docs/plans/2026-08-13-final-good-novel-plan.md`](./2026-08-13-final-good-novel-plan.md)（北极星） |
+| **实施入口** | [`docs/plans/2026-08-13-final-improvement-r8.md`](./2026-08-13-final-improvement-r8.md)（排期 / 作者默认 / W5×W8×W9 裁断） |
 | **产品完成 SSOT** | `docs/plans/2026-08-13-narrative-engine-product-mainline.md`（宣称/存稿 soft/UI 表面） |
 | **技术附录** | `docs/plans/2026-08-13-narrative-mainline.md`（schema / beat_shape / claim 旗） |
 | **本设计定位** | **写路径执行层**：回答「合同为何没进 prompt」；钉死 **故事约束注入 / 工程门禁进模型 / 默认 span 修订**；并把 product-mainline **未落地断点 B1–B10 全部接线** |
@@ -27,7 +29,7 @@
 > | P6a 字段优先级、P7 主栏树 | **product-mainline §4.3 / §6** |  
 > | chief / craft-loop 完成话术 | **product-mainline P4** |  
 > | **写路径注入载荷 + 物理序 + allowlist + span 修订** | **本设计**（升级 §9：不得 `_push(format_contract_block)` 原文） |  
-> **实施排期**：product-mainline 未做的 P2/P3/P3b/P4/P5/P6a/P7 **由本设计 W\* 开工**；W0 必须在 product-mainline PR 表加指针「实施以 write-path W\* 为准，规格细节仍引用 product-mainline §x」。实现者 **两份都读**：本设计管排期与写路径增量，不得只读本 Draft 的缩短规格。  
+> **实施排期**：**以 R8（`2026-08-13-final-improvement-r8.md`）W\* 为准**。本文保留 allowlist / span / 组块细表；作者默认边界（W5 soft、不关 explore、W9 无字数地板、W10 不进 draft）以 R8 裁断为准。规格细节仍引用 product-mainline §x。  
 > 本设计 **不重开宣称旗**；demo `STORY_COMPLETE=1` 已生效。
 
 ---
