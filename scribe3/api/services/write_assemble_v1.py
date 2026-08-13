@@ -89,11 +89,11 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     # I1:身份用【纯身份块】而非 _editor_write_system——后者经 _editor_system 注入设定/角色/
     # 伏笔 + 章前简报,会与下方 envelope 的 canonical/global 重复(facts 2×/promises 3×)。
     # v1 让 envelope 独占 facts/promises/角色/北极星的数据注入,身份层只留身份+硬协议+文风。
-    # prefix 只留协议+anti_slop+章号；身份独立 _push("identity")。
+    # prefix 只留 anti_slop+章号；身份 / 写协议独立 _push。
     _identity_txt = _editor_identity_block()
+    _protocol_raw = _write_protocol_block()
     prefix = (
-        _write_protocol_block()
-        + _anti_slop_floor_block()
+        _anti_slop_floor_block()
         + _domain_input(
             f"chapter:{chapter}:request-position", "request_position",
             f"\n当前第 {chapter} 章。",
@@ -197,6 +197,14 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         join_generation_segments,
         subtract_codex_canonical_echoes,
     )
+    from scribe3.api.services.prompt_blocks import _final_reminder
+    _protocol_txt = subtract_codex_canonical_echoes(
+        _protocol_raw or "", _final_reminder() or "",
+    )
+    _protocol_skip = ""
+    if not (_protocol_txt or "").strip():
+        _protocol_txt = ""
+        _protocol_skip = "write_protocol_echo_core_or_empty"
     _v2 = envelope_v2_enabled()
     codex_input = (
         "\n\n【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n"
@@ -250,6 +258,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             return text
 
         _push("identity", "redline", _identity_txt)
+        if _protocol_txt:
+            _push("write_protocol", "redline", _protocol_txt)
+        elif _protocol_skip:
+            _record_write_soft_fail(_protocol_skip)
         _push("prefix", "redline", prefix)
         if _revision_txt:
             _push("revision", "redline", _revision_txt)
@@ -805,6 +817,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         bud_rep["revision_injected"] = bool(_revision_txt)
         if _revision_skip:
             bud_rep["revision_skip_reason"] = _revision_skip
+        bud_rep["write_protocol_injected"] = bool(_protocol_txt)
+        if _protocol_skip:
+            bud_rep["write_protocol_skip_reason"] = _protocol_skip
         # SL2：始终写入 storyline_inject 键（含 fail-soft / 旗关），便于 injection-trace
         bud_rep["storyline_inject"] = dict(_storyline_meta)
         # W2：discourse_soft 预算观测（meso_source / truncated）

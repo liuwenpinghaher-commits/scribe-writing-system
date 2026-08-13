@@ -875,6 +875,7 @@ def generation_physical_order_names(*, v2: bool = True) -> list[str]:
 
     base = [
         "identity",
+        "write_protocol",
         "prefix",
         "revision",
         "structure_diversity",
