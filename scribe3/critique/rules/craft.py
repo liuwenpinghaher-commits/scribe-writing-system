@@ -282,6 +282,11 @@ def discipline_truncate(text: str, brief: str, complete_fn, known: dict | None =
 
 def _degen_visible_length(s: str) -> int:
     """可见字数(剔除标点/空白后的有效字符计数),移植自 JS visibleLength。"""
+    try:
+        from scribe3.prose_sanitize import strip_pollution
+        s = strip_pollution(s or "")
+    except Exception:
+        pass
     return len(_DEGEN_VISIBLE_RE.findall(s or ""))
 
 

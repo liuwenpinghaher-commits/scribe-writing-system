@@ -532,6 +532,9 @@ export function WriteLayout({ work, seq, sceneIdx }) {
       throw e
     }
     setQc(r.qc); setLeaks(r.leaks || 0); setSaved(true)
+    if (r.author_copy) {
+      toast(r.author_copy, { tone: r.claims?.may_claim_readable ? 'ok' : 'warn' })
+    }
     if (r.finalize_gate?.danger_draft) {
       toast('已强制保存（跳过了质检拦截）——请稍后自行复查', { tone: 'warn' })
     }

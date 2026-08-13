@@ -217,6 +217,19 @@ class ChaptersMixin:
         """落/覆盖某章正文(UPSERT)。附带章向量 + QC缓存(字数,不再全拉正文统计)。
         _today:测试时注入固定日期字符串(YYYY-MM-DD),生产不传。"""
         # 审计 E-1:embedding 是召回辅助不是正文,故障绝不拖死存稿(命门 fail-soft)。
+        try:
+            from scribe3.prose_sanitize import sanitize_for_persist, fill_placeholder_title, visible_length
+            _san = sanitize_for_persist(prose or "")
+            prose = _san.get("prose") or prose
+            _syn = ""
+            try:
+                _syn = str((self.get_chapter(seq) or {}).get("synopsis") or "")
+            except Exception:
+                _syn = ""
+            title = fill_placeholder_title(title or "", _syn, seq)
+            wc = visible_length(prose)
+        except Exception:
+            wc = len("".join((prose or "").split()))
         text_for_embed = f"{title} {prose[:200]}".strip()
         try:
             from scribe3.embed import embed
@@ -231,7 +244,6 @@ class ChaptersMixin:
             logging.getLogger("scribe3.store").warning(
                 "save_chapter embedding 失败(正文照存,该章暂无语义召回向量): %s", _ee)
             vec = None
-        wc = len("".join(prose.split()))
         # 千万字缓存(Phase0-BE1):落库时算好场景切分 + QC 计数,聚合端点不再全表拉正文/重算。
         cache = self._compute_chapter_caches(seq, prose)
         # 正文变更 → 章后统一分析缓存作废（指纹不一致本也会 miss，显式清更干净）

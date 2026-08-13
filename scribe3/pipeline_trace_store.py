@@ -16,6 +16,7 @@ from scribe3.pipeline_trace import (
     headline_from_spans,
     pipeline_trace_enabled,
     public_chain,
+    public_log,
     public_span,
 )
 from scribe3.pipeline_trace_catalog import lookup
@@ -130,9 +131,16 @@ def flush_spans(st: Any, buf: TraceBuffer | None, *, cursor: str | None = None) 
     if cursor:
         buf.cursor = cursor
     rows = buf.drain_ready()
+    logs = []
+    try:
+        logs = buf.drain_logs()
+    except Exception:
+        logs = []
     try:
         if rows and st is not None and hasattr(st, "insert_pipeline_spans"):
             st.insert_pipeline_spans(rows)
+        if logs and st is not None and hasattr(st, "insert_pipeline_logs"):
+            st.insert_pipeline_logs(logs)
         if st is not None and hasattr(st, "update_pipeline_chain"):
             st.update_pipeline_chain(buf.trace_id, buf.snapshot_chain_patch())
     except Exception as e:
@@ -270,6 +278,29 @@ def maybe_purge_pipeline_traces(st: Any, *, work: str = "main") -> None:
         st.purge_pipeline_traces_older_than(ttl_days())
     except Exception as e:
         _log.warning("maybe_purge_pipeline_traces fail-soft: %s", e)
+
+
+def list_logs(
+    st: Any,
+    *,
+    work: str = "main",
+    trace_id: str | None = None,
+    step_key: str | None = None,
+    code: str | None = None,
+    empty: bool | None = None,
+    since=None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    if st is None or not hasattr(st, "list_pipeline_logs"):
+        return []
+    try:
+        return st.list_pipeline_logs(
+            work=work, trace_id=trace_id, step_key=step_key,
+            code=code, empty=empty, since=since, limit=limit,
+        ) or []
+    except Exception as e:
+        _log.warning("list_pipeline_logs fail-soft: %s", e)
+        return []
 
 
 def latest_pipeline_chain(st: Any, *, kind: str = "write") -> dict | None:

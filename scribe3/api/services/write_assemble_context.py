@@ -127,10 +127,8 @@ def _voice_anchor_block(st, focalizer: str = "") -> str:
 
     if parts:
         return "".join(parts)
-    who = (focalizer or "").strip()
-    if who:
-        return f"\n\n## 本章焦点者声音锚\n未登记声口（{who}）。"
-    return "\n\n## 本章焦点者声音锚\n未登记声口。"
+    # R14：无真声口材料不注空壳（避免 30 字 unexpected）
+    return ""
 
 
 _VOLUME_INTRO_BUDGET = 400  # 卷纲摘要注入字符上限

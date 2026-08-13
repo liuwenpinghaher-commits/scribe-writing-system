@@ -1,4 +1,4 @@
-"""P1：无 profile 时 voice_anchor 写「未登记声口」。禁止本机 Surreal。"""
+"""R14：无真声口材料不注入空壳。禁止本机 Surreal。"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -32,10 +32,9 @@ def test_hard_budget():
 
 def test_unregistered_line_when_no_profile():
     txt = _voice_anchor_block(_St(), "灰七")
-    assert "未登记声口" in txt
-    assert "灰七" in txt
+    assert txt == ""
     assert voice_anchor_registered_from_text(txt) is False
-    assert "未登记声口" in _voice_anchor_block(_St(), "")
+    assert _voice_anchor_block(_St(), "") == ""
     assert voice_anchor_registered_from_text("") is False
 
 

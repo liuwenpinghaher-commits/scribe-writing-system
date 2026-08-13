@@ -58,6 +58,16 @@ _M5 = re.compile(r"主题在.{0,20}轻轻回响")
 # M6 stack markers
 _M6_MARK = re.compile(r"信息差|伏笔|(?<![A-Za-z])(open|touch|close)(?![A-Za-z])|回收", re.I)
 
+# M7 导演提纲腔 / 机器提案尾（claim_blocking）
+_M7_DIRECTOR = re.compile(r"开写前|正文如下|先理一条线|这一章实质")
+_M7_HEADING = re.compile(r"^#{1,3}\s*第\s*\d+\s*章", re.M)
+_M7_MACHINE = re.compile(
+    r"""['\"]fallback['\"]\s*:\s*True|'fallback':\s*True|"fallback":\s*True"""
+    r"""|\{\s*['\"]scope['\"]\s*:\s*['\"]chapter['\"]"""
+    r"""|⟦提案""",
+    re.I,
+)
+
 
 def _clip(s: str, n: int = 80) -> str:
     s = (s or "").replace("\n", " ")
@@ -183,6 +193,21 @@ def scan_anti_meta(prose: str) -> dict[str, Any]:
                 )
             )
         offset += len(line) + 1  # + newline
+
+    # M7: 导演备忘录（章首 240 字）+ 机器提案尾
+    head = text[:240]
+    for rx, msg in (
+        (_M7_DIRECTOR, "导演提纲腔入文（开写前/正文如下），不可宣称可读"),
+        (_M7_HEADING, "章首 Markdown 章题像写作备忘，不是正文"),
+    ):
+        for m in rx.finditer(head):
+            hits.append(_hit("M7", m, text, "claim_blocking", msg, expand_line=True))
+    for m in _M7_MACHINE.finditer(text):
+        hits.append(_hit(
+            "M7", m, text, "claim_blocking",
+            "提案帧/fallback 机器尾入文，不可宣称可读",
+            expand_line=True,
+        ))
 
     # de-dupe by (id, start, end)
     seen: set[tuple] = set()

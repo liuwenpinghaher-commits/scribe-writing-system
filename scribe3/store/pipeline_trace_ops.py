@@ -35,6 +35,61 @@ class PipelineTraceOpsMixin:
             payload,
         )
 
+    def insert_pipeline_logs(self, rows: list[dict[str, Any]]) -> None:
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            lid = str(row.get("log_id") or "")
+            if not lid:
+                continue
+            self._execute_write(
+                "CREATE ONLY type::record('pipeline_log', $log_id) SET "
+                "log_id=$log_id, trace_id=$trace_id, span_id=$span_id, seq=$seq, "
+                "ts=$ts, level=$level, step_key=$step_key, step_title=$step_title, "
+                "layer=$layer, code=$code, message=$message, attrs=$attrs, "
+                "work=$work, chapter=$chapter, kind=$kind, schema_ver=$schema_ver",
+                dict(row),
+            )
+
+    def list_pipeline_logs(
+        self,
+        *,
+        work: str | None = None,
+        trace_id: str | None = None,
+        step_key: str | None = None,
+        code: str | None = None,
+        empty: bool | None = None,
+        since=None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        wh: list[str] = []
+        params: dict[str, Any] = {"lim": max(1, min(int(limit), 500))}
+        if work:
+            wh.append("work=$w")
+            params["w"] = work
+        if trace_id:
+            wh.append("trace_id=$tid")
+            params["tid"] = trace_id
+        if step_key:
+            wh.append("step_key=$sk")
+            params["sk"] = step_key
+        if code:
+            wh.append("code=$cd")
+            params["cd"] = code
+        if empty is True:
+            wh.append("attrs.empty = true")
+        elif empty is False:
+            wh.append("attrs.empty = false")
+        if since is not None:
+            wh.append("created_at >= $since")
+            params["since"] = since
+        where = (" WHERE " + " AND ".join(wh)) if wh else ""
+        rows = self._query(
+            "SELECT * FROM pipeline_log" + where + " ORDER BY ts ASC LIMIT $lim",
+            params,
+        ) or []
+        return [r for r in rows if isinstance(r, dict)]
+
     def insert_pipeline_spans(self, rows: list[dict[str, Any]]) -> None:
         for row in rows or []:
             if not isinstance(row, dict):
@@ -169,6 +224,10 @@ class PipelineTraceOpsMixin:
 
     def purge_pipeline_traces_older_than(self, days: int) -> dict[str, Any]:
         d = max(1, int(days))
+        self._execute_write(
+            f"DELETE pipeline_log WHERE created_at < time::now() - {d}d;",
+            {},
+        )
         self._execute_write(
             f"DELETE pipeline_span WHERE created_at < time::now() - {d}d;",
             {},

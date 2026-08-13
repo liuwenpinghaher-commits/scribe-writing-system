@@ -757,8 +757,28 @@ def format_drama_block(
     - 超预算先不注入 MRU/禁令套话，再缩字段、再减拍；限知免责尽量留。
     - 自带前导 ``\\n\\n``。
     """
+    slogans: list[str] = []
+    for b in beats or []:
+        if isinstance(b, dict):
+            t = _field(b.get("text"))
+        else:
+            t = _field(b)
+        if t:
+            slogans.append(t)
+
     if not beats_have_drama_gcd(beats, chapter_hook=chapter_hook):
-        return ""
+        # R5：仅有 slogan text 也必须注入「必须发生」，禁止空串
+        if not slogans:
+            return ""
+        parts = ["## 本章必须发生"]
+        for i, t in enumerate(slogans, 1):
+            parts.append(f"- {i}. {_clip_field(t, 48)}")
+        if _field(focalizer):
+            parts.append(_LIMITED_KNOWLEDGE)
+        body = "\n".join(parts)
+        if len(body) > max_chars:
+            body = body[: max_chars]
+        return "\n\n" + body
 
     norm = _normalize_beats(beats) if beats else []
     hook = _field(chapter_hook)

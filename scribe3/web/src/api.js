@@ -595,6 +595,17 @@ export const api = {
     return j('/debug/pipeline-traces' + (qs ? '?' + qs : ''), work)
   },
   pipelineTrace: (id, work) => j('/debug/pipeline-traces/' + enc(id), work),
+  pipelineLogs: (q = {}, work) => {
+    const p = new URLSearchParams()
+    if (q.trace_id) p.set('trace_id', q.trace_id)
+    if (q.step_key) p.set('step_key', q.step_key)
+    if (q.code) p.set('code', q.code)
+    if (q.empty != null) p.set('empty', String(q.empty))
+    if (q.since) p.set('since', q.since)
+    if (q.limit) p.set('limit', String(q.limit))
+    const qs = p.toString()
+    return j('/debug/pipeline-logs' + (qs ? '?' + qs : ''), work)
+  },
   pipelineSpans: (q = {}, work) => {
     const p = new URLSearchParams()
     if (q.step_key) p.set('step_key', q.step_key)

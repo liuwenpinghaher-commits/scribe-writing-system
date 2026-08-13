@@ -55,6 +55,20 @@ def find_leaks(
             if match:
                 leaks.append(Leak(f.id, m, f.entity_id, range=(match.start(), match.end())))
                 break
+    # 工艺泄露：侧门开法 / 炉契全文 / 无铺垫怎知 / 刀鞘双真
+    try:
+        from scribe3.craft_leak_scan import scan_craft_leaks
+        for row in scan_craft_leaks(prose, focalizer):
+            mk = str(row.get("marker") or "")
+            rng = row.get("range")
+            leaks.append(Leak(
+                str(row.get("id") or "craft"),
+                mk,
+                str(row.get("kind") or "craft"),
+                range=tuple(rng) if rng else None,
+            ))
+    except Exception:
+        pass
     # 演绎边界：焦点投影「没察觉的」
     if focal_deduction and (prose or "").strip():
         from scribe3.deduce_helpers import normalize_role_id, unaware_leak_markers

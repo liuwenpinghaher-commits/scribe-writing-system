@@ -40,7 +40,9 @@ def test_beats_have_drama_gcd_detects_fields():
 
 
 def test_format_drama_block_empty_without_gcd():
-    assert format_drama_block([{"text": "巷口听味"}]) == ""
+    slogan = format_drama_block([{"text": "巷口听味"}])
+    assert "必须发生" in slogan
+    assert "巷口听味" in slogan
     assert format_drama_block([]) == ""
     assert format_drama_block(None) == ""
 

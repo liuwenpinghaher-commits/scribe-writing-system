@@ -298,6 +298,14 @@ class CharacterArcMixin:
         for pl in self._query("SELECT name FROM place"):
             known_names.add(pl.get("name", ""))
         known_names.discard("")
+        # R18：过程词 / 人名切片不当未登记专名
+        _NAME_NOISE = frozenset({
+            "炉火", "拾灯", "沈拾", "三刀", "炉膛", "炉前", "炉边",
+            "炉子", "炉里", "炉门", "炉台", "刀鞘", "这鞘", "那鞘",
+            "出鞘", "握刀", "黑鞘", "老账", "霍爷", "霍来",
+            "炉不封", "炉未封", "炉不灭", "阿绣记", "老槐树",
+        })
+        known_names.update(_NAME_NOISE)
         try:
             import jieba
             # 切词后取长度>=2 的汉字 token,若与 known_names 的某项高度相似但不完全匹配则报 hint

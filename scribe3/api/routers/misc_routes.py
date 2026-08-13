@@ -471,6 +471,21 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
         st = _store_for(work)
     except Exception:
         st = None
+    # R1：存章前剥提案帧 / fallback / 导演提纲腔
+    try:
+        from scribe3.prose_sanitize import sanitize_for_persist, fill_placeholder_title
+        _san = sanitize_for_persist(req.prose or "")
+        if _san.get("prose") != (req.prose or ""):
+            req.prose = _san["prose"]
+        try:
+            _syn = ""
+            if st is not None:
+                _syn = str((st.get_chapter(int(req.seq)) or {}).get("synopsis") or "")
+            req.title = fill_placeholder_title(req.title or "", _syn, int(req.seq))
+        except Exception:
+            pass
+    except Exception:
+        pass
 
     def _rc_emit(ok: bool, latch: dict | None = None):
         nonlocal _rc_emitted
@@ -577,7 +592,8 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
                 "advisory_items": fg_decision.get("advisory_items") or [],
                 "danger_draft_hint": "显式传 danger_draft=true 可旁路(危险,仅草稿)",
             })
-        _rc_rows.append({"name": "finalize_gate", "expected": True, "actual": "present", "actual_reason": "allowed"})
+        _fg_reason = "skipped_by_flag" if bool(req.skip_finalize_gate) else "allowed"
+        _rc_rows.append({"name": "finalize_gate", "expected": True, "actual": "present", "actual_reason": _fg_reason})
     except HTTPException:
         raise
     except Exception as e:
@@ -798,10 +814,25 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
         out["reader_ready"] = rr
         out["lamps"] = rr.get("lamps")
         out["claims"] = rr.get("claims")
+        _readable = bool((rr.get("claims") or {}).get("may_claim_readable"))
+        if _readable:
+            out["author_copy"] = "已存草稿"
+            out["status_label"] = "已存草稿"
+        else:
+            out["author_copy"] = "已存草稿（不可宣称可读）"
+            out["status_label"] = "已存草稿（不可宣称可读）"
+        if bool(req.skip_finalize_gate):
+            out["author_copy"] = "已存草稿（定稿门跳过 · 不可宣称可读）"
+            out["status_label"] = out["author_copy"]
     except Exception as e:
         import logging
         logging.getLogger("scribe3").warning(
             "save_chapter reader_ready attach fail-soft work=%s: %s", work, e)
+        out.setdefault("author_copy", "已存草稿（不可宣称可读）")
+        out.setdefault("status_label", "已存草稿（不可宣称可读）")
+    if "author_copy" not in out:
+        out["author_copy"] = "已存草稿（不可宣称可读）"
+        out["status_label"] = out["author_copy"]
     return out
 
 def dedup_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
@@ -1450,6 +1481,44 @@ def get_debug_pipeline_spans(
     }
 
 
+def get_debug_pipeline_logs(
+    work: str = "main",
+    trace_id: str | None = None,
+    step_key: str | None = None,
+    code: str | None = None,
+    empty: str | None = None,
+    since: str | None = None,
+    limit: int = 200,
+):
+    """逐步中文分析账本。empty 只接受 true/false。"""
+    from scribe3.pipeline_trace import public_log
+    from scribe3.pipeline_trace_store import list_logs
+    try:
+        from scribe3.api import app_impl as core
+        st = core._store_for(work)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:160], "items": [], "count": 0}
+    empty_b = None
+    if empty is not None:
+        ev = str(empty).strip().lower()
+        if ev == "true":
+            empty_b = True
+        elif ev == "false":
+            empty_b = False
+        else:
+            return {"ok": False, "error": "empty must be true or false", "items": [], "count": 0}
+    rows = list_logs(
+        st, work=work, trace_id=trace_id, step_key=step_key,
+        code=code, empty=empty_b, since=since, limit=limit,
+    )
+    items = [public_log(r) for r in rows]
+    items = [i for i in items if i]
+    return {
+        "ok": True, "work": work, "surface": "debug.pipeline_logs",
+        "count": len(items), "items": items,
+    }
+
+
 def post_debug_pipeline_traces_purge(work: str = "main", days: int | None = None):
     from scribe3.pipeline_trace_store import ttl_days
     try:
@@ -1919,6 +1988,7 @@ def _bind_and_register() -> None:
         ('get_debug_pipeline_trace', '/debug/pipeline-traces/{trace_id}', ['GET']),
         ('get_debug_pipeline_trace_spans', '/debug/pipeline-traces/{trace_id}/spans', ['GET']),
         ('get_debug_pipeline_spans', '/debug/pipeline-spans', ['GET']),
+        ('get_debug_pipeline_logs', '/debug/pipeline-logs', ['GET']),
         ('post_debug_pipeline_traces_purge', '/debug/pipeline-traces/purge', ['POST']),
         ('get_debug_stats', '/debug/stats', ['GET']),
         ('soft_event_led_ep', '/soft/event-led', ['POST']),

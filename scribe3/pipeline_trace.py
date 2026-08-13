@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import time
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -220,6 +221,8 @@ class TraceBuffer:
         self.cursor: str | None = None
         self.notes: list[str] = []
         self.spans: list[SpanRec] = []
+        self.logs: list[dict[str, Any]] = []
+        self._log_seq: int = 0
         self._by_id: dict[str, SpanRec] = {}
         self._by_key: dict[str, str] = {}
         self.started_ns: int = 0
@@ -293,6 +296,10 @@ class TraceBuffer:
         self._by_id[sid] = rec
         self._by_key[meta.step_key] = sid
         self.cursor = meta.step_key
+        try:
+            self.append_log(sid, "step.start")
+        except Exception:
+            pass
         return sid
 
     def apply_fields(self, span_id: str, **fields: Any) -> None:
@@ -328,6 +335,13 @@ class TraceBuffer:
         self.apply_fields(span_id, **fields)
         if not rec.status or rec.status == "running":
             rec.status = rec.actual or "ok"
+        try:
+            dur = None
+            if rec.started_ns and rec.ended_ns:
+                dur = max(0.0, (rec.ended_ns - rec.started_ns) / 1e6)
+            self.append_log(span_id, "step.end", status=str(rec.status or "ok"), duration_ms=dur)
+        except Exception:
+            pass
 
     def patch_span(self, span_id: str, **fields: Any) -> None:
         self.end_span(span_id, **fields)
@@ -363,10 +377,60 @@ class TraceBuffer:
             "contrast_run_id": self.contrast_run_id,
             "contrast_summary": self.contrast_summary,
             "headline": self.headline,
+            "log_count": len(self.logs),
         }
 
     def red_count(self) -> int:
         return sum(1 for s in self.spans if s.verdict == "red")
+
+    def append_log(self, span_id: str, code: str, **kw) -> str:
+        rec, row = render_log(
+            code, kw,
+            trace_id=self.trace_id,
+            span_id=span_id,
+            work=self.work,
+            chapter=self.chapter,
+            kind=self.kind,
+        )
+        if rec is None:
+            return ""
+        rec_span = self._by_id.get(span_id)
+        if rec_span is not None:
+            rec["step_key"] = rec_span.step_key
+            rec["step_title"] = rec_span.step_title
+            rec["layer"] = rec_span.layer
+            row["step_key"] = rec_span.step_key
+            row["step_title"] = rec_span.step_title
+            row["layer"] = rec_span.layer
+        self._log_seq += 1
+        rec["seq"] = self._log_seq
+        rec["log_id"] = _hex(8)
+        row["seq"] = rec["seq"]
+        row["log_id"] = rec["log_id"]
+        rec["_flushed"] = False
+        rec["_store"] = row
+        self.logs.append(rec)
+        return rec["log_id"]
+
+    def drain_logs(self) -> list[dict[str, Any]]:
+        out = []
+        for rec in self.logs:
+            if rec.get("_flushed"):
+                continue
+            rec["_flushed"] = True
+            store = dict(rec.get("_store") or public_log_row_for_store(rec))
+            store["log_id"] = rec.get("log_id")
+            store["seq"] = rec.get("seq")
+            store["step_key"] = rec.get("step_key")
+            store["step_title"] = rec.get("step_title")
+            store["layer"] = rec.get("layer")
+            store["trace_id"] = self.trace_id
+            store["work"] = self.work
+            store["chapter"] = self.chapter
+            store["kind"] = self.kind
+            store["schema_ver"] = SCHEMA_VER
+            out.append(store)
+        return out
 
 
 def public_span(span: dict | SpanRec | None, **ctx) -> dict | None:
@@ -447,7 +511,20 @@ def headline_from_spans(
             st = st or s.get("status") or s.get("actual")
             if st:
                 bits.append(f"模型 {st}")
-    text = " · ".join(bits) if bits else "对照齐全"
+    # skip / 可读红：诚实人话，永不「对照齐全」
+    for s in pubs:
+        reason = str(s.get("actual_reason") or "")
+        key = str(s.get("step_key") or "")
+        if reason in ("skipped_by_flag", "skip_finalize_gate") or "skip" in reason:
+            if "finalize" in key or "finalize" in reason or "skip" in reason:
+                bits.insert(0, "定稿门跳过")
+                break
+        if reason in ("readable_red", "unreadble", "may_not_claim_readable"):
+            bits.insert(0, "可读未宣称")
+            break
+    text = " · ".join(bits) if bits else "步骤完成"
+    if "对照齐全" in text:
+        text = text.replace("对照齐全", "步骤完成")
     return text[:80]
 
 
@@ -488,3 +565,265 @@ def descendant_ids(spans: list[dict], span_id: str) -> set[str]:
         out.add(n)
         stack.extend(kids.get(n) or [])
     return out
+
+
+NOTE_PUSH_FORBIDDEN_CODES = frozenset({
+    "read.source", "pred.eval", "assoc.produce", "assoc.consume",
+    "drop.item", "budget.cap", "usage.model",
+})
+
+_ENUM_RE = re.compile(r"^[a-z0-9_.:-]+$", re.I)
+SOURCE_TAGS = frozenset({
+    "chapter_prev_end_hook", "chapter_story_io", "chapter_recall", "chapter_causal",
+    "compile_manifest", "internal", "flag", "chapter_field", "request_extra",
+    "identity_block", "protocol_block", "prefix_block", "secret_guard_block",
+    "focalizer_banner", "fuel_block", "envelope_block", "tool_arg_keys", "llm_input",
+    "outline", "drama_contract", "voice_anchor", "codex", "other",
+})
+
+_MSG = {
+    "step.start": "开始 {step_title}",
+    "step.end": "结束 {status} {duration_ms}ms",
+    "read.source": "读取 {source}：{empty_zh}",
+    "pred.eval": "谓词 {pred}={value}（{reason}）",
+    "branch.taken": "走 {fn}:{branch}",
+    "keep.item": "保留 {name}",
+    "drop.item": "{op} {name}",
+    "skip.reason": "整步跳过：{reason}",
+    "emit.shape": "产出 {shape} {chars} 字",
+    "assoc.produce": "产出可供下游消费",
+    "assoc.consume": "消费 {from_step_key}",
+    "error.raised": "失败 {class}",
+    "usage.model": "模型 {provider} chunks={chunk_count}",
+    "budget.cap": "帽 {cap} · 已用 {used}",
+    "flag.eval": "旗 {flag}={value}",
+    "obs.incomplete": "本步未发齐日志：{missing}",
+    "other": "未登记 code",
+}
+
+
+def _enum(v: Any, n: int) -> str:
+    s = str(v or "").strip().lower().replace(" ", "_")[:n]
+    if not s or not _ENUM_RE.match(s):
+        return "other"
+    return s
+
+
+def _hexish(v: Any, n: int) -> str:
+    s = re.sub(r"[^0-9a-fA-F]", "", str(v or ""))
+    return s[:n]
+
+
+def ember_read_kwargs(end_hook: str, pushed_chars: int) -> dict:
+    """chars_in / empty 只看章字段 end_hook，不看 _push 长度。"""
+    n = len((end_hook or "").strip())
+    return {"source": "chapter_prev_end_hook", "chars_in": n, "empty": n == 0}
+
+
+def pred_value_from_named(fn_value, *, chars_in: int | None = None) -> bool:
+    return bool(fn_value)
+
+
+def render_log(code: str, kw: dict, *, trace_id: str, span_id: str,
+               work: str, chapter: int, kind: str) -> tuple[dict | None, dict | None]:
+    raw_code = str(code or "").strip()
+    if raw_code not in _MSG:
+        kw = dict(kw or {})
+        kw["missing"] = [raw_code[:32] or "unknown"]
+        raw_code = "other"
+    attrs: dict[str, Any] = {}
+    if raw_code == "read.source":
+        src = str(kw.get("source") or "other")
+        if src not in SOURCE_TAGS:
+            src = "other"
+        attrs["source"] = src
+        attrs["empty"] = bool(kw.get("empty"))
+        try:
+            attrs["chars_in"] = int(kw.get("chars_in") or 0)
+        except (TypeError, ValueError):
+            attrs["chars_in"] = 0
+        if kw.get("from_span_id"):
+            attrs["from_span_id"] = _hexish(kw.get("from_span_id"), 16)
+    elif raw_code == "pred.eval":
+        attrs["pred"] = _enum(kw.get("pred"), 32)
+        attrs["value"] = kw.get("value")
+        attrs["reason"] = _enum(kw.get("reason"), 32)
+    elif raw_code == "emit.shape":
+        attrs["shape"] = _enum(kw.get("shape"), 32)
+        try:
+            attrs["chars"] = int(kw.get("chars") or 0)
+        except (TypeError, ValueError):
+            attrs["chars"] = 0
+        if kw.get("outcome_id"):
+            attrs["outcome_id"] = _enum(kw.get("outcome_id"), 64)
+        if kw.get("status"):
+            attrs["status"] = _enum(kw.get("status"), 32)
+        if kw.get("hit_count") is not None:
+            try:
+                attrs["hit_count"] = int(kw["hit_count"])
+            except (TypeError, ValueError):
+                pass
+    elif raw_code == "skip.reason":
+        attrs["reason"] = _enum(kw.get("reason"), 32)
+    elif raw_code == "error.raised":
+        attrs["class"] = _enum(kw.get("class"), 64)
+        attrs["summary"] = str(kw.get("summary") or "")[:240]
+    elif raw_code == "assoc.consume":
+        got = bool(kw.get("got"))
+        hex_id = _hexish(kw.get("from_span_id"), 16)
+        if got and len(hex_id) < 16:
+            return None, None
+        attrs["from_step_key"] = _enum(kw.get("from_step_key"), 64)
+        attrs["got"] = got
+        if hex_id:
+            attrs["from_span_id"] = hex_id
+    elif raw_code == "assoc.produce":
+        attrs["digest"] = str(kw.get("digest") or "")[:64]
+        try:
+            attrs["chars"] = int(kw.get("chars") or 0)
+        except (TypeError, ValueError):
+            attrs["chars"] = 0
+    elif raw_code == "step.end":
+        attrs["status"] = _enum(kw.get("status"), 32)
+        if kw.get("duration_ms") is not None:
+            try:
+                attrs["duration_ms"] = float(kw["duration_ms"])
+            except (TypeError, ValueError):
+                pass
+    elif raw_code == "obs.incomplete":
+        miss = kw.get("missing") or []
+        if isinstance(miss, str):
+            miss = [miss]
+        attrs["missing"] = [str(x)[:32] for x in list(miss)[:32]]
+    elif raw_code == "other":
+        miss = kw.get("missing") or []
+        if isinstance(miss, str):
+            miss = [miss]
+        attrs["missing"] = [str(x)[:32] for x in list(miss)[:32]]
+    else:
+        for k, v in (kw or {}).items():
+            if k in FORBIDDEN_KEYS:
+                continue
+            if isinstance(v, (str, int, float, bool)) or v is None:
+                attrs[k] = v
+
+    ctx = {
+        "step_title": "",
+        "status": attrs.get("status", ""),
+        "duration_ms": attrs.get("duration_ms", ""),
+        "source": attrs.get("source", ""),
+        "empty_zh": "空" if attrs.get("empty") else f"{attrs.get('chars_in') or attrs.get('chars') or 0} 字",
+        "pred": attrs.get("pred", ""),
+        "value": attrs.get("value", ""),
+        "reason": attrs.get("reason", ""),
+        "fn": attrs.get("fn", ""),
+        "branch": attrs.get("branch", ""),
+        "name": attrs.get("name", ""),
+        "op": attrs.get("op", ""),
+        "shape": attrs.get("shape", ""),
+        "chars": attrs.get("chars", 0),
+        "from_step_key": attrs.get("from_step_key", ""),
+        "class": attrs.get("class", ""),
+        "provider": attrs.get("provider", ""),
+        "chunk_count": attrs.get("chunk_count", ""),
+        "cap": attrs.get("cap", ""),
+        "used": attrs.get("used", ""),
+        "flag": attrs.get("flag", ""),
+        "missing": ",".join(attrs.get("missing") or []),
+    }
+    msg = _MSG.get(raw_code, "日志")
+    try:
+        message = msg.format(**ctx)
+    except Exception:
+        message = raw_code
+    level = "info"
+    if raw_code in ("drop.item", "obs.incomplete") or attrs.get("empty"):
+        level = "warn"
+    if raw_code == "error.raised":
+        level = "error"
+    rec = {
+        "trace_id": trace_id,
+        "span_id": span_id,
+        "code": raw_code,
+        "message": message,
+        "level": level,
+        "attrs": attrs,
+        "ts": datetime.now(timezone.utc),
+        "work": work,
+        "chapter": chapter,
+        "kind": kind,
+        "schema_ver": SCHEMA_VER,
+    }
+    store = public_log_row_for_store(rec)
+    return rec, store
+
+
+def public_log_row_for_store(rec: dict) -> dict[str, Any]:
+    ts = rec.get("ts")
+    if isinstance(ts, datetime):
+        pass
+    else:
+        ts = datetime.now(timezone.utc)
+    return {
+        "log_id": rec.get("log_id") or "",
+        "trace_id": rec.get("trace_id") or "",
+        "span_id": rec.get("span_id") or "",
+        "seq": int(rec.get("seq") or 0),
+        "ts": ts,
+        "level": rec.get("level") or "info",
+        "step_key": rec.get("step_key") or "",
+        "step_title": rec.get("step_title") or "",
+        "layer": rec.get("layer") or "",
+        "code": rec.get("code") or "other",
+        "message": rec.get("message") or "",
+        "attrs": strip_forbidden(dict(rec.get("attrs") or {})),
+        "work": rec.get("work") or "",
+        "chapter": int(rec.get("chapter") or 0),
+        "kind": rec.get("kind") or "write",
+        "schema_ver": rec.get("schema_ver") or SCHEMA_VER,
+    }
+
+
+def public_log(rec: dict | None) -> dict | None:
+    if not isinstance(rec, dict):
+        return None
+    attrs = rec.get("attrs") if isinstance(rec.get("attrs"), dict) else {}
+    ts = rec.get("ts")
+    if isinstance(ts, datetime):
+        ts_out = ts.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    else:
+        ts_out = str(ts or "")
+    return {
+        "log_id": rec.get("log_id"),
+        "ts": ts_out,
+        "level": rec.get("level"),
+        "step_key": rec.get("step_key"),
+        "step_title": rec.get("step_title"),
+        "layer": rec.get("layer"),
+        "code": rec.get("code"),
+        "message": rec.get("message"),
+        "empty": attrs.get("empty"),
+        "value": attrs.get("value"),
+        "from_span_id": attrs.get("from_span_id"),
+        "trace_id": rec.get("trace_id"),
+        "span_id": rec.get("span_id"),
+        "chapter": rec.get("chapter"),
+        "kind": rec.get("kind"),
+        "attrs": strip_forbidden(attrs),
+        "schema_ver": rec.get("schema_ver") or SCHEMA_VER,
+    }
+
+
+def completeness_check(step_key: str, logs: list, *, ctx: dict | None = None) -> list[str]:
+    """最小完整性：BASE 步至少有 step.start / step.end。"""
+    codes = {str(x.get("code")) for x in (logs or []) if isinstance(x, dict)}
+    missing: list[str] = []
+    for need in ("step.start", "step.end"):
+        if need not in codes:
+            missing.append(need)
+    dropped = list((ctx or {}).get("dropped_tags") or [])
+    if dropped:
+        drop_n = sum(1 for x in logs if isinstance(x, dict) and x.get("code") == "drop.item")
+        if drop_n < len(dropped):
+            missing.append("drop.item")
+    return missing

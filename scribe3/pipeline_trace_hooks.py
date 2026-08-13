@@ -64,12 +64,14 @@ def open_write_chain(
 def write_chain_guard(st: Any, manifest_trace: dict | None):
     try:
         yield
-    except Exception:
+    except Exception as e:
         try:
             rid = ""
             if isinstance(manifest_trace, dict):
                 rid = str(manifest_trace.get("request_id") or "")
-            finish_chain(st, trace_id=rid or None, status="failed")
+            finish_failed(st, manifest_trace, err=e)
+            if not rid:
+                finish_chain(st, trace_id=None, status="failed")
         except Exception:
             pass
         raise
@@ -158,6 +160,17 @@ def note_push(name: str, text: str | None, *, skip: str | None = None, attempted
         except Exception:
             pass
     buf.end_span(sid, **fields)
+    try:
+        if skip:
+            buf.append_log(sid, "skip.reason", reason=str(skip)[:32])
+        else:
+            buf.append_log(
+                sid, "emit.shape",
+                shape="block", chars=int(chars),
+                status=str(actual or "ok"),
+            )
+    except Exception:
+        pass
 
 
 def mark_facts(facts) -> None:
@@ -248,6 +261,28 @@ def attach_contrast(st: Any, card: dict | None) -> None:
     if buf is None or not card:
         return
     pub = public_card(card) or {}
+    # R7：对照行 actual/chars 与 span 同源
+    by_name: dict[str, Any] = {}
+    for rec in getattr(buf, "spans", []) or []:
+        key = str(getattr(rec, "step_key", "") or "")
+        name = key.split(".")[-1] if key else ""
+        if name:
+            by_name[name] = rec
+    rows = pub.get("rows")
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            rec = by_name.get(str(row.get("name") or ""))
+            if rec is None:
+                continue
+            if rec.actual is not None:
+                row["actual"] = rec.actual
+            if rec.actual_reason:
+                row["actual_reason"] = rec.actual_reason
+            chars = (rec.output or {}).get("chars")
+            if chars is not None:
+                row["chars"] = chars
     buf.contrast_run_id = pub.get("run_id") or card.get("run_id")
     buf.contrast_summary = pub
     flush_spans(st, buf)
@@ -310,9 +345,32 @@ def finish_ok(st: Any, manifest_trace: dict | None, *, outcome=None) -> None:
     finish_chain(st, trace_id=rid or None, status="ok", extra=extra)
 
 
-def finish_failed(st: Any, manifest_trace: dict | None) -> None:
+def finish_failed(st: Any, manifest_trace: dict | None, err: BaseException | None = None) -> None:
     rid = str((manifest_trace or {}).get("request_id") or "")
-    finish_chain(st, trace_id=rid or None, status="failed")
+    extra: dict[str, Any] = {}
+    buf = buffer_for(rid) if rid else _buf()
+    if err is not None and buf is not None:
+        cls = type(err).__name__
+        summary = str(err)[:240]
+        sid = buf.span_id_for(buf.cursor or "") or (buf.spans[-1].span_id if buf.spans else "")
+        if sid:
+            buf.end_span(
+                sid, status="failed", actual="failed",
+                error={"class": cls, "summary": summary},
+            )
+        note = f"error:{cls}:{summary}"[:200]
+        if note not in buf.notes:
+            buf.notes.append(note)
+        try:
+            buf.append_log(
+                sid or "",
+                "error.raised",
+                **{"class": cls, "summary": summary},
+            )
+        except Exception:
+            pass
+        extra["notes"] = list(buf.notes)
+    finish_chain(st, trace_id=rid or None, status="failed", extra=extra or None)
 
 
 def emit_gate_spans(

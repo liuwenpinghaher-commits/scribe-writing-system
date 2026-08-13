@@ -54,7 +54,7 @@ function statusChip(status, verdict) {
         : red ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300'
           : 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
     }`}>
-      {STATUS_LABEL[status] || status || (red ? '该进未进' : '对照齐全')}
+      {STATUS_LABEL[status] || status || (red ? '该进未进' : '完成')}
     </span>
   )
 }
@@ -70,7 +70,8 @@ export function RunLogsPage({ defaultWork = '' }) {
   const [items, setItems] = useState([])
   const [sel, setSel] = useState(null)
   const [pick, setPick] = useState(null)
-  const [tab, setTab] = useState('timeline')
+  const [tab, setTab] = useState('logs')
+  const [logs, setLogs] = useState([])
   const [onlyBad, setOnlyBad] = useState(false)
   const [layerOrder, setLayerOrder] = useState(false)
   const [error, setError] = useState(null)
@@ -140,7 +141,13 @@ export function RunLogsPage({ defaultWork = '' }) {
       const card = await api.pipelineTrace(traceId, work)
       setSel(card)
       setPick(null)
-      setTab('timeline')
+      setTab('logs')
+      try {
+        const lr = await api.pipelineLogs({ trace_id: traceId, limit: 400 }, work)
+        setLogs(lr.items || [])
+      } catch {
+        setLogs([])
+      }
     } catch (e) {
       setError(e)
     } finally {
@@ -267,7 +274,6 @@ export function RunLogsPage({ defaultWork = '' }) {
                 </div>
                 <div className="text-f13 mt-0.5">{it.headline || '—'}</div>
                 <div className="text-f12 text-faint">{fmtMs(it.duration_ms)} · {it.span_count ?? 0} 步
-                  {it.red_count ? ` · ${it.red_count} 对照红` : ''}
                   {it.stuck ? ` · ${it.stuck}` : ''}
                 </div>
               </li>
@@ -298,12 +304,28 @@ export function RunLogsPage({ defaultWork = '' }) {
                 {sel.outcome_status && <div>模型 {sel.outcome_status}</div>}
               </div>
               <div className="flex flex-wrap gap-2">
-                <button type="button" className={tab === 'timeline' ? btnPrimary : btnCls} onClick={() => setTab('timeline')}>时间线</button>
-                <button type="button" className={tab === 'contrast' ? btnPrimary : btnCls} onClick={() => setTab('contrast')}>对照摘要</button>
+                <button type="button" className={tab === 'logs' ? btnPrimary : btnCls} onClick={() => setTab('logs')}>分析日志</button>
+                <button type="button" className={tab === 'timeline' ? btnPrimary : btnCls} onClick={() => setTab('timeline')}>步骤树</button>
+                <button type="button" className={tab === 'contrast' ? btnPrimary : btnCls} onClick={() => setTab('contrast')}>更多</button>
                 <button type="button" className={btnCls} disabled={!sel.prev_trace_id} onClick={() => sel.prev_trace_id && openChain(sel.prev_trace_id)}>同章上一写</button>
                 <button type="button" className={btnCls} disabled={!sel.next_trace_id} onClick={() => sel.next_trace_id && openChain(sel.next_trace_id)}>同章下一写</button>
               </div>
 
+              {tab === 'logs' && (
+                <ul className="rounded-md border border-line max-h-[28rem] overflow-auto" data-testid="run-logs-lines">
+                  {logs.map((lg) => (
+                    <li key={lg.log_id || `${lg.step_key}-${lg.seq}`} className="px-2 py-1.5 border-t border-line text-f12" data-testid="run-log-line">
+                      <div className="text-faint">[{lg.step_title || lg.step_key}] {lg.code}</div>
+                      <div>{lg.message || '—'}</div>
+                    </li>
+                  ))}
+                  {logs.length === 0 && (
+                    <li className="px-2 py-6 text-center text-faint">
+                      {sel?.schema_ver ? '旧账·仅摘要（本链没有逐步日志）' : '没有逐步日志。'}
+                    </li>
+                  )}
+                </ul>
+              )}
               {tab === 'timeline' && (
                 <div className="space-y-2">
                   <div className="flex gap-2">

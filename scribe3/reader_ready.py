@@ -31,6 +31,44 @@ def _beat_text(b: Any) -> str:
     return ""
 
 
+_BEAT_STOP = frozenset({
+    "下令", "发现", "指出", "必须", "本章", "不得", "不能", "不要",
+    "并且", "以及", "然后", "于是", "一个", "这个", "那个", "他们",
+    "我们", "自己", "什么", "怎么", "是否", "没有", "已经", "还是",
+})
+
+
+def beat_scene_keywords(beat: str, *, n: int = 4) -> list[str]:
+    """从口号拍抽出 2–4 个场面词（封炉/缺页/刀鞘），供 scene_cover 命中。"""
+    bt = (beat or "").strip()
+    if not bt:
+        return []
+    parts = [t for t in re.split(r"[\s,，。；;：:、！？!?]+", bt) if len(t) >= 2]
+    keys: list[str] = []
+    for t in parts:
+        if t in _BEAT_STOP:
+            continue
+        if len(t) >= 2:
+            keys.append(t)
+        # 长口号再切 2 字场面核
+        if len(t) >= 4:
+            for i in range(0, len(t) - 1):
+                chunk = t[i : i + 2]
+                if chunk not in _BEAT_STOP and chunk not in keys:
+                    keys.append(chunk)
+    # 保序去重
+    seen: set[str] = set()
+    out: list[str] = []
+    for k in keys:
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(k)
+        if len(out) >= n:
+            break
+    return out
+
+
 def _keyword_ranges(prose: str, beat: str) -> list[tuple[int, int]]:
     """Locate beat keywords in prose (C11-like coarse)."""
     text = prose or ""
@@ -46,8 +84,6 @@ def _keyword_ranges(prose: str, beat: str) -> list[tuple[int, int]]:
             if n < 4:
                 continue
             needle = compact[:n]
-            # find in whitespace-stripped map is hard; search char sequence loosely
-            # fallback: any 2+ char tokens from beat
             idx = text.find(needle) if needle in text else -1
             if idx >= 0:
                 ranges.append((idx, idx + len(needle)))
@@ -64,7 +100,14 @@ def _keyword_ranges(prose: str, beat: str) -> list[tuple[int, int]]:
             if len(ranges) >= 3:
                 break
         if ranges:
-            break
+            return ranges
+    # R12：口号拍抽场面词（封炉/缺页/刀鞘）再找
+    for t in beat_scene_keywords(bt):
+        i = text.find(t)
+        if i >= 0:
+            ranges.append((i, i + len(t)))
+            if len(ranges) >= 3:
+                break
     return ranges
 
 
