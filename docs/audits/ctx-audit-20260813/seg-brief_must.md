@@ -22,11 +22,13 @@
 
 ## 5. 评分
 
-| P_flow | 3 |
-| Q_craft | 3 |
-| R_safety | 3 |
-| B_product | 3 |
-| Observability | 3 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+P1：must 条相对大纲/场面合同差集；重复项记 `brief_must_echo_dropped`，正文加「已省略…」一句。
 
 ## 6. 最优改造
 

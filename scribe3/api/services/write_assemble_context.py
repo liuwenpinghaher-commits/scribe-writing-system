@@ -603,6 +603,155 @@ def _pressure_drive_write_block(st, chapter: int) -> str:
         return ""
 
 
+def _outline_contract_cover_text(st, chapter: int) -> str:
+    """大纲 + 场面合同已占有的正文，供 brief_must 差集。"""
+    try:
+        ch = st.get_chapter(int(chapter)) or {}
+    except Exception:
+        ch = {}
+    bits: list[str] = []
+    syn = (ch.get("synopsis") or "").strip()
+    if syn:
+        bits.append(syn)
+    for b in ch.get("beats") or []:
+        t = ((b.get("text") if isinstance(b, dict) else str(b)) or "").strip()
+        if t:
+            bits.append(t)
+    raw_nc = ch.get("narrative_contract")
+    contract: dict = {}
+    if isinstance(raw_nc, dict):
+        contract = raw_nc
+    elif isinstance(raw_nc, str) and raw_nc.strip():
+        try:
+            from scribe3.chapter_meta_codec import coerce_chapter_json_dict
+            contract = coerce_chapter_json_dict(raw_nc)
+        except Exception:
+            contract = {}
+    for k in ("desire", "obstacle", "turn", "cost"):
+        v = str(contract.get(k) or "").strip()
+        if v:
+            bits.append(v)
+    bindings = contract.get("bindings") if isinstance(contract.get("bindings"), dict) else {}
+    ev = bindings.get("evidence_must_show") or []
+    if isinstance(ev, str):
+        ev = [ev]
+    for item in ev:
+        s = str(item or "").strip()
+        if s:
+            bits.append(s)
+    return "\n".join(bits)
+
+
+def _brief_must_item_covered(item: str, cover: str) -> bool:
+    """条目正文已在大纲/场面合同里出现（去空白后整段命中）。"""
+    raw = (item or "").strip()
+    if len(raw) < 6 or not (cover or "").strip():
+        return False
+    compact_cover = re.sub(r"\s+", "", cover)
+    compact_item = re.sub(r"\s+", "", raw)
+    if compact_item in compact_cover:
+        return True
+    inner = re.sub(r"^[-•*\d.、]+", "", raw).strip()
+    inner = re.sub(r"^【[^】]+】", "", inner).strip()
+    if len(inner) >= 6 and re.sub(r"\s+", "", inner) in compact_cover:
+        return True
+    return False
+
+
+def _filter_str_list_against_cover(items, cover: str) -> tuple[list, int]:
+    kept: list = []
+    dropped = 0
+    for x in items or []:
+        s = str(x or "").strip()
+        if not s:
+            continue
+        if _brief_must_item_covered(s, cover):
+            dropped += 1
+            continue
+        kept.append(x)
+    return kept, dropped
+
+
+def _filter_brief_must_against_cover(sec: dict, cover: str) -> tuple[dict, int]:
+    """must 节只留 outline/contract 没有的键/条。返回 (新 sections, 丢掉条数)。"""
+    out = dict(sec or {})
+    dropped = 0
+    if "arcs" in out:
+        kept, n = _filter_str_list_against_cover(out.get("arcs"), cover)
+        dropped += n
+        out["arcs"] = kept
+    pd = dict(out.get("promises") or {})
+    if pd:
+        for key in ("directives", "decisions", "reminders"):
+            if key in pd:
+                kept, n = _filter_str_list_against_cover(pd.get(key), cover)
+                dropped += n
+                pd[key] = kept
+        out["promises"] = pd
+    mo = dict(out.get("motifs") or {})
+    if mo:
+        for key in ("must_echo", "avoid_overuse", "lines", "touched"):
+            if key in mo:
+                kept, n = _filter_str_list_against_cover(mo.get(key), cover)
+                dropped += n
+                mo[key] = kept
+        out["motifs"] = mo
+    ca = dict(out.get("causal") or {})
+    if ca and "directives" in ca:
+        kept, n = _filter_str_list_against_cover(ca.get("directives"), cover)
+        dropped += n
+        ca["directives"] = kept
+        out["causal"] = ca
+    hb = out.get("heartbeat") or []
+    if hb:
+        kept_hb = []
+        for h in hb:
+            if isinstance(h, dict):
+                blob = f"{h.get('name') or ''} {h.get('agenda') or ''}"
+            else:
+                blob = str(h)
+            if _brief_must_item_covered(blob, cover):
+                dropped += 1
+                continue
+            kept_hb.append(h)
+        out["heartbeat"] = kept_hb
+    for key in ("stale", "emotion_module"):
+        bucket = dict(out.get(key) or {})
+        txt = str(bucket.get("text") or "").strip()
+        if txt and _brief_must_item_covered(txt, cover):
+            dropped += 1
+            bucket["text"] = ""
+            out[key] = bucket
+    return out, dropped
+
+
+def _filter_must_prefix_against_cover(prefix: str, cover: str) -> tuple[str, int]:
+    if not (prefix or "").strip():
+        return prefix or "", 0
+    kept: list[str] = []
+    dropped = 0
+    for line in (prefix or "").splitlines():
+        body = line.strip()
+        if body and _brief_must_item_covered(body, cover):
+            dropped += 1
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip(), dropped
+
+
+def _brief_must_has_ops(sec: dict) -> bool:
+    pd = sec.get("promises") or {}
+    return bool(
+        sec.get("arcs")
+        or pd.get("reminders") or pd.get("directives") or pd.get("decisions")
+        or (sec.get("loops") or {}).get("weighted")
+        or sec.get("heartbeat")
+        or (sec.get("causal") or {}).get("directives")
+        or (sec.get("stale") or {}).get("text")
+        or (sec.get("emotion_module") or {}).get("text")
+    )
+
+
 def _brief_must_sections_write_block(
     st, chapter: int, focalizer: str = "",
     *, must_link_already_pinned: bool | None = None,
@@ -615,7 +764,9 @@ def _brief_must_sections_write_block(
 
     D3 / IA：前置「戏剧必需锚」与 context_assembler must_link 同源；
     默认信封 pin 已占全文时（``must_link_already_pinned`` / 注入去重开）brief 短路。
+    must 条相对大纲/场面合同做差集：已写进纲或合同的键不再复述。
     """
+    cover = _outline_contract_cover_text(st, chapter)
     must_prefix = ""
     try:
         from scribe3.memory_must_link import build_must_prefix, inject_dedup_enabled
@@ -627,6 +778,9 @@ def _brief_must_sections_write_block(
             st, int(chapter), focalizer=focalizer or "",
             must_link_already_pinned=bool(pinned),
         )
+        must_prefix, _npref = _filter_must_prefix_against_cover(must_prefix, cover)
+        if _npref:
+            _record_story_soft_fail("brief_must_echo_dropped")
     except Exception as e:
         logging.getLogger("scribe3").warning(
             "写路径 must_link 注入失败(fail-soft): %s", e)
@@ -639,22 +793,21 @@ def _brief_must_sections_write_block(
         sec.pop("injection", None)
         # 戏剧合同已在 envelope 前由 _drama_block 置顶注入；此处去重避免双份稀释。
         sec.pop("drama_contract", None)
-        pd = sec.get("promises") or {}
-        has_ops = bool(
-            sec.get("arcs")
-            or pd.get("reminders") or pd.get("directives") or pd.get("decisions")
-            or (sec.get("loops") or {}).get("weighted")
-            or sec.get("heartbeat")
-            or (sec.get("causal") or {}).get("directives")
-            or (sec.get("stale") or {}).get("text")
-            or (sec.get("emotion_module") or {}).get("text")
-        )
-        if not has_ops:
+        if not _brief_must_has_ops(sec):
+            return must_prefix
+        sec, n_drop = _filter_brief_must_against_cover(sec, cover)
+        if n_drop:
+            _record_story_soft_fail("brief_must_echo_dropped")
+        if not _brief_must_has_ops(sec):
             return must_prefix
         text = (render_brief(sec) or "").strip()
         if not text or text == "## 本章创作简报(章前组装,遵守但不复述)":
             return must_prefix
-        return must_prefix + "\n\n" + text
+        if n_drop:
+            text = "（已省略与大纲/场面合同重复的必达项）\n\n" + text
+        if must_prefix:
+            return must_prefix + "\n\n" + text
+        return text
     except Exception as e:
         logging.getLogger("scribe3").warning(
             "写路径 brief 必达段注入失败(fail-soft): %s", e)
