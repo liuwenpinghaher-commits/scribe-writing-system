@@ -98,8 +98,8 @@ while 存在未完成单元:
 | 项 | 值 |
 |----|----|
 | 上次更新 | 2026-08-13 |
-| 下一 NAME | `author_prefs`（其余均分最低，并列字母序） |
-| 已完成单元 | story_ember, story_recall, story_causal, narrative_contract, deduction_final, secret_guard, focalizer, event_drive, event_drive_hook, outline, codex, final_reminder, drama_contract, anti_slop, sincerity, prefix, continue_snapshot, structure_diversity, tool_scope, craft_skills_index |
+| 下一 NAME | `brief_must` |
+| 已完成单元 | story_ember, story_recall, story_causal, narrative_contract, deduction_final, secret_guard, focalizer, event_drive, event_drive_hook, outline, codex, final_reminder, drama_contract, anti_slop, sincerity, prefix, continue_snapshot, structure_diversity, tool_scope, craft_skills_index, author_prefs |
 | 天花板已登记 | provenance / request_position / story_move |
 
 ---

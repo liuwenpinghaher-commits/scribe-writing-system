@@ -525,11 +525,17 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _pd_txt,
         )
         _push("pressure_drive", "supplemental", _pd)
-        _ap = _domain_input(
-            f"work:{work or 'main'}:author-prefs", "author_prefs",
-            _author_prefs_block_safe(),
+        _ap_raw = subtract_codex_canonical_echoes(
+            _author_prefs_block_safe() or "", env_text or "",
         )
-        _push("author_prefs", "supplemental", _ap)
+        if (_ap_raw or "").strip():
+            _ap = _domain_input(
+                f"work:{work or 'main'}:author-prefs", "author_prefs",
+                _ap_raw,
+            )
+            _push("author_prefs", "supplemental", _ap)
+        else:
+            _record_write_soft_fail("empty_author_prefs")
         _va = _domain_input(
             f"chapter:{chapter}:voice-anchor", "voice_anchor",
             _voice_anchor_block(st, focalizer or ""),
