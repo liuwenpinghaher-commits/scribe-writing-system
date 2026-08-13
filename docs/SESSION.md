@@ -42,6 +42,13 @@
 性质：第一性块门 + 运营 + 改系统复验；≠ 50k-e2e；≠ v6.3.4 总 PASS。
 ```
 
+### ctx-audit-fix · 52 单元修到诚实满分（自动循环）
+
+```
+执行 docs/audits/ctx-audit-20260813/FIX-LOOP.md
+自动循环直到 MATRIX 全员诚实五维=5 或已登记天花板。不要问下一个。
+```
+
 ### 故事招式库 · 命名绕法卡片（短入口）
 
 ```
@@ -87,6 +94,7 @@
 
 > **短名：`ctx-audit`** · `docs/audits/ctx-audit-20260813/`（W0–W5 齐：库存 + 52 卷宗 + `MATRIX.md` / `RECOMMEND.md`）
 > 现网 `NOVEL_PROMPT_HARD=48000`。P0：接线 story_* 燃料；合同 store；deduction 硬帽。
+> **自动修分循环**：`ctx-audit-fix` · [`FIX-LOOP.md`](./audits/ctx-audit-20260813/FIX-LOOP.md)（`/goal` 贴文内 GOAL 正文，跑到 MATRIX 诚实满分或天花板）
 
 ### craft-loop · 真人视角块门 + 改进闭环（2026-08-12）
 
