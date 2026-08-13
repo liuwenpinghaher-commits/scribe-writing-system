@@ -42,9 +42,30 @@
 性质：第一性块门 + 运营 + 改系统复验；≠ 50k-e2e；≠ v6.3.4 总 PASS。
 ```
 
+### 故事招式库 · 命名绕法卡片（短入口）
+
+```
+继续 招式库
+先读 docs/plans/2026-08-13-move-library-design.md 与 docs/SESSION.md。
+性质：L_move 构造层（本意×绕法，规范例三角信息法）；≠ 完成/宣称；≠ craft-loop；≠ v6.3.4 总 PASS。
+实现按 PR Plan 0→6；v1 只种子三角；旗 SCRIBE3_MOVE_LIBRARY 默认关。
+```
+
 ---
 
 ## 当前状态
+
+### 故事招式库 · 命名绕法卡片（2026-08-13）
+
+> **短名：`move-library` / 招式库** · 「继续 招式库」或读 [`docs/plans/2026-08-13-move-library-design.md`](./plans/2026-08-13-move-library-design.md)
+
+- **状态**：Draft R3 · 设计循环共识（0 open）· **待人审签执行**
+- **定调**：招式卡 = 想让读者感到 X，别直线说 X，按公式绕一圈；检索键 **本意 × 绕法**
+- **v1**：只种子 `triangle_info`（三角信息法）；假→破→真 同族并入，不另开卡
+- **分层**：不并入 `craft_skills` / `craft.py` / `lesson`；**不**改 `may_claim_story`
+- **注入**：仅 `approved ∧ validation.ok ∧ benyi` 的章计划；assemble 同步读 plan；旗 `SCRIBE3_MOVE_LIBRARY` 默认 0
+- **作者环**：MetaPane「这一圈」world-write 种子，发送强制 `runPhase=plan`
+- **下一步**：人审签后按 PR-1…6 开工
 
 ### 工程健康度结案（2026-08-12）
 
