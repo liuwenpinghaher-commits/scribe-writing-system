@@ -769,12 +769,18 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 f"chapter:{chapter}:scene-truth", "scene_truth", scene_truth_input,
             )
             _push("scene_truth_proj", "redline", _st)
-        if extra_instructions:
+        _rc_injected = False
+        _rc_skip = ""
+        if (extra_instructions or "").strip():
             _rc = _domain_input(
                 f"chapter:{chapter}:request-constraint", "request_constraint",
                 "\n\n" + extra_instructions,
             )
             _push("request_constraint", "supplemental", _rc)
+            _rc_injected = True
+        else:
+            _rc_skip = "empty_request_constraint"
+            _record_write_soft_fail(_rc_skip)
 
         # SL2：故事线 polish — join 前 _push；prepare_* 永不抛（fail-soft 仍写键）
         from scribe3.storyline_inject_polish import prepare_write_storyline_inject
@@ -930,6 +936,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         bud_rep["envelope_block_lengths"] = envelope_block_lengths_from_envelope(
             envelope
         )
+        bud_rep["request_constraint_injected"] = bool(_rc_injected)
+        if _rc_skip:
+            bud_rep["request_constraint_skip_reason"] = _rc_skip
         bud_rep["drama_vacuum_injected"] = bool(
             _budget_report_holder.get("drama_vacuum_injected")
         )
