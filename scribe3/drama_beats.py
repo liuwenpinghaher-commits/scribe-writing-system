@@ -648,9 +648,8 @@ MAX_DRAMA_BLOCK = 400
 
 # 戏剧真空警告（无 GCD 时注入；与 NQ DRAMA_GATE park 分工见设计 §7.1）
 DRAMA_VACUUM_WARN_TEXT = (
-    "\n\n【戏剧真空警告·作者执行】本章节拍尚无目标/阻力/转折/代价/钩子。"
-    "禁止公园巡礼与无目标巷志；落笔前先补 GCD，或明确本章仅过渡并压短游历。"
-    "禁：匀速地点句；无外力阻力的散步；章末假升华。\n"
+    "\n\n【戏剧真空】本章缺目标与阻力；禁无外力地点句与章末假升华。"
+    "过渡章请先标明过场并压短。\n"
 )
 
 
@@ -660,9 +659,34 @@ def drama_vacuum_warn_enabled() -> bool:
     return raw not in ("0", "false", "off", "no")
 
 
-def format_drama_vacuum_warn() -> str:
-    """无 GCD 时的注入段；flag 关则空串。"""
+def should_inject_drama_vacuum(
+    beats: list | None, *, chapter_hook: str = "",
+) -> bool:
+    """写路径真空：仅当无实质 goal 且无实质 conflict。单钩/单字代价不得熄火。"""
+    has_goal = False
+    has_conflict = False
+    for b in beats or []:
+        if not isinstance(b, dict):
+            continue
+        if len(_field(b.get("goal"))) >= MIN_FIELD:
+            has_goal = True
+        if len(_field(b.get("conflict"))) >= MIN_FIELD:
+            has_conflict = True
+        if has_goal or has_conflict:
+            break
+    _ = chapter_hook  # 钩子不算戏核
+    return not has_goal and not has_conflict
+
+
+def format_drama_vacuum_warn(
+    beats: list | None = None, *, chapter_hook: str = "",
+) -> str:
+    """无 goal∧conflict 时的注入段；flag 关则空串。"""
     if not drama_vacuum_warn_enabled():
+        return ""
+    if beats is not None and not should_inject_drama_vacuum(
+        beats, chapter_hook=chapter_hook,
+    ):
         return ""
     return DRAMA_VACUUM_WARN_TEXT
 

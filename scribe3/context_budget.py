@@ -442,6 +442,7 @@ GENERATION_SEGMENT_LAYERS: dict[str, str] = {
     "event_drive": "redline",
     "event_drive_hook": "supplemental",
     "drama_contract": "redline",
+    "drama_vacuum": "redline",
     "envelope": "envelope",
     "codex": "supplemental",
     "seed_words": "supplemental",

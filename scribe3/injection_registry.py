@@ -79,7 +79,7 @@ META_SEGMENT_NAMES: frozenset[str] = frozenset({
     "phase_role", "avoid", "material_recall", "seed_words", "volume_intro",
 })
 DRAMA_CORE_NAMES: frozenset[str] = frozenset({
-    "event_drive", "drama_contract", "drama_vacuum", "outline", "brief_must",
+    "event_drive", "drama_contract", "outline", "brief_must",
 })
 
 

@@ -321,9 +321,15 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         _dr_raw = _drama_block(st, chapter, focalizer=focalizer or "")
         if not (_dr_raw or "").strip():
             _record_write_soft_fail("empty_drama")
-            try:
-                from scribe3.drama_beats import format_drama_vacuum_warn
-                _vac = format_drama_vacuum_warn()
+        try:
+            from scribe3.drama_beats import (
+                format_drama_vacuum_warn,
+                should_inject_drama_vacuum,
+            )
+            _ch_d = st.get_chapter(int(chapter)) if chapter is not None else {}
+            _beats_d = (_ch_d or {}).get("beats") or []
+            if should_inject_drama_vacuum(_beats_d):
+                _vac = format_drama_vacuum_warn(beats=_beats_d)
                 if _vac:
                     _push(
                         "drama_vacuum",
@@ -333,10 +339,11 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                             _vac,
                         ),
                     )
-            except Exception as _sf_e:
-                from scribe3.soft_fail import soft_fail
-                import logging as _sf_logging
-                soft_fail('write_assemble_soft_2', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
+                    _budget_report_holder["drama_vacuum_injected"] = True
+        except Exception as _sf_e:
+            from scribe3.soft_fail import soft_fail
+            import logging as _sf_logging
+            soft_fail('write_assemble_soft_2', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         _dr = _domain_input(
             f"chapter:{chapter}:drama-contract", "drama_contract",
             _dr_raw,
@@ -761,6 +768,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         )
         bud_rep["recent_item_count"] = int(
             _budget_report_holder.get("recent_item_count") or 0
+        )
+        bud_rep["drama_vacuum_injected"] = bool(
+            _budget_report_holder.get("drama_vacuum_injected")
         )
         # SL2：始终写入 storyline_inject 键（含 fail-soft / 旗关），便于 injection-trace
         bud_rep["storyline_inject"] = dict(_storyline_meta)

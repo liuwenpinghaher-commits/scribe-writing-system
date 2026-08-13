@@ -5,7 +5,7 @@
 |----|------|---|---|---|---|---|------------------|
 | W1 | deduction_final | 5 | 5 | 5 | 5 | 5 | 已落地：焦点优先压缩 + 整包硬帽 + 单段 push |
 | W1 | drama_contract | 5 | 5 | 5 | 5 | 5 | 已落地：拍级走法保冲突/代价，去掉 MRU |
-| W1 | drama_vacuum | 3 | 3 | 4 | 3 | 3 | 触发改「无 goal∧conflict」+ 可操作短句 |
+| W1 | drama_vacuum | 5 | 5 | 5 | 5 | 5 | 已落地：仅无 goal∧conflict；短句；剔出戏核 |
 | W1 | event_drive | 5 | 5 | 5 | 5 | 5 | 已落地：单点判定 + 短标题「本章冲突时钟」 |
 | W1 | final_reminder | 5 | 5 | 5 | 5 | 5 | 已落地：默认短核；PROSE_STYLE 可覆盖 |
 | W1 | focalizer | 5 | 5 | 5 | 5 | 5 | 已落地：独立 `_push` + 全知横幅点明 secret_guard |
