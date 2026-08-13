@@ -103,6 +103,7 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
         "caution",
     ),
     Flag("SCRIBE3_DISCOURSE_RASHOMON", "0", "罗生门多版本工具预留（默认关）", "discourse", "caution"),
+    Flag("SCRIBE3_MOVE_LIBRARY", "0", "故事招式库：检索/注入/MCP/章计划", "story_move", "caution"),
 )
 
 

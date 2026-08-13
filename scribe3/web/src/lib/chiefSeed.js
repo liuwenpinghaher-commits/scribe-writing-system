@@ -158,21 +158,21 @@ export function scaffoldToolContract(scope) {
     return {
       tool: 's3_patch_chapter_plan',
       field: 'synopsis',
-      gateHint: 'GATE-B B1：synopsis 须非空；高压章建议大纲含 stakes:/赌注: 标签（soft warn）。',
+      gateHint: '大纲/节拍是材料参考，不是完成。可先写日子。',
     }
   }
   if (s === 'beats' || s === '节拍') {
     return {
       tool: 's3_patch_chapter_plan',
       field: 'beats',
-      gateHint: 'GATE-B B2：建议 ≥3 条非空节拍（bridge/epilogue 可少）。结构增删优先本工具；作者可微调 GCD 字段。',
+      gateHint: '节拍是材料参考，不是完成。结构增删优先本工具。',
     }
   }
   if (s === 'deduce' || s === 'scene_truth' || s === '演绎') {
     return {
       tool: 's3_patch_chapter_plan',
       field: 'scene_truth',
-      gateHint: 'GATE-B B3：scene_truth 须非空（过短 soft warn）。演绎认知层，勿与 s3_add_fact 世界命题混淆。',
+      gateHint: '场景真相是材料参考。勿与 s3_add_fact 世界命题混淆。',
     }
   }
   if (s === 'chapter-meta' || s === 'chapter_meta' || s === '章信息') {
@@ -180,6 +180,20 @@ export function scaffoldToolContract(scope) {
   }
   if (s === 'volume' || s === '卷' || s === '卷纲') {
     return { tool: 's3_patch_volume', field: 'intro', gateHint: '卷纲≠章大纲 synopsis；空 intro 则不注入 volume_intro。' }
+  }
+  if (s === 'story_move' || s === '招式' || s === '这一圈') {
+    return {
+      tool: 's3_patch_chapter_plan',
+      field: 'story_move_plan',
+      gateHint: '这一圈是绕法，不是完成灯。先 s3_move_retrieve。',
+    }
+  }
+  if (s === 'scene' || s === '场面' || s === 'narrative_contract') {
+    return {
+      tool: 's3_patch_chapter_plan',
+      field: 'narrative_contract',
+      gateHint: '场面合同走审批。不要把建议四格原样当合同。',
+    }
   }
   return null
 }
@@ -231,7 +245,7 @@ export function seedChapterOutline(seq, synopsis = '', extraHint = '') {
     [
       `使用工具 s3_patch_chapter_plan(seq=${n}, field=synopsis) 提交写入提案。`,
       SCAFFOLD_FORBID_SAVE,
-      'GATE-B B1：synopsis 须非空；高压章建议含 stakes:/赌注:。',
+      '大纲是材料参考，不是完成。',
       body,
     ].join('\n'),
   )
@@ -255,7 +269,7 @@ export function seedChapterBeats(seq, beats = [], extraHint = '') {
     [
       `使用工具 s3_patch_chapter_plan(seq=${n}, field=beats) 提交写入提案。`,
       SCAFFOLD_FORBID_SAVE,
-      'GATE-B B2：建议 ≥3 条非空节拍。',
+      '节拍是材料参考，不是完成。',
       body,
     ].join('\n'),
   )
@@ -264,6 +278,24 @@ export function seedChapterBeats(seq, beats = [], extraHint = '') {
 /**
  * 章演绎 scene_truth / 限知 主编种子。
  */
+export function seedChapterScene(seq, extraHint = '') {
+  const n = Number(seq) || seq
+  return seedChiefNarrativeWrite(
+    'scene',
+    `第 ${n} 章场面合同`,
+    [
+      `1. 先 s3_suggest_scene_contract(seq=${n}) 拿 briefing + candidates（persist=false，不是已落库合同）。`,
+      '2. 先用人话讲这场戏：发生哪一下、谁拦、留下什么。材料不够就问作者，不要凑字。',
+      '3. 再落四义+≤3痕迹，每条能指回 briefing.source。',
+      '4. 自检咬合（check_scene_lock 的人话版）；与上章 turn 撞车则改。',
+      `5. s3_patch_chapter_plan(seq=${n}, narrative_contract={desire,obstacle,turn,cost,bindings:{evidence_must_show:[…]}}) 提交我批准。`,
+      '未获批准不得声称已落库。若场面合同已变，旧提案会被拒，须按最新场面重拟。',
+      '不要先齐大纲/节拍。不要说 GATE、可开写、材料够了。不要把建议四格原样当合同。',
+      extraHint || '',
+    ].filter(Boolean).join('\n'),
+  )
+}
+
 export function seedChapterDeduce(seq, sceneTruth = '', extraHint = '') {
   const n = Number(seq) || seq
   const body = extraHint
@@ -274,7 +306,7 @@ export function seedChapterDeduce(seq, sceneTruth = '', extraHint = '') {
     [
       `使用工具 s3_patch_chapter_plan(seq=${n}, field=scene_truth) 提交写入提案；演绎字段也可同工具。`,
       SCAFFOLD_FORBID_SAVE,
-      'GATE-B B3：scene_truth 须非空。勿用 s3_add_fact 当场景真相。',
+      '场景真相是材料参考。勿用 s3_add_fact 当场景真相。',
       body,
     ].join('\n'),
   )
@@ -290,6 +322,29 @@ export function seedChiefReorderChapters(volumeId, order) {
     `目标卷:${vol};新序章号:${seqs.join(',') || '(空)'}。`,
     '未获批准不得声称已落库。',
   ].join('\n'))
+}
+
+export function seedChiefMovePlan(seq, benyi = '') {
+  const n = Number(seq) || seq
+  return seedChiefNarrativeWrite(
+    'story_move',
+    `第 ${n} 章招式计划`,
+    [
+      `域纪律(章招式):先 s3_move_retrieve(benyi=${benyi || '（先问作者：本意是什么）'}) 取一张已批招式（默认真三角；勿用 pending）。`,
+      `使用工具 s3_patch_chapter_plan(seq=${n}, story_move_plan=) 提交本意+招式+构造拍。`,
+      SCAFFOLD_FORBID_SAVE,
+      '这是这一圈怎么绕，不是完成宣称。',
+    ].join('\n'),
+  )
+}
+
+export function seedChiefHookType(seq, hookType = '') {
+  const n = Number(seq) || seq
+  return seedChiefNarrativeWrite(
+    'chapter-hook',
+    `第 ${n} 章钩类型`,
+    `请把第 ${n} 章 beats_meta.chapter_hook_type 设为 ${hookType || '悬念/危机/反转/情绪/信息之一'}，并用 s3_patch_chapter_meta 或 plan 写入。只多一句类型，不要倾倒钩子百科。`,
+  )
 }
 
 /** 删卷 → s3_delete_volume(章保留) */

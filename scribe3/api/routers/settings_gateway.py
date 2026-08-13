@@ -721,6 +721,62 @@ def ai_run_stop(run_id: str, work: str = "main"):
 
 
 
+def author_methods_list(include_hidden: bool = False):
+    """38 编目（默认隐藏女频）。"""
+    from scribe3.author_method.catalog import list_catalog, visible_count
+    rows = list_catalog(include_hidden=bool(include_hidden))
+    return {"methods": rows, "visible": visible_count(), "total": 38}
+
+
+def author_methods_read(slug: str):
+    from scribe3.author_method.catalog import get_row, read_body
+    row = get_row(slug)
+    if not row:
+        raise HTTPException(404, f"未知编目 {slug}")
+    try:
+        body = read_body(row["id"])
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    return {"method": row, "content": body}
+
+
+def author_panels():
+    from scribe3.author_method.panels import panel_payload
+    return panel_payload()
+
+
+def story_moves_list():
+    from scribe3.story_move import approved_cards
+    return {"moves": approved_cards(), "count": len(approved_cards())}
+
+
+def story_moves_retrieve(q: str = "", move_id: str | None = None):
+    from scribe3.story_move import retrieve_story_move
+    hits = retrieve_story_move(q or "", move_id=move_id)
+    return {"cards": hits, "count": len(hits)}
+
+
+def craft_banned_lexicon():
+    from scribe3.story_move import banned_lexicon_preview
+    return banned_lexicon_preview()
+
+
+def story_move_preview(work: str = "main", seq: int = 1):
+    """已部署冒烟：真实 prepare_write_story_move + 章数据。"""
+    from scribe3.store import SurrealStore
+    from scribe3.story_move import OH_STORY_SOURCE_STEMS, prepare_write_story_move
+    st = SurrealStore(db=work or "main")
+    out = prepare_write_story_move(st, chapter=int(seq), work=work)
+    text = str(out.get("text") or "")
+    leaked = [s for s in sorted(OH_STORY_SOURCE_STEMS) if s in text]
+    return {
+        "story_move": out,
+        "leaked_source_stems": leaked,
+        "segment_name": "story_move",
+        "has_text": bool(text.strip()),
+    }
+
+
 def craft_skills_list():
     """技法库索引(craft_skills.list_skills 薄封装)。"""
     from scribe3.craft_skills import list_skills
@@ -890,6 +946,13 @@ def _bind_and_register() -> None:
     for _path, _fn, _methods, _name in [
         ('/craft-skills', craft_skills_list, ['GET'], 'craft_skills_list'),
         ('/craft-skills/{slug}', craft_skills_read, ['GET'], 'craft_skills_read'),
+        ('/author-methods', author_methods_list, ['GET'], 'author_methods_list'),
+        ('/author-methods/{slug}', author_methods_read, ['GET'], 'author_methods_read'),
+        ('/author-panels', author_panels, ['GET'], 'author_panels'),
+        ('/story-moves', story_moves_list, ['GET'], 'story_moves_list'),
+        ('/story-moves/retrieve', story_moves_retrieve, ['GET'], 'story_moves_retrieve'),
+        ('/craft-banned-lexicon', craft_banned_lexicon, ['GET'], 'craft_banned_lexicon'),
+        ('/debug/story-move-preview', story_move_preview, ['GET'], 'story_move_preview'),
         ('/mcp/catalog', mcp_catalog, ['GET'], 'mcp_catalog'),
         ('/data/health', data_health, ['GET'], 'data_health'),
         ('/admin/data/tables', admin_data_tables, ['GET'], 'admin_data_tables'),

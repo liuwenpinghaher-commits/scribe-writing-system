@@ -1040,6 +1040,7 @@ async def s3_patch_chapter_plan(
     scene_truth: str | None = None,
     deductions: list[dict[str, Any]] | None = None,
     involved_characters: list[str] | None = None,
+    story_move_plan: dict | None = None,
     work: str | None = None,
 ) -> dict:
     """改章阶段内容:大纲/节拍/场景真相/演绎/出场角色(写,待批)。不改 prose/身份 meta。
@@ -1068,6 +1069,23 @@ async def s3_patch_chapter_plan(
         if err:
             return {"status": "error", "tool": "s3_patch_chapter_plan", "error": err}
         fields["involved_characters"] = normalized_involved
+    if story_move_plan is not None:
+        if not isinstance(story_move_plan, dict):
+            return {
+                "status": "error",
+                "tool": "s3_patch_chapter_plan",
+                "error": "story_move_plan 必须是 dict",
+            }
+        from scribe3.story_move import validate_story_move_plan
+        smp = dict(story_move_plan)
+        smp["validation"] = validate_story_move_plan(smp)
+        if smp.get("approved") and not smp["validation"].get("ok"):
+            smp["approved"] = False
+        current = store.get_chapter(seq) or {}
+        bm = current.get("beats_meta") if isinstance(current.get("beats_meta"), dict) else {}
+        bm = dict(bm)
+        bm["story_move_plan"] = smp
+        fields["beats_meta"] = bm
     # 演绎若显式提交 deductions，必须覆盖本次（或已存）的全部出场角色。
     # 否则 `deductions=[]` 会经审批被写成成功，但 Gate-B/后续限知上下文均不可消费。
     if deductions is not None:

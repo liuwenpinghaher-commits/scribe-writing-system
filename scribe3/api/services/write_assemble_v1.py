@@ -565,6 +565,36 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 "error": str(_sf_e)[:160], "cap": 200,
             }
 
+        _move_meta: dict = {"fed": False, "applied": False, "enabled": False, "chars": 0}
+        try:
+            from scribe3.story_move import prepare_write_story_move
+            from scribe3.author_method.panels import checklist_prompt_text
+            _ = checklist_prompt_text(None)
+            if _:
+                raise RuntimeError("checklist leaked into prompt")
+            _mv = prepare_write_story_move(
+                st, chapter=int(chapter) if chapter is not None else None, work=work,
+            )
+            _move_meta = dict(_mv.get("meta") or _move_meta)
+            _m_txt = str(_mv.get("text") or "")
+            if _m_txt.strip():
+                _m_seg = _domain_input(
+                    f"chapter:{chapter}:story-move",
+                    "story_move",
+                    _m_txt if _m_txt.startswith("\n") else ("\n" + _m_txt),
+                )
+                _push("story_move", "supplemental", _m_seg)
+        except Exception as _sf_e:
+            from scribe3.soft_fail import soft_fail
+            import logging as _sf_logging
+            soft_fail(
+                "write_assemble_story_move",
+                _sf_e,
+                logger="scribe3.write_assemble",
+                level=_sf_logging.DEBUG,
+            )
+            _move_meta = {"fed": False, "applied": False, "enabled": True, "error": str(_sf_e)[:160]}
+
         # P2：软 lore 激活（仅 material/reference/codex 类；红线免疫）
         try:
             from scribe3.soft_activation import apply_soft_activation, soft_activation_enabled
@@ -592,6 +622,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         bud_rep["storyline_inject"] = dict(_storyline_meta)
         # W2：discourse_soft 预算观测（meso_source / truncated）
         bud_rep["discourse_soft"] = dict(_discourse_meta)
+        bud_rep["story_move"] = dict(_move_meta)
         if _budget_report_holder.get("activation"):
             bud_rep["soft_activation"] = _budget_report_holder["activation"]
         # P2 residual：写路径挂事件图一跳（共享 novel_first_surface，非平行实现）

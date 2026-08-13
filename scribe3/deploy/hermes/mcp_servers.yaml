@@ -18,6 +18,7 @@ scribe3_read:
     include:
       - s3_project_frame
       - s3_skill_read
+      - s3_move_retrieve
       - s3_find_leaks
       - s3_causal_complete
       - s3_semantic_recall
@@ -44,6 +45,7 @@ scribe3_read:
       - s3_list_chapters
       - s3_list_volumes
       - s3_get_chapter
+      - s3_suggest_scene_contract
       - s3_qc_chapter
       - s3_recent_phrases
       - s3_cross_repetition
@@ -117,6 +119,7 @@ scribe3_deduce_read:
   tools:
     include:
       - s3_get_chapter
+      - s3_suggest_scene_contract
       - s3_project_frame
       - s3_character_state
       - s3_list_entity_relations
@@ -139,10 +142,12 @@ scribe3_plan_read:
   tools:
     include:
       - s3_get_chapter
+      - s3_suggest_scene_contract
       - s3_list_chapters
       - s3_get_intent
       - s3_list_promises
       - s3_list_volumes
+      - s3_move_retrieve
     prompts: false
     resources: false
 scribe3_plan_write:
@@ -162,6 +167,7 @@ scribe3_draft_read:
   tools:
     include:
       - s3_get_chapter
+      - s3_suggest_scene_contract
       - s3_list_chapters
       - s3_project_frame
       - s3_character_state

@@ -8,7 +8,7 @@ export const PLANES = [
       { id: 'book', label: '本书与目标', needsWork: true },
       { id: 'prefs', label: '个人偏好', needsWork: false },
       { id: 'tasks', label: '任务旋钮', needsWork: false },
-      { id: 'skills', label: '技能与技法', needsWork: false },
+      { id: 'skills', label: '技法与招式', needsWork: false },
       { id: 'mcp', label: '能力注册表', needsWork: false },
       { id: 'craft', label: '工艺与记忆', needsWork: false },
       { id: 'health', label: '写路径健康', needsWork: false },

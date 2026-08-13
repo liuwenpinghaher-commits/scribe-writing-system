@@ -1,0 +1,125 @@
+{
+  "cards": [
+    {
+      "slug": "triangle_info",
+      "name": "三角信息法",
+      "one_liner": "本意别直说：假→破→真绕一圈。",
+      "formula_family": "false_break_true",
+      "formula": {
+        "arrow": "假→破→真",
+        "beats": [
+          {"role": "假", "name": "反面", "hint": "先给期望、热闹、表面意义或暖物件"},
+          {"role": "破", "name": "破功", "hint": "打碎、露怯、金包铜、底牌翻面"},
+          {"role": "真", "name": "本意", "hint": "落到要表达的信息，不解说"}
+        ]
+      },
+      "straight_line": "上来就写抠门/买不起/他其实很惨。",
+      "aliases": [
+        "欲扬先抑", "金锁三拍", "装逼打脸", "暗牌", "假意顺从",
+        "打脸", "伪提示", "三层反差", "数字反差", "假胜", "高潮假胜"
+      ],
+      "benyi_aliases": ["穷", "拮据", "买不起", "惨", "孤独"],
+      "usage": "同一招式必须换场面与物件；禁止模仿正例用词。无反转时不要硬塞。",
+      "examples_pos": [
+        {
+          "benyi": "决裂",
+          "beats": ["生日礼物很暖", "金锁其实是包铜", "丢进垃圾桶"]
+        }
+      ],
+      "status": "approved",
+      "origin": "seed"
+    },
+    {
+      "slug": "bond_tear",
+      "name": "羁绊三板斧",
+      "one_liner": "先立真质感，再撕裂，留余韵。",
+      "formula_family": "true_tear_aftertaste",
+      "formula": {
+        "arrow": "立真→撕裂→余韵",
+        "beats": [
+          {"role": "真", "name": "立真", "hint": "铺具体可感的羁绊，不是反面伪装"},
+          {"role": "撕", "name": "撕裂", "hint": "关系被不可逆地扯开"},
+          {"role": "余", "name": "余韵", "hint": "钝痛留在物件或静默，不喊痛"}
+        ]
+      },
+      "straight_line": "他们很相爱所以很痛。",
+      "aliases": ["羁绊撕裂", "三板斧", "羁绊三板斧"],
+      "benyi_aliases": ["疼", "失去", "诀别"],
+      "usage": "铺的是真，不是假面。禁止 retrieve 落到三角。",
+      "examples_pos": [
+        {"benyi": "诀别", "beats": ["两人分食同一块饼", "饼被踩进泥", "空碗还在桌上"]}
+      ],
+      "status": "approved",
+      "origin": "seed"
+    },
+    {
+      "slug": "one_word_crush",
+      "name": "一字碾压",
+      "one_liner": "对方长论，只回一字压服。",
+      "formula_family": "long_then_one",
+      "formula": {
+        "arrow": "长论→一字→压服",
+        "beats": [
+          {"role": "长", "name": "长论", "hint": "对方铺陈、解释、炫耀"},
+          {"role": "一", "name": "一字", "hint": "极短回应，不解释"},
+          {"role": "压", "name": "压服", "hint": "场面权势掉转"}
+        ]
+      },
+      "straight_line": "对等对骂或自报实力。",
+      "aliases": ["压制", "一字回应", "一字碾压"],
+      "benyi_aliases": ["权势", "压人"],
+      "usage": "地位长度差，不是揭假。",
+      "examples_pos": [
+        {"benyi": "压服", "beats": ["对方讲了半炷香", "只回一个字", "满场没人再接"]}
+      ],
+      "status": "approved",
+      "origin": "seed"
+    },
+    {
+      "slug": "speech_wither",
+      "name": "话死",
+      "one_liner": "辩解变短，沉默，最后一句随意。",
+      "formula_family": "shrink_to_silence",
+      "formula": {
+        "arrow": "辩解→沉默→随意",
+        "beats": [
+          {"role": "辩", "name": "辩解", "hint": "还想说清"},
+          {"role": "默", "name": "沉默", "hint": "话量塌缩"},
+          {"role": "随", "name": "随意", "hint": "一句无所谓收场"}
+        ]
+      },
+      "straight_line": "我心死了。",
+      "aliases": ["心死", "话死"],
+      "benyi_aliases": ["心死", "放弃"],
+      "usage": "话量衰减，不要贴标签。",
+      "examples_pos": [
+        {"benyi": "放弃", "beats": ["还想解释昨夜", "后来不接话", "说随意"]}
+      ],
+      "status": "approved",
+      "origin": "seed"
+    },
+    {
+      "slug": "withhold_escalate",
+      "name": "延宕加码",
+      "one_liner": "露一角就切，下次加码再留扣。",
+      "formula_family": "show_cut_raise",
+      "formula": {
+        "arrow": "露一角→切线→加码留扣",
+        "beats": [
+          {"role": "露", "name": "露一角", "hint": "只给一部分答案或爽点"},
+          {"role": "切", "name": "切线", "hint": "打断、换场、未完"},
+          {"role": "加", "name": "加码留扣", "hint": "下一拍加码但仍不倒空"}
+        ]
+      },
+      "straight_line": "一次倒空答案或爽点。",
+      "aliases": ["延宕", "分层钩", "延迟引爆"],
+      "benyi_aliases": ["悬", "未完"],
+      "usage": "不给全量，没有假面。",
+      "examples_pos": [
+        {"benyi": "悬", "beats": ["匣子开了一指", "有人推门", "匣子被重新扣上"]}
+      ],
+      "status": "approved",
+      "origin": "seed"
+    }
+  ]
+}

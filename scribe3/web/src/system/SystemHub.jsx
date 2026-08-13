@@ -39,6 +39,13 @@ export function SystemHub({
   const [usage, setUsage] = useState(null)
   const [skills, setSkills] = useState(null)
   const [skillBody, setSkillBody] = useState(null)
+  const [moves, setMoves] = useState(null)
+  const [moveBody, setMoveBody] = useState(null)
+  const [methods, setMethods] = useState(null)
+  const [methodBody, setMethodBody] = useState(null)
+  const [panels, setPanels] = useState(null)
+  const [bannedLex, setBannedLex] = useState(null)
+  const [checkSel, setCheckSel] = useState(() => new Set())
   const [mcp, setMcp] = useState(null)
   const [mcpFilter, setMcpFilter] = useState('all')
   const [showRawNames, setShowRawNames] = useState(false)
@@ -88,6 +95,10 @@ export function SystemHub({
     }
     if (sid === 'skills') {
       api.craftSkills?.().then((r) => setSkills(r.skills || r || [])).catch((e) => setErr(String(e?.message || e)))
+      api.storyMoves?.().then((r) => setMoves(r.moves || [])).catch(() => setMoves([]))
+      api.authorMethods?.().then((r) => setMethods(r.methods || [])).catch(() => setMethods([]))
+      api.authorPanels?.().then(setPanels).catch(() => setPanels(null))
+      api.craftBannedLexicon?.().then(setBannedLex).catch(() => setBannedLex(null))
     }
     if (sid === 'mcp') {
       api.mcpCatalog?.().then(setMcp).catch((e) => setErr(String(e?.message || e)))
@@ -404,21 +415,110 @@ export function SystemHub({
       </div>
     )
   } else if (section?.id === 'skills') {
+    const layerGroups = {}
+    for (const m of methods || []) {
+      const k = m.layer || 'catalog'
+      if (!layerGroups[k]) layerGroups[k] = []
+      layerGroups[k].push(m)
+    }
     main = (
-      <div className="p-5" data-testid="system-hub-skills">
-        <p className="text-f12 text-faint mb-3">技法库只读；增删改仓库 craft_skills/*.md 后部署。</p>
-        <ul className="space-y-2">
-          {(skills || []).map((s) => (
-            <li key={s.slug || s.name}>
-              <button type="button" className="text-left w-full rounded-lg border border-line px-3 py-2 hover:bg-soft cursor-pointer"
-                onClick={() => api.craftSkill?.(s.slug).then((r) => setSkillBody(r.content || r)).catch((e) => setErr(String(e)))}>
-                <div className="text-f13 font-medium">{s.name || s.slug}</div>
-                <div className="text-meta text-faint">{s.desc || s.slug}</div>
-              </button>
-            </li>
-          ))}
-        </ul>
-        {skillBody && <pre className="mt-4 p-3 rounded-lg bg-canvas border border-line text-f12 whitespace-pre-wrap max-h-96 overflow-auto">{skillBody}</pre>}
+      <div className="p-5 space-y-4" data-testid="system-hub-skills">
+        <p className="text-f12 text-faint">技法 = 落笔纪律；招式 = 本意×绕法。句子处方在写路径八引擎，不做成卡。</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3" data-testid="skills-three-cols">
+          <div data-testid="skills-col-craft">
+            <h4 className="text-f13 font-medium mb-2">技法</h4>
+            <ul className="space-y-2">
+              {(skills || []).map((s) => (
+                <li key={s.slug || s.name}>
+                  <button type="button" className="text-left w-full rounded-lg border border-line px-3 py-2 hover:bg-soft cursor-pointer"
+                    onClick={() => api.craftSkill?.(s.slug).then((r) => { setSkillBody(r.content || r); setMoveBody(null); setMethodBody(null) }).catch((e) => setErr(String(e)))}>
+                    <div className="text-f13 font-medium">{s.name || s.slug}</div>
+                    <div className="text-meta text-faint">{s.desc || s.slug}</div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div data-testid="skills-col-moves">
+            <h4 className="text-f13 font-medium mb-2">招式</h4>
+            <ul className="space-y-2">
+              {(moves || []).map((c) => (
+                <li key={c.slug}>
+                  <button type="button" className="text-left w-full rounded-lg border border-line px-3 py-2 hover:bg-soft cursor-pointer"
+                    onClick={() => { setMoveBody(c); setSkillBody(null); setMethodBody(null) }}>
+                    <div className="text-f13 font-medium">{c.name}</div>
+                    <div className="text-meta text-faint">{c.formula?.arrow || c.one_liner}</div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div data-testid="skills-col-catalog">
+            <h4 className="text-f13 font-medium mb-2">编目（{(methods || []).length}）</h4>
+            <div className="max-h-80 overflow-auto space-y-2">
+              {Object.entries(layerGroups).map(([layer, rows]) => (
+                <div key={layer}>
+                  <div className="text-meta text-faint px-1">{layer}</div>
+                  {rows.map((m) => (
+                    <button key={m.id} type="button" className="text-left w-full rounded-md border border-line/60 px-2 py-1.5 mb-1 hover:bg-soft cursor-pointer"
+                      onClick={() => api.authorMethod?.(m.id).then((r) => { setMethodBody(r.content || ''); setSkillBody(null); setMoveBody(null) }).catch((e) => setErr(String(e)))}>
+                      <div className="text-f12">{m.title}</div>
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        {skillBody && <pre className="p-3 rounded-lg bg-canvas border border-line text-f12 whitespace-pre-wrap max-h-96 overflow-auto" data-testid="skill-body">{typeof skillBody === 'string' ? skillBody : JSON.stringify(skillBody)}</pre>}
+        {moveBody && (
+          <div className="p-3 rounded-lg bg-canvas border border-line text-f12 space-y-1" data-testid="move-body">
+            <div className="font-medium">{moveBody.name} · {moveBody.formula?.arrow}</div>
+            <div>直线病：{moveBody.straight_line}</div>
+            <div>{moveBody.usage}</div>
+          </div>
+        )}
+        {methodBody && <pre className="p-3 rounded-lg bg-canvas border border-line text-f12 whitespace-pre-wrap max-h-96 overflow-auto" data-testid="method-body">{methodBody}</pre>}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3" data-testid="author-panels">
+          <div className="rounded-lg border border-line p-3">
+            <h4 className="text-f13 font-medium mb-2">质量清单（勾选不进生成）</h4>
+            <ul className="space-y-1">
+              {(panels?.checklist || []).map((it) => (
+                <li key={it.id}>
+                  <label className="flex items-center gap-2 text-f12 cursor-pointer">
+                    <input type="checkbox" checked={checkSel.has(it.id)} onChange={() => {
+                      const n = new Set(checkSel)
+                      if (n.has(it.id)) n.delete(it.id); else n.add(it.id)
+                      setCheckSel(n)
+                    }} />
+                    {it.label}
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="rounded-lg border border-line p-3 text-f12 space-y-2">
+            <div><span className="font-medium">钩类型</span>：{(panels?.hook_types || []).map((h) => h.label).join(' / ')}</div>
+            <div><span className="font-medium">开篇</span>
+              <ul className="list-disc pl-4">{(panels?.opening || []).map((x) => <li key={x}>{x}</li>)}</ul>
+            </div>
+            <div><span className="font-medium">大纲</span>
+              <ul className="list-disc pl-4">{(panels?.outline || []).map((x) => <li key={x}>{x}</li>)}</ul>
+            </div>
+            <div><span className="font-medium">日更</span>
+              <ul className="list-disc pl-4">{(panels?.daily || []).map((x) => <li key={x}>{x}</li>)}</ul>
+            </div>
+            <div><span className="font-medium">回炉</span>
+              <ul className="list-disc pl-4">{(panels?.revision || []).map((x) => <li key={x}>{x}</li>)}</ul>
+            </div>
+          </div>
+        </div>
+        {bannedLex && (
+          <p className="text-meta text-faint" data-testid="banned-lexicon-link">
+            禁词只读：{bannedLex.source} · {bannedLex.count} 类（不进技法正文）
+          </p>
+        )}
       </div>
     )
   } else if (section?.id === 'mcp') {

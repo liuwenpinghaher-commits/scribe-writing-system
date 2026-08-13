@@ -174,8 +174,17 @@ def s3_list_motifs(work: str | None = None) -> list[dict]:
 
 
 def s3_get_chapter(seq: int, work: str | None = None) -> dict:
-    """读某章正文(manuscript)。"""
+    """读某章（含场面合同，勿与 GATE 齐套混淆）。"""
     return _store_for(work).get_chapter(seq) or {}
+
+
+@mcp.tool(annotations=_RO)
+def s3_suggest_scene_contract(seq: int, work: str | None = None) -> dict:
+    """只读场面建议：briefing + candidates + lock_warnings。persist 恒 false，无写权限。"""
+    from scribe3.narrative_contract import load_scene_suggest
+    sug = load_scene_suggest(_store_for(work), int(seq))
+    sug["persist"] = False
+    return sug
 
 
 def s3_list_chapters(work: str | None = None) -> list[dict]:
@@ -186,6 +195,13 @@ def s3_list_chapters(work: str | None = None) -> list[dict]:
 def s3_list_volumes(work: str | None = None) -> list[dict]:
     """列当前作品分卷的 ID、标题和排序；建章前用于选择可选卷归属。"""
     return _jsonable(_store_for(work).list_volumes())
+
+
+def s3_move_retrieve(benyi: str, move_id: str | None = None, work: str | None = None) -> dict:
+    """按本意或俗名取一张已批招式卡（三角/羁绊/一字/话死/延宕）。不读散文召回。"""
+    from scribe3.story_move import retrieve_story_move
+    hits = retrieve_story_move(benyi or "", move_id=move_id)
+    return {"cards": hits[:1], "count": len(hits[:1])}
 
 
 def s3_skill_read(slug: str, work: str | None = None) -> str:

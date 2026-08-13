@@ -61,8 +61,14 @@ def serial_line_from_chapter(chapter: dict | None) -> tuple[str, str]:
     ch = chapter if isinstance(chapter, dict) else {}
     bm = ch.get("beats_meta") if isinstance(ch.get("beats_meta"), dict) else {}
     custom = _s(bm.get("serial_note") or bm.get("discourse_serial"))
+    hook_type = _s(bm.get("chapter_hook_type"))
+    bits = []
+    if hook_type:
+        bits.append("钩类型:" + hook_type[:20])
     if custom:
-        return ("连载：" + custom[:100]), "beats_meta"
+        bits.append(custom[:80])
+    if bits:
+        return ("连载：" + "；".join(bits))[:120], "beats_meta"
     return SERIAL_DEFAULT, "default"
 
 

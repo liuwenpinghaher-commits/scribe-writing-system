@@ -19,7 +19,7 @@ find_emotion_telling/find_purple_prose 等检测器误删。
     "opening_patterns":  开篇范式(3-5 条,摘自源文件"开篇范式"表)
     "hook_motifs":       钩子母题(3-5 条,摘自"钩子母题与密度")
     "intensity":         情绪烈度(1-5,由源文件"烈度 N"[10 分制]折算,四舍五入)
-    "moves":             招式库(>=6 条,摘自"招式库"表)
+    "moves":             题材包桥段名（≠ L_move story_move 招式卡）
     "ending_patterns":   收尾范式(2-3 条,摘自"收尾范式")
     "keep_list":         别删清单正则(>=3 条)→ seed 时落 allow_pattern
     "cliches":           套路桥段正则(>=3 条)→ seed 时落 purple_regex(反面词表,

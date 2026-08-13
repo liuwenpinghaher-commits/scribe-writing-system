@@ -8,6 +8,8 @@ import {
   seedChapterOutline,
   seedChapterBeats,
   seedChapterDeduce,
+  seedChiefMovePlan,
+  seedChiefHookType,
 } from './lib/chiefSeed.js'
 import {
   evaluateChapterContract,
@@ -18,6 +20,7 @@ import { softGateIssues } from './lib/deduceGate.js'
 import { loadIaDensity, volumeMetaPeekVisible } from './lib/iaDensity.js'
 import { ChapterSoftCards } from './ChapterSoftCards.jsx'
 import { StageBoard } from './StageBoard.jsx'
+import { ScenePaper } from './ScenePaper.jsx'
 
 /** 本地三行摘要（chapter.narrative_drive 直读；与后端 format_drive_three_lines 同形） */
 function driveThreeFromChapter(drive) {
@@ -99,7 +102,7 @@ export function ChapterMetaPane({
     let alive = true
     setLoading(true)
     setExecSoft(null)
-    Promise.all([api.chapter(seq, work), api.listVolumes()])
+    Promise.all([api.chapter(seq, work, { includeSuggest: true }), api.listVolumes()])
       .then(([ch, rows]) => {
         if (!alive) return
         setChapter(ch || {})
@@ -207,7 +210,7 @@ export function ChapterMetaPane({
             第 {seq} 章 · {title || '未命名'} · {labelText} · 卷 {volTitle}
           </p>
           <p className="mt-0.5 text-f12 text-faint">
-            开写前要齐的材料摘要（只读）。改内容请让右侧主编代写并批准，不要在这里直接当表单改。
+            材料参考（只读）。改场面请点「跟主编定这场」，不要在这里填表。
           </p>
         </div>
         <Btn variant="ghost" size="sm" onClick={onClose}>返回写作</Btn>
@@ -231,6 +234,27 @@ export function ChapterMetaPane({
           synopsis={synopsis}
           beats={beats}
         />
+
+      <section className="mb-4" data-testid="chapter-this-circle">
+        <h4 className="text-f13 font-medium text-ink mb-1">这一圈</h4>
+        {(() => {
+          const plan = (chapter?.beats_meta && chapter.beats_meta.story_move_plan) || chapter?.story_move_plan || {}
+          const hookType = chapter?.beats_meta?.chapter_hook_type || ''
+          return (
+            <div className="rounded-md border border-line/40 bg-canvas/50 px-3 py-2 text-f13 space-y-2">
+              <p className="text-ink">
+                {plan.approved
+                  ? `${plan.move_id || plan.slug || '招式'} · 本意 ${plan.benyi || '—'}`
+                  : <span className="text-faint">还没画。本意×绕法，不是完成灯。</span>}
+              </p>
+              <div className="flex flex-wrap gap-1">
+                <Btn variant="ghost" size="xs" data-testid="seed-draw-triangle" onClick={() => seedChiefMovePlan(seq)}>画三角</Btn>
+                <Btn variant="ghost" size="xs" onClick={() => seedChiefHookType(seq, hookType)}>钩类型{hookType ? ` · ${hookType}` : ''}</Btn>
+              </div>
+            </div>
+          )
+        })()}
+      </section>
       </section>
 
       {showVolPeek && (
@@ -246,21 +270,24 @@ export function ChapterMetaPane({
         </section>
       )}
 
-      <section
+      <div className="mb-4">
+        <ScenePaper chapter={chapter} seq={seq} />
+      </div>
+      <details
         className="mb-5 rounded-lg border border-line/60 bg-surface/60 px-3 py-3"
         data-testid="chapter-contract-checklist"
-        aria-label="写前齐套"
+        aria-label="材料备忘"
       >
-        <div className="flex items-center gap-2 mb-2">
-          <h4 className="text-f13 font-medium text-ink">开写前要齐的材料</h4>
+        <summary className="flex items-center gap-2 mb-2 cursor-pointer list-none">
+          <h4 className="text-f13 font-medium text-ink">材料备忘</h4>
           {contract.hasError ? (
-            <span className="text-f12 text-danger" data-testid="contract-attention">
-              还不齐 · 不建议开写
+            <span className="text-f12 text-faint" data-testid="contract-attention">
+              材料参考未齐（不挡先写日子）
             </span>
           ) : (
-            <span className="text-f12 text-ok">材料够了，可以开写</span>
+            <span className="text-f12 text-ok">材料参考齐</span>
           )}
-        </div>
+        </summary>
         <ul className="space-y-1.5 text-f13 text-ink">
           <li className="flex items-center gap-2">
             <StatusDot
@@ -317,7 +344,7 @@ export function ChapterMetaPane({
           以上是写前建议，不拦你进正文或和主编聊天。
           真要保存成正式正文时，缺大纲/节拍/场景真相仍可能被拦住。
         </p>
-      </section>
+      </details>
 
       <section
         className="mb-5 rounded-lg border border-line/60 bg-surface/60 px-3 py-3"
