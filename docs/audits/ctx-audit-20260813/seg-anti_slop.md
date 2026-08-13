@@ -22,11 +22,13 @@
 
 ## 5. 评分
 
-| P_flow | 4 |
-| Q_craft | 2 |
-| R_safety | 4 |
-| B_product | 2 |
-| Observability | 2 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+P1：与 sincerity 收成 prefix 内一处短核；不再独立 `_push("sincerity")`。
 
 ## 6. 最优改造
 

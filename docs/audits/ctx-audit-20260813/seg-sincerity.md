@@ -22,11 +22,13 @@ _focalizer_sincerity_block 固定红线。偏口号。
 
 ## 5. 评分
 
-| P_flow | 4 |
-| Q_craft | 2 |
-| R_safety | 4 |
-| B_product | 2 |
-| Observability | 3 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+已并入 anti_slop 短核，不再独立 `_push`。空/跳过可查：assemble 源无 sincerity 段。
 
 ## 6. 最优改造
 

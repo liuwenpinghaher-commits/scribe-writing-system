@@ -414,8 +414,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _revelation_discipline_block(focalizer),
         )
         _push("revelation_discipline", "redline", _rev)
-        _sinc = _focalizer_sincerity_block()
-        _push("sincerity", "redline", _sinc)
+        # sincerity 并入 anti_slop 短核，不再独立占红线窗
         _pu = _domain_input(
             f"chapter:{chapter}:purpose", "purpose",
             _purpose_workflow_block(st, chapter, with_tools, work),

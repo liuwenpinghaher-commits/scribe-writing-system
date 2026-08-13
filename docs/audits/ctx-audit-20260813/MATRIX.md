@@ -28,7 +28,7 @@
 | W3 | story_causal | 5 | 5 | 5 | 5 | 5 | 已接线：`collect_story_fuel_segments` supplemental；查询失败 `empty_story_causal`。 |
 | W3 | story_ember | 5 | 5 | 5 | 5 | 5 | 已接线：`prior_consequences` → `_push("story_ember","supplemental")`；不进 L0_NEVER_CUT。 |
 | W3 | story_recall | 5 | 5 | 5 | 5 | 5 | 已接线：hybrid_recall 掩码后注入；T1_fuel 先裁 recall。 |
-| W4 | anti_slop | 4 | 2 | 4 | 2 | 2 | 三处 slop 收成一处短核。 |
+| W4 | anti_slop | 5 | 5 | 5 | 5 | 5 | 已落地：与 sincerity 收成 prefix 短核 |
 | W4 | author_prefs | 3 | 3 | 3 | 3 | 3 | 与 procedural 偏好去重。 |
 | W4 | avoid | 4 | 3 | 4 | 3 | 3 | 默认 omit 独立段（已有旗）。 |
 | W4 | continue_snapshot | 3 | 3 | 3 | 3 | 3 | 独立 push；skip 原因进 report。 |
@@ -47,7 +47,7 @@
 | W4 | revelation_discipline | 4 | 3 | 4 | 3 | 3 | 与 CORE 尾注差集，只保留尾注没有的一句。 |
 | W4 | revision | 4 | 3 | 4 | 3 | 2 | 非修订请求不注入。 |
 | W4 | seed_words | 4 | 3 | 4 | 3 | 3 | 空 soak 不 push。 |
-| W4 | sincerity | 4 | 2 | 4 | 2 | 3 | 并入 anti_slop 或删独立段，只留一条。 |
+| W4 | sincerity | 5 | 5 | 5 | 5 | 5 | 已并入 anti_slop 短核，不再独立段 |
 | W4 | story_move | 4 | 4 | 4 | 4 | 4 | 保持零字节默认；观测 plan_missing 原因。 |
 | W4 | storyline_polish | 3 | 3 | 3 | 3 | 3 | 空 meta 不 push；观测 skip 原因。 |
 | W4 | structure_diversity | 4 | 3 | 3 | 3 | 3 | 保持短纪律；独立 _push 名以便 density。 |
