@@ -20,7 +20,7 @@
 | W2 | provenance | 5 | 2 | 5 | 2 | 5 | 维持 0 额度；检查器读 envelope.omitted / trace 而非 prompt。 |
 | W2 | recent | 5 | 5 | 5 | 5 | 5 | 已落地：fabric 空 query 兜底 + recent_item_count |
 | W2 | reference | 4 | 4 | 4 | 3 | 3 | 保持免责门；材料空时 omitted 记 no_materials 以便检查器。 |
-| W2 | uncertainty | 4 | 3 | 4 | 3 | 3 | 保留 superseded 行优先于低信心闲聊（allocate 时先留 reason=superseded）。 |
+| W2 | uncertainty | 5 | 5 | 5 | 5 | 5 | 已落地：superseded 优先于待确认闲聊 |
 | W3 | brief_must | 5 | 5 | 5 | 5 | 5 | 已落地：must 条相对大纲/场面合同差集 |
 | W3 | codex | 5 | 5 | 5 | 5 | 5 | 已落地：与 envelope 差集后再 cap；codex_chars |
 | W3 | event_drive_hook | 5 | 5 | 5 | 5 | 5 | 已落地：与 event_drive 同一谓词；续势钩 supplemental |

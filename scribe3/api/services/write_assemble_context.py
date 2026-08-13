@@ -944,6 +944,37 @@ def procedural_stats_from_envelope(envelope) -> dict[str, int]:
     }
 
 
+def prioritize_superseded_items(items: list) -> list:
+    """uncertainty 预算裁剪前：reason=superseded_by_canonical 的行先留。"""
+    hi: list = []
+    lo: list = []
+    for it in items or []:
+        src = getattr(it, "source", None)
+        if src is not None:
+            reason = str(getattr(src, "reason", "") or "")
+        elif isinstance(it, dict):
+            reason = str(it.get("reason") or "")
+        else:
+            reason = ""
+        (hi if reason == "superseded_by_canonical" else lo).append(it)
+    return hi + lo
+
+
+def uncertainty_stats_from_envelope(envelope) -> dict[str, int]:
+    """信封 uncertainty：正典取代行 vs 待确认行。"""
+    text = ""
+    for b in getattr(envelope, "blocks", None) or []:
+        if getattr(b, "name", "") == "uncertainty":
+            text = getattr(b, "text", "") or ""
+            break
+    superseded = sum(1 for ln in text.splitlines() if "已被正典取代" in ln)
+    pending = sum(1 for ln in text.splitlines() if "待确认:" in ln)
+    return {
+        "uncertainty_superseded_count": superseded,
+        "uncertainty_pending_count": pending,
+    }
+
+
 def focus_has_outline_pointer_from_envelope(envelope) -> bool:
     """章焦点是否只留「见 outline 域」指针（未再展开 synopsis/beats）。"""
     for b in getattr(envelope, "blocks", None) or []:

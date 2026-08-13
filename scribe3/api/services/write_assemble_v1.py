@@ -381,6 +381,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 recent_item_count_from_envelope,
                 procedural_stats_from_envelope,
                 focus_has_outline_pointer_from_envelope,
+                uncertainty_stats_from_envelope,
             )
             _budget_report_holder["recent_item_count"] = recent_item_count_from_envelope(
                 envelope,
@@ -395,11 +396,20 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _budget_report_holder["focus_has_outline_pointer"] = (
                 focus_has_outline_pointer_from_envelope(envelope)
             )
+            _unc = uncertainty_stats_from_envelope(envelope)
+            _budget_report_holder["uncertainty_superseded_count"] = _unc[
+                "uncertainty_superseded_count"
+            ]
+            _budget_report_holder["uncertainty_pending_count"] = _unc[
+                "uncertainty_pending_count"
+            ]
         except Exception:
             _budget_report_holder["recent_item_count"] = 0
             _budget_report_holder["procedural_item_count"] = 0
             _budget_report_holder["procedural_dedup_dropped"] = 0
             _budget_report_holder["focus_has_outline_pointer"] = False
+            _budget_report_holder["uncertainty_superseded_count"] = 0
+            _budget_report_holder["uncertainty_pending_count"] = 0
         if env_text:
             _push("envelope", "envelope", "\n\n" + env_text)
         # V2：codex 在 envelope 之后（注意力 · 防设定洪水盖住戏剧）
@@ -870,6 +880,12 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         )
         bud_rep["focus_has_outline_pointer"] = bool(
             _budget_report_holder.get("focus_has_outline_pointer")
+        )
+        bud_rep["uncertainty_superseded_count"] = int(
+            _budget_report_holder.get("uncertainty_superseded_count") or 0
+        )
+        bud_rep["uncertainty_pending_count"] = int(
+            _budget_report_holder.get("uncertainty_pending_count") or 0
         )
         bud_rep["drama_vacuum_injected"] = bool(
             _budget_report_holder.get("drama_vacuum_injected")

@@ -576,8 +576,13 @@ class ContextAssembler:
     def _allocate(self, items: dict[str, list[_Item]]
                   ) -> tuple[list[ContextBlock], list[dict], int]:
         # L1：canonical/global 内 must/state/铁律优先，再进既有 _truncate_items
+        from scribe3.api.services.write_assemble_context import prioritize_superseded_items
         items = {
-            k: (self._reorder_l1_first(list(v)) if k in ("canonical", "global") else list(v or []))
+            k: (
+                self._reorder_l1_first(list(v)) if k in ("canonical", "global")
+                else prioritize_superseded_items(list(v)) if k == "uncertainty"
+                else list(v or [])
+            )
             for k, v in (items or {}).items()
         }
         kept_blocks: list[ContextBlock] = []
@@ -1070,17 +1075,18 @@ class ContextAssembler:
                            superseded) -> list[_Item]:
         """uncertainty:冲突 + 低信心 + 待确认。含被正典取代项的一句提示(读者仍不知)。"""
         out: list[_Item] = []
-        for c in (cands or []):
-            conf = getattr(c, "confidence", None)
-            tag = f"(信心 {conf})" if conf is not None else ""
-            out.append(_Item(f"- 待确认:{c.text}{tag}", ContextSource(
-                source_id=c.source_id, source_kind="uncertainty", work=snapshot.work)))
+        # 正典取代行必须先于低信心闲聊，避免 800 字预算先吃光待确认
         for c in (superseded or []):
             out.append(_Item(
                 f"- 旧推测已被正典取代(存疑,勿据此写):{getattr(c, 'source_id', '')}",
                 ContextSource(source_id=f"superseded:{c.source_id}",
                               source_kind="uncertainty", work=snapshot.work,
                               reason="superseded_by_canonical")))
+        for c in (cands or []):
+            conf = getattr(c, "confidence", None)
+            tag = f"(信心 {conf})" if conf is not None else ""
+            out.append(_Item(f"- 待确认:{c.text}{tag}", ContextSource(
+                source_id=c.source_id, source_kind="uncertainty", work=snapshot.work)))
         return out
 
     def _provenance_items(self, items: dict[str, list[_Item]]) -> list[_Item]:
