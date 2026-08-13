@@ -108,6 +108,7 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag("SCRIBE3_NOVEL_PROMPT_HARD", "", "只接受空或 96000；其它 fail-loud", "context_budget", "caution"),
     Flag("SCRIBE3_MODEL_CONTEXT_WINDOW", "", "供应商 token 窗。≥192000 时产品默认 96k", "context_budget", "caution"),
     Flag("SCRIBE3_NOVEL_WIDE_WORKS", "", "升窗书白名单；非空则未传 work 走窄档", "context_budget", "caution"),
+    Flag("SCRIBE3_RUN_CARD", "1", "写/存/宣称 Run 卡（期望×实际×质量）；0=零 I/O", "observability", "safe"),
 )
 
 

@@ -1736,7 +1736,8 @@ def _rebind_services() -> None:
             'grounding_candidate_from_beats', '_beats_from_synopsis_segments',
             '_compose_beats_meta', '_drama_gate_park_if_needed',
         ]),
-        (_svc_prompt_blocks, ['_codex_value_repr', '_faction_relation_summary', '_pulse_digest', '_thread_history_for_prompt', '_secret_guard_block', '_strip_preamble', '_avoid_directive', '_arc_state_block', '_motif_block', '_frame_block', '_recap_block', '_revelation_discipline_block', '_final_reminder', '_final_reminder_full', '_verbatim_deduction_fallback']),
+        (_svc_prompt_blocks, ['_codex_value_repr', '_faction_relation_summary', '_pulse_digest', '_thread_history_for_prompt', '_secret_guard_block', '_load_reveal_secret_ids', '_fact_secret_keys', '_strip_preamble', '_avoid_directive', '_arc_state_block', '_motif_block', '_frame_block', '_recap_block', '_revelation_discipline_block', '_final_reminder', '_final_reminder_full', '_verbatim_deduction_fallback']),
+        # is_revision_request is imported by write_assemble_v1; rebind needs it in app_impl globals
         (_svc_thread_helpers, ['_resolve_thread_or_raise', '_editor_turn_context', '_context_memory_metrics', '_capture_turn_memory', '_maybe_summarize_thread', '_summarize_thread_inner', '_ChatTurnLog']),
         # inject_floor_env_enabled + _anti_slop_floor_block：写路径 v1 组装在
         # _assemble_write_instructions_v1 内调用；漏绑会在 rebind 后 NameError，
@@ -1772,6 +1773,19 @@ def _rebind_services() -> None:
             if getattr(fn, "__doc__", None):
                 reb.__doc__ = fn.__doc__
             g[name] = reb
+    # 补 rebound 漏掉的模块私有助手：保持原函数 __globals__，避免
+    # FunctionType 改写后找不到同模块邻居（如 _load_reveal_secret_ids）。
+    from scribe3.api.services import write_assemble_context as _wac
+    from scribe3.api.services import prompt_blocks as _pb2
+    for _mod in (_wac, _pb2):
+        for _name in dir(_mod):
+            if not _name.startswith("_") or _name.startswith("__"):
+                continue
+            if _name in g:
+                continue
+            _fn = getattr(_mod, _name)
+            if callable(_fn):
+                g[_name] = _fn
 
 
 _rebind_services()

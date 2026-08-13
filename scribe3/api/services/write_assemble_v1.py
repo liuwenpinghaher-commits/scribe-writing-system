@@ -100,7 +100,8 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         )
     )
     _revision_skip = ""
-    if is_revision_request(
+    from scribe3.api.services.write_assemble_blocks import is_revision_request as _is_rev
+    if _is_rev(
         phase=phase or "",
         request_text=request_text or "",
         extra_instructions=extra_instructions or "",
@@ -155,6 +156,20 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         f"chapter:{chapter}:secret-guard", "secret_guard",
         _secret_guard_block(st, chapter),
     )
+    _run_card_ctx: dict = {
+        "secret_guard_nonempty": bool((_secret_guard_txt or "").strip()),
+        "has_unpublished_markers": (
+            "严禁在正文出现以下破绽词" in (_secret_guard_txt or "")
+            or "【核心悬念·限知纪律" in (_secret_guard_txt or "")
+        ),
+        "facts": None,
+        "attempted_names": set(),
+        "fuel_skips": {},
+        "report": None,
+        "recall_text": None,
+        "texts": {},
+        "latch": {"count": 0, "kinds": []},
+    }
     _tool_txt = ""
     _skills_txt = ""
     if with_tools:
@@ -256,6 +271,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         segs: list[dict] = []
 
         def _push(name: str, layer: str, text: str) -> str:
+            _run_card_ctx["attempted_names"].add(name)
             if not text:
                 return ""
             segs.append({"name": name, "layer": layer, "text": text})
@@ -315,18 +331,39 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _nc_skip = "empty_narrative_contract"
             _record_write_soft_fail(_nc_skip)
         try:
+            from scribe3.run_card_collect import collect_expected_facts
+            _run_card_ctx["facts"] = collect_expected_facts(
+                st, work=work or "main", chapter=int(chapter or 0),
+                phase=phase or "draft", with_tools=bool(with_tools),
+                focalizer=focalizer, request_text=request_text or "",
+                extra_instructions=extra_instructions or "",
+                inputs=_inputs, holder=_run_card_ctx,
+            )
+        except Exception:
+            _run_card_ctx["facts"] = None
+        try:
             from scribe3.api.services.write_assemble_context import collect_story_fuel_segments
+            for _fn_mark in ("story_ember", "story_recall", "story_causal"):
+                _run_card_ctx["attempted_names"].add(_fn_mark)
+            _fuel_got: set[str] = set()
             for _fuel_seg in collect_story_fuel_segments(_inputs, work=work):
                 _fn = _fuel_seg.get("name") or ""
                 _ft = _fuel_seg.get("text") or ""
                 if _fn and _ft:
+                    _fuel_got.add(_fn)
                     _push(
                         _fn,
                         "supplemental",
                         _domain_input(f"chapter:{chapter}:{_fn}", _fn, _ft),
                     )
+            for _fn_mark in ("story_ember", "story_recall", "story_causal"):
+                if _fn_mark not in _fuel_got:
+                    _run_card_ctx["fuel_skips"][f"{_fn_mark}_skip_reason"] = f"empty_{_fn_mark}"
         except Exception:
             _record_write_soft_fail("story_fuel_skip")
+            for _fn_mark in ("story_ember", "story_recall", "story_causal"):
+                _run_card_ctx["attempted_names"].add(_fn_mark)
+                _run_card_ctx["fuel_skips"][f"{_fn_mark}_skip_reason"] = f"empty_{_fn_mark}"
         # 叙事引擎：事件驱动引导块在戏剧 GCD 之前（冲突/事件主时钟）。
         # 有场面合同则降为续势钩，不再出冲突时钟全文。
         try:
@@ -1015,6 +1052,22 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             from scribe3.soft_fail import soft_fail
             import logging as _sf_logging
             soft_fail('write_assemble_soft_9', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
+        bud_rep.update(_run_card_ctx.get("fuel_skips") or {})
+        _joined_segs = (bud_rep.get("l2") or {}).get("segments") or segs
+        _texts = {}
+        _recall_txt = ""
+        for _js in _joined_segs:
+            if not isinstance(_js, dict):
+                continue
+            _jn = str(_js.get("name") or "")
+            _jt = str(_js.get("text") or "")
+            if _jn in ("story_ember", "story_recall", "story_causal"):
+                _texts[_jn] = _jt
+            if _jn == "story_recall":
+                _recall_txt = _jt
+        _run_card_ctx["report"] = bud_rep
+        _run_card_ctx["texts"] = _texts
+        _run_card_ctx["recall_text"] = _recall_txt
         _budget_report_holder["report"] = bud_rep
         _store_write_budget_report(bud_rep)
         return joined, tuple(supplemental_sources)
@@ -1246,6 +1299,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             if _hits:
                 # 有命中但已 scrub：仍记 soft 计数（可观测，非成本 KPI）
                 _record_write_soft_fail("epistemic_guard")
+                _run_card_ctx["latch"] = {
+                    "count": len(_hits) if hasattr(_hits, "__len__") else 1,
+                    "kinds": ["epistemic_guard"],
+                }
         except EpistemicLeakError:
             # O17 fail-loud：向上抛，不吞
             _record_write_soft_fail("epistemic_guard")
@@ -1254,6 +1311,28 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _record_write_soft_fail("epistemic_guard")
             logging.getLogger("scribe3").warning(
                 "epistemic guard failed (fail-soft keep instructions)", exc_info=True)
+    try:
+        from scribe3.run_card_store import emit_write_run_card
+        emit_write_run_card(
+            st=st,
+            work=work or "main",
+            chapter=int(chapter or 0),
+            phase=phase or "draft",
+            facts=_run_card_ctx.get("facts"),
+            bud_rep=_run_card_ctx.get("report"),
+            attempted_names=_run_card_ctx.get("attempted_names") or set(),
+            request_id=compiled.request.request_id,
+            manifest_id=compiled.manifest.manifest_hash,
+            actual_input_hash=compiled.manifest.actual_input_hash,
+            latch=_run_card_ctx.get("latch"),
+            recall_text=_run_card_ctx.get("recall_text"),
+            texts=_run_card_ctx.get("texts"),
+            kind="write",
+            assemble_ok=bool((rendered or "").strip()),
+        )
+    except Exception:
+        logging.getLogger("scribe3").warning(
+            "emit_write_run_card fail-soft (keep write)", exc_info=True)
     return rendered
 
 

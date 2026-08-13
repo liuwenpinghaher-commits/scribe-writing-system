@@ -1,6 +1,7 @@
 """Domain router (extracted from app_impl). URLs unchanged."""
 from __future__ import annotations
 
+import logging
 import types
 from typing import Any, Optional, List, Dict, Literal
 
@@ -1127,31 +1128,71 @@ def reader_ack_ep(body: dict = Body(...), work: str = "main"):
     seq = int(body.get("seq") or 0)
     prose = body.get("prose") or ""
     note = body.get("note") or ""
+    kind = str(body.get("kind") or "reader").strip() or "reader"
+    if kind not in ("reader", "story"):
+        kind = "reader"
     if seq < 1:
         raise HTTPException(status_code=422, detail="seq required")
+    if kind == "story":
+        from scribe3.narrative_contract import cn_len as _cn
+        if _cn(note) < 10:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "story_ack_note_short",
+                    "message": "场面或确认已过期，请再签（note 去空白≥10）",
+                },
+            )
+    contract_fp = ""
+    if kind == "story":
+        try:
+            from scribe3.narrative_contract import contract_content_fp
+            ch = st.get_chapter(seq) or {}
+            contract_fp = contract_content_fp(ch.get("narrative_contract"))
+        except Exception:
+            contract_fp = ""
     try:
         row = st.upsert_reader_ack(
             work, seq, prose_fp=prose_fp(prose), note=str(note)[:200],
+            kind=kind, contract_fp=contract_fp,
         )
+    except TypeError:
+        try:
+            row = st.upsert_reader_ack(
+                work, seq, prose_fp=prose_fp(prose), note=str(note)[:200], kind=kind,
+            )
+        except TypeError:
+            row = st.upsert_reader_ack(
+                work, seq, prose_fp=prose_fp(prose), note=str(note)[:200],
+            )
     except Exception as e:
         raise HTTPException(
             status_code=503,
             detail=f"读者确认存储未就绪：{str(e)[:120]}",
         ) from e
-    # strip RecordID for JSON
     ack_out = None
     if isinstance(row, dict):
         ack_out = {
             "prose_fp": row.get("prose_fp"),
+            "contract_fp": row.get("contract_fp") or contract_fp,
             "work": row.get("work"),
             "seq": row.get("seq"),
             "note": row.get("note"),
+            "kind": row.get("kind") or kind,
         }
-    return {"ok": True, "work": work, "seq": seq, "ack": ack_out}
+    return {"ok": True, "work": work, "seq": seq, "kind": kind, "ack": ack_out}
+
+
+def story_ack_ep(body: dict = Body(...), work: str = "main"):
+    """叙事完成人读确认（kind=story）；场面或确认过期须再签。"""
+    body = dict(body or {})
+    body["kind"] = "story"
+    return reader_ack_ep(body, work=work)
 
 
 def reader_claim_ep(body: dict = Body(...), work: str = "main"):
     """宣称可读硬门：机判红或未 ack → 409。"""
+    import uuid as _uuid
     st = _store_for(work)
     from scribe3.reader_ready import assert_reader_claim
     seq = int(body.get("seq") or 0)
@@ -1173,6 +1214,37 @@ def reader_claim_ep(body: dict = Body(...), work: str = "main"):
         require_ack=bool(require_ack),
         scaffold_ok=scaffold_ok,
     )
+    _rows = [
+        {
+            "name": "reader_claim",
+            "expected": True,
+            "actual": "present" if out.get("allowed") else "failed",
+            "actual_reason": str(out.get("code") or ("allowed" if out.get("allowed") else "reader_claim")),
+        },
+        {
+            "name": "scaffold_gate_b",
+            "expected": True,
+            "actual": "present" if scaffold_ok else ("empty" if scaffold_ok is None else "failed"),
+            "actual_reason": "gate_b" if scaffold_ok is not None else "gate_b_error",
+        },
+    ]
+    try:
+        from scribe3.run_card import build_gate_run_card, run_card_enabled
+        from scribe3.run_card_store import emit_write_run_card
+        if run_card_enabled():
+            card = build_gate_run_card(
+                work=work, chapter=seq, kind="claim",
+                request_id=_uuid.uuid4().hex,
+                gate_rows=_rows, assemble_ok=bool(out.get("allowed")),
+            )
+            emit_write_run_card(
+                st=st, work=work, chapter=seq, kind="claim",
+                assemble_ok=bool(out.get("allowed")), card=card,
+            )
+    except Exception:
+        logging.getLogger("scribe3.run_card").warning(
+            "claim run_card fail-soft", exc_info=True,
+        )
     if not out.get("allowed"):
         raise HTTPException(
             status_code=409,
@@ -1236,6 +1308,7 @@ def _bind_and_register() -> None:
 
     for _name, _path, _methods in (
         ('reader_ack_ep', '/reader-ack', ['POST']),
+        ('story_ack_ep', '/story-ack', ['POST']),
         ('reader_claim_ep', '/reader-claim', ['POST']),
     ):
         _fn = g[_name]

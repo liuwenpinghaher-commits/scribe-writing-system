@@ -462,13 +462,56 @@ def tension_check(seq: int, work: str = "main"):
     return {"items": items, "rubric": rep, "cache_hit": cache_hit}
 
 def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "main"):
+    import uuid as _uuid
+    _rc_id = _uuid.uuid4().hex
+    _rc_rows: list[dict] = []
+    _rc_emitted = False
+    st = None
+    try:
+        st = _store_for(work)
+    except Exception:
+        st = None
+
+    def _rc_emit(ok: bool, latch: dict | None = None):
+        nonlocal _rc_emitted
+        if _rc_emitted:
+            return
+        _rc_emitted = True
+        try:
+            from scribe3.run_card import build_gate_run_card, run_card_enabled
+            from scribe3.run_card_store import emit_write_run_card
+            if not run_card_enabled():
+                return
+            card = build_gate_run_card(
+                work=work, chapter=int(req.seq), kind="save", request_id=_rc_id,
+                gate_rows=list(_rc_rows), assemble_ok=ok,
+                quality={"latch": latch or {"count": 0, "kinds": []}},
+            )
+            emit_write_run_card(
+                st=st, work=work, chapter=int(req.seq), kind="save",
+                assemble_ok=ok, card=card,
+            )
+        except Exception:
+            import logging as _lg
+            _lg.getLogger("scribe3.run_card").warning("save run_card fail-soft", exc_info=True)
+
     # 遗留处置 1-B:同章生成在途时拒绝手动存稿（_chapter_op_busy → chapter_lock 快照）
     if _chapter_op_busy(work, req.seq, "loop"):
+        _rc_rows.append({"name": "loop_busy", "expected": True, "actual": "failed", "actual_reason": "loop_busy"})
+        _rc_emit(False)
         raise HTTPException(status_code=409, detail=(
             f"第 {req.seq} 章生成在途(loop/选择环),完成后再存——"
             "你的编辑不会丢,可先复制正文"))
-    _guard_pilot_busy(work, req.seq)   # R2-3:pilot 非 loop 步在途/连写中也拦(防挂旧稿)
-    st = _store_for(work)
+    _rc_rows.append({"name": "loop_busy", "expected": True, "actual": "present", "actual_reason": "idle"})
+    try:
+        _guard_pilot_busy(work, req.seq)   # R2-3:pilot 非 loop 步在途/连写中也拦(防挂旧稿)
+        _rc_rows.append({"name": "pilot_busy", "expected": True, "actual": "present", "actual_reason": "idle"})
+    except HTTPException:
+        _rc_rows.append({"name": "pilot_busy", "expected": True, "actual": "failed", "actual_reason": "pilot_busy"})
+        _rc_emit(False)
+        raise
+    if st is None:
+        st = _store_for(work)
     # 工艺优先:实质正文须过 GATE-A(首篇)/GATE-B;见 verify_craft_compliance.evaluate_save_craft_gate
     try:
         from scribe3.verify_craft_compliance import evaluate_save_craft_gate
@@ -479,6 +522,8 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
             create_mode=_cm,
         )
         if not cg.get("allowed"):
+            _rc_rows.append({"name": "craft_gate", "expected": True, "actual": "failed", "actual_reason": str(cg.get("code") or "craft_gate")})
+            _rc_emit(False, {"count": len(cg.get("warnings") or []), "kinds": ["craft_gate"]})
             raise HTTPException(status_code=409, detail={
                 "code": cg.get("code") or "craft_gate",
                 "message": cg.get("detail") or "工艺门闩未通过",
@@ -488,6 +533,7 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
                 "warnings": cg.get("warnings") or [],
                 "create_mode": cg.get("create_mode"),
             })
+        _rc_rows.append({"name": "craft_gate", "expected": True, "actual": "present", "actual_reason": "allowed"})
     except HTTPException:
         raise
     except Exception as e:
@@ -511,6 +557,8 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
             skip=bool(req.skip_finalize_gate),
         )
         if not fg_decision.get("allowed"):
+            _rc_rows.append({"name": "finalize_gate", "expected": True, "actual": "failed", "actual_reason": str(fg_decision.get("code") or "finalize_gate")})
+            _rc_emit(False, {"count": len(fg_decision.get("advisory_items") or []), "kinds": ["finalize_gate"]})
             raise HTTPException(status_code=409, detail={
                 "code": fg_decision.get("code") or "finalize_gate",
                 "message": fg_decision.get("detail") or "定稿门闩未通过",
@@ -519,6 +567,7 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
                 "advisory_items": fg_decision.get("advisory_items") or [],
                 "danger_draft_hint": "显式传 danger_draft=true 可旁路(危险,仅草稿)",
             })
+        _rc_rows.append({"name": "finalize_gate", "expected": True, "actual": "present", "actual_reason": "allowed"})
     except HTTPException:
         raise
     except Exception as e:
@@ -539,11 +588,16 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
             _ss = evaluate_strict_scene_gate(
                 _sg, strict=True, prose=req.prose)
             if not _ss.get("allowed"):
+                _rc_rows.append({"name": "strict_scene", "expected": True, "actual": "failed", "actual_reason": "strict_scene"})
+                _rc_emit(False)
                 raise HTTPException(status_code=409, detail={
                     "code": _ss.get("code") or "strict_scene",
                     "message": _ss.get("detail") or "严格戏格未通过",
                     "issues": _ss.get("issues") or [],
                 })
+            _rc_rows.append({"name": "strict_scene", "expected": True, "actual": "present", "actual_reason": "allowed"})
+        else:
+            _rc_rows.append({"name": "strict_scene", "expected": False, "actual": "absent", "actual_reason": "flag_off"})
     except HTTPException:
         raise
     except Exception as e:
@@ -551,6 +605,8 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
         logging.getLogger("scribe3").warning(
             "strict scene 评估失败(忽略,不拦) work=%s: %s", work, e)
     st.save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
+    _rc_rows.append({"name": "persist_chapter", "expected": True, "actual": "present", "actual_reason": "saved"})
+    _rc_emit(True)
     # P2 产品门闩：实质正文落库后跑 C-Det，结果写 craft_compliance（仪表盘可见）
     craft_compliance_out = None
     try:
@@ -1088,26 +1144,115 @@ def get_debug_flags():
     return {"flags": get_all_flags()}
 
 
-def get_injection_trace():
-    """H9：最近一次写路径 budget_report / density（进程内 · 只读）。"""
+def get_injection_trace(work: str = "main"):
+    """H9：最近一次写路径 budget_report + 并列 Run 卡。必须保留 annotations。"""
     from scribe3.api.services.write_assemble import get_last_write_budget_report
     from scribe3.context_budget import build_budget_report, context_fidelity
+    from scribe3.run_card_store import get_last_run_card, latest_run_card, publicize
     try:
         from scribe3.injection_registry import registry_mode
         reg = registry_mode()
     except Exception:
         reg = "off"
     last = get_last_write_budget_report() or {}
-    # 若尚无写路径，返回当前配置快照
+    last_card = get_last_run_card()
+    persisted = None
+    try:
+        from scribe3.api import app_impl as core
+        persisted = latest_run_card(core._store_for(work), work=work, kind="write")
+    except Exception:
+        persisted = None
     if not last:
-        last = build_budget_report()
+        last = build_budget_report(work=work)
+    card = persisted or last_card or None
+    src = "db" if persisted else ("memory" if last_card else None)
     return {
         "surface": "debug.injection_trace",
-        "registry_mode": last.get("registry_mode") or reg,
+        "work": work,
+        "registry_mode": (card or last).get("registry_mode") or reg,
         "fidelity": last.get("fidelity") or context_fidelity(),
         "budget_report": last,
-        "note": "进程内最近写路径；重启后空；与 budget-probe 同权（登录作者）",
+        "run_card": publicize(card) if card else None,
+        "run_card_source": src,
+        "note": (
+            "run_card 为期望×实际×质量；budget_report 并列。永不回传 prompt。"
+            f" source={src}；无 work 时为默认书+本进程 last。"
+        ),
     }
+
+
+def get_debug_run_cards(
+    work: str = "main",
+    chapter: int | None = None,
+    kind: str | None = None,
+    verdict: str | None = None,
+    limit: int = 20,
+):
+    """列出本书 Run 卡（无段正文）。"""
+    from scribe3.run_card_store import list_run_cards, publicize
+    try:
+        from scribe3.api import app_impl as core
+        st = core._store_for(work)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:160], "items": []}
+    rows = list_run_cards(st, chapter=chapter, kind=kind, verdict=verdict, limit=limit)
+    items = []
+    for raw in rows:
+        pub = publicize(raw) or {}
+        items.append({
+            "run_id": pub.get("run_id"),
+            "request_id": pub.get("request_id"),
+            "outcome_id": pub.get("outcome_id"),
+            "kind": pub.get("kind"),
+            "chapter": pub.get("chapter"),
+            "phase": pub.get("phase"),
+            "created_at": raw.get("created_at"),
+            "verdict": pub.get("verdict"),
+            "summary": pub.get("summary"),
+            "assemble_ok": pub.get("assemble_ok"),
+            "outcome_status": pub.get("outcome_status"),
+            "prompt_hard_profile": pub.get("prompt_hard_profile"),
+            "quality_flags": pub.get("quality_flags"),
+        })
+    return {
+        "ok": True,
+        "work": work,
+        "surface": "debug.run_cards",
+        "count": len(items),
+        "items": items,
+    }
+
+
+def get_debug_run_card(run_id: str, work: str = "main"):
+    """单次 Run 卡。"""
+    from scribe3.run_card_store import get_run_card, publicize
+    try:
+        from scribe3.api import app_impl as core
+        st = core._store_for(work)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:160]}
+    raw = get_run_card(st, run_id)
+    if not raw:
+        return {"ok": False, "error": "not_found", "work": work, "run_id": run_id}
+    pub = publicize(raw) or {}
+    pub["ok"] = True
+    pub["work"] = work
+    pub["surface"] = "debug.run_card"
+    pub["created_at"] = raw.get("created_at")
+    return pub
+
+
+def post_debug_run_cards_purge(work: str = "main", days: int | None = None):
+    from scribe3.run_card_store import purge_run_cards, ttl_days
+    try:
+        from scribe3.api import app_impl as core
+        st = core._store_for(work)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:160]}
+    out = purge_run_cards(st, days=days)
+    out["work"] = work
+    out["default_ttl_days"] = ttl_days()
+    return out
 
 
 def budget_probe_ep(req: dict | None = None):
@@ -1555,6 +1700,9 @@ def _bind_and_register() -> None:
         ('get_debug_locks', '/debug/locks', ['GET']),
         ('get_debug_audit_log', '/debug/audit-log', ['GET']),
         ('post_debug_audit_purge', '/debug/audit-purge', ['POST']),
+        ('get_debug_run_cards', '/debug/run-cards', ['GET']),
+        ('get_debug_run_card', '/debug/run-cards/{run_id}', ['GET']),
+        ('post_debug_run_cards_purge', '/debug/run-cards/purge', ['POST']),
         ('get_debug_stats', '/debug/stats', ['GET']),
         ('soft_event_led_ep', '/soft/event-led', ['POST']),
         ('soft_discourse_ep', '/soft/discourse', ['POST']),

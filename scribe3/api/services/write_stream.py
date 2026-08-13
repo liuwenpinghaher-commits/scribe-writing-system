@@ -651,12 +651,35 @@ class _WriteOutcomeBinding:
 
     def persist(self, trace: dict) -> None:
         try:
-            _save_write_context_outcome(self._store, self.manifest_trace, trace)
+            outcome = _save_write_context_outcome(self._store, self.manifest_trace, trace)
         except Exception:
             logging.getLogger("scribe3").error(
                 "Context Outcome 落库失败，终止本次生成", exc_info=True,
             )
             raise
+        try:
+            from scribe3.run_card_store import attach_outcome_to_run_card
+            rid = ""
+            if isinstance(self.manifest_trace, dict):
+                rid = str(self.manifest_trace.get("request_id") or "")
+            oid = getattr(outcome, "outcome_id", None) if outcome is not None else None
+            status = getattr(outcome, "status", None) if outcome is not None else None
+            usage = getattr(outcome, "usage", None) if outcome is not None else None
+            if isinstance(outcome, dict):
+                oid = outcome.get("outcome_id")
+                status = outcome.get("status")
+                usage = outcome.get("usage")
+            attach_outcome_to_run_card(
+                self._store,
+                request_id=rid,
+                outcome_id=oid,
+                status=status,
+                usage=usage if isinstance(usage, dict) else None,
+            )
+        except Exception:
+            logging.getLogger("scribe3").warning(
+                "attach_outcome_to_run_card fail-soft", exc_info=True,
+            )
 
 
 def _collect_write(message, instructions: str, with_tools: bool = True,

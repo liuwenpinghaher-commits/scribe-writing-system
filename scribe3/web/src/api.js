@@ -573,7 +573,17 @@ export const api = {
   discourseSoft: (body, work) => post('/soft/discourse', body || {}, work),
   soak: (body, work) => post('/soak', body || {}, work),
   literaryDistill: (body, work) => post('/literary-distill', body || {}, work),
-  injectionTrace: () => j('/debug/injection-trace'),
+  injectionTrace: (work) => j('/debug/injection-trace', work),
+  runCards: (q = {}, work) => {
+    const p = new URLSearchParams()
+    if (q.chapter != null) p.set('chapter', String(q.chapter))
+    if (q.kind) p.set('kind', q.kind)
+    if (q.verdict) p.set('verdict', q.verdict)
+    if (q.limit) p.set('limit', String(q.limit))
+    const qs = p.toString()
+    return j('/debug/run-cards' + (qs ? '?' + qs : ''), work)
+  },
+  runCard: (id, work) => j('/debug/run-cards/' + enc(id), work),
   budgetProbe: (body) => post('/debug/budget-probe', body || {}),
   debugLocks: () => j('/debug/locks'),
   benchmarkAdvisoryPreview: (bid) => post(`/benchmarks/${enc(bid)}/advisory-preview`, {}),
