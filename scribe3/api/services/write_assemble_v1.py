@@ -469,19 +469,30 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _pr_raw,
         )
         _push("phase_role", "supplemental", _pr)
-        # WS-1 C.3：avoid 并入 anti_slop 时不推独立段
+        # WS-1 C.3：默认 omit 独立 avoid 段（并入 anti_slop 旗，禁词表进 L0）
         _skip_avoid = False
+        _avoid_skip = ""
+        _avoid_injected = False
         try:
             from scribe3.injection_compact import should_omit_avoid_domain
             _skip_avoid = should_omit_avoid_domain()
         except Exception:
             _skip_avoid = False
-        if not _skip_avoid:
-            _av = _domain_input(
-                f"chapter:{chapter}:avoid", "avoid",
-                _avoid_directive(st, chapter),
-            )
-            _push("avoid", "supplemental", _av)
+        if _skip_avoid:
+            _avoid_skip = "avoid_merged_into_antislop"
+            _record_write_soft_fail(_avoid_skip)
+        else:
+            _av_raw = _avoid_directive(st, chapter)
+            if (_av_raw or "").strip():
+                _av = _domain_input(
+                    f"chapter:{chapter}:avoid", "avoid",
+                    _av_raw,
+                )
+                _push("avoid", "supplemental", _av)
+                _avoid_injected = True
+            else:
+                _avoid_skip = "empty_avoid"
+                _record_write_soft_fail(_avoid_skip)
         _rev = _domain_input(
             f"chapter:{chapter}:revelation-discipline", "revelation_discipline",
             _revelation_discipline_block(focalizer),
@@ -820,6 +831,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         bud_rep["write_protocol_injected"] = bool(_protocol_txt)
         if _protocol_skip:
             bud_rep["write_protocol_skip_reason"] = _protocol_skip
+        bud_rep["avoid_injected"] = bool(_avoid_injected)
+        if _avoid_skip:
+            bud_rep["avoid_skip_reason"] = _avoid_skip
         # SL2：始终写入 storyline_inject 键（含 fail-soft / 旗关），便于 injection-trace
         bud_rep["storyline_inject"] = dict(_storyline_meta)
         # W2：discourse_soft 预算观测（meso_source / truncated）
