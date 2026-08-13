@@ -111,23 +111,21 @@ ensure_narrative_drive（outline / expand_beats / draft_loop）
 | B_product | **3** | 空合同章需要这颗钉；非 pilot / 弱种子时钉不在。 |
 | Observability | **3** | 有段则进 `domain_lengths` / `order_indices` / density；缺席与旗关不可分。 |
 
-| P_flow | 3 |
+| P_flow | 5 |
 | Q_craft | 3 |
-| R_safety | 4 |
-| B_product | 3 |
-| Observability | 3 |
+| R_safety | 5 |
+| B_product | 4 |
+| Observability | 5 |
+
+P1 已落地单点判定 + `empty_event_drive`。Q 仍 3：标题「优先执行」与套话引导未动（本轮主方案刻意不动文案）。下一轮改标题。
 
 ---
 
 ## 6 恰好一个最优改造
 
-**assemble 单点判定 + 空段可观测（禁止双谓词、禁止静默缺席）。**
+**assemble 单点判定 + 空段可观测。** — **P1 已落地。**
 
-1. `_event_drive_block(..., contract=None)`：场面合同用调用方传入的同一对象（v1 已 `load_chapter_story_inputs`）；**禁止** helper 内再 `get_chapter` 判合同。full/hook 与 `_ed_name`/`_ed_layer` 只认这一次 `contract_has_scene_fields`。
-2. `narrative_engine_enabled()` 且 **无场面合同** 且格式化结果为空 → `_record_write_soft_fail("empty_event_drive")`（对称 `empty_drama`）。旗关不记（那是产品关断）。
-3. **不要**在 assemble 里 `ensure`（编译路径写库，爆炸半径过大）；不要改 NEVER；不要动 hook 文案。
-
-验收：同一 `st` 上合同加载失败时不得把钩文 `_push` 成 `event_drive`；引擎开、无合同、无实质 drive 时 soft_fail 计数 +1；空合同+完好 drive 仍出现「引爆」且序在 drama 前。
+残留 Q：标题「优先执行」+ 套话引导。下一轮主方案：短标题「本章冲突时钟」、去掉「优先执行」。
 
 ---
 

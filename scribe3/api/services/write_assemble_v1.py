@@ -275,13 +275,17 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _record_write_soft_fail("story_fuel_skip")
         # 叙事引擎：事件驱动引导块在戏剧 GCD 之前（冲突/事件主时钟）。
         # 有场面合同则降为续势钩，不再「优先执行」。
-        _ed_raw = _event_drive_block(st, chapter, focalizer=focalizer or "")
-        _ed_is_hook = False
         try:
             from scribe3.narrative_contract import contract_has_scene_fields
-            _ed_is_hook = contract_has_scene_fields((_inputs or {}).get("contract"))
+            _ed_contract = (_inputs or {}).get("contract")
+            _ed_is_hook = contract_has_scene_fields(_ed_contract)
         except Exception:
+            _ed_contract = None
             _ed_is_hook = False
+        _ed_raw = _event_drive_block(
+            st, chapter, focalizer=focalizer or "",
+            contract=_ed_contract, has_scene=_ed_is_hook,
+        )
         _ed_name = "event_drive_hook" if _ed_is_hook else "event_drive"
         _ed_layer = "supplemental" if _ed_is_hook else "redline"
         if _ed_raw:
@@ -290,6 +294,13 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 _ed_layer,
                 _domain_input(f"chapter:{chapter}:{_ed_name}", _ed_name, _ed_raw),
             )
+        elif not _ed_is_hook:
+            try:
+                from scribe3.novel_quality_flags import narrative_engine_enabled
+                if narrative_engine_enabled():
+                    _record_write_soft_fail("empty_event_drive")
+            except Exception:
+                pass
         _dr_raw = _drama_block(st, chapter, focalizer=focalizer or "")
         if not (_dr_raw or "").strip():
             _record_write_soft_fail("empty_drama")

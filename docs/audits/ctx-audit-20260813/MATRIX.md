@@ -6,7 +6,7 @@
 | W1 | deduction_final | 5 | 5 | 5 | 5 | 5 | 已落地：焦点优先压缩 + 整包硬帽 + 单段 push |
 | W1 | drama_contract | 4 | 2 | 3 | 3 | 4 | 400 字先砍 MRU 套话、保代价/冲突 |
 | W1 | drama_vacuum | 3 | 3 | 4 | 3 | 3 | 触发改「无 goal∧conflict」+ 可操作短句 |
-| W1 | event_drive | 3 | 3 | 4 | 3 | 3 | assemble 单点判定 + empty_event_drive 可观测 |
+| W1 | event_drive | 5 | 3 | 5 | 4 | 5 | 单点判定已落地；Q 下一轮去「优先执行」标题 |
 | W1 | final_reminder | 5 | 2 | 4 | 2 | 4 | 默认 CORE 短核，文体按书覆盖 |
 | W1 | focalizer | 5 | 5 | 5 | 5 | 5 | 已落地：独立 `_push` + 全知横幅点明 secret_guard |
 | W1 | narrative_contract | 5 | 5 | 5 | 5 | 5 | store 已与 drive 同构读写；get_chapter 解析 JSON 串；写路径能出场面头 |
@@ -23,7 +23,7 @@
 | W2 | uncertainty | 4 | 3 | 4 | 3 | 3 | 保留 superseded 行优先于低信心闲聊（allocate 时先留 reason=superseded）。 |
 | W3 | brief_must | 3 | 3 | 3 | 3 | 3 | must 节只保留 outline/contract 没有的键。 |
 | W3 | codex | 4 | 3 | 4 | 3 | 3 | 与 canonical 差集后再 cap；观测 codex_chars。 |
-| W3 | event_drive_hook | 4 | 3 | 4 | 3 | 3 | contract 对象只判一次并传入 helper（与 W1 event_drive 同一改造）。 |
+| W3 | event_drive_hook | 5 | 5 | 5 | 5 | 5 | 已落地：与 event_drive 同一谓词；续势钩 supplemental |
 | W3 | pressure_drive | 3 | 3 | 3 | 3 | 3 | 差集失败记 soft_fail 并仍尝试差集空键；禁止再渲染与 drama 相同的 goal 句。 |
 | W3 | story_causal | 5 | 5 | 5 | 5 | 5 | 已接线：`collect_story_fuel_segments` supplemental；查询失败 `empty_story_causal`。 |
 | W3 | story_ember | 5 | 5 | 5 | 5 | 5 | 已接线：`prior_consequences` → `_push("story_ember","supplemental")`；不进 L0_NEVER_CUT。 |

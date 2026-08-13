@@ -22,11 +22,13 @@
 
 ## 5. 评分
 
-| P_flow | 4 |
-| Q_craft | 3 |
-| R_safety | 4 |
-| B_product | 3 |
-| Observability | 3 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+P1：与 event_drive 同一谓词传入 helper；有合同只出「章末还悬着」，不进 NEVER。
 
 ## 6. 最优改造
 

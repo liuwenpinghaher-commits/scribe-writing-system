@@ -249,11 +249,15 @@ def _volume_intro_block(st, chapter: int, focalizer: str = "") -> str:
             "写路径 volume_intro 注入失败(fail-soft): %s", e)
         return ""
 
-def _event_drive_block(st, chapter: int, focalizer: str = "") -> str:
+def _event_drive_block(
+    st, chapter: int, focalizer: str = "", *,
+    contract=None, has_scene: bool | None = None,
+) -> str:
     """叙事引擎：本章冲突/事件驱动引导块（≤220 字），置顶于 ``_drama_block`` 前。
 
-    ``SCRIBE3_NARRATIVE_ENGINE=1`` 且章上有实质 drive 字段时注入；
-    引导优先：强调冲突/事件推动，允许服务戏的跟主角。fail-soft。
+    ``SCRIBE3_NARRATIVE_ENGINE=1`` 且章上有实质 drive 字段时注入。
+    场面合同必须由调用方传入（``contract`` / ``has_scene``），禁止本函数再读章判合同。
+    fail-soft。
     """
     if chapter is None:
         return ""
@@ -273,8 +277,10 @@ def _event_drive_block(st, chapter: int, focalizer: str = "") -> str:
     if not isinstance(drive, dict) or not drive:
         return ""
     try:
-        from scribe3.narrative_contract import contract_has_scene_fields
-        if contract_has_scene_fields(ch.get("narrative_contract")):
+        if has_scene is None:
+            from scribe3.narrative_contract import contract_has_scene_fields
+            has_scene = contract_has_scene_fields(contract)
+        if has_scene:
             from scribe3.narrative_drive import format_event_drive_hook_only
             return format_event_drive_hook_only(drive) or ""
         from scribe3.narrative_drive import format_event_drive_block
