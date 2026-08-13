@@ -38,5 +38,6 @@ format 可出【世界此刻】且有 4000 字燃料帽（测试）。assemble *
 
 ## 7. 证据
 
+- `scribe3/story_constraint_prompt.py:114`
 - `scribe3/story_constraint_prompt.py:127`
-- `scribe3/story_constraint_prompt.py:171`
+- `scribe3/tests/test_r8_story_constraint_assemble.py:171`

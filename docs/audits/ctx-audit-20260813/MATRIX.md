@@ -3,16 +3,16 @@
 
 | 波 | 单元 | P | Q | R | B | O | 最优改造（一句） |
 |----|------|---|---|---|---|---|------------------|
-| W1 | deduction_final | 4 | 3 | 2 | 4 | 2 |  |
-| W1 | drama_contract | 4 | 2 | 3 | 3 | 4 |  |
-| W1 | drama_vacuum | 3 | 3 | 4 | 3 | 3 |  |
-| W1 | event_drive | 3 | 3 | 4 | 3 | 3 |  |
-| W1 | final_reminder | 5 | 2 | 4 | 2 | 4 | 默认改 CORE 短核（6 条），全文 11 条仅 `SCRIBE3_FINAL_REMINDER_CORE=0` 显式开；书级可覆盖「文体句」而不写死乱世铜炉。保持 NEVER + 尾序。 |
-| W1 | focalizer | 4 | 3 | 4 | 3 | 2 | 单独 `_push("focalizer","redline", banner)`，prefix 不再内嵌，检查器与 NEVER 裁剪一致；全知横幅加一句「secret 命题仍受 secret_guard 约束」。 |
-| W1 | narrative_contract | 2 | 4 | 4 | 2 | 3 | ### 主方案（只做一个） |
-| W1 | outline | 4 | 3 | 4 | 3 | 4 |  |
-| W1 | scene_truth_proj | 4 | 4 | 4 | 3 | 3 | 保持 deduce 终检；在 budget_report 标 `scene_truth_source=proj/deduction_final/none`，避免双路径审计迷路。不把终检合同抄进 draft。 |
-| W1 | secret_guard | 4 | 3 | 5 | 3 | 2 | 在 `_push("prefix")` 之前把 `_secret_guard_block` **单独 `_push("secret_guard","redline")`**（或 prefix 后再 push 同文），使 density/tr |
+| W1 | deduction_final | 4 | 3 | 2 | 4 | 2 | 焦点优先压缩 + 整包硬帽 + 单段 push |
+| W1 | drama_contract | 4 | 2 | 3 | 3 | 4 | 400 字先砍 MRU 套话、保代价/冲突 |
+| W1 | drama_vacuum | 3 | 3 | 4 | 3 | 3 | 触发改「无 goal∧conflict」+ 可操作短句 |
+| W1 | event_drive | 3 | 3 | 4 | 3 | 3 | assemble 单点判定 + empty_event_drive 可观测 |
+| W1 | final_reminder | 5 | 2 | 4 | 2 | 4 | 默认 CORE 短核，文体按书覆盖 |
+| W1 | focalizer | 4 | 3 | 4 | 3 | 2 | 独立 `_push("focalizer")` |
+| W1 | narrative_contract | 2 | 4 | 4 | 2 | 3 | store 按 narrative_drive 同构打通读写 |
+| W1 | outline | 4 | 3 | 4 | 3 | 4 | 半裁改为保拍砍纲 |
+| W1 | scene_truth_proj | 4 | 4 | 4 | 3 | 3 | budget_report 标明真相源路径 |
+| W1 | secret_guard | 4 | 3 | 5 | 3 | 2 | 独立 `_push("secret_guard")` + 揭示字段覆盖 |
 | W2 | canonical | 4 | 4 | 5 | 4 | 4 | codex 与 canonical 做结构化差集（已在 codex 的角色/规则勿再以 fact 行复读）。 |
 | W2 | focus | 4 | 3 | 4 | 3 | 3 | 保持指针不去重失败；budget_report 增加 focus_has_outline_pointer 布尔。 |
 | W2 | global | 4 | 4 | 4 | 3 | 3 | 渲染标签改为「作品意图」对齐产品文案；strip 红线时留「红线已按实验剥离」一行以免像没配置。 |
@@ -26,7 +26,7 @@
 | W3 | event_drive_hook | 4 | 3 | 4 | 3 | 3 | contract 对象只判一次并传入 helper（与 W1 event_drive 同一改造）。 |
 | W3 | pressure_drive | 3 | 3 | 3 | 3 | 3 | 差集失败记 soft_fail 并仍尝试差集空键；禁止再渲染与 drama 相同的 goal 句。 |
 | W3 | story_causal | 1 | 2 | 3 | 2 | 2 | 接线 + 查询失败 `_record_write_soft_fail("empty_story_causal")`。 |
-| W3 | story_ember | 1 | 2 | 3 | 2 | 2 | 从 load_chapter_story_inputs 取 prior_consequences，`format_story_fuel_parts` 后 `_push("story_ember","supplemental")`。禁止加入  |
+| W3 | story_ember | 1 | 2 | 3 | 2 | 2 | 从 load_chapter_story_inputs 取 prior_consequences，`format_story_fuel_parts` 后 `_push("story_ember","supplemental")`。禁止加入 L0_NEVER_CUT。 |
 | W3 | story_recall | 1 | 2 | 3 | 2 | 2 | 与 ember/causal 同一 PR 接线；query 限知投影后注入；超窗按 DEF 可裁。 |
 | W4 | anti_slop | 4 | 2 | 4 | 2 | 2 | 三处 slop 收成一处短核。 |
 | W4 | author_prefs | 3 | 3 | 3 | 3 | 3 | 与 procedural 偏好去重。 |
