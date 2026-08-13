@@ -575,13 +575,17 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         normalized_phase = (phase or "").strip().lower()
         if normalized_phase in ("draft", "final"):
             from scribe3.reference_craft import craft_briefs_for_write
-            reference_craft_briefs = craft_briefs_for_write(st, str(work or "main"))
+            reference_craft_briefs = craft_briefs_for_write(st, str(work or "main"))[:2]
+            _rf_parts: list[str] = []
             for brief in reference_craft_briefs:
                 _rf = _domain_input(
                     f"reference_fingerprint:{brief.fingerprint_id}", "reference_craft",
                     brief.text,
                 )
-                _push("reference_craft", "supplemental", _rf)
+                if _rf:
+                    _rf_parts.append(_rf)
+            if _rf_parts:
+                _push("reference_craft", "supplemental", "\n".join(_rf_parts))
             # PR-5：Benchmark advisory 注入（旗默认关 · L2 可裁 · 不写 prose）
             try:
                 from scribe3.benchmark_lib import (

@@ -41,7 +41,7 @@
 | W4 | phase_role | 4 | 3 | 4 | 3 | 3 | 保持去重；空 phase 不 push。 |
 | W4 | prefix | 5 | 5 | 5 | 5 | 5 | 已落地：prefix 只留身份+协议+anti_slop+章号；旁路独立 push |
 | W4 | purpose | 5 | 5 | 5 | 5 | 5 | 已落地：global 有北极星则只留本章目的差集 |
-| W4 | reference_craft | 3 | 3 | 3 | 3 | 3 | 合并一次 push + 条数帽 2。 |
+| W4 | reference_craft | 5 | 5 | 5 | 5 | 5 | 已落地：最多 2 条、单次 push |
 | W4 | request_constraint | 4 | 4 | 4 | 4 | 3 | 空 extra 不 push（已然）。 |
 | W4 | request_position | 5 | 2 | 5 | 3 | 2 | 可留在 prefix 一行；不必独立段。本卷宗改造=维持一行。 |
 | W4 | revelation_discipline | 4 | 3 | 4 | 3 | 3 | 与 CORE 尾注差集，只保留尾注没有的一句。 |

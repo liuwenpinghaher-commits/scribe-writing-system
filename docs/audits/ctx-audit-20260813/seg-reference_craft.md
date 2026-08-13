@@ -22,11 +22,13 @@ T3 易丢。
 
 ## 5. 评分
 
-| P_flow | 3 |
-| Q_craft | 3 |
-| R_safety | 3 |
-| B_product | 3 |
-| Observability | 3 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+P1：最多 2 条，拼好后 `_push("reference_craft")` 一次。
 
 ## 6. 最优改造
 
