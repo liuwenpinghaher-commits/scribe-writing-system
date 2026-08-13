@@ -916,6 +916,14 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         bud_rep["scene_truth_source"] = scene_truth_source_from_segment_names(
             [s.get("name") for s in segs]
         )
+        from scribe3.api.services.write_assemble_context import (
+            voice_anchor_registered_from_text,
+        )
+        _va_txt = next(
+            (str(s.get("text") or "") for s in segs if s.get("name") == "voice_anchor"),
+            "",
+        )
+        bud_rep["voice_anchor_registered"] = voice_anchor_registered_from_text(_va_txt)
         bud_rep["drama_vacuum_injected"] = bool(
             _budget_report_holder.get("drama_vacuum_injected")
         )

@@ -6,37 +6,39 @@
 
 ## 1. 流程完善性
 
-焦点者声口 profile；PROT。
+有 profile 注入声口；无则一行「未登记声口」。budget_report：`voice_anchor_registered`。
 
 ## 2. 生成质量
 
-第一性：这一章的声音。
+第一性：这一章的声音。探针：无 profile ⇒ 未登记声口；有 style_summary ⇒ 不出现该句。
 
 ## 3. 爆炸半径
 
-误裁丢声口。
+不把别人声口当焦点者。
 
 ## 4. 业务完善性
 
-CL-B5 声口。
+「未登记声口」人话，不像空段丢了。
 
 ## 5. 评分
 
-| P_flow | 4 |
-| Q_craft | 4 |
-| R_safety | 4 |
-| B_product | 3 |
-| Observability | 3 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+P1：无 profile 写「未登记声口」。
 
 ## 6. 最优改造
 
-**主方案：** 无 profile 时一行「未登记声口」而非空。
+**主方案：** 无 profile 时一行「未登记声口」而非空。**已落地。**
 
 **放弃：** 把别人声口也注入。
 
-**验收：** 段名/prefix 组成可断言。
+**验收：** `test_voice_anchor_unregistered.py`
 
 ## 7. 证据
 
-- `scribe3/api/services/write_assemble_context.py:57`
-- `scribe3/api/services/write_assemble_v1.py:482-486`
+- `scribe3/api/services/write_assemble_context.py` `_voice_anchor_block`
+- `scribe3/tests/test_voice_anchor_unregistered.py`

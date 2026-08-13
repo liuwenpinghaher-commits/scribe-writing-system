@@ -980,6 +980,14 @@ def uncertainty_stats_from_envelope(envelope) -> dict[str, int]:
     }
 
 
+def voice_anchor_registered_from_text(text: str) -> bool:
+    """有真实声口 profile 为真；「未登记声口」或空为假。"""
+    t = (text or "").strip()
+    if not t:
+        return False
+    return "未登记声口" not in t
+
+
 def scene_truth_source_from_segment_names(names) -> str:
     """演绎真相走哪条路径：proj | deduction_final | none。"""
     n = {str(x) for x in (names or [])}
