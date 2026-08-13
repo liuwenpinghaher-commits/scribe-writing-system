@@ -428,6 +428,11 @@ def resolve_assembler_budgets(
 # ``ordered_generation_segments`` 接线，禁止另写平行序。
 GENERATION_SEGMENT_LAYERS: dict[str, str] = {
     "prefix": "redline",
+    "revision": "redline",
+    "structure_diversity": "redline",
+    "continue_snapshot": "redline",
+    "tool_scope": "redline",
+    "craft_skills_index": "supplemental",
     "secret_guard": "redline",
     "focalizer": "redline",
     "narrative_contract": "redline",
@@ -868,6 +873,9 @@ def generation_physical_order_names(*, v2: bool = True) -> list[str]:
 
     base = [
         "prefix",
+        "revision",
+        "structure_diversity",
+        "continue_snapshot",
         "secret_guard",
         "focalizer",
         "narrative_contract",

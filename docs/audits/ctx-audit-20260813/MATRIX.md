@@ -31,15 +31,15 @@
 | W4 | anti_slop | 5 | 5 | 5 | 5 | 5 | 已落地：与 sincerity 收成 prefix 短核 |
 | W4 | author_prefs | 3 | 3 | 3 | 3 | 3 | 与 procedural 偏好去重。 |
 | W4 | avoid | 4 | 3 | 4 | 3 | 3 | 默认 omit 独立段（已有旗）。 |
-| W4 | continue_snapshot | 3 | 3 | 3 | 3 | 3 | 独立 push；skip 原因进 report。 |
+| W4 | continue_snapshot | 5 | 5 | 5 | 5 | 5 | 已独立 _push；空则 continue_snapshot_skip |
 | W4 | craft | 4 | 3 | 3 | 3 | 3 | 与 procedural compact 去重。 |
-| W4 | craft_skills_index | 4 | 3 | 3 | 3 | 2 | 保持索引；独立 push。 |
+| W4 | craft_skills_index | 5 | 5 | 5 | 5 | 5 | 已独立 _push（仅 with_tools） |
 | W4 | discourse_soft | 4 | 3 | 3 | 3 | 3 | 与 CORE 尾注差集。 |
 | W4 | envelope | 4 | 4 | 4 | 3 | 4 | budget_report 必带 envelope_block_lengths 八键（registry density 已支持入参）。 |
 | W4 | identity | 4 | 3 | 4 | 3 | 2 | 独立 push 名 identity 以便 NEVER 真按名裁。 |
 | W4 | material_recall | 3 | 3 | 3 | 3 | 3 | 与 reference 块去重标题。 |
 | W4 | phase_role | 4 | 3 | 4 | 3 | 3 | 保持去重；空 phase 不 push。 |
-| W4 | prefix | 3 | 3 | 3 | 3 | 2 | 拆出已在 NEVER 的旁路为独立 _push（与 W1 secret_guard/focalizer 同一方向），prefix 只留身份+协议+anti_slop。 |
+| W4 | prefix | 5 | 5 | 5 | 5 | 5 | 已落地：prefix 只留身份+协议+anti_slop+章号；旁路独立 push |
 | W4 | purpose | 3 | 3 | 3 | 3 | 3 | 若 global 已有意图则 purpose 只留「本章目的」差集。 |
 | W4 | reference_craft | 3 | 3 | 3 | 3 | 3 | 合并一次 push + 条数帽 2。 |
 | W4 | request_constraint | 4 | 4 | 4 | 4 | 3 | 空 extra 不 push（已然）。 |
@@ -50,8 +50,8 @@
 | W4 | sincerity | 5 | 5 | 5 | 5 | 5 | 已并入 anti_slop 短核，不再独立段 |
 | W4 | story_move | 4 | 4 | 4 | 4 | 4 | 保持零字节默认；观测 plan_missing 原因。 |
 | W4 | storyline_polish | 3 | 3 | 3 | 3 | 3 | 空 meta 不 push；观测 skip 原因。 |
-| W4 | structure_diversity | 4 | 3 | 3 | 3 | 3 | 保持短纪律；独立 _push 名以便 density。 |
-| W4 | tool_scope | 4 | 3 | 4 | 3 | 2 | 独立 push 当 with_tools。 |
+| W4 | structure_diversity | 5 | 5 | 5 | 5 | 5 | 已独立 _push，不再吞进 prefix |
+| W4 | tool_scope | 5 | 5 | 5 | 5 | 5 | 已独立 _push（仅 with_tools） |
 | W4 | voice_anchor | 4 | 4 | 4 | 3 | 3 | 无 profile 时一行「未登记声口」而非空。 |
 | W4 | volume_intro | 4 | 3 | 4 | 3 | 3 | 保持 compact；空不 push。 |
 | W4 | write_protocol | 4 | 3 | 4 | 3 | 2 | 与 CORE 尾注差集。 |

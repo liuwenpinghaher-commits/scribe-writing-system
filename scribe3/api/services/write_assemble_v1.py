@@ -88,9 +88,18 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     # I1:身份用【纯身份块】而非 _editor_write_system——后者经 _editor_system 注入设定/角色/
     # 伏笔 + 章前简报,会与下方 envelope 的 canonical/global 重复(facts 2×/promises 3×)。
     # v1 让 envelope 独占 facts/promises/角色/北极星的数据注入,身份层只留身份+硬协议+文风。
-    prefix = (_editor_identity_block() + _write_protocol_block()
-              + _write_revision_block() + _anti_slop_floor_block())
-    # WS-2：结构多样性短纪律（默认开 · fail-soft）
+    # prefix 只留身份+协议+anti_slop+章号一行；旁路独立 _push。
+    prefix = (
+        _editor_identity_block()
+        + _write_protocol_block()
+        + _anti_slop_floor_block()
+        + _domain_input(
+            f"chapter:{chapter}:request-position", "request_position",
+            f"\n当前第 {chapter} 章。",
+        )
+    )
+    _revision_txt = _write_revision_block()
+    _sd_txt = ""
     try:
         from scribe3.structure_style import (
             structure_diversity_block,
@@ -99,7 +108,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         if structure_diversity_inject_enabled():
             _sd = structure_diversity_block()
             if _sd:
-                prefix += _domain_input(
+                _sd_txt = _domain_input(
                     f"work:{work or 'main'}:structure-diversity",
                     "structure_diversity",
                     "\n\n" + _sd,
@@ -108,7 +117,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         from scribe3.soft_fail import soft_fail
         import logging as _sf_logging
         soft_fail('write_assemble_soft_1', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
-    # 经验压力 E4:续写快照并入真实组装链(单源,非平行 builder)
+    _continue_txt = ""
     try:
         from scribe3.experience.continue_rite import (
             build_continue_snapshot, continue_block_text,
@@ -118,7 +127,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _snap = build_continue_snapshot(st, chapter, work=work or "main")
             _cblk = continue_block_text(_snap)
             if _cblk:
-                prefix += _domain_input(
+                _continue_txt = _domain_input(
                     f"chapter:{chapter}:continue-snapshot", "continue_snapshot",
                     _cblk,
                 )
@@ -132,20 +141,18 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         f"chapter:{chapter}:secret-guard", "secret_guard",
         _secret_guard_block(st, chapter),
     )
-    prefix += _domain_input(
-        f"chapter:{chapter}:request-position", "request_position",
-        f"\n当前第 {chapter} 章。",
-    )
+    _tool_txt = ""
+    _skills_txt = ""
     if with_tools:
-        prefix += _domain_input(
+        _tool_txt = _domain_input(
             f"work:{work or 'main'}:tool-scope", "tool_scope",
             _s3_work_scope_block(work),
         )
         from scribe3.craft_skills import skills_index_block
-        prefix += _domain_input(
+        _skills_txt = _domain_input(
             f"work:{work or 'main'}:craft-skills-index", "craft_skills_index",
             skills_index_block(),
-        )   # P1 定案B:技法索引(渐进披露)
+        )
     if focalizer:
         try:
             from scribe3.epistemic_guard import writing_limited_banner
@@ -230,8 +237,15 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             return text
 
         _push("prefix", "redline", prefix)
+        _push("revision", "redline", _revision_txt)
+        _push("structure_diversity", "redline", _sd_txt)
+        _push("continue_snapshot", "redline", _continue_txt)
         _push("secret_guard", "redline", _secret_guard_txt)
         _push("focalizer", "redline", _focalizer_txt)
+        if _tool_txt:
+            _push("tool_scope", "redline", _tool_txt)
+        if _skills_txt:
+            _push("craft_skills_index", "supplemental", _skills_txt)
         _inputs = {}
         _nc_txt = ""
         try:
