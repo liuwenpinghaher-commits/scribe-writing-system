@@ -924,6 +924,12 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             "",
         )
         bud_rep["voice_anchor_registered"] = voice_anchor_registered_from_text(_va_txt)
+        from scribe3.api.services.write_assemble_context import (
+            envelope_block_lengths_from_envelope,
+        )
+        bud_rep["envelope_block_lengths"] = envelope_block_lengths_from_envelope(
+            envelope
+        )
         bud_rep["drama_vacuum_injected"] = bool(
             _budget_report_holder.get("drama_vacuum_injected")
         )

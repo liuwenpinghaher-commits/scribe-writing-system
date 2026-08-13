@@ -22,15 +22,17 @@
 
 ## 5. 评分
 
-| P_flow | 4 |
-| Q_craft | 4 |
-| R_safety | 4 |
-| B_product | 3 |
-| Observability | 4 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+P1：budget_report 八键 `envelope_block_lengths`。
 
 ## 6. 最优改造
 
-**主方案：** budget_report 必带 envelope_block_lengths 八键（registry density 已支持入参）。
+**主方案：** budget_report 必带 envelope_block_lengths 八键。**已落地。**
 
 **放弃：** 在 envelope 卷宗里重写八块评分。
 

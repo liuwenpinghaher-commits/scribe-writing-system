@@ -35,7 +35,7 @@
 | W4 | craft | 5 | 5 | 5 | 5 | 5 | 已落地：与 envelope procedural 整行去重 |
 | W4 | craft_skills_index | 5 | 5 | 5 | 5 | 5 | 已独立 _push（仅 with_tools） |
 | W4 | discourse_soft | 5 | 5 | 5 | 5 | 5 | 已落地：与 final_reminder CORE 整行差集 |
-| W4 | envelope | 4 | 4 | 4 | 3 | 4 | budget_report 必带 envelope_block_lengths 八键（registry density 已支持入参）。 |
+| W4 | envelope | 5 | 5 | 5 | 5 | 5 | 已落地：budget_report 八键 envelope_block_lengths |
 | W4 | identity | 5 | 5 | 5 | 5 | 5 | 已落地：独立 `_push("identity")` |
 | W4 | material_recall | 5 | 5 | 5 | 5 | 5 | 已落地：与 envelope reference 去重标题 |
 | W4 | phase_role | 5 | 5 | 5 | 5 | 5 | 已落地：去重 + 空不 push；skip 可查 |

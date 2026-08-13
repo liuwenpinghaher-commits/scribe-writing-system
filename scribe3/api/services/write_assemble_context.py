@@ -988,6 +988,22 @@ def voice_anchor_registered_from_text(text: str) -> bool:
     return "未登记声口" not in t
 
 
+ENVELOPE_BLOCK_NAMES: tuple[str, ...] = (
+    "focus", "global", "canonical", "recent",
+    "procedural", "reference", "uncertainty", "provenance",
+)
+
+
+def envelope_block_lengths_from_envelope(envelope) -> dict[str, int]:
+    """八块渲染长度，缺块也出 0，检查器可对齐全键。"""
+    out = {name: 0 for name in ENVELOPE_BLOCK_NAMES}
+    for b in getattr(envelope, "blocks", None) or []:
+        name = str(getattr(b, "name", "") or "")
+        if name in out:
+            out[name] = len(getattr(b, "text", "") or "")
+    return out
+
+
 def scene_truth_source_from_segment_names(names) -> str:
     """演绎真相走哪条路径：proj | deduction_final | none。"""
     n = {str(x) for x in (names or [])}
