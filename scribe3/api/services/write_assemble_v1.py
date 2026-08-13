@@ -505,11 +505,37 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             else:
                 _avoid_skip = "empty_avoid"
                 _record_write_soft_fail(_avoid_skip)
-        _rev = _domain_input(
-            f"chapter:{chapter}:revelation-discipline", "revelation_discipline",
-            _revelation_discipline_block(focalizer),
-        )
-        _push("revelation_discipline", "redline", _rev)
+        _rev_raw = _revelation_discipline_block(focalizer)
+        try:
+            from scribe3.injection_compact import clip_revelation_to_core_delta
+            _rev_raw = clip_revelation_to_core_delta(
+                _rev_raw, _final_reminder() or "",
+            )
+        except Exception as _sf_e:
+            from scribe3.soft_fail import soft_fail
+            import logging as _sf_logging
+            soft_fail(
+                "write_assemble_revelation_delta",
+                _sf_e,
+                logger="scribe3.write_assemble",
+                level=_sf_logging.DEBUG,
+            )
+        _rev_injected = False
+        _rev_skip = ""
+        if (_rev_raw or "").strip():
+            _rev = _domain_input(
+                f"chapter:{chapter}:revelation-discipline", "revelation_discipline",
+                _rev_raw,
+            )
+            _push("revelation_discipline", "redline", _rev)
+            _rev_injected = True
+        else:
+            _rev_skip = (
+                "revelation_skip_no_focalizer"
+                if not (focalizer or "").strip()
+                else "revelation_echo_core"
+            )
+            _record_write_soft_fail(_rev_skip)
         # sincerity 并入 anti_slop 短核，不再独立占红线窗
         _pu = _domain_input(
             f"chapter:{chapter}:purpose", "purpose",
@@ -852,6 +878,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         bud_rep["phase_role_injected"] = bool(_phase_role_injected)
         if _phase_role_skip:
             bud_rep["phase_role_skip_reason"] = _phase_role_skip
+        bud_rep["revelation_injected"] = bool(_rev_injected)
+        if _rev_skip:
+            bud_rep["revelation_skip_reason"] = _rev_skip
         # SL2：始终写入 storyline_inject 键（含 fail-soft / 旗关），便于 injection-trace
         bud_rep["storyline_inject"] = dict(_storyline_meta)
         # W2：discourse_soft 预算观测（meso_source / truncated）

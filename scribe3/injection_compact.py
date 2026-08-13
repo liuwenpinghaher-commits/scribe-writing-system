@@ -300,6 +300,28 @@ def line_echoes_cover(line: str, cover: str, *, min_len: int = 8) -> bool:
     return False
 
 
+def clip_revelation_to_core_delta(block: str, core: str) -> str:
+    """限知揭示纪律：丢掉 CORE 已有的子弹，只留一句差集。"""
+    raw = (block or "").strip()
+    if not raw:
+        return ""
+    header = next(
+        (ln.strip() for ln in raw.splitlines() if ln.strip().startswith("##")),
+        "## 限知揭示纪律",
+    )
+    unique: list[str] = []
+    for ln in raw.splitlines():
+        body = ln.strip()
+        if not body.startswith("- "):
+            continue
+        if line_echoes_cover(body, core or ""):
+            continue
+        unique.append(body)
+    if not unique:
+        return ""
+    return header + "\n" + unique[0]
+
+
 def filter_procedural_lines(
     lines: list[str] | None, craft_text: str,
 ) -> tuple[list[str], int]:
