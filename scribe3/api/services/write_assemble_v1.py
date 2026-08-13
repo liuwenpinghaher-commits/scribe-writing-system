@@ -400,10 +400,14 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             soft_fail('write_assemble_soft_3', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         craft = build_craft_block(st.list_craft_rules() or None, short_mode=short_mode)
         if craft:
+            craft = subtract_codex_canonical_echoes(craft, env_text or "")
+        if (craft or "").strip():
             _cr = _domain_input(
                 f"work:{work or 'main'}:craft", "craft", "\n\n" + craft,
             )
             _push("craft", "supplemental", _cr)
+        else:
+            _record_write_soft_fail("empty_craft")
         # WS-1 C.2：phase_role 与 craft/anti_slop 去重
         _pr_raw = _phase_role_block(phase)
         try:

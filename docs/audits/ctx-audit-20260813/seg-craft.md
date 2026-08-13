@@ -22,11 +22,13 @@ build_craft_block(list_craft_rules)。与 procedural 重叠。
 
 ## 5. 评分
 
-| P_flow | 4 |
-| Q_craft | 3 |
-| R_safety | 3 |
-| B_product | 3 |
-| Observability | 3 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+P1：与 envelope procedural 整行去重；剔空记 `empty_craft`。
 
 ## 6. 最优改造
 

@@ -98,8 +98,8 @@ while 存在未完成单元:
 | 项 | 值 |
 |----|----|
 | 上次更新 | 2026-08-13 |
-| 下一 NAME | `craft` |
-| 已完成单元 | story_ember, story_recall, story_causal, narrative_contract, deduction_final, secret_guard, focalizer, event_drive, event_drive_hook, outline, codex, final_reminder, drama_contract, anti_slop, sincerity, prefix, continue_snapshot, structure_diversity, tool_scope, craft_skills_index, author_prefs, brief_must, material_recall, pressure_drive, purpose, recent, reference_craft, storyline_polish |
+| 下一 NAME | `discourse_soft` |
+| 已完成单元 | story_ember, story_recall, story_causal, narrative_contract, deduction_final, secret_guard, focalizer, event_drive, event_drive_hook, outline, codex, final_reminder, drama_contract, anti_slop, sincerity, prefix, continue_snapshot, structure_diversity, tool_scope, craft_skills_index, author_prefs, brief_must, material_recall, pressure_drive, purpose, recent, reference_craft, storyline_polish, craft |
 | 天花板已登记 | provenance / request_position / story_move |
 
 ---

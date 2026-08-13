@@ -32,7 +32,7 @@
 | W4 | author_prefs | 5 | 5 | 5 | 5 | 5 | 已落地：与 envelope 整行去重；空则 empty_author_prefs |
 | W4 | avoid | 4 | 3 | 4 | 3 | 3 | 默认 omit 独立段（已有旗）。 |
 | W4 | continue_snapshot | 5 | 5 | 5 | 5 | 5 | 已独立 _push；空则 continue_snapshot_skip |
-| W4 | craft | 4 | 3 | 3 | 3 | 3 | 与 procedural compact 去重。 |
+| W4 | craft | 5 | 5 | 5 | 5 | 5 | 已落地：与 envelope procedural 整行去重 |
 | W4 | craft_skills_index | 5 | 5 | 5 | 5 | 5 | 已独立 _push（仅 with_tools） |
 | W4 | discourse_soft | 4 | 3 | 3 | 3 | 3 | 与 CORE 尾注差集。 |
 | W4 | envelope | 4 | 4 | 4 | 3 | 4 | budget_report 必带 envelope_block_lengths 八键（registry density 已支持入参）。 |
