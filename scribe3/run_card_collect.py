@@ -187,14 +187,6 @@ def collect_expected_facts(
         "SCRIBE3_DISCOURSE_RASHOMON", "0",
     )
 
-    has_craft = False
-    if st is not None and hasattr(st, "list_craft_rules"):
-        try:
-            rules = st.list_craft_rules() or []
-            has_craft = bool(rules)
-        except Exception:
-            has_craft = False
-
     synopsis = str(ch.get("synopsis") or "").strip()
     has_beats = bool(beats) or bool(ch.get("beats"))
     seeds = ch.get("seed_words") or ch.get("seeds") or []
@@ -222,19 +214,25 @@ def collect_expected_facts(
         has_beats=bool(has_beats),
         has_seed_words=bool(seeds),
         has_volume_intro=bool(ch.get("volume_intro") or ch.get("volume")),
-        has_brief_must=bool(ch.get("brief_must") or ch.get("must")),
+        has_brief_must=bool(
+            ch.get("brief_must") or ch.get("must") or synopsis or has_beats
+        ),
         has_pressure_drive=bool(ch.get("pressure_drive") or ch.get("pressure")),
         has_author_prefs=bool(ch.get("author_prefs")),
         has_voice_anchor=bool(inp.get("voice") or ch.get("voice_anchor")),
         has_purpose=bool(ch.get("purpose") or ch.get("intent")),
         has_materials=bool(ch.get("materials") or (hasattr(st, "list_materials") and False)),
         has_reference_briefs=bool(ch.get("reference_briefs")),
-        has_storyline_meta=bool(ch.get("storyline") or ch.get("storyline_meta")),
-        has_discourse=bool(ch.get("discourse")),
-        has_deduction=bool(ch.get("deduction_final") or ch.get("deduction")),
+        has_storyline_meta=bool(
+            ch.get("storyline") or ch.get("storyline_meta") or sl_on
+        ),
+        has_discourse=bool(ch.get("discourse") or discourse_on),
+        has_deduction=bool(
+            ch.get("deduction_final") or ch.get("deduction") or ch.get("deductions")
+        ),
         has_scene_truth=bool(ch.get("scene_truth")),
         has_extra_instructions=bool(str(extra).strip()),
-        has_craft_rules=has_craft,
+        has_craft_rules=True,  # build_craft_block 默认引擎恒注入
         reread_ok=reread_ok,
         registry_mode=reg,
         move_library=move_on,

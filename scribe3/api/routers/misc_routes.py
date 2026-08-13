@@ -471,10 +471,12 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
         st = _store_for(work)
     except Exception:
         st = None
-    # R1：存章前剥提案帧 / fallback / 导演提纲腔
+    # R1：存章前剥提案帧 / fallback / 导演提纲腔 / 替换符
+    _san_reasons: list[str] = []
     try:
         from scribe3.prose_sanitize import sanitize_for_persist, fill_placeholder_title
         _san = sanitize_for_persist(req.prose or "")
+        _san_reasons = list(_san.get("reasons") or [])
         if _san.get("prose") != (req.prose or ""):
             req.prose = _san["prose"]
         try:
@@ -592,8 +594,21 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
                 "advisory_items": fg_decision.get("advisory_items") or [],
                 "danger_draft_hint": "显式传 danger_draft=true 可旁路(危险,仅草稿)",
             })
-        _fg_reason = "skipped_by_flag" if bool(req.skip_finalize_gate) else "allowed"
-        _rc_rows.append({"name": "finalize_gate", "expected": True, "actual": "present", "actual_reason": _fg_reason})
+        if bool(req.skip_finalize_gate):
+            # 跳过 ≠ 过门。actual 不得 present，否则对照假绿。
+            _rc_rows.append({
+                "name": "finalize_gate",
+                "expected": True,
+                "actual": "empty",
+                "actual_reason": "skipped_by_flag",
+            })
+        else:
+            _rc_rows.append({
+                "name": "finalize_gate",
+                "expected": True,
+                "actual": "present",
+                "actual_reason": "allowed",
+            })
     except HTTPException:
         raise
     except Exception as e:
@@ -824,6 +839,11 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
         if bool(req.skip_finalize_gate):
             out["author_copy"] = "已存草稿（定稿门跳过 · 不可宣称可读）"
             out["status_label"] = out["author_copy"]
+        if "restaged_scene" in _san_reasons:
+            out["author_copy"] = (out.get("author_copy") or "已存草稿") + " · 疑似场面重演"
+            out["status_label"] = out["author_copy"]
+        if "replacement_char" in _san_reasons:
+            out["sanitize_reasons"] = _san_reasons
     except Exception as e:
         import logging
         logging.getLogger("scribe3").warning(

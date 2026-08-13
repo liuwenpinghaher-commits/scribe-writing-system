@@ -158,6 +158,29 @@ def try_extract_embedded_prose(blob: str) -> str | None:
     return None
 
 
+_SCENE_MARKERS = (
+    "封炉", "灯册", "清册", "核册", "刀鞘", "入芯", "揭册", "假账", "木匣",
+)
+
+
+def strip_replacement_chars(prose: str) -> str:
+    """去掉 U+FFFD。SSE/续写拼接坏字节不得进读者正文。"""
+    return (prose or "").replace("\ufffd", "")
+
+
+def find_restaged_scene(prose: str) -> dict[str, Any] | None:
+    """续写拼接把同一场面再演一遍：前半与后半共享 ≥3 个场面核。"""
+    text = prose or ""
+    if len(text) < 1600:
+        return None
+    mid = len(text) // 2
+    a, b = text[:mid], text[mid:]
+    shared = [m for m in _SCENE_MARKERS if m in a and m in b]
+    if len(shared) >= 3:
+        return {"shared": shared, "mid": mid}
+    return None
+
+
 def sanitize_for_persist(prose: str) -> dict[str, Any]:
     """存章入口。返回 {prose, stripped, reasons}。"""
     original = prose or ""
@@ -166,6 +189,9 @@ def sanitize_for_persist(prose: str) -> dict[str, Any]:
     text = embedded if embedded is not None else original
     if embedded is not None:
         reasons.append("embedded_proposal")
+    if "\ufffd" in text:
+        reasons.append("replacement_char")
+        text = strip_replacement_chars(text)
     if find_machine_tail_start(text) is not None:
         reasons.append("machine_tail")
         text = strip_machine_tail(text)
@@ -177,8 +203,12 @@ def sanitize_for_persist(prose: str) -> dict[str, Any]:
     if directed != text:
         reasons.append("director_preamble")
         text = directed
+    restage = find_restaged_scene(text)
+    if restage:
+        reasons.append("restaged_scene")
     return {
         "prose": text.rstrip(),
         "stripped": bool(reasons),
         "reasons": reasons,
+        "restage": restage,
     }

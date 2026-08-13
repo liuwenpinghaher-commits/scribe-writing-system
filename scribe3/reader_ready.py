@@ -38,8 +38,11 @@ _BEAT_STOP = frozenset({
 })
 
 
-def beat_scene_keywords(beat: str, *, n: int = 4) -> list[str]:
-    """从口号拍抽出 2–4 个场面词（封炉/缺页/刀鞘），供 scene_cover 命中。"""
+def beat_scene_keywords(beat: str, *, n: int = 10) -> list[str]:
+    """从口号拍抽出场面词（清册/灯册/封炉/木匣/刀鞘），供 scene_cover 命中。
+
+    整句口号不得当第一键：正文几乎从不全句复读拍。优先 2–4 字核。
+    """
     bt = (beat or "").strip()
     if not bt:
         return []
@@ -48,14 +51,19 @@ def beat_scene_keywords(beat: str, *, n: int = 4) -> list[str]:
     for t in parts:
         if t in _BEAT_STOP:
             continue
+        # 先 2 字场面核（清册/灯册/封炉），再 4 字，再短专名；超 8 字整句丢掉
         if len(t) >= 2:
-            keys.append(t)
-        # 长口号再切 2 字场面核
-        if len(t) >= 4:
             for i in range(0, len(t) - 1):
                 chunk = t[i : i + 2]
                 if chunk not in _BEAT_STOP and chunk not in keys:
                     keys.append(chunk)
+        if len(t) >= 4:
+            for i in range(0, len(t) - 3):
+                chunk = t[i : i + 4]
+                if chunk not in _BEAT_STOP and chunk not in keys:
+                    keys.append(chunk)
+        if 2 <= len(t) <= 8 and t not in keys:
+            keys.append(t)
     # 保序去重
     seen: set[str] = set()
     out: list[str] = []

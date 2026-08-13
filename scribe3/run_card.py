@@ -293,14 +293,19 @@ def expected_for(name: str, facts: ExpectedFacts) -> tuple[bool, str]:
         "envelope": (True, "always_l1", "always_l1"),
         "codex": (bool(facts.envelope_v2), "envelope_v2", "v1"),
         "seed_words": (bool(facts.has_seed_words), "seeds_present", "no_seeds"),
-        "craft": (bool(facts.has_craft_rules), "has_craft_rules", "no_craft_rules"),
+        # build_craft_block() 无规则也注入默认「写作引擎」，期望必须跟注入走
+        "craft": (True, "always_engines", "always_engines"),
         "phase_role": (bool(np), "phase_set", "no_phase"),
         "avoid": (False, "default_omit", "default_omit"),
         "revelation_discipline": (
             bool(facts.has_focalizer), "has_focalizer", "no_focalizer",
         ),
         "sincerity": (False, "merged_into_prefix", "merged_into_prefix"),
-        "purpose": (bool(facts.has_purpose), "has_purpose", "no_purpose"),
+        "purpose": (
+            bool(facts.has_purpose or facts.has_synopsis),
+            "has_purpose",
+            "no_purpose",
+        ),
         "volume_intro": (
             bool(facts.volume_intro_flag) and bool(facts.has_volume_intro),
             "vol_intro",

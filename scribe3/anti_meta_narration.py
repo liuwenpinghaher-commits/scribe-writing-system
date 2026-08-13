@@ -250,11 +250,11 @@ def is_meta_span(
         line = text[lo:hi]
         if _ACCEPT_LINE.search(line):
             return True
-        # SEO list: 顿号/逗号 ≥3 且以验收引导起头或无场面动词
-        parts = [p for p in re.split(r"[、，,]", line) if p.strip()]
-        if len(parts) >= 3 and (
-            re.search(r"伏笔触碰|触碰\s*[:：]|主题|母题", line)
-            or not re.search(r"[推摸藏问说看闪退走站坐跑打]", line)
-        ):
-            return True
+        # SEO 清单：必须是顿号枚举 + 验收引导词。
+        # 禁止把普通逗号长句（「袖子里抖出一卷册子，也不铺垫，平着摊…」）当验收清单，
+        # 否则 scene_cover 会把已落地的场面词全部判死。
+        if "、" in line and re.search(r"伏笔触碰|触碰\s*[:：]|主题|母题|验收", line):
+            parts = [p for p in re.split(r"[、]", line) if p.strip()]
+            if len(parts) >= 3:
+                return True
     return False

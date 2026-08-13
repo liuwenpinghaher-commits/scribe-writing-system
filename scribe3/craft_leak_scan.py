@@ -7,16 +7,24 @@ from __future__ import annotations
 import re
 from typing import Any
 
-# A7：非知情 POV 不得写操作步骤
-SIDE_DOOR_MARKERS = ("铜签", "锁眼", "拨锁", "门轴")
-# 炉契全文惩罚
-FURNACE_MARKERS = ("填炉底", "炉契全文", "拿自个儿去填炉底")
+# A7：非知情 POV 不得写操作步骤。门轴单独出现（「门轴声重」）不是开锁。
+SIDE_DOOR_MARKERS = ("铜签", "锁眼", "拨锁")
+SIDE_DOOR_NEED_NEAR = ("门轴",)
+SIDE_DOOR_NEAR = ("铜签", "锁眼", "拨锁", "拨两下", "开锁")
+# 炉契全文惩罚 / 当众念契
+FURNACE_MARKERS = (
+    "填炉底", "炉契全文", "拿自个儿去填炉底",
+    "契就清", "把炉契上的人名念给全镇", "念给全镇听",
+)
 # 无因果全知
 OMNISCIENT_MARKERS = ("军中", "一条人命")
 
 # 断刀鞘互斥来历（现行真：霍三刀之物，沈拾灯暂扣，还到炉前）
-SHEATH_CANON = "断刀鞘是霍三刀之物，沈拾灯暂扣，须还到炉前。禁止改写成爹的遗物、郭家三刀或霍不知谁拾。"
-SHEATH_FORBIDDEN = ("爹的东西", "你爹的东西", "郭家三刀", "霍不知谁拾", "不知道谁拾")
+SHEATH_CANON = "断刀鞘是霍三刀之物，沈拾灯暂扣，须还到炉前。禁止改写成爹的遗物、郭家三刀、霍不知谁拾或溪边尸身解鞘。"
+SHEATH_FORBIDDEN = (
+    "爹的东西", "你爹的东西", "郭家三刀", "霍不知谁拾", "不知道谁拾",
+    "从尸身上解", "从死人身上解", "溪边死人",
+)
 
 _KNOWERS_SIDE_DOOR = ("老桂", "role:老桂")
 
@@ -58,6 +66,11 @@ def scan_craft_leaks(prose: str, focalizer: str = "") -> list[dict[str, Any]]:
     if not focalizer_is_side_door_knower(focalizer):
         for m in _has_any(text, SIDE_DOOR_MARKERS):
             _add("side_door", m, "craft:side_door")
+        for m in _has_any(text, SIDE_DOOR_NEED_NEAR):
+            i = text.find(m)
+            window = text[max(0, i - 24) : i + len(m) + 24]
+            if any(n in window for n in SIDE_DOOR_NEAR):
+                _add("side_door", m, "craft:side_door")
     for m in _has_any(text, FURNACE_MARKERS):
         _add("furnace_covenant", m, "craft:furnace_covenant")
     if not focalizer_is_side_door_knower(focalizer):
