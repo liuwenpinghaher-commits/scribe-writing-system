@@ -445,7 +445,7 @@ def _revelation_discipline_block(focalizer: str | None) -> str:
 
 
 def _final_reminder_full() -> str:
-    """完整 11 条尾注（默认）。"""
+    """完整 11 条尾注（仅 SCRIBE3_FINAL_REMINDER_CORE=0）。"""
     return (
         "\n\n（再次强调:① 动稿必须用 ⟦PROPOSAL scope=...⟧ 围栏包正文;"
         "② 文风贴乱世铜炉志怪笔记体——古白话、冷笔、世界密度,忌现代翻译腔与用力比喻;"
@@ -476,21 +476,26 @@ def _final_reminder_full() -> str:
 
 
 def _final_reminder_core() -> str:
-    """短核尾注（SCRIBE3_FINAL_REMINDER_CORE=1）。"""
+    """短核尾注（默认）。文体句可用 SCRIBE3_PROSE_STYLE 按书覆盖。"""
+    import os
+    style = (os.environ.get("SCRIBE3_PROSE_STYLE") or "").strip()
+    style_bit = style or "文体跟本书声口，勿串书、勿翻译腔"
     return (
-        "\n\n（硬纪律·短核:① ⟦PROPOSAL⟧ 围栏;② 志怪笔记体禁翻译腔;"
-        "③ 情感只写动作/生理;④ 限知不自悟真相;⑤ 一章单一焦点者;"
-        "⑥ 禁 as-you-know-Bob 与廉价偷听交底。）"
+        "\n\n（硬纪律·短核:① ⟦PROPOSAL⟧ 围栏;"
+        f"② {style_bit};"
+        "③ 情感不可直说(show, don't tell);"
+        "④ 限知不自悟真相;⑤ 一章单一焦点者;"
+        "⑥ 禁 as-you-know 与廉价偷听交底。）"
     )
 
 
 def _final_reminder() -> str:
-    """末尾强化提醒。默认全文;CORE 旗开则短核。"""
+    """末尾强化提醒。默认短核;CORE=0 才用 11 条全文。"""
     import os
-    raw = (os.environ.get("SCRIBE3_FINAL_REMINDER_CORE") or "0").strip().lower()
-    if raw in ("1", "true", "yes", "on", "core"):
-        return _final_reminder_core()
-    return _final_reminder_full()
+    raw = (os.environ.get("SCRIBE3_FINAL_REMINDER_CORE") or "1").strip().lower()
+    if raw in ("0", "false", "no", "off", "full"):
+        return _final_reminder_full()
+    return _final_reminder_core()
 
 
 def _verbatim_deduction_fallback(source: str, character_id: str) -> str:

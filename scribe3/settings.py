@@ -351,7 +351,7 @@ REGISTRY: tuple[Setting, ...] = (
     Setting("SCRIBE3_DRAMA_VACUUM_WARN", "flags", "bool", True, "hot",
             "无 GCD 时注入戏剧真空警告",
             "开=注入禁巡礼硬句；与 DRAMA_GATE park 分工（GATE=1 仍先 park）。"),
-    Setting("SCRIBE3_FINAL_REMINDER_CORE", "flags", "bool", False, "hot",
+    Setting("SCRIBE3_FINAL_REMINDER_CORE", "flags", "bool", True, "hot",
             "final_reminder 短核",
             "开=仅硬纪律短句；关=完整 11 条尾注。"),
     Setting("SCRIBE3_SCENE_BUDGET_PROFILE", "flags", "str", "", "hot",

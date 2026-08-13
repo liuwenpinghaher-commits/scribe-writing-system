@@ -35,10 +35,12 @@
 | 维 | 分 |
 |----|----|
 | P_flow | 5 |
-| Q_craft | 2 |
-| R_safety | 4 |
-| B_product | 2 |
-| Observability | 4 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+P1：默认 CORE 短核；`SCRIBE3_FINAL_REMINDER_CORE=0` 才 11 条；`SCRIBE3_PROSE_STYLE` 覆盖文体句，默认不再写死乱世铜炉。
 
 ## 6. 最优改造
 

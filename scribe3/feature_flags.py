@@ -28,7 +28,7 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag("SCRIBE3_CANON_SUPPRESS_HEURISTIC", "1", "正典压制文本弱推断", "memory_retrieval", "safe"),
     Flag("SCRIBE3_EPISTEMIC_FAIL_LOUD", "0", "限知出口 fail-loud", "epistemic_guard", "caution"),
     Flag("SCRIBE3_DRAMA_VACUUM_WARN", "1", "无 GCD 戏剧真空警告", "drama_beats", "safe"),
-    Flag("SCRIBE3_FINAL_REMINDER_CORE", "0", "final_reminder 短核", "prompt_blocks", "safe"),
+    Flag("SCRIBE3_FINAL_REMINDER_CORE", "1", "final_reminder 短核（默认开）", "prompt_blocks", "safe"),
     Flag("SCRIBE3_EMERGENCY_REST_WRITE", "0", "REST 世界写闸全开", "app_impl", "danger"),
     Flag("SCRIBE3_DISTRIBUTED_LOCK", "1", "store 背书并发锁", "concurrency_lock", "caution"),
     Flag("SCRIBE3_MEMORY_ACCESS_DECAY", "1", "访问频率衰减加成", "memory_score", "safe"),
