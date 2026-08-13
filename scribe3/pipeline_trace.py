@@ -401,6 +401,9 @@ class TraceBuffer:
             row["step_key"] = rec_span.step_key
             row["step_title"] = rec_span.step_title
             row["layer"] = rec_span.layer
+            if rec.get("code") == "step.start":
+                rec["message"] = f"开始 {rec_span.step_title}"
+                row["message"] = rec["message"]
         self._log_seq += 1
         rec["seq"] = self._log_seq
         rec["log_id"] = _hex(8)
