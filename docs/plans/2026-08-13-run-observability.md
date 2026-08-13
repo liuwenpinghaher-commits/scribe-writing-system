@@ -1,11 +1,16 @@
 # 铜炉 Run 卡：期望 × 实际 × 质量（系统分析主账）
 
+> **已被取代（2026-08-14）**  
+> 本文不再是观测 SSOT。用户否定「只有运行结果」的 Run 卡主账。  
+> 现行设计：[`docs/plans/2026-08-14-pipeline-trace.md`](2026-08-14-pipeline-trace.md)（chain + span，7 天）。  
+> 本文保留：期望谓词、红绿对照尺、fail-soft、禁 prompt。卡降为链上 `contrast_summary`。
+
 | 项 | 值 |
 |----|----|
 | **文档标题** | 写 / 存 / 宣称一次一张 Run 卡（期望 × 实际 × 质量） |
 | **作者** | Grok Design |
 | **日期** | 2026-08-13 |
-| **状态** | Draft |
+| **状态** | **Superseded**（见 2026-08-14-pipeline-trace） |
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` |
 | **仓库** | `/home/admin/projects/scribe-writing-system` |
 | **建议入库路径** | `docs/plans/2026-08-13-run-observability.md` |
