@@ -3,7 +3,7 @@
 | 项 | 值 |
 |----|-----|
 | **短名** | `move-library` / `故事招式库` |
-| **文档状态** | **Draft R3**（R2 + 画三角强制 `runPhase=plan`） |
+| **文档状态** | **Draft R4 · 人审两项已并入**（作者建新公式卡 + 三拍 soft-link 节拍） |
 | **作者** | Grok Design（待人审签） |
 | **日期** | 2026-08-13 |
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` |
@@ -152,9 +152,10 @@ flowchart TB
 2. **作者环**：MetaPane「让主编画三角」= **world-write 种子**（同 `seedChiefNarrativeWrite`）→ catalog `chapter.story_move` → `s3_move_retrieve` + `s3_patch_chapter_plan(story_move_plan=)` 待批。discuss **不得**落库。  
 3. **写路径**：flag 开 **且** `story_move_plan.approved==true` 且 `validation.ok` 时，draft/final **服务端**注入 1 卡 + 公式 + 至多 2 条 good use；否则 **零字节**。工具索引只出现在 `with_tools=True`。  
 4. **学习环**：章后抽出候选 use；**人批**才进 good；永不自动升格为 `craft.py` 常驻文案。  
-5. **数据**：repo 种子 JSON（≤20，首卡仅三角）+ 每书 Surreal 表；uses 一书一库。  
+5. **数据**：repo 种子 JSON（首卡仅三角）+ 每书 Surreal 表；uses 与 **作者新卡** 一书一库。作者可登记 **新公式卡**（pending→approved）；假→破→真同构不得新卡。  
 6. **与宣称正交**：`story_move_plan` **不得**进入 `build_story_ready` / `may_claim_story`；UI 不得因有招式而发绿。  
-7. **验证**：只打已部署 demo（retrieve / assemble 段 / 记一条 use）。  
+7. **验证**：只打已部署 demo（retrieve / assemble 段 / 记一条 use / 建卡合并闸）。  
+8. **这一圈 UI（v1）**：构造三拍为主栏；可选 `beat_id` 软挂已有戏剧节拍；不扩 `ALLOWED_BEAT_TYPES`。  
 
 ### Non-Goals
 
@@ -166,8 +167,8 @@ flowchart TB
 | NG4 | 把 use 塞进 `lesson` kind | lesson 是决策句，无三拍；合并会污染召回 |
 | NG5 | 用 `s3_chapter_recall` 当招式召回 | 召回散文 → 仿写 |
 | NG6 | 改 `may_claim_story` / 复活 GATE 完成话术 | product-mainline 禁令 |
-| NG7 | v1 作者自建新公式卡、跨书共享 uses | 种子未泡；一书一库 |
-| NG8 | 把三拍写入 `chapter.beats` | beats 是故事 GCD；`ALLOWED_BEAT_TYPES` 无立/转/落 |
+| NG7 | **跨书**共享 uses / NS 级作者卡目录 | 一书一库；作者新卡只活在本书 DB |
+| NG8 | 把立/转/落写入 `ALLOWED_BEAT_TYPES` / 混进 `chapter.beats` | 戏剧拍 ≠ 构造拍；只允许 `beat_id` 软挂 |
 | NG9 | 整库倾倒、仿写正例台词 | 产品红线 |
 | NG10 | Grok 机 `npm ci` / 本机 Surreal / 全量 pytest / 第二栈 | 资源纪律 |
 | NG11 | EMERGENCY 写、默认 REST 世界写 | 写通道禁令 |
@@ -216,27 +217,39 @@ flowchart TB
 |------|------|
 | 封闭词表（穷/悲/怒…） | **拒绝**。会滑回 taxonomy |
 | 纯 embedding、不存原文 | **拒绝**。作者无法点名、无法合并 |
-| 卡间 embedding + `sim≥0.48` 否决 | **v1 拒绝**。唯一卡 `triangle_info` 的 `benyi_hint` 是「任何本意」；「复仇」对 aliases 向量可能 <0.48，会做成「本意必须像种子词」 |
-| **本意自由文本写在 plan；v1 卡恒为三角；uses 才 HNSW** | **采用** |
+| 卡间 embedding + `sim≥0.48` 否决 | **拒绝**。作者新卡出现后仍不得用向量否决选卡 |
+| **本意自由文本写在 plan；选卡规则见下方（默三角、可显式/唯一命中）** | **采用** |
 
 存储：
 
 - 章计划：`story_move_plan.benyi` 自由文本（作者原话，≤16 字展示、≤40 字硬顶）
-- 卡：`benyi_hint` + `benyi_aliases`（穷/拮据/买不起）— **展示/教具/第 2 张卡出现后的竞争预留**
+- 卡：`benyi_hint` + `benyi_aliases`（穷/拮据/买不起）— 展示/教具；选卡走 §1.2 别名/显式 pick，不用向量否决
 - uses 向量：`embed(use.benyi)`，`scribe3/embed.py` **BAAI/bge-small-zh-v1.5 · 512 维**（与 `lesson` 同模型）
 - **卡表 `embedding` 列 v1 可建可不填；不得当注入门、不得对 `retrieve` 做 sim 否决**
 
-**v1 `retrieve_story_move(benyi, move_id=None)` 写死：**
+**v1 `retrieve_story_move(benyi, *, move_id=None, formula=None)`（无 embedding 否决）：**
 
 ```text
+approved = 本书 status==approved 的卡（含种子三角）
 if not (benyi or "").strip():
-    return []          # 无本意 → 无卡
+    return []
+# 1) 显式 pick
 if move_id:
-    return [that card] if exists else []
-return [triangle_info] # 恒这一张；不对卡做 embedding 否决
+    c = approved.get(move_id)
+    if c: return [c]
+# 2) 调用方带来的公式仍是假→破→真同构 → 三角
+if formula and same_formula_family({"formula": formula}, TRIANGLE):
+    return [triangle_info]
+# 3) 恰好一张已批卡「命中」：benyi 落在该卡 benyi_aliases，或 formula_family 与传入 formula 相同
+hits = [c for c in approved if benyi_in_aliases(benyi, c)
+        or (formula and same_formula_family({"formula": formula}, c))]
+if len(hits) == 1:
+    return hits
+# 4) 默认三角（本意非空且没有别的已批卡被选中）
+return [triangle_info]
 ```
 
-第 2 张卡出现后再定义卡间竞争。uses 侧仍 `sim≥0.48`（见 §5.3）。
+pending 卡 **永不**进 retrieve / assemble。uses 侧仍 `sim≥0.48`（见 §5.3）。
 
 **不是本意**：
 
@@ -255,7 +268,7 @@ normalize(formula.arrow) ∈ 假→破→真 的同构
 → 禁止新卡；写入三角卡的 examples 或一条 use。
 ```
 
-同构判定（纯函数 `same_formula_family(a, b) -> bool`）。**v1 无写路径调用方**（禁止作者建卡）；PR-1 实现 + 单测即可，assemble / store **不得**调用。
+同构判定（纯函数 `same_formula_family(a, b) -> bool`）。**v1 写路径调用方 = `propose_story_move`（建卡闸）**；assemble 选卡见 §1.2，不在注入里重判。
 
 ```python
 _ROLE_CANON = {"假": "假", "反": "假", "反面": "假", "期望": "假", "热闹": "假", "胜利": "假",
@@ -281,9 +294,13 @@ def same_formula_family(a: dict, b: dict) -> bool:
     return bool(sa) and sa == sb
 ```
 
-「热闹→间隙→孤独」若三拍 `role` 标成 假/破/真（或能经 `_ROLE_CANON` 归一）→ 同族。未标 role、只有俗名 → **不**自动判同族（避免误吞真·不同公式）。
+「热闹→间隙→孤独 / 欲扬先抑 / 装阔露怯」若三拍 `role` 能经 `_ROLE_CANON` 归一成 假/破/真，或 `arrow` 规范为 `假→破→真` → **必须合并进三角**，禁止新卡。
 
-**新卡门槛**（v1.1+）：拍的 **归一 role 序列** 不同。v1 不执行。
+未标 role、只有俗名：再查 `aliases` 字面是否属于三角卡 aliases（欲扬先抑、装阔露怯、用热闹写孤独、先给期望再打碎）→ 合并。否则不自动判同族。
+
+**新卡门槛（v1 执行）**：归一 role 序列 **不同于** 假→破→真，且不是限知/dramatic irony 禁建名单。
+
+**禁建名单（永不 pending）**：`观众比角色多知道一步`、含「限知/dramatic irony/观众多知」——属 `craft_skills/限知视角.md`。API 返回 `{ok:false, code:"belongs_to_skill", skill:"限知视角"}`。
 
 #### 1.4 反模式
 
@@ -296,6 +313,67 @@ def same_formula_family(a: dict, b: dict) -> bool:
 | 自动把 use 写进 `craft.py` | 无此代码路径 |
 | 招式 ok → 章完成 | 禁止接线 `story_complete.py` |
 | 与 skills 混目录 | 独立 `scribe3/story_moves/` + 独立 MCP |
+| 把假破真再开一张卡 | `propose_story_move` 合并进三角并回绝原因 |
+
+#### 1.5 作者自建新公式卡（v1 · 人审 Decision 1）
+
+**范围**：作者可登记 **新公式** 卡，不是再给三角加一条本意 use。种子仍只带 `triangle_info`，不要求第一天 20 张；增长路径 = 本书作者建卡。
+
+**落点：本书 DB `story_move` 行**（`origin='author'`）。一书一库；**不做** NS 级全局作者目录。SystemHub 无 work 只列 **repo 种子**；书内卡走 `GET /story-moves?work=`（种子 upsert + 作者卡）。
+
+**作者主按钮 = 登录 REST**（对标 `POST /story-ack` / use review，**无** MCP 审批框）。不新增 Hermes 写工具。主编可讨论/种子「帮我起草一张新招式」，作者在 SPA 表单提交。
+
+| 方法 | 后端路径 | 作用 |
+|------|----------|------|
+| POST | `/story-moves?work=` | 提案。body 见下。合并闸失败 200 `{merged:true}` 或 422 禁建 |
+| POST | `/story-moves/{slug}/review?work=` | `{verdict: approved\|rejected}` 作者/该书 owner |
+| GET | `/story-moves?work=` | 含 `status`；retrieve 只用 approved |
+
+**必填字段**（`validate_move_card`）：
+
+| 字段 | 约束 |
+|------|------|
+| `name` | 2–16 字 |
+| `one_liner` | ≤40 字 |
+| `formula.beats` | ≥2 拍；每拍 `role`+`hint`（或 `name`） |
+| `formula.arrow` | 可从 role 序列生成 |
+| `straight_line` | 直线病，≥8 字 |
+| `examples_pos` | ≥1 条；每条 `benyi` + 与公式拍数相同的方法摘要 `beats` |
+| `aliases` / `benyi_aliases` | 分列；禁互拷 |
+
+可选：`slug`（`^[a-z][a-z0-9_]{2,32}$`）；缺省 `am_`+sha256(name)[:10]。
+
+**闸 `propose_story_move(st, payload)`：**
+
+```text
+if name/one_liner 命中禁建名单（观众多知/限知/dramatic irony）:
+    return {ok:false, code:"belongs_to_skill", skill:"限知视角"}
+if same_formula_family(payload, triangle_info) or name/aliases 落在三角 aliases:
+    把 examples_pos[0] 收成 triangle 的一条 examples（或一条 pending use）
+    把俗名并入 triangle.aliases（去重）
+    return {ok:true, merged:true, into:"triangle_info", reason:"公式仍是假→破→真，并进三角信息法"}
+slug 冲突且已是 approved → 409
+CREATE origin=author status=pending
+return {ok:true, merged:false, slug, status:"pending"}
+```
+
+**retrieve / assemble 只选 `status=approved`。** 种子 upsert：`origin=seed` **直接 approved**。
+
+#### 1.6 三拍与 `chapter.beats`（v1 UI · 人审 Decision 2）
+
+| 层 | 回答 | 载体 |
+|----|------|------|
+| 构造 | 这段 **怎么绕** | `story_move_plan.beats`（假/破/真或该卡 role） |
+| 戏剧 | 这场戏 **发生了什么** | `chapter.beats`（GCD / `ALLOWED_BEAT_TYPES`） |
+
+**最优关系**：一张「这一圈」同时看见绕法与它所兑现的戏，但 **两套数据不混类型**。
+
+- `story_move_plan` 仍是章上独立 JSON；**禁止**把立/转/落加入 `ALLOWED_BEAT_TYPES`（`beats_schema.py`）。  
+- 每条构造拍 **可选** `beat_id`：指向本章 `chapter.beats[]` 的 `id` 或 `uid`（`GCD_KEYS` 已有这两键）。多拍可挂同一戏剧拍；可不挂。  
+- 校验：`approved=true` 仍要求构造拍文案合法；`beat_id` 若设则必须能在本章 beats 里解析到，否则 `validation.ok=false` 并钳 `approved=false`。  
+- assemble：**只**注入公式 + 构造拍 `text`；**不**用三拍改写 `_outline_block` / drama beats。  
+- 宣称 / `may_claim_story` / `conflict_beats`：**不读** `beat_id`。  
+- 这是 **v1 主 UI**，不等 Phase C。合同主栏以后可复用同一 overlay。
 
 ---
 
@@ -426,8 +504,8 @@ export function seedChiefMovePlan({ seq, benyi = '' } = {}) {
   const n = Number(seq) || seq
   const hint = [
     `使用工具 s3_patch_chapter_plan(seq=${n}, field=story_move_plan) 提交写入提案。`,
-    `先 s3_move_retrieve(benyi=${benyi || '（先问作者：本意是什么）'}) 取一张招式（v1 即三角信息法）。`,
-    '按公式给出立/转/落三拍（每拍一个场面，≤40字）。别直线说本意。',
+    `先 s3_move_retrieve(benyi=${benyi || '（先问作者：本意是什么）'}) 取一张已批招式（默认真三角；勿用 pending）。`,
+    '按公式给出构造拍（每拍一个场面，≤40字）。三拍可以挂已有节拍（beat_id=本章 beats 的 id/uid），不要新建立/转/落类型。别直线说本意。',
     '禁止 s3_set_intent。不要谈 GATE、不要说可以开写。',
     SCAFFOLD_FORBID_SAVE,
   ].join('\n')
@@ -473,12 +551,14 @@ if (forcePlan && chForScope != null) runPhase = 'plan'
 
 | 位置 | 做 | 不做 |
 |------|----|------|
-| `ChapterMetaPane` | 「这一圈」：本意、招式名、三拍原文；缺则灰字「还没画」；按钮调 `seedChiefMovePlan` | StatusDot 绿/红当完成；「材料够了」 |
+| `ChapterMetaPane` | **「这一圈」v1 主栏**：构造拍（该卡 role，默认 假/破/真）为第一行；若有 `beat_id`，第二行小字戏剧拍 `text`（只读挂载）。缺 plan 灰字「还没画」。按钮：画三角 / **登记新招式**（表单→REST）/ 好用吗 | StatusDot 当完成；「可开写」；把立/转/落画成节拍类型 |
 | `chapterContractGate.js` | **不**把 plan 纳入 B1/B2/B3 | 新 error 挡开写 |
-| SystemHub | 只读 **repo JSON** 种子目录（运维，无 `?work=`） | 作者主路径；**不**读书库 uses |
+| SystemHub | 无 work：只读 **repo 种子**；有 work：链到书内 `GET /story-moves`（含 pending 作者卡，标「待批」） | 把 pending 当可注入 |
 | WriteChat | 动稿不依赖工具 | 在提案里复述整卡正例 |
 
-信息密度：与 `ChapterStudio` 同一钩子 `loadIaDensity()`（`scribe3/web/src/lib/iaDensity.js`，`localStorage s3.ia.density`）。`essential`：只显示「招式名 · 本意」一行；`standard`/`full`：展开三拍 +「好用吗」。
+信息密度：`loadIaDensity()`。`essential`：「招式名 · 本意」一行；`standard`/`full`：展开构造拍 + 戏剧挂载行 +「好用吗」+「登记新招式」。
+
+主编种子加一句：`三拍可以挂已有节拍（beat_id=本章 beats 的 id/uid），不要新建立/转/落类型。`
 
 ---
 
@@ -488,7 +568,7 @@ if (forcePlan && chForScope != null) runPhase = 'plan'
 
 1. **工具索引只挂带工具路径** — 对齐 `craft_skills.skills_index_block` 与 `test_write_instructions_index_only_with_tools`。  
 2. **写意图关工具** — `write.py`：`_wt = ... and not _write_intent`。`_WRITE_VERB_RE` 含「写|改|续写|本章|展开…」，「这章想写穷先画三角」也会关工具。  
-3. **卡选择不依赖 Hermes**：assemble 读已批 plan 的 `move_id`/`benyi`，v1 卡恒 `triangle_info`。  
+3. **卡选择不依赖 Hermes**：assemble 调 `retrieve_story_move(plan.benyi, move_id=plan.move_id)`（§1.2）；pending 卡不选。  
 4. **注入闸门（唯一）**：`flag 开 ∧ story_move_plan.approved==true ∧ validation.ok ∧ benyi 非空` 才注入 1 卡 + ≤2 good uses。否则 **零字节**。不从 `request_text` / 讨论猜本意。  
 5. **禁止仿写** — 只迁方法；uses 经 `sanitize_move_inject`（剥词，非整段 reject）。  
 6. **物理序必须登记** — `_push` ≠ 模型所见（write-path KD-W14）。必须同时改 `generation_physical_order_names`、`SEGMENT_REGISTRY`、`GENERATION_SEGMENT_LAYERS`、`L2_DROP_TIER`。
@@ -728,13 +808,13 @@ def build_move_distill_prompt(messages: list[dict]) -> str:
         "1. 对话里没有明确绕法/三拍就返回 []；\n"
         "2. 严禁复述世界状态（谁丢了信物、谁是卧底）——那些归本体；\n"
         "3. beats.text 禁止台词、书名号、人名专名，只写功能场面（当众付账/袋空/改口）；\n"
-        "4. move_id 只能是 triangle_info；\n"
+        "4. move_id 必须是本书已 approved 的 slug；拿不准就 triangle_info；\n"
         "5. 拿不准就 []。\n"
         f"对话记录:\n{convo}"
     )
 ```
 
-`parse_move_distill`：只收 `move_id=="triangle_info"`；三拍 role∈{假,破,真}；每拍 `cn_len` 4–40；过 `sanitize_move_inject`；坏 JSON → `[]`。
+`parse_move_distill`：`move_id` 必须是已 approved slug（未知则丢弃该条）；拍数与该卡公式一致；每拍 `cn_len` 4–40；过 `sanitize_move_inject`；坏 JSON → `[]`。
 
 ---
 
@@ -749,8 +829,8 @@ def build_move_distill_prompt(messages: list[dict]) -> str:
 | 路径 | 职责 |
 |------|------|
 | `scribe3/story_moves/triangle_info.json` | 第一张卡（也是模板） |
-| `scribe3/story_moves/*.json` | 后续 ≤19 张；v1 可以只有 1 张 |
-| `scribe3/story_move.py` | 纯函数：校验、合并、消毒、format、retrieve 排序 |
+| `scribe3/story_moves/*.json` | 仓库种子；v1 只提交三角一张 |
+| `scribe3/story_move.py` | 纯函数：校验、合并、`propose` 闸、消毒、format、retrieve |
 | `scribe3/store/story_move.py` | `StoryMoveMixin`：唯一 `_query` / `_execute_write` |
 | `scribe3/store/surreal.py` | mixin 挂入 `SurrealStore` |
 | `scribe3/migrations/136_story_move.surql` | 表 + 章字段 |
@@ -782,6 +862,8 @@ DEFINE FIELD IF NOT EXISTS benyi_aliases ON story_move TYPE option<string>;  -- 
 DEFINE FIELD IF NOT EXISTS examples_json ON story_move TYPE option<string>;  -- {pos:[], neg:[]}
 DEFINE FIELD IF NOT EXISTS benyi_hint ON story_move TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS origin ON story_move TYPE string DEFAULT 'seed';
+DEFINE FIELD IF NOT EXISTS status ON story_move TYPE string DEFAULT 'approved'
+  ASSERT $value IN ['pending', 'approved', 'rejected'];
 DEFINE FIELD IF NOT EXISTS seed_rev ON story_move TYPE int DEFAULT 1;
 DEFINE FIELD IF NOT EXISTS embedding ON story_move TYPE option<array<float>>; -- v1 可空；不当注入门
 DEFINE FIELD IF NOT EXISTS created_at ON story_move TYPE datetime;
@@ -823,6 +905,7 @@ DEFINE FIELD IF NOT EXISTS story_move_plan ON chapter TYPE option<string>;
 | `examples_pos` + `examples_neg` | `examples_json` | `{"pos":[...],"neg":[...]}` |
 | `aliases` | `aliases` | JSON 数组串；**只**绕法俗名 |
 | `benyi_aliases` | `benyi_aliases` | JSON 数组串；**只**本意同义词 |
+| — | `origin` / `status` | 种子 upsert：`origin=seed` `status=approved`；作者：`origin=author` `status=pending` |
 | — | `embedding` | v1 可空；seed 不强制 embed |
 
 `欲扬先抑` **只**进 `aliases`，不进 `benyi_aliases`。
@@ -835,8 +918,8 @@ DEFINE FIELD IF NOT EXISTS story_move_plan ON chapter TYPE option<string>;
   "move_id": "triangle_info",
   "benyi": "穷",
   "beats": [
-    {"role": "假", "name": "立", "text": "先装大方请客"},
-    {"role": "破", "name": "转", "text": "袋里不够当场露怯"},
+    {"role": "假", "name": "立", "text": "先装大方请客", "beat_id": "b1"},
+    {"role": "破", "name": "转", "text": "袋里不够当场露怯", "beat_id": "b2"},
     {"role": "真", "name": "落", "text": "改口改小数，落回穷"}
   ],
   "approved": true,
@@ -844,13 +927,14 @@ DEFINE FIELD IF NOT EXISTS story_move_plan ON chapter TYPE option<string>;
 }
 ```
 
-**无 `locked` 字段**（v1 不需要锁计划；删以免实现者猜）。
+**无 `locked` 字段**。`beat_id` 可选；对应本章 `beats[].id` 或 `beats[].uid`（`beats_schema.GCD_KEYS`）。
 
-`validate_story_move_plan(raw) -> dict` 归一并附 `validation: {ok, errors}`：
+`validate_story_move_plan(raw, *, chapter_beats=None) -> dict`：
 
-- 缺拍 / 空本意 / 未知 `move_id` / 拍未消毒 → `validation.ok=false`。  
-- **仍可写**（引导，对齐 `narrative_contract`），但写入时若调用方传 `approved=true` 而 `validation.ok=false`：**强制 `approved=false`**（服务端钳制，禁止「脏 approved」）。  
-- assemble 注入：`approved==true` **且** `validation.ok` **且** `benyi` 非空。缺一则零字节。
+- 缺拍 / 空本意 / 未知或 **pending** `move_id` / 拍未消毒 → `validation.ok=false`。  
+- `beat_id` 已设但 `chapter_beats` 中无匹配 `id`/`uid` → `errors` 含 `beat_id_missing`，`ok=false`。  
+- 调用方 `approved=true` 而 `validation.ok=false`：**强制 `approved=false`**。  
+- assemble：`approved∧validation.ok∧benyi`；注入 **只**用构造 `text`，不把 `beat_id` 写进 outline。
 
 `ChaptersMixin.get_chapter` SELECT 增 `story_move_plan`，解析镜像 `narrative_contract`。  
 `update_chapter_meta` `allowed` 增 `"story_move_plan"`，JSON 串存储。
@@ -863,7 +947,7 @@ DEFINE FIELD IF NOT EXISTS story_move_plan ON chapter TYPE option<string>;
 - 按 `id` upsert；`origin='seed'` 的卡身以 repo 为准（`seed_rev` 升高才覆盖公式/直线病）  
 - **不**覆盖 uses  
 - 调用点：`apply_schema` 成功后 **或** 首次 `list_story_moves`（幂等）。推荐挂 `ConnectionMixin._apply_schema_once` 末尾 fail-soft，避免新书空目录。  
-- 卡向量失败：卡仍入库，向量空。**v1 retrieve 不读卡向量**（恒三角）。uses 向量失败 → 该条 use 不进 HNSW，retrieve_uses 少一条，fail-soft。
+- 卡向量失败：卡仍入库，向量空。**retrieve 不读卡向量**（§1.2）。uses 向量失败 → 该条不进 HNSW，fail-soft。
 
 #### 7.6 Store 公开 API（业务层禁 `_query`）
 
@@ -872,8 +956,11 @@ class StoryMoveMixin:
     def list_story_moves(self) -> list[dict]: ...
     def get_story_move(self, slug: str) -> dict | None: ...
     def seed_story_moves(self) -> dict: ...
-    def retrieve_story_move(self, benyi: str, *, move_id: str | None = None) -> list[dict]:
-        """v1：benyi 非空 ⇒ [triangle_info]（或显式 move_id）；无 embedding 否决。"""
+    def retrieve_story_move(self, benyi: str, *, move_id: str | None = None,
+                            formula: dict | None = None) -> list[dict]:
+        """只选 status=approved。规则见 §1.2。"""
+    def propose_story_move(self, payload: dict) -> dict: ...
+    def review_story_move(self, slug: str, verdict: str) -> dict: ...
     def retrieve_story_move_uses(self, move_id: str, benyi: str, chapter: int, k: int = 2) -> list[dict]: ...
     def add_story_move_use(self, ...) -> dict:  # 见 §5.1 幂等 id
     def review_story_move_use(self, use_id: str, verdict: str, note: str = "") -> dict: ...
@@ -929,6 +1016,8 @@ class StoryMoveMixin:
 | POST | `/story-moves/retrieve?work=` | body `{benyi, chapter?}`；旗关 `{enabled:false}` |
 | GET | `/chapters/{seq}/story-move-plan?work=` | 读计划 |
 | POST | `/story-move-uses/{id}/review?work=` | `{verdict, note}` 作者点判 |
+| POST | `/story-moves?work=` | 作者提案新卡（§1.5）；合并闸可能 `merged:true` |
+| POST | `/story-moves/{slug}/review?work=` | 卡 pending → approved/rejected |
 
 **鉴权**：挂 `chapters.py` **一类 work-scoped 栈**（`assert_user_may_access_work`）。**禁止**加入 `auth/middleware.py` `_GLOBAL_PREFIXES`（`/craft-skills` 是仓库静态 md、无 `?work=`，招式 uses 一书一库，照抄 = 任意登录用户扫别人书）。
 
@@ -1103,7 +1192,7 @@ v1 种子 **≤1 张实卡**（三角）+ JSON 模板。文档允许总数 ≤20
 
 与 NG2「检索不优先」、Issue 4 更贴：assemble 不调卡向量，有 approved plan 就 `format_move_block(triangle_info, plan, uses)`。
 
-**采纳为卡选择策略**（§1.2 已写死）。仍保留 `s3_move_retrieve`：主编画三角时给公式+旧用，不是卡竞争。uses 的 HNSW 仍要——召回的是 **书内旧三拍**，不是第二张卡。
+**部分采纳**：无显式 pick / 无唯一命中时仍默三角（§1.2 第 4 步）。作者新卡出现后走第 1/3 步。uses HNSW 仍要（书内旧三拍）。
 
 ---
 
@@ -1170,6 +1259,7 @@ v1 种子 **≤1 张实卡**（三角）+ JSON 模板。文档允许总数 ≤20
 #    store 夹具写入 approved plan 后 assemble → 见「假→破→真」；无教具台词/专名
 # 5) 合法通道 s3_patch_chapter_plan(story_move_plan=) 写下三拍后再动稿，instructions 含本章三拍
 # 6) ingest 出 pending use → POST /api/story-move-uses/{id}/review → retrieve 见 1 use
+# 7) POST /api/story-moves 提假破真 → merged:true；提不同公式 → pending → review approved
 ```
 
 前端（**必须**在 demo 机构建，PR-4/6）：
@@ -1206,10 +1296,12 @@ UI 冒烟：
 
 ## Open Questions
 
-仅真分叉（其余已在文中拍板；「是否走 discuss」**不是**分叉——现网 `WORLD_WRITE_FORCE` 已定主路径为 world-write）：
+**人审已决（R4 并入，不再开放）：**
 
-1. **作者自建新公式卡的时机** — v1 关闭。何时开留给 soak 后。  
-2. **三拍是否在 UI 对照映射到某条 `chapter.beats`** — 数据层永不混写；虚线对照等 product-mainline Phase C 合同主栏，避免再堆工程表。
+1. **作者自建新公式卡** — **v1 就给入口**（§1.5）。主路径登录 REST 提案 + review；假→破→真同构合并进三角；限知/观众多知禁建。一书一库。  
+2. **三拍 vs `chapter.beats`** — **v1 就做 overlay**（§1.6）。独立 JSON + 可选 `beat_id` 软挂；不扩 `ALLOWED_BEAT_TYPES`；assemble 不改写戏剧拍。不等 Phase C。
+
+无剩余产品分叉。「是否走 discuss」仍由现网 `WORLD_WRITE_FORCE` 定死为 world-write。
 
 ---
 
@@ -1228,6 +1320,9 @@ UI 冒烟：
 | REST 抄 craft-skills 鉴权 | **高** | work-scoped；禁 `_GLOBAL_PREFIXES` |
 | 宣称双 SSOT | **高** | 物理不接线 story_complete |
 | 旗开无 plan 乱注入 | 中 | **仅** approved∧validation.ok 才注入 |
+| 假破真再开一张卡 | 中 | `propose_story_move` 硬合并 |
+| pending 卡进起草 | 中 | retrieve/assemble 只认 approved |
+| 立/转/落污染 beats | 中 | 不扩类型；只 `beat_id` |
 
 ---
 
@@ -1256,15 +1351,15 @@ UI 冒烟：
 
 | ID | 决定 | 理由 |
 |----|------|------|
-| **KD-M1** | 本意自由文本写在 plan；v1 卡恒 `triangle_info`；**不对卡做 embedding 否决**；uses 才 HNSW | 避免「本意必须像种子词」；NG2 |
-| **KD-M2** | `same_formula_family` 纯函数契约见 §1.3；v1 **仅单测、无写路径调用** | 禁止作者建卡 |
+| **KD-M1** | 本意自由文本写在 plan；选卡 §1.2（显式 approved → 公式合并三角 → 唯一命中 → 默三角）；**不对卡做 embedding 否决** | 作者新卡可被显式/唯一选中；NG2 |
+| **KD-M2** | `same_formula_family` 写路径调用方 = `propose_story_move`；假破真同构禁止新卡 | 人审：第一版就建卡，但合并闸必须硬 |
 | **KD-M3** | 新层 L_move；不并入 craft_skills / craft.py / lesson | 生命周期与召回键不同 |
 | **KD-M4** | 动稿关工具 ⇒ assemble 读 **已批 plan** 注入；索引仍只 with_tools | 现网 `chat_write` |
 | **KD-M5** | **仅** `approved∧validation.ok∧benyi` 才注入 1 卡+≤2 uses；否则零字节 | 消除闸门自相矛盾 |
 | **KD-M6** | uses 一书一库；人批 REST 主路径；永不升格引擎 | 卡身稳、uses 厚 |
-| **KD-M7** | 章计划独立 JSON；无 `locked`；**不**写入 beats / contract / claim | 完成 SSOT 不可污 |
+| **KD-M7** | 章计划独立 JSON；构造拍可选 `beat_id` 软挂戏剧拍；**不**扩 `ALLOWED_BEAT_TYPES` | 一圈两层、不污完成 SSOT |
 | **KD-M8** | 单旗只走 `FLAG_REGISTRY`+`flag_truthy`；关旗 API `{enabled:false}` | 禁 get_setting 双 SSOT |
-| **KD-M9** | v1 只种子三角一张；绕法俗名只进 `aliases` | 先可操作 |
+| **KD-M9** | v1 仓库只种子三角；作者可在本书加 pending 卡，approved 后才进 retrieve | 人审增长路径；不靠凑 20 张种子 |
 | **KD-M10** | 观众比角色多知道一步 **不做卡** | 已是限知 skill |
 | **KD-M11** | v1 **只**扩 `s3_patch_chapter_plan`；**不**实现 `s3_move_set_plan` 为 Hermes 写入口 | fail-closed include；少通道 |
 | **KD-M12** | 物理序紧挨 outline 后（两分支）；**T1**；永不在 `narrative_contract` 前；必改 `GENERATION_SEGMENT_LAYERS` | 与 write-path 合入须 rebase |
@@ -1274,6 +1369,8 @@ UI 冒烟：
 | **KD-M15** | 新读工具必须写 `mcp_servers.yaml` + `PLAN_SCAFFOLD_ALLOWED_TOOLS` + `test_provision_hermes` | Hermes 不自动挂工具 |
 | **KD-M16** | REST work-scoped；禁 `_GLOBAL_PREFIXES`；Hub 种子读 repo | 一书所有权 |
 | **KD-M17** | `consecutive_same` 为唯一命名；公网 `/api/...` = 后端 `/...` | 实现者不猜 |
+| **KD-M19** | 建卡主按钮 = work-scoped REST（类 story-ack）；不新增 Hermes 写工具 | fail-closed include |
+| **KD-M20** | 「这一圈」v1 即以构造拍为主、戏剧拍为次行；不等 Phase C | 人审最优方案 |
 
 ---
 
@@ -1293,7 +1390,7 @@ UI 冒烟：
 - **标题**：`feat(story-move): 三角信息法 schema / 合并 / 消毒 / 注入格式`  
 - **文件**：`scribe3/story_move.py`、`scribe3/story_moves/triangle_info.json`、`scribe3/tests/test_story_move.py`  
 - **依赖**：PR-0  
-- **变更**：`validate_*`、`same_formula_family`（**仅测**）、`sanitize_move_inject`（剥词）、`format_move_block`、种子 JSON（字段拆分 + 功能场面）  
+- **变更**：`validate_*`、`same_formula_family`、`propose_story_move` 纯闸（合并/禁建）、`sanitize_move_inject`、`format_move_block`、种子 JSON  
 - **测**：纯函数（现成 venv 单文件即可）  
 
 ### PR-2 · 表 + mixin + 种子 upsert
@@ -1301,7 +1398,7 @@ UI 冒烟：
 - **标题**：`feat(story-move): migration 136 + StoryMoveMixin`  
 - **文件**：`migrations/136_story_move.surql`（含 `benyi_aliases`、`move_distill_marker`）、`store/story_move.py`、`store/surreal.py`、`store/chapters.py`、`store/connection.py`  
 - **依赖**：PR-1  
-- **变更**：3.x 表；use id 幂等；卡 retrieve 恒三角；业务层零 `_query`  
+- **变更**：3.x 表含 `status`/`origin`；use 幂等；业务层零 `_query`  
 - **测**：demo 一书 `apply_schema` + `list_story_moves` 见三角  
 
 ### PR-3a · 旗 + store retrieve + REST 读 + Hermes 读 include
@@ -1309,7 +1406,7 @@ UI 冒烟：
 - **标题**：`feat(story-move): flag + retrieve API + hermes read include`  
 - **文件**：`feature_flags.py`、`story_move.move_library_enabled`、`mcp/tools_read.py`、`deploy/hermes/mcp_servers.yaml`、`run_stage_policy.py`、`run_tool_filter.py`、`tests/test_provision_hermes.py`、`api/routers/chapters.py`（work-scoped）、**不**改 `settings.py` / `quality_enablement_flags.py`  
 - **依赖**：PR-2  
-- **变更**：旗默认 0；关旗 `{enabled:false}`；retrieve 恒三角；yaml + plan allowlist  
+- **变更**：旗默认 0；关旗 `{enabled:false}`；retrieve 按 §1.2（无卡向量否决）；yaml + plan allowlist  
 - **测**：demo `hot`；旗关/开 retrieve；未登录或错 work 403  
 
 ### PR-3b · assemble 注入 + 物理序
@@ -1325,8 +1422,8 @@ UI 冒烟：
 - **标题**：`feat(story-move): patch plan + chapter.story_move + 这一圈`  
 - **文件**：`mcp/tools_write.py`（**只**扩 `s3_patch_chapter_plan`）、`orchestration/catalog.py`、`orchestration/resolve.py`、`tests/test_orchestration.py`、`chiefSeed.js`（含 `isStoryMovePlanSeed`）、`ChiefDock.jsx`（强制 `runPhase=plan`）、`ChapterMetaPane.jsx`、`SystemHub.jsx`（repo 种子）、`api.js`  
 - **依赖**：PR-3b  
-- **变更**：world-write 种子；禁读者感；draft/final/deduce 点画三角仍走 plan profile  
-- **测**：demo 机 `frontend`+`hot`；MetaPane「这一圈」；resolve → `chapter.story_move`；**从 draft tab 点按钮** Hermes `run_scope=chapter:N:plan` 且工具面有 retrieve；写下三拍后再动稿见本章三拍  
+- **变更**：world-write 种子；禁读者感；draft 点画三角仍走 plan；**「这一圈」overlay + 可选 beat_id**  
+- **测**：demo `frontend`+`hot`；MetaPane 构造拍为主、有 `beat_id` 时见戏剧次行；draft 点按钮 `run_scope=chapter:N:plan`；assemble 不含把三拍写进 outline  
 
 ### PR-5 · 学习环
 
@@ -1336,12 +1433,20 @@ UI 冒烟：
 - **变更**：ingest 只 pending；人批主路径 REST（类 story-ack）；**不**挂 MCP review 进 Hermes  
 - **测**：demo 记一条 → review good → retrieve 见 use  
 
+### PR-5b · 作者建新公式卡
+
+- **标题**：`feat(story-move): propose/review author cards`  
+- **文件**：`story_move.propose_story_move`、`store` 写 pending、`POST /story-moves` + `/story-moves/{slug}/review`、`ChapterMetaPane`「登记新招式」表单、`SystemHub` 书内 pending 标、`api.js`  
+- **依赖**：PR-3a（REST 栈）+ PR-4（这一圈入口）；可与 PR-5 并行  
+- **变更**：合并闸硬拒假破真；限知禁建；approved 后 retrieve 可显式/唯一命中  
+- **测**：demo 提一张假破真 → `merged:true` 不进新 slug；提一张不同公式 → pending → review approved → `retrieve(move_id=)` 命中；未批不进 assemble  
+
 ### PR-6 · demo soak 与文档指针
 
 - **标题**：`docs/ops: 招式库 demo soak`  
 - **文件**：`docs/SESSION.md`；`docs/ops/` 清单；`GLOSSARY.md` 组六/七一行  
-- **依赖**：PR-5  
+- **依赖**：PR-5 ∧ PR-5b  
 - **变更**：`.env` 开旗（运维，不进 git）；`hot`+`frontend`  
-- **测**：一文一圈 + UI 灰字/禁绿灯；回滚改 0  
+- **测**：一文一圈 + UI overlay + 建卡闸；回滚改 0  
 
-**不做的 PR**：改 `story_complete.py`、改 GATE 文案、第二张卡、跨书 uses、放宽 `_WRITE_VERB_RE`、把招式并进 skills、新增 `s3_move_set_plan` Hermes 写入口、把 REST 放进 `_GLOBAL_PREFIXES`。
+**不做的 PR**：改 `story_complete.py`、改 GATE 文案、扩 `ALLOWED_BEAT_TYPES`、跨书 uses、放宽 `_WRITE_VERB_RE`、把招式并进 skills、新增 Hermes 写工具、把 REST 放进 `_GLOBAL_PREFIXES`。
