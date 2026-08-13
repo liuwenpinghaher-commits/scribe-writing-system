@@ -456,7 +456,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _push("craft", "supplemental", _cr)
         else:
             _record_write_soft_fail("empty_craft")
-        # WS-1 C.2：phase_role 与 craft/anti_slop 去重
+        # WS-1 C.2：phase_role 与 craft/anti_slop 去重；空 phase 不 push
         _pr_raw = _phase_role_block(phase)
         try:
             from scribe3.injection_compact import dedup_phase_role
@@ -469,11 +469,18 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             from scribe3.soft_fail import soft_fail
             import logging as _sf_logging
             soft_fail('write_assemble_soft_4', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
-        _pr = _domain_input(
-            f"chapter:{chapter}:phase-role", "phase_role",
-            _pr_raw,
-        )
-        _push("phase_role", "supplemental", _pr)
+        _phase_role_injected = False
+        _phase_role_skip = ""
+        if (_pr_raw or "").strip():
+            _pr = _domain_input(
+                f"chapter:{chapter}:phase-role", "phase_role",
+                _pr_raw,
+            )
+            _push("phase_role", "supplemental", _pr)
+            _phase_role_injected = True
+        else:
+            _phase_role_skip = "phase_role_skip_empty"
+            _record_write_soft_fail(_phase_role_skip)
         # WS-1 C.3：默认 omit 独立 avoid 段（并入 anti_slop 旗，禁词表进 L0）
         _skip_avoid = False
         _avoid_skip = ""
@@ -842,6 +849,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         bud_rep["avoid_injected"] = bool(_avoid_injected)
         if _avoid_skip:
             bud_rep["avoid_skip_reason"] = _avoid_skip
+        bud_rep["phase_role_injected"] = bool(_phase_role_injected)
+        if _phase_role_skip:
+            bud_rep["phase_role_skip_reason"] = _phase_role_skip
         # SL2：始终写入 storyline_inject 键（含 fail-soft / 旗关），便于 injection-trace
         bud_rep["storyline_inject"] = dict(_storyline_meta)
         # W2：discourse_soft 预算观测（meso_source / truncated）

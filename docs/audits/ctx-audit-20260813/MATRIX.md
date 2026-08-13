@@ -38,7 +38,7 @@
 | W4 | envelope | 4 | 4 | 4 | 3 | 4 | budget_report 必带 envelope_block_lengths 八键（registry density 已支持入参）。 |
 | W4 | identity | 5 | 5 | 5 | 5 | 5 | 已落地：独立 `_push("identity")` |
 | W4 | material_recall | 5 | 5 | 5 | 5 | 5 | 已落地：与 envelope reference 去重标题 |
-| W4 | phase_role | 4 | 3 | 4 | 3 | 3 | 保持去重；空 phase 不 push。 |
+| W4 | phase_role | 5 | 5 | 5 | 5 | 5 | 已落地：去重 + 空不 push；skip 可查 |
 | W4 | prefix | 5 | 5 | 5 | 5 | 5 | 已落地：prefix 只留身份+协议+anti_slop+章号；旁路独立 push |
 | W4 | purpose | 5 | 5 | 5 | 5 | 5 | 已落地：global 有北极星则只留本章目的差集 |
 | W4 | reference_craft | 5 | 5 | 5 | 5 | 5 | 已落地：最多 2 条、单次 push |
