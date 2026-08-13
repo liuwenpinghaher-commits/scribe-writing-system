@@ -85,6 +85,11 @@
 - **清单脚本**：`scripts/v634_evidence_checklist.py` + pure tests  
 - **本轮执行**：工程脚手架 + demo runtime baseline；**无真人 SPA → 不得总 PASS**（见 evidence 包结案 PARTIAL）
 
+### ctx-audit · 96k/48k 写路径块段审计（2026-08-13）
+
+> **短名：`ctx-audit`** · `docs/audits/ctx-audit-20260813/`（W0 库存 + W1 红线 10 卷宗）
+> 现网 `NOVEL_PROMPT_HARD=48000`（非对话里的 96k）。W2–W5 未开。
+
 ### craft-loop · 真人视角块门 + 改进闭环（2026-08-12）
 
 > **短名：`craft-loop`** · `继续 craft-loop` 或读 [`docs/plans/craft-loop.md`](./plans/craft-loop.md)
