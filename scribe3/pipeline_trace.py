@@ -24,7 +24,7 @@ PUBLIC_SPAN_KEYS = frozenset({
     "links", "schema_ver", "created_at",
 })
 PUBLIC_CHAIN_KEYS = frozenset({
-    "trace_id", "work", "chapter", "kind", "phase", "status",
+    "trace_id", "request_id", "work", "chapter", "kind", "phase", "status",
     "cursor_step_key", "headline", "started_at", "ended_at", "duration_ms",
     "span_count", "red_count", "manifest_id", "actual_input_hash",
     "outcome_id", "outcome_status", "outcome_usage", "contrast_run_id",
@@ -387,7 +387,17 @@ def public_chain(chain: dict | None) -> dict | None:
     if "spans" in cleaned and isinstance(cleaned["spans"], list):
         out["spans"] = [public_span(s) for s in cleaned["spans"] if public_span(s)]
     if "contrast_summary" in out and isinstance(out["contrast_summary"], dict):
-        out["contrast_summary"] = strip_forbidden(out["contrast_summary"])
+        cs = strip_forbidden(out["contrast_summary"])
+        out["contrast_summary"] = {
+            k: cs.get(k)
+            for k in (
+                "run_id", "verdict", "summary", "rows", "quality",
+                "quality_flags", "assemble_ok", "chapter", "kind",
+            )
+            if k in cs
+        }
+    if out.get("trace_id") and "request_id" not in out:
+        out["request_id"] = out.get("trace_id")
     return out
 
 

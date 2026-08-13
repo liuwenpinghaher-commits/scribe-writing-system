@@ -330,6 +330,7 @@ def publicize_chain_list_item(raw: dict) -> dict[str, Any]:
         stuck = f"可能卡在 {title}"
     return {
         "trace_id": raw.get("trace_id"),
+        "request_id": raw.get("trace_id"),
         "kind": raw.get("kind"),
         "chapter": raw.get("chapter"),
         "phase": raw.get("phase"),
