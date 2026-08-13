@@ -910,6 +910,12 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         bud_rep["reference_no_materials"] = bool(
             _budget_report_holder.get("reference_no_materials")
         )
+        from scribe3.api.services.write_assemble_context import (
+            scene_truth_source_from_segment_names,
+        )
+        bud_rep["scene_truth_source"] = scene_truth_source_from_segment_names(
+            [s.get("name") for s in segs]
+        )
         bud_rep["drama_vacuum_injected"] = bool(
             _budget_report_holder.get("drama_vacuum_injected")
         )

@@ -125,7 +125,12 @@ def _voice_anchor_block(st, focalizer: str = "") -> str:
     if digests:
         parts.append("\n\n## 登场角色对白声音(各自在声,别串味)\n" + "；".join(digests))
 
-    return "".join(parts)
+    if parts:
+        return "".join(parts)
+    who = (focalizer or "").strip()
+    if who:
+        return f"\n\n## 本章焦点者声音锚\n未登记声口（{who}）。"
+    return "\n\n## 本章焦点者声音锚\n未登记声口。"
 
 
 _VOLUME_INTRO_BUDGET = 400  # 卷纲摘要注入字符上限
@@ -973,6 +978,16 @@ def uncertainty_stats_from_envelope(envelope) -> dict[str, int]:
         "uncertainty_superseded_count": superseded,
         "uncertainty_pending_count": pending,
     }
+
+
+def scene_truth_source_from_segment_names(names) -> str:
+    """演绎真相走哪条路径：proj | deduction_final | none。"""
+    n = {str(x) for x in (names or [])}
+    if "scene_truth_proj" in n:
+        return "proj"
+    if "deduction_final" in n:
+        return "deduction_final"
+    return "none"
 
 
 def reference_no_materials_from_envelope(envelope) -> bool:

@@ -33,15 +33,17 @@
 
 | 维 | 分 |
 |----|----|
-| P_flow | 4 |
-| Q_craft | 4 |
-| R_safety | 4 |
-| B_product | 3 |
-| Observability | 3 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+P1：`scene_truth_source=proj|deduction_final|none`。deduce 才有终检合同。
 
 ## 6. 最优改造
 
-**主方案：** 保持 deduce 终检；在 budget_report 标 `scene_truth_source=proj|deduction_final|none`，避免双路径审计迷路。不把终检合同抄进 draft。
+**主方案：** 保持 deduce 终检；在 budget_report 标 `scene_truth_source=proj|deduction_final|none`。**已落地。**
 
 **放弃：** 合并唯一段服务所有 phase（会污染正文写）；去掉占位导致空真相无段（更难发现没填）。
 
