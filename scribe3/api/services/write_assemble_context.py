@@ -944,6 +944,15 @@ def procedural_stats_from_envelope(envelope) -> dict[str, int]:
     }
 
 
+def focus_has_outline_pointer_from_envelope(envelope) -> bool:
+    """章焦点是否只留「见 outline 域」指针（未再展开 synopsis/beats）。"""
+    for b in getattr(envelope, "blocks", None) or []:
+        if getattr(b, "name", "") != "focus":
+            continue
+        return "见 outline 域" in (getattr(b, "text", "") or "")
+    return False
+
+
 def _record_story_soft_fail(kind: str) -> None:
     try:
         from scribe3.api.services.write_assemble import record_write_soft_fail
