@@ -583,7 +583,8 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 f"chapter:{chapter}:material-recall", "material_recall",
                 _material_recall_block(st, chapter, phase=normalized_phase,
                                        focalizer=focalizer or "", llm=None,
-                                       request_text=request_text),
+                                       request_text=request_text,
+                                       reference_text=env_text or ""),
             )
             _push("material_recall", "supplemental", _mr)
         _fr = _final_reminder()

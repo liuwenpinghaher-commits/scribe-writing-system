@@ -37,7 +37,7 @@
 | W4 | discourse_soft | 4 | 3 | 3 | 3 | 3 | 与 CORE 尾注差集。 |
 | W4 | envelope | 4 | 4 | 4 | 3 | 4 | budget_report 必带 envelope_block_lengths 八键（registry density 已支持入参）。 |
 | W4 | identity | 4 | 3 | 4 | 3 | 2 | 独立 push 名 identity 以便 NEVER 真按名裁。 |
-| W4 | material_recall | 3 | 3 | 3 | 3 | 3 | 与 reference 块去重标题。 |
+| W4 | material_recall | 5 | 5 | 5 | 5 | 5 | 已落地：与 envelope reference 去重标题 |
 | W4 | phase_role | 4 | 3 | 4 | 3 | 3 | 保持去重；空 phase 不 push。 |
 | W4 | prefix | 5 | 5 | 5 | 5 | 5 | 已落地：prefix 只留身份+协议+anti_slop+章号；旁路独立 push |
 | W4 | purpose | 3 | 3 | 3 | 3 | 3 | 若 global 已有意图则 purpose 只留「本章目的」差集。 |

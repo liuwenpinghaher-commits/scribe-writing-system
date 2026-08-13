@@ -814,8 +814,24 @@ def _brief_must_sections_write_block(
         return must_prefix
 
 
+def _drop_material_cands_already_in_reference(
+    cands: list | None, reference_text: str = "",
+) -> tuple[list, int]:
+    """丢掉标题已出现在 envelope reference 块里的素材，避免双份标题。"""
+    ref = reference_text or ""
+    kept: list = []
+    dropped = 0
+    for c in cands or []:
+        title = str((c or {}).get("title") or (c or {}).get("name") or "").strip()
+        if title and len(title) >= 2 and title in ref:
+            dropped += 1
+            continue
+        kept.append(c)
+    return kept, dropped
+
+
 def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", llm=None,
-                           request_text: str = "") -> str:
+                           request_text: str = "", reference_text: str = "") -> str:
     """写作总闸素材注入:聚焦 query → material_recall → 重排 → 参考段 + 溯源。
 
     llm 参数:
@@ -843,6 +859,11 @@ def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", ll
         cands = gate(raw, budget_chars=800)
         if not cands:
             return ""   # 门控:空库/无命中/预算裁空 → 不调 LLM 重排
+        cands, n_dup = _drop_material_cands_already_in_reference(cands, reference_text)
+        if n_dup:
+            _record_story_soft_fail("material_recall_title_dup")
+        if not cands:
+            return ""
         if llm is None:
             ranked = apply_strength(list(cands))[:3]
             for c in ranked:
