@@ -1286,9 +1286,11 @@ def _deduction_block(st, seq: int, *, focalizer: str = "") -> str:
 
 
 def _purpose_workflow_block(st, chapter: int, with_tools: bool = False,
-                            work: str | None = None) -> str:
+                            work: str | None = None, global_text: str = "") -> str:
     """兼容旧名:生产写路径目的合同 + 教训内联注入。"""
-    return _purpose_and_lessons_write_block(st, chapter, with_tools, work)
+    return _purpose_and_lessons_write_block(
+        st, chapter, with_tools, work, global_text=global_text,
+    )
 
 
 

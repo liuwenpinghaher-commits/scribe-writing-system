@@ -431,7 +431,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         # sincerity 并入 anti_slop 短核，不再独立占红线窗
         _pu = _domain_input(
             f"chapter:{chapter}:purpose", "purpose",
-            _purpose_workflow_block(st, chapter, with_tools, work),
+            _purpose_workflow_block(
+                st, chapter, with_tools, work, global_text=env_text or "",
+            ),
         )
         _push("purpose", "supplemental", _pu)
         # 大纲/节拍契约正文(mode=write,剥离 plan 协议尾段);domain fail-soft

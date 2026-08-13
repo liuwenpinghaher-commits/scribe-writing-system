@@ -514,8 +514,28 @@ def _deduction_context_segments(
     ]
 
 
+def _purpose_diff_against_global(text: str, global_text: str = "") -> str:
+    """global 已有北极星/作品意图时，purpose 只留本章目的/滚入/教训。"""
+    src = text or ""
+    g = global_text or ""
+    if not src:
+        return src
+    has_intent = ("北极星:" in g) or ("## 全局(北极星" in g) or ("作品意图" in g)
+    if not has_intent:
+        return src
+    keep_marks = ("【本章目的合同", "【上章未达成目的", "【复盘", "教训")
+    chunks = [p for p in src.split("\n\n") if p.strip()]
+    kept = [p for p in chunks if any(m in p for m in keep_marks)]
+    if kept:
+        return "\n\n".join(kept)
+    if "尚未登记目的合同" in src or "目的合同工序" in src:
+        return "\n\n【本章目的】本书北极星已在全局段；本章未登记 delta，空合同也可写。"
+    return src
+
+
 def _purpose_and_lessons_write_block(st, chapter: int, with_tools: bool = False,
-                                    work: str | None = None) -> str:
+                                    work: str | None = None,
+                                    global_text: str = "") -> str:
     """生产写 prompt 注入:目的合同清单(真数据) + 教训召回(真数据)。
     不再谎称「见简报必达清单」——v1 写路径不走章前简报,清单必须内联。"""
     parts: list[str] = []
@@ -533,7 +553,10 @@ def _purpose_and_lessons_write_block(st, chapter: int, with_tools: bool = False,
         if pu.get("text"):
             parts.append("\n\n" + pu["text"])
         elif not cur:
-            w = _normalize_work(work)
+            try:
+                w = _normalize_work(work)
+            except NameError:
+                w = str(work or "main")
             register_hint = (
                 f"有 s3_register_purpose 工具就调用它走待批登记;调用时必须传 work=\"{w}\"。"
                 if with_tools else "请作者在章面板登记(本对话未挂联查工具)。")
@@ -562,7 +585,7 @@ def _purpose_and_lessons_write_block(st, chapter: int, with_tools: bool = False,
     except Exception as e:
         logging.getLogger("scribe3").warning(
             "写路径 lessons 注入失败(fail-soft): %s", e)
-    return "".join(parts)
+    return _purpose_diff_against_global("".join(parts), global_text)
 
 
 def _pressure_drive_write_block(st, chapter: int) -> str:

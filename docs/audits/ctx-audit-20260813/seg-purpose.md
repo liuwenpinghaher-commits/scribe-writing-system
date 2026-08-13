@@ -22,11 +22,13 @@
 
 ## 5. 评分
 
-| P_flow | 3 |
-| Q_craft | 3 |
-| R_safety | 3 |
-| B_product | 3 |
-| Observability | 3 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+P1：envelope global 已有北极星时，purpose 只留本章 delta / 滚入；空章改为一句「北极星已在全局段」。
 
 ## 6. 最优改造
 
