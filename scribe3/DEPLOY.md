@@ -75,10 +75,10 @@ docker compose up
 公网域名假设：`https://tonglu.qing.blue`（旧 `www.qing.blue` / `qing.blue` 301 至主域）。规格：`docs/L1-AUTH-ISOLATION.md`。
 | `SCRIBE3_MAX_CONCURRENT` | `3` | LLM 并发上限 |
 | `SCRIBE3_DAILY_CALL_CAP` | `500` | LLM 日调用上限 |
-| `SCRIBE3_NOVEL_WIDE` | `0` | 写路径升窗 96k。代码默认关。开时必须同时设模型窗，且 **compose recreate**（`hot`/`docker restart` 不重读 env） |
-| `SCRIBE3_MODEL_CONTEXT_WINDOW` | (空) | 供应商 token 窗。wide 时必填且 ≥192000 |
+| `SCRIBE3_NOVEL_WIDE` | (空=auto) | 空：模型窗 ≥192000 则 96k。`1` 强制升窗（窗不够会炸）。`0` 强制 48k。改窗/旗必须 compose recreate |
+| `SCRIBE3_MODEL_CONTEXT_WINDOW` | (空) | 供应商 token 窗。≥192000 时产品默认 96k |
 | `SCRIBE3_NOVEL_PROMPT_HARD` | (空) | 只接受空或 `96000`；其它值 fail-loud |
-| `SCRIBE3_NOVEL_WIDE_WORKS` | (空) | 升窗书白名单（逗号分隔）。浸泡填 slug；**demo 现网常驻为空=全站 96k**。改这四旗必须 compose recreate，hot/restart 不重读 env |
+| `SCRIBE3_NOVEL_WIDE_WORKS` | (空) | 升窗书白名单。空=全站。demo 现网常驻为空 |
 | `SCRIBE3_WORK` | `main` | MCP 当前书 DB 名 |
 | `VITE_API_BASE` | `http://127.0.0.1:3321` | 前端后端地址(构建期注入) |
 

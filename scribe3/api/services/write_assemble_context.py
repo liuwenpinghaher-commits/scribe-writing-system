@@ -1150,7 +1150,9 @@ def _causal_chain_for_write(st, chapter: int) -> str:
         return ""
 
 
-def collect_story_fuel_segments(inputs: dict | None) -> list[dict]:
+def collect_story_fuel_segments(
+    inputs: dict | None, *, work: str | None = None,
+) -> list[dict]:
     """assemble 真入口：format_story_fuel_parts → supplemental 段。空则记 soft_fail。"""
     from scribe3.story_constraint_prompt import format_story_fuel_parts
     inp = inputs if isinstance(inputs, dict) else {}
@@ -1158,6 +1160,7 @@ def collect_story_fuel_segments(inputs: dict | None) -> list[dict]:
         prior_consequences=inp.get("prior_consequences") or "",
         recall_context=inp.get("recall_context") or "",
         causal_graph=inp.get("causal_graph") or "",
+        work=work,
     )
     segs: list[dict] = []
     for name in ("story_ember", "story_recall", "story_causal"):

@@ -126,11 +126,15 @@ DEFAULT_SUPPLEMENTAL_HARD = 18_000
 # 质量优先：标准 V2 回滚档仍可用 42k；生产默认 novel 时 get_prompt_hard→48k
 DEFAULT_PROMPT_HARD = 42_000
 NOVEL_PROMPT_HARD = 48_000
-# 升窗档（仅 env 显式请求；常量钉永不改）
+# 升窗档。模型窗够大（≥192k）时走这条；48k 只留给未知/小窗，不是产品终态。
 NOVEL_PROMPT_HARD_WIDE = 96_000
 WIDE_SUPPLEMENTAL_SOFT = 28_000
 WIDE_SUPPLEMENTAL_HARD = 36_000
 WIDE_MIN_MODEL_WINDOW = 2 * NOVEL_PROMPT_HARD_WIDE  # 192_000
+# 96k 档燃料帽：余烬/召回/前因随窗加长，否则升窗作者感觉不到
+WIDE_FUEL_CAP_EMBER = 2_500
+WIDE_FUEL_CAP_RECALL = 6_000
+WIDE_FUEL_CAP_CAUSAL = 4_000
 
 # ── L2 四档 DROP（唯一真源 · rev.1.2 WS-6）──────────────────────────
 # 数字越大越先丢；T0/GEN_SEGMENT_PROTECTED 不进 victim 或极低优先级
@@ -593,30 +597,67 @@ def get_codex_inject_cap() -> int:
     return DEFAULT_CODEX_INJECT_CAP
 
 
-def _parse_wide_request() -> bool:
-    """只解析『是否请求升窗』，不含模型窗/书白名单。"""
-    raw = (os.environ.get("SCRIBE3_NOVEL_PROMPT_HARD") or "").strip()
-    if raw:
-        if raw != str(NOVEL_PROMPT_HARD_WIDE):
+def _wide_switch() -> str:
+    """升窗开关：on / off / auto。
+
+    空或未设 = auto：模型窗 ≥192k 就 96k（产品默认）。
+    1 = on：必须有够大的窗，否则炸（运维显式要 96k）。
+    0 = off：强制 48k（回滚）。
+    """
+    raw_num = (os.environ.get("SCRIBE3_NOVEL_PROMPT_HARD") or "").strip()
+    if raw_num:
+        if raw_num != str(NOVEL_PROMPT_HARD_WIDE):
             raise RuntimeError(
-                f"SCRIBE3_NOVEL_PROMPT_HARD={raw!r} 非法；只接受空或 {NOVEL_PROMPT_HARD_WIDE}"
+                f"SCRIBE3_NOVEL_PROMPT_HARD={raw_num!r} 非法；只接受空或 {NOVEL_PROMPT_HARD_WIDE}"
             )
-        return True
-    return _env_truthy("SCRIBE3_NOVEL_WIDE", "0")
+        return "on"
+    raw = os.environ.get("SCRIBE3_NOVEL_WIDE")
+    if raw is None or str(raw).strip() == "":
+        return "auto"
+    s = str(raw).strip().lower()
+    if s in ("0", "false", "no", "off"):
+        return "off"
+    if s in ("1", "true", "yes", "on"):
+        return "on"
+    raise RuntimeError(f"SCRIBE3_NOVEL_WIDE={raw!r} 非法；只接受空/0/1")
+
+
+def _parse_wide_request() -> bool:
+    """兼容旧名：是否『显式请求』升窗（不含 auto）。"""
+    return _wide_switch() == "on"
+
+
+def _model_window_int() -> int | None:
+    raw_win = (os.environ.get("SCRIBE3_MODEL_CONTEXT_WINDOW") or "").strip()
+    if not raw_win:
+        return None
+    if not raw_win.isdigit():
+        raise RuntimeError(
+            f"SCRIBE3_MODEL_CONTEXT_WINDOW={raw_win!r} 非法；须正整数"
+        )
+    return int(raw_win)
 
 
 def novel_wide_enabled() -> bool:
-    """进程是否允许升窗。未过模型窗门禁则 fail-loud（禁止静默 48k）。"""
-    if not _parse_wide_request():
+    """进程是否走 96k。
+
+    auto：窗够大就开，窗未知/太小走 48k（不炸）。
+    on：窗不够则 fail-loud，禁止假装升窗。
+    off：强制 48k。
+    """
+    switch = _wide_switch()
+    if switch == "off":
         return False
-    raw_win = (os.environ.get("SCRIBE3_MODEL_CONTEXT_WINDOW") or "").strip()
-    if not raw_win.isdigit():
-        raise RuntimeError("已请求 novel_wide 但未设正整数 SCRIBE3_MODEL_CONTEXT_WINDOW")
-    if int(raw_win) < WIDE_MIN_MODEL_WINDOW:
-        raise RuntimeError(
-            f"SCRIBE3_MODEL_CONTEXT_WINDOW={raw_win} < {WIDE_MIN_MODEL_WINDOW}，拒绝升窗"
-        )
-    return True
+    win = _model_window_int()
+    if switch == "on":
+        if win is None:
+            raise RuntimeError("已请求 novel_wide 但未设正整数 SCRIBE3_MODEL_CONTEXT_WINDOW")
+        if win < WIDE_MIN_MODEL_WINDOW:
+            raise RuntimeError(
+                f"SCRIBE3_MODEL_CONTEXT_WINDOW={win} < {WIDE_MIN_MODEL_WINDOW}，拒绝升窗"
+            )
+        return True
+    return win is not None and win >= WIDE_MIN_MODEL_WINDOW
 
 
 def wide_works_slugs() -> frozenset[str]:

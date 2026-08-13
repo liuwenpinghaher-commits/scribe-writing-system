@@ -9,6 +9,9 @@ from scribe3.context_budget import (
     NOVEL_ENVELOPE_TOKEN_BUDGET,
     NOVEL_PROMPT_HARD,
     NOVEL_PROMPT_HARD_WIDE,
+    WIDE_FUEL_CAP_CAUSAL,
+    WIDE_FUEL_CAP_EMBER,
+    WIDE_FUEL_CAP_RECALL,
     WIDE_MIN_MODEL_WINDOW,
     WIDE_SUPPLEMENTAL_HARD,
     WIDE_SUPPLEMENTAL_SOFT,
@@ -22,6 +25,11 @@ from scribe3.context_budget import (
     novel_wide_enabled,
     novel_wide_for_work,
     resolve_write_caps,
+)
+from scribe3.story_constraint_prompt import (
+    FUEL_CAP_RECALL,
+    format_story_fuel_parts,
+    get_fuel_caps,
 )
 
 
@@ -172,3 +180,54 @@ def test_v1_join_passes_work():
         Path(__file__).resolve().parents[1] / "api/services/write_assemble_v1.py"
     ).read_text(encoding="utf-8")
     assert "join_generation_segments(segs, v2=_v2, work=work)" in src
+    assert "collect_story_fuel_segments(_inputs, work=work)" in src
+
+
+def test_auto_96k_when_model_window_large_without_flag():
+    """产品默认：窗够大就 96k，不必再翻 WIDE=1。"""
+    _clear_wide()
+    os.environ.pop("SCRIBE3_NOVEL_WIDE", None)
+    os.environ["SCRIBE3_MODEL_CONTEXT_WINDOW"] = "256000"
+    try:
+        assert novel_wide_enabled() is True
+        assert get_prompt_hard(work="main") == 96000
+        assert get_supplemental_hard(work="main") == WIDE_SUPPLEMENTAL_HARD
+        assert get_fuel_caps(work="main")["recall"] == WIDE_FUEL_CAP_RECALL
+        _, rep = join_generation_segments(_segs(), v2=True, work="main")
+        assert rep["prompt_hard"] == 96000
+        assert (rep.get("total_enforce") or {}).get("total_budget") == 96000
+    finally:
+        _clear_wide()
+
+
+def test_explicit_wide_off_stays_48k_even_with_large_window():
+    _clear_wide()
+    os.environ["SCRIBE3_NOVEL_WIDE"] = "0"
+    os.environ["SCRIBE3_MODEL_CONTEXT_WINDOW"] = "1000000"
+    try:
+        assert novel_wide_enabled() is False
+        assert get_prompt_hard(work="main") == 48000
+        assert get_fuel_caps(work="main")["recall"] == FUEL_CAP_RECALL
+    finally:
+        _clear_wide()
+
+
+def test_wide_fuel_caps_keep_more_story_memory():
+    _clear_wide()
+    long_recall = "侧门油灯。" * 1500
+    narrow = format_story_fuel_parts(recall_context=long_recall)
+    os.environ["SCRIBE3_NOVEL_WIDE"] = "1"
+    os.environ["SCRIBE3_MODEL_CONTEXT_WINDOW"] = "256000"
+    try:
+        wide = format_story_fuel_parts(recall_context=long_recall, work="main")
+        assert len(narrow["story_recall"]) <= FUEL_CAP_RECALL + 30
+        assert len(wide["story_recall"]) > len(narrow["story_recall"])
+        assert len(wide["story_recall"]) <= WIDE_FUEL_CAP_RECALL + 30
+        caps = get_fuel_caps(work="main")
+        assert caps == {
+            "ember": WIDE_FUEL_CAP_EMBER,
+            "recall": WIDE_FUEL_CAP_RECALL,
+            "causal": WIDE_FUEL_CAP_CAUSAL,
+        }
+    finally:
+        _clear_wide()

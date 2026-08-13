@@ -316,7 +316,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _record_write_soft_fail(_nc_skip)
         try:
             from scribe3.api.services.write_assemble_context import collect_story_fuel_segments
-            for _fuel_seg in collect_story_fuel_segments(_inputs):
+            for _fuel_seg in collect_story_fuel_segments(_inputs, work=work):
                 _fn = _fuel_seg.get("name") or ""
                 _ft = _fuel_seg.get("text") or ""
                 if _fn and _ft:

@@ -66,10 +66,31 @@ def load_evidence_must_show(ch: dict | None) -> list[str]:
     return []
 
 
-# 窗护栏（现网 48k 档）。不是「写够才算」。升窗后是否放宽见 PR1.1。
+# 48k 档燃料帽。96k 档见 context_budget.WIDE_FUEL_CAP_*（余烬/召回/前因随窗加长）。
 FUEL_CAP_EMBER = 1500
 FUEL_CAP_RECALL = 4000
 FUEL_CAP_CAUSAL = 2500
+
+
+def get_fuel_caps(*, work: str | None = None) -> dict[str, int]:
+    """余烬 / 召回 / 前因段帽：大窗加长，小窗保持旧帽。"""
+    from scribe3.context_budget import (
+        WIDE_FUEL_CAP_CAUSAL,
+        WIDE_FUEL_CAP_EMBER,
+        WIDE_FUEL_CAP_RECALL,
+        novel_wide_for_work,
+    )
+    if novel_wide_for_work(work):
+        return {
+            "ember": WIDE_FUEL_CAP_EMBER,
+            "recall": WIDE_FUEL_CAP_RECALL,
+            "causal": WIDE_FUEL_CAP_CAUSAL,
+        }
+    return {
+        "ember": FUEL_CAP_EMBER,
+        "recall": FUEL_CAP_RECALL,
+        "causal": FUEL_CAP_CAUSAL,
+    }
 
 
 def format_story_contract_head(
@@ -116,16 +137,18 @@ def format_story_fuel_parts(
     prior_consequences: str = "",
     recall_context: str = "",
     causal_graph: str = "",
+    work: str | None = None,
 ) -> dict[str, str]:
-    """可后裁燃料段。默认给全文，仅按段配额封顶（窗硬顶 48k，本函数不焊 L0）。"""
+    """可后裁燃料段。按当前书的窗档封顶，不焊 L0。"""
+    caps = get_fuel_caps(work=work)
     out: dict[str, str] = {}
-    pc = _clip_fuel(prior_consequences, FUEL_CAP_EMBER)
+    pc = _clip_fuel(prior_consequences, caps["ember"])
     if pc:
         out["story_ember"] = "【上章余烬】\n" + pc
-    rec = _clip_fuel(recall_context, FUEL_CAP_RECALL)
+    rec = _clip_fuel(recall_context, caps["recall"])
     if rec:
         out["story_recall"] = "【世界此刻】（经限知投影）\n" + rec
-    cg = _clip_fuel(causal_graph, FUEL_CAP_CAUSAL)
+    cg = _clip_fuel(causal_graph, caps["causal"])
     if cg:
         out["story_causal"] = "【前因后果】\n" + cg
     return out

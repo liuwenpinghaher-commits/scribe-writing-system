@@ -135,7 +135,7 @@ def test_assemble_v1_calls_collect_story_fuel_segments():
     from pathlib import Path
     src = Path(__file__).resolve().parents[1] / "api/services/write_assemble_v1.py"
     text = src.read_text(encoding="utf-8")
-    assert "collect_story_fuel_segments(_inputs)" in text
+    assert "collect_story_fuel_segments(_inputs, work=work)" in text
 
 
 def test_format_fuel_parts_headers():

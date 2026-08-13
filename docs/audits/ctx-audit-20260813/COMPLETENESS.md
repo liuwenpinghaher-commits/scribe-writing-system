@@ -112,7 +112,7 @@ FIX-LOOP 表写 request_position「其余≥4」与 CEILINGS.md「B≥3 O≥2」
 | PR1 | 机械分档，默认 48k | **shipped** `a06b69b` |
 | PR2 | flags + probe/report | **shipped** 同提交 |
 | PR3 | demo recreate + 浸泡 | **全站常驻**：`WIDE=1` `WINDOW=1000000` `WORKS=`（空）。`resolve_write_caps("main")` = 96k/36k。密度基线 **N=2**（见下）。`with_tools` usage **missing**（ledger 无工具通道标记） |
-| PR1.1 | wide 燃料帽 | **未做**（方案可选；无 T1_fuel 半裁证据） |
+| PR1.1 | wide 燃料帽 | **已做**：96k 档 2500/6000/4000；`format_story_fuel_parts(work=)` |
 | PR4 | 近窗钉测 | **shipped** `test_discuss_window_pin.py` |
 | PR5 | 文档常驻 + env | **已做**：demo 空白名单常驻 96k；代码默认仍关。用户 2026-08-13 裁断 OQ1=必须实现 |
 

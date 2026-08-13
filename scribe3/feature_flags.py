@@ -104,9 +104,9 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     ),
     Flag("SCRIBE3_DISCOURSE_RASHOMON", "0", "罗生门多版本工具预留（默认关）", "discourse", "caution"),
     Flag("SCRIBE3_MOVE_LIBRARY", "0", "故事招式库：检索/注入/MCP/章计划", "story_move", "caution"),
-    Flag("SCRIBE3_NOVEL_WIDE", "0", "写路径升窗 96k 总开关（须模型窗门禁）", "context_budget", "caution"),
+    Flag("SCRIBE3_NOVEL_WIDE", "", "96k：空=窗够大自动开；1=强制（须窗）；0=强制 48k", "context_budget", "caution"),
     Flag("SCRIBE3_NOVEL_PROMPT_HARD", "", "只接受空或 96000；其它 fail-loud", "context_budget", "caution"),
-    Flag("SCRIBE3_MODEL_CONTEXT_WINDOW", "", "供应商 token 窗；wide 时必填 ≥192000", "context_budget", "caution"),
+    Flag("SCRIBE3_MODEL_CONTEXT_WINDOW", "", "供应商 token 窗。≥192000 时产品默认 96k", "context_budget", "caution"),
     Flag("SCRIBE3_NOVEL_WIDE_WORKS", "", "升窗书白名单；非空则未传 work 走窄档", "context_budget", "caution"),
 )
 
