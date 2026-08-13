@@ -22,11 +22,13 @@ identity+write_protocol+revision+anti_slop 拼成 prefix 再混入 structure_div
 
 ## 5. 评分
 
-| P_flow | 3 |
-| Q_craft | 3 |
-| R_safety | 3 |
-| B_product | 3 |
-| Observability | 2 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+已拆出 revision / structure_diversity / continue_snapshot / tool_scope / craft_skills_index。prefix 只留身份+协议+anti_slop+章号。
 
 ## 6. 最优改造
 
