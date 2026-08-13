@@ -118,11 +118,13 @@
 
 **综合：3.6 / 5**（能用、未到规格承诺的「生成段保护」语义）。
 
-| P_flow | 4 |
-| Q_craft | 3 |
-| R_safety | 4 |
-| B_product | 3 |
-| Observability | 4 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 4 |
+| Observability | 5 |
+
+P1：半裁改为保拍砍纲（`_half_cut_segment`）。B 残留：write 模式仍空喊「字数预算」。
 
 ---
 

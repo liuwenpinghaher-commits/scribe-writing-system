@@ -254,8 +254,9 @@ def enforce_total_prompt_budget(
         name = str(segs[vi].get("name") or "?")
         text = segs[vi].get("text") or ""
         if len(text) > 200:
-            segs[vi]["text"] = text[: len(text) // 2] + "…"
-            report["dropped"].append(f"{name}:total_half")
+            segs[vi]["text"] = _half_cut_segment(name, text)
+            tag = "keep_beats" if name == "outline" else "total_half"
+            report["dropped"].append(f"{name}:{tag}")
         else:
             report["dropped"].append(f"{name}:total_drop")
             segs.pop(vi)
@@ -664,6 +665,66 @@ def assert_physical_order_indices(indices: dict[str, int]) -> None:
         )
 
 
+def _split_outline_for_half_cut(text: str) -> tuple[str, str, str, str]:
+    """切 outline 为 header / 〔大纲〕 / 〔节拍〕 / 尾契约。缺标记则空串。"""
+    syn_at = text.find("〔大纲〕")
+    beat_at = text.find("〔节拍〕")
+    tail_idx = [i for i in (text.find("写作要求:"), text.find("(以上为作者视角大纲")) if i >= 0]
+    tail_at = min(tail_idx) if tail_idx else -1
+    marks: list[tuple[int, str]] = []
+    if syn_at >= 0:
+        marks.append((syn_at, "syn"))
+    if beat_at >= 0:
+        marks.append((beat_at, "beat"))
+    if tail_at >= 0:
+        marks.append((tail_at, "tail"))
+    marks.sort()
+    if not marks:
+        return text, "", "", ""
+    header = text[: marks[0][0]]
+    parts = {"syn": "", "beat": "", "tail": ""}
+    for i, (pos, kind) in enumerate(marks):
+        end = marks[i + 1][0] if i + 1 < len(marks) else len(text)
+        parts[kind] = text[pos:end]
+    return header, parts["syn"], parts["beat"], parts["tail"]
+
+
+def _half_cut_segment(name: str, text: str) -> str:
+    """半裁。outline 保拍砍纲；其它段保持尾半裁。"""
+    s = str(text or "")
+    if not s:
+        return s
+    if name != "outline":
+        return s[: max(1, len(s) // 2)] + "…"
+    target = max(1, len(s) // 2)
+    header, syn, beat, tail = _split_outline_for_half_cut(s)
+    if not beat:
+        return s[:target] + "…"
+    placeholder = "〔大纲〕大纲已裁，以节拍为准。"
+
+    def pack(syn_txt: str, beat_txt: str, tail_txt: str) -> str:
+        return "".join(p for p in (header, syn_txt, beat_txt, tail_txt) if p)
+
+    for cand in (
+        pack(placeholder if syn else "", beat, tail),
+        pack("", beat, tail),
+    ):
+        if len(cand) <= target:
+            return cand
+    room = target - len(header) - len(tail)
+    if room > 8:
+        clipped = beat[:room]
+        if len(clipped) < len(beat):
+            clipped = clipped[:-1] + "…"
+        cand = pack("", clipped, tail)
+        if len(cand) <= target:
+            return cand
+    room = target - len(header)
+    if room > 8:
+        return pack("", beat[: room - 1] + "…", "")
+    return (header + beat)[:target] + "…"
+
+
 def apply_l2_trim(
     segments: list[dict[str, Any]],
     *,
@@ -735,10 +796,11 @@ def apply_l2_trim(
             break
         name = str(segs[vi].get("name") or "?")
         text = segs[vi].get("text") or ""
-        # 尝试尾部裁半；过短则整段丢弃
+        # 尝试半裁；过短则整段丢弃。outline 保拍砍纲。
         if len(text) > 200:
-            segs[vi]["text"] = text[: len(text) // 2] + "…"
-            dropped.append(f"{name}:tail_half")
+            segs[vi]["text"] = _half_cut_segment(name, text)
+            tag = "keep_beats" if name == "outline" else "tail_half"
+            dropped.append(f"{name}:{tag}")
         else:
             dropped.append(f"{name}:drop")
             segs.pop(vi)
