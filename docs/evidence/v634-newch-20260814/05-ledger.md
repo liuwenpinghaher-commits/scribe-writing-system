@@ -5,4 +5,5 @@
 - MCP `s3_patch_chapter_meta` GATE-B applied（synopsis≥80、beats=3、scene_truth≥80、involved、deductions）
 - `/chat/write` 取 proposal/fallback_proposal.prose，剥污染后 save
 - 定稿门 409 → `skip_finalize_gate` 存草稿
-- ch6/7/8 续写补字后合计 22576
+- 2026-08-14 复核 demo GET 6–10 全文：6687+4342+4397+3611+3539，`visible_length` 合计与 rollup 一致；无 fallback；GATE-B 均齐
+- 11–15 仍为空壳（无题、无正文），本轮不计入

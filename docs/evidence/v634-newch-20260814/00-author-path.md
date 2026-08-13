@@ -14,4 +14,5 @@
 - UI 点批截图：无
 - EMERGENCY / safe_beats / 离线灌库：**0**
 - skip_finalize_gate：**是**（五章定稿门 409 后 skip 落库）。能落库 ≠ 过质控。
+- 证据 `04-serialize/ch06.md`–`ch10.md` 为 demo `GET /chapter` **全文**（非摘录），字数由 `visible_length` 对全文求和。
 - 不宣称体验总 PASS / 人盲 ≥9.5；不改 `GATE_SAVE_MODE`。
