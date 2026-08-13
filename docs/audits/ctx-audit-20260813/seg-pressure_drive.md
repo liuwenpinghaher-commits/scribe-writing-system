@@ -22,11 +22,13 @@ load_pdc + render；与 drama 结构化差集，完全重复则空段。fail-sof
 
 ## 5. 评分
 
-| P_flow | 3 |
-| Q_craft | 3 |
-| R_safety | 3 |
-| B_product | 3 |
-| Observability | 3 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+P1：无结构化 drama 时用空键仍差一次并记 soft_fail；渲染后删与拍级 goal 相同的句子。
 
 ## 6. 最优改造
 

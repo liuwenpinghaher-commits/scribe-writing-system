@@ -493,33 +493,50 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _brief_must_sections_write_block(st, chapter, focalizer=focalizer or ""),
         )
         _push("brief_must", "supplemental", _bm)
-        # WS-1 C.4：pressure 与 drama 结构化差集（drama 仅渲染串则整块保留）
+        # WS-1 C.4：pressure 与 drama 差集；无结构化 drama 时用空键仍差一次。
         _pd_txt = _pressure_drive_write_block(st, chapter)
+        _ch_p = None
         try:
-            from scribe3.injection_compact import pressure_diff_keys
-            from scribe3.pressure_drive import load_pdc, render_pressure_drive_block
             _ch_p = st.get_chapter(int(chapter)) if chapter is not None else None
+        except Exception:
+            _ch_p = None
+        try:
+            from scribe3.injection_compact import (
+                collect_drama_goal_phrases,
+                drama_gcd_view_from_chapter,
+                pressure_diff_keys,
+                strip_pressure_goal_echoes,
+            )
+            from scribe3.pressure_drive import load_pdc, render_pressure_drive_block
             _pdc = load_pdc(_ch_p) if _ch_p else None
-            _drama_obj = None
-            if isinstance(_ch_p, dict):
-                raw_d = _ch_p.get("drama_contract") or _ch_p.get("drama")
-                if isinstance(raw_d, dict):
-                    _drama_obj = raw_d
+            _drama_obj = drama_gcd_view_from_chapter(_ch_p if isinstance(_ch_p, dict) else {})
+            if not _drama_obj:
+                _record_write_soft_fail("pressure_diff_empty_drama")
             _emit = pressure_diff_keys(_pdc, _drama_obj)
             if _emit is not None and _pdc is not None:
                 if not _emit:
                     _pd_txt = ""
                 else:
                     slim = {k: _pdc.get(k) for k in _emit if k in _pdc}
-                    # 保留最小结构键以免 render 全空
-                    for _keep in ("fork", "progress", "role"):
-                        if _keep in _pdc and _keep not in slim:
-                            pass
                     _pd_txt = render_pressure_drive_block(slim) or ""
+            _pd_txt = strip_pressure_goal_echoes(
+                _pd_txt, collect_drama_goal_phrases(_ch_p if isinstance(_ch_p, dict) else {}),
+            )
         except Exception as _sf_e:
             from scribe3.soft_fail import soft_fail
             import logging as _sf_logging
             soft_fail('write_assemble_soft_6', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
+            _record_write_soft_fail("pressure_diff_fail")
+            try:
+                from scribe3.injection_compact import pressure_diff_keys
+                from scribe3.pressure_drive import load_pdc, render_pressure_drive_block
+                _pdc = load_pdc(_ch_p) if _ch_p else None
+                _emit = pressure_diff_keys(_pdc, {})
+                if _emit is not None and _pdc is not None:
+                    slim = {k: _pdc.get(k) for k in _emit if k in _pdc}
+                    _pd_txt = render_pressure_drive_block(slim) or _pd_txt
+            except Exception:
+                pass
         _pd = _domain_input(
             f"chapter:{chapter}:pressure-drive", "pressure_drive",
             _pd_txt,

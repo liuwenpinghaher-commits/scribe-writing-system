@@ -24,7 +24,7 @@
 | W3 | brief_must | 5 | 5 | 5 | 5 | 5 | 已落地：must 条相对大纲/场面合同差集 |
 | W3 | codex | 5 | 5 | 5 | 5 | 5 | 已落地：与 envelope 差集后再 cap；codex_chars |
 | W3 | event_drive_hook | 5 | 5 | 5 | 5 | 5 | 已落地：与 event_drive 同一谓词；续势钩 supplemental |
-| W3 | pressure_drive | 3 | 3 | 3 | 3 | 3 | 差集失败记 soft_fail 并仍尝试差集空键；禁止再渲染与 drama 相同的 goal 句。 |
+| W3 | pressure_drive | 5 | 5 | 5 | 5 | 5 | 已落地：空键仍差集 + 禁复述 drama goal |
 | W3 | story_causal | 5 | 5 | 5 | 5 | 5 | 已接线：`collect_story_fuel_segments` supplemental；查询失败 `empty_story_causal`。 |
 | W3 | story_ember | 5 | 5 | 5 | 5 | 5 | 已接线：`prior_consequences` → `_push("story_ember","supplemental")`；不进 L0_NEVER_CUT。 |
 | W3 | story_recall | 5 | 5 | 5 | 5 | 5 | 已接线：hybrid_recall 掩码后注入；T1_fuel 先裁 recall。 |

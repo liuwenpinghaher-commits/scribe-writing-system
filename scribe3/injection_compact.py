@@ -167,6 +167,67 @@ def _nonempty(v: Any) -> bool:
     return True
 
 
+def drama_gcd_view_from_chapter(ch: dict | None) -> dict:
+    """从 drama_contract dict 或 beats GCD 抽出可供 pressure_diff_keys 使用的键。"""
+    view: dict = {}
+    if not isinstance(ch, dict):
+        return view
+    raw = ch.get("drama_contract") or ch.get("drama")
+    if isinstance(raw, dict):
+        view.update(raw)
+    for b in ch.get("beats") or []:
+        if not isinstance(b, dict):
+            continue
+        for src, dest in (
+            ("goal", "goal"),
+            ("conflict", "conflict"),
+            ("turn", "turn"),
+            ("cost", "cost"),
+            ("fork", "fork"),
+        ):
+            v = str(b.get(src) or "").strip()
+            if v and dest not in view:
+                view[dest] = v
+    return view
+
+
+def collect_drama_goal_phrases(ch: dict | None) -> list[str]:
+    """戏剧目标/欲望原句，供 pressure 渲染后禁复读。"""
+    out: list[str] = []
+    seen: set[str] = set()
+    if not isinstance(ch, dict):
+        return out
+    raw = ch.get("drama_contract") if isinstance(ch.get("drama_contract"), dict) else {}
+    for key in ("goal", "desire"):
+        g = str(raw.get(key) or "").strip()
+        if g and len(g) >= 4 and g not in seen:
+            seen.add(g)
+            out.append(g)
+    for b in ch.get("beats") or []:
+        if not isinstance(b, dict):
+            continue
+        g = str(b.get("goal") or "").strip()
+        if g and len(g) >= 4 and g not in seen:
+            seen.add(g)
+            out.append(g)
+    return out
+
+
+def strip_pressure_goal_echoes(text: str, goals: list[str] | None) -> str:
+    """删掉 pressure 块里原样复述 drama goal 的行。"""
+    src = text or ""
+    phrases = [g for g in (goals or []) if g and len(g) >= 4]
+    if not src or not phrases:
+        return src
+    kept: list[str] = []
+    for line in src.splitlines(keepends=True):
+        body = line.strip()
+        if body and any(g in body for g in phrases):
+            continue
+        kept.append(line)
+    return "".join(kept)
+
+
 def pressure_diff_keys(
     pressure_contract: dict | None,
     drama_contract: dict | None,
