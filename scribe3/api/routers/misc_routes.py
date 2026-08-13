@@ -1174,10 +1174,10 @@ def get_injection_trace(work: str = "main"):
         if run_card_persist_enabled():
             persisted = latest_run_card(st, work=work, kind="write")
         else:
-            from scribe3.pipeline_trace_store import latest_pipeline_chain
+            from scribe3.pipeline_trace_store import chain_as_run_card_item, latest_pipeline_chain
             ch = latest_pipeline_chain(st, kind="write")
             if ch:
-                persisted = ch.get("contrast_summary") or _chain_as_run_card_item(ch)
+                persisted = ch.get("contrast_summary") or chain_as_run_card_item(ch)
                 persisted = dict(persisted or {})
                 persisted["request_id"] = ch.get("trace_id")
                 persisted["run_id"] = ch.get("contrast_run_id")
@@ -1217,11 +1217,11 @@ def get_debug_run_cards(
     except Exception as e:
         return {"ok": False, "error": str(e)[:160], "items": []}
     if not run_card_persist_enabled():
-        from scribe3.pipeline_trace_store import list_chains
+        from scribe3.pipeline_trace_store import chain_as_run_card_item, list_chains
         chains = list_chains(st, chapter=chapter, kind=kind, limit=limit)
         items = []
         for raw in chains:
-            it = _chain_as_run_card_item(raw)
+            it = chain_as_run_card_item(raw)
             if verdict and it.get("verdict") != verdict:
                 continue
             items.append(it)
@@ -1309,31 +1309,6 @@ def post_debug_run_cards_purge(work: str = "main", days: int | None = None):
     return out
 
 
-def _store_or_err(work: str):
-    from scribe3.api import app_impl as core
-    return core._store_for(work)
-
-
-def _chain_as_run_card_item(raw: dict) -> dict:
-    cs = raw.get("contrast_summary") if isinstance(raw.get("contrast_summary"), dict) else {}
-    return {
-        "run_id": raw.get("contrast_run_id") or "",
-        "request_id": raw.get("trace_id"),
-        "outcome_id": raw.get("outcome_id"),
-        "kind": raw.get("kind"),
-        "chapter": raw.get("chapter"),
-        "phase": raw.get("phase"),
-        "created_at": raw.get("created_at"),
-        "verdict": cs.get("verdict") or "green",
-        "summary": cs.get("summary") or {},
-        "assemble_ok": cs.get("assemble_ok"),
-        "outcome_status": raw.get("outcome_status"),
-        "prompt_hard_profile": (cs.get("caps") or {}).get("prompt_hard_profile") if isinstance(cs.get("caps"), dict) else None,
-        "quality_flags": (cs.get("quality") or {}).get("flags") if isinstance(cs.get("quality"), dict) else cs.get("quality_flags"),
-        "trace_id": raw.get("trace_id"),
-    }
-
-
 def get_debug_pipeline_traces(
     work: str = "main",
     chapter: int | None = None,
@@ -1345,7 +1320,8 @@ def get_debug_pipeline_traces(
     """链列表。status 只滤 chain；按 step 请走 /debug/pipeline-spans。"""
     from scribe3.pipeline_trace_store import get_chain, list_chains, list_spans, publicize_chain_list_item
     try:
-        st = _store_or_err(work)
+        from scribe3.api import app_impl as core
+        st = core._store_for(work)
     except Exception as e:
         return {"ok": False, "error": str(e)[:160], "items": []}
     qq = (q or "").strip()
@@ -1397,7 +1373,8 @@ def get_debug_pipeline_trace(trace_id: str, work: str = "main"):
     """单链 + spans（墙钟序）+ 对照摘要 + 同章前后。"""
     from scribe3.pipeline_trace_store import get_chain, list_spans, publicize_chain_detail
     try:
-        st = _store_or_err(work)
+        from scribe3.api import app_impl as core
+        st = core._store_for(work)
     except Exception as e:
         return {"ok": False, "error": str(e)[:160]}
     raw = get_chain(st, trace_id)
@@ -1427,7 +1404,8 @@ def get_debug_pipeline_trace_spans(
     from scribe3.pipeline_trace import public_span
     from scribe3.pipeline_trace_store import list_spans
     try:
-        st = _store_or_err(work)
+        from scribe3.api import app_impl as core
+        st = core._store_for(work)
     except Exception as e:
         return {"ok": False, "error": str(e)[:160], "items": []}
     rows = list_spans(st, trace_id=trace_id, layer=layer, limit=200)
@@ -1449,7 +1427,8 @@ def get_debug_pipeline_spans(
     from scribe3.pipeline_trace import public_span
     from scribe3.pipeline_trace_store import get_chain, list_spans, publicize_chain_list_item
     try:
-        st = _store_or_err(work)
+        from scribe3.api import app_impl as core
+        st = core._store_for(work)
     except Exception as e:
         return {"ok": False, "error": str(e)[:160], "items": [], "chains": []}
     rows = list_spans(st, step_key=step_key, status=status, chapter=chapter, limit=limit)
@@ -1474,7 +1453,8 @@ def get_debug_pipeline_spans(
 def post_debug_pipeline_traces_purge(work: str = "main", days: int | None = None):
     from scribe3.pipeline_trace_store import ttl_days
     try:
-        st = _store_or_err(work)
+        from scribe3.api import app_impl as core
+        st = core._store_for(work)
     except Exception as e:
         return {"ok": False, "error": str(e)[:160]}
     d = ttl_days() if days is None else max(1, int(days))

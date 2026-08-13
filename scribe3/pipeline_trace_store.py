@@ -294,6 +294,26 @@ def live_headline(chain: dict) -> str:
     return str(chain.get("headline") or "")
 
 
+def chain_as_run_card_item(raw: dict) -> dict[str, Any]:
+    cs = raw.get("contrast_summary") if isinstance(raw.get("contrast_summary"), dict) else {}
+    return {
+        "run_id": raw.get("contrast_run_id") or "",
+        "request_id": raw.get("trace_id"),
+        "outcome_id": raw.get("outcome_id"),
+        "kind": raw.get("kind"),
+        "chapter": raw.get("chapter"),
+        "phase": raw.get("phase"),
+        "created_at": raw.get("created_at"),
+        "verdict": cs.get("verdict") or "green",
+        "summary": cs.get("summary") or {},
+        "assemble_ok": cs.get("assemble_ok"),
+        "outcome_status": raw.get("outcome_status"),
+        "prompt_hard_profile": (cs.get("caps") or {}).get("prompt_hard_profile") if isinstance(cs.get("caps"), dict) else None,
+        "quality_flags": (cs.get("quality") or {}).get("flags") if isinstance(cs.get("quality"), dict) else cs.get("quality_flags"),
+        "trace_id": raw.get("trace_id"),
+    }
+
+
 def publicize_chain_list_item(raw: dict) -> dict[str, Any]:
     hl = live_headline(raw)
     dur = raw.get("duration_ms")
