@@ -724,7 +724,17 @@ def load_chapter_story_inputs(st, chapter: int) -> dict:
         ch = st.get_chapter(int(chapter)) or {}
     except Exception:
         return out
-    nc = ch.get("narrative_contract") if isinstance(ch.get("narrative_contract"), dict) else {}
+    raw_nc = ch.get("narrative_contract")
+    if isinstance(raw_nc, str) and raw_nc.strip():
+        try:
+            from scribe3.narrative_contract import validate_narrative_contract
+            nc = validate_narrative_contract(raw_nc)
+        except Exception:
+            nc = {}
+    elif isinstance(raw_nc, dict):
+        nc = raw_nc
+    else:
+        nc = {}
     out["contract"] = nc
     try:
         from scribe3.story_constraint_prompt import load_evidence_must_show

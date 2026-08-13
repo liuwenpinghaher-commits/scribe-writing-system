@@ -2,6 +2,12 @@
 from __future__ import annotations
 
 from scribe3.store.core_preamble import *  # noqa: F403
+from scribe3.chapter_meta_codec import (  # noqa: F401
+    CHAPTER_JSON_META_KEYS,
+    CHAPTER_META_ALLOWED,
+    coerce_chapter_json_dict,
+    dump_chapter_json_meta,
+)
 
 class ChaptersMixin:
 
@@ -341,7 +347,7 @@ class ChaptersMixin:
             "SELECT seq,title,label,(IF volume THEN meta::id(volume) ELSE NONE END) AS volume,"
             "focalizer,prose,synopsis,beats,draft,"
             "scene_truth,scene_truth_revision,involved_characters,deductions,purpose_text,deltas,"
-            "pressure_drive,beats_meta,narrative_drive,"
+            "pressure_drive,beats_meta,narrative_drive,narrative_contract,"
             "archived,"
             "(IF archived_at IS NONE THEN NONE ELSE <string>archived_at END) AS archived_at,"
             "archive_reason,"
@@ -379,20 +385,9 @@ class ChaptersMixin:
                 r["beats_meta"] = {}
         else:
             r["beats_meta"] = {}
-        # narrative_drive：章级冲突/事件驱动合同 JSON 串 → dict（镜像 beats_meta）
-        nd = r.get("narrative_drive")
-        if nd is None or nd == "":
-            r["narrative_drive"] = {}
-        elif isinstance(nd, dict):
-            r["narrative_drive"] = nd
-        elif isinstance(nd, str):
-            try:
-                parsed_nd = json.loads(nd)
-                r["narrative_drive"] = parsed_nd if isinstance(parsed_nd, dict) else {}
-            except (ValueError, TypeError):
-                r["narrative_drive"] = {}
-        else:
-            r["narrative_drive"] = {}
+        # narrative_drive / narrative_contract：JSON 串 → dict
+        r["narrative_drive"] = coerce_chapter_json_dict(r.get("narrative_drive"))
+        r["narrative_contract"] = coerce_chapter_json_dict(r.get("narrative_contract"))
         r["scene_truth"] = r.get("scene_truth") or ""
         try:
             r["scene_truth_revision"] = max(0, int(r.get("scene_truth_revision") or 0))
@@ -991,13 +986,7 @@ class ChaptersMixin:
             if should_bump_truth_revision(old_truth, new_truth if new_truth is not None else ""):
                 next_rev = cur_rev + 1
 
-        allowed = {"synopsis", "volume", "label", "title", "beats",
-                   "scene_truth", "involved_characters", "deductions",
-                   "purpose_text", "deltas",
-                   "pressure_drive",   # PDC 压力驱动合同 JSON 串
-                   "beats_meta",       # 节拍 v2 元数据 JSON 串（schema/source/drama_validation）
-                   "narrative_drive",  # 章级冲突/事件驱动合同 JSON 串
-                   "stage_state"}      # O19 阶段机 {phase} JSON 串
+        allowed = set(CHAPTER_META_ALLOWED)
         # volume 需单独处理(record link 不能传字符串参数)
         volume_id = _UNSET  # 哨兵:区分"未传 volume"与"传了 None(清空)"
         plain: dict = {}
@@ -1025,14 +1014,12 @@ class ChaptersMixin:
             elif k in ("beats", "deltas"):
                 # list 字段存为 JSON 串(绕 SCHEMAFULL 嵌套校验,同 scene_meta);读时还原。
                 plain[k] = json.dumps(v if v is not None else [], ensure_ascii=False)
-            elif k in ("pressure_drive", "beats_meta", "narrative_drive", "stage_state"):
+            elif k in CHAPTER_JSON_META_KEYS:
                 # JSON 合同：dict → JSON 串；已是 str 则原样；None → 清字段
                 if v is None:
                     plain[k] = None
-                elif isinstance(v, str):
-                    plain[k] = v
                 else:
-                    plain[k] = json.dumps(v, ensure_ascii=False)
+                    plain[k] = dump_chapter_json_meta(v)
             else:
                 plain[k] = v
         # 构建 SET 子句:先处理普通字段,再追加 volume(若有)

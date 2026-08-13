@@ -1041,15 +1041,18 @@ async def s3_patch_chapter_plan(
     deductions: list[dict[str, Any]] | None = None,
     involved_characters: list[str] | None = None,
     story_move_plan: dict | None = None,
+    narrative_contract: dict | None = None,
     work: str | None = None,
 ) -> dict:
-    """改章阶段内容:大纲/节拍/场景真相/演绎/出场角色(写,待批)。不改 prose/身份 meta。
+    """改章阶段内容:大纲/节拍/场景真相/演绎/出场角色/场面合同(写,待批)。不改 prose/身份 meta。
 
     beats 每项必须有 text（beat/action 可作别名）；involved_characters 必须是书内角色
     id 或名字；deductions 每项必须是 {character_id, prose}。非法结构在审批前返回 error，
     绝不写入一个后续上下文无法消费的 plan。章不存在 → status=error。"""
     store = _store_for(work)
     fields: dict = {}
+    plan_warnings: list[str] = []
+    base_contract_fp = ""
     if synopsis is not None:
         fields["synopsis"] = synopsis
     if beats is not None:
@@ -1086,6 +1089,33 @@ async def s3_patch_chapter_plan(
         bm = dict(bm)
         bm["story_move_plan"] = smp
         fields["beats_meta"] = bm
+    if narrative_contract is not None:
+        if not isinstance(narrative_contract, dict):
+            return {
+                "status": "error",
+                "tool": "s3_patch_chapter_plan",
+                "error": "narrative_contract 必须是 dict",
+            }
+        from scribe3.narrative_contract import (
+            contract_content_fp,
+            sanitize_narrative_contract_write,
+        )
+        current = store.get_chapter(seq) or {}
+        prev_nc = current.get("narrative_contract") if isinstance(current.get("narrative_contract"), dict) else {}
+        base_contract_fp = contract_content_fp(prev_nc)
+        try:
+            nc = sanitize_narrative_contract_write(
+                narrative_contract, source="orch", prev=prev_nc,
+            )
+        except ValueError:
+            return {
+                "status": "error",
+                "tool": "s3_patch_chapter_plan",
+                "error": "narrative_contract 必须是 dict",
+            }
+        if not nc.get("validation", {}).get("ok"):
+            plan_warnings.extend(nc.get("validation", {}).get("errors") or [])
+        fields["narrative_contract"] = nc
     # 演绎若显式提交 deductions，必须覆盖本次（或已存）的全部出场角色。
     # 否则 `deductions=[]` 会经审批被写成成功，但 Gate-B/后续限知上下文均不可消费。
     if deductions is not None:
@@ -1105,9 +1135,22 @@ async def s3_patch_chapter_plan(
     ok = await _ask(ctx, f"改第{seq}章 plan {list(fields.keys())}")
 
     def _write():
+        if "narrative_contract" in fields:
+            from scribe3.narrative_contract import contract_content_fp
+            now = store.get_chapter(seq) or {}
+            now_nc = now.get("narrative_contract") if isinstance(now.get("narrative_contract"), dict) else {}
+            if contract_content_fp(now_nc) != base_contract_fp:
+                return {
+                    "status": "error",
+                    "tool": "s3_patch_chapter_plan",
+                    "error": "这场的场面已经变了，请按最新场面重拟后再批。",
+                }
         if not store.update_chapter_meta(seq, fields):
             return False
-        return {"seq": seq, "fields": list(fields.keys())}
+        out = {"seq": seq, "fields": list(fields.keys())}
+        if plan_warnings:
+            out["warnings"] = plan_warnings
+        return out
 
     return commit_if_approved("s3_patch_chapter_plan", ok, _write)
 

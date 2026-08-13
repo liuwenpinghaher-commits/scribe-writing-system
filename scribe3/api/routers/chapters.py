@@ -455,6 +455,20 @@ def patch_chapter(seq: int, req: ChapterMetaReq, work: str = "main"):
             if _rerr:
                 raise HTTPException(status_code=422, detail=_rerr)
         fields["deltas"] = _ds   # 存规范化后的清单
+    contract_warnings: list[str] = []
+    if "narrative_contract" in fields:
+        raw_nc = fields.get("narrative_contract")
+        if raw_nc is not None and not isinstance(raw_nc, dict):
+            raise HTTPException(status_code=422, detail="narrative_contract 必须是 dict")
+        from scribe3.narrative_contract import sanitize_narrative_contract_write
+        prev_ch = _store_for(work).get_chapter(seq) or {}
+        prev_nc = prev_ch.get("narrative_contract") if isinstance(prev_ch.get("narrative_contract"), dict) else {}
+        try:
+            nc = sanitize_narrative_contract_write(raw_nc, source="author", prev=prev_nc)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="narrative_contract 必须是 dict")
+        fields["narrative_contract"] = nc
+        contract_warnings.extend((nc.get("validation") or {}).get("errors") or [])
     try:
         ok = _store_for(work).update_chapter_meta(seq, fields)
     except ValueError as e:
@@ -462,6 +476,8 @@ def patch_chapter(seq: int, req: ChapterMetaReq, work: str = "main"):
     if not ok:
         raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
     _resp = {"status": "updated", "seq": seq}
+    if contract_warnings:
+        _resp["warnings"] = contract_warnings
     if _rehearse_degraded:
         _resp["rehearse_degraded"] = True   # P2-2:预演故障放行须对调用方可见
     return _resp
@@ -524,8 +540,16 @@ def delete_volume(vid: str, work: str = "main"):
         raise HTTPException(status_code=404, detail=f"volume '{vid}' 不存在")
     return {"status": "deleted", "id": vid}
 
-def get_chapter(seq: int, work: str = "main"):
-    return _store_for(work).get_chapter(seq) or {}
+def get_chapter(seq: int, work: str = "main", include_suggest: bool = Query(False)):
+    ch = _store_for(work).get_chapter(seq) or {}
+    if include_suggest:
+        from scribe3.narrative_contract import load_scene_suggest
+        sug = load_scene_suggest(_store_for(work), seq)
+        ch = dict(ch)
+        ch["scene_suggest"] = sug
+        ch["scene_briefing"] = sug.get("briefing")
+        ch["adopted_would_be"] = sug.get("adopted_would_be")
+    return ch
 
 
 def get_chapter_execution_soft_status(seq: int = Query(ge=1), work: str = "main"):
@@ -537,12 +561,35 @@ def get_chapter_execution_soft_status(seq: int = Query(ge=1), work: str = "main"
     from scribe3.execution_contract import chapter_execution_soft_status
 
     ch = _store_for(work).get_chapter(seq) or {}
-    return chapter_execution_soft_status(
+    out = chapter_execution_soft_status(
         seq=seq,
         prose=ch.get("prose") or "",
         drive=ch.get("narrative_drive") if isinstance(ch.get("narrative_drive"), dict) else {},
         synopsis=ch.get("synopsis") or "",
     )
+    try:
+        from scribe3.narrative_contract import contract_content_fp, contract_has_scene_fields
+        nc = ch.get("narrative_contract") if isinstance(ch.get("narrative_contract"), dict) else {}
+        if contract_has_scene_fields(nc):
+            cfp = contract_content_fp(nc)
+            ack = None
+            st = _store_for(work)
+            if hasattr(st, "get_reader_ack"):
+                try:
+                    ack = st.get_reader_ack(work, seq, kind="story")
+                except TypeError:
+                    ack = None
+            ack_fp = str((ack or {}).get("contract_fp") or "")
+            if ack and ack_fp and ack_fp != cfp:
+                out = dict(out)
+                out["contract_drift"] = {
+                    "advisory": "场面改了，通读看看日子还对不对（不会清掉正文）",
+                    "contract_fp": cfp,
+                    "severity": "advisory",
+                }
+    except Exception:
+        pass
+    return out
 
 
 def chapter_versions(seq: int, work: str = "main"):

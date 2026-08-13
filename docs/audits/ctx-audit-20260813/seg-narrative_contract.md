@@ -49,7 +49,9 @@ chapter.narrative_contract
 落库列已有：`migrations/134_narrative_contract.surql`（`option<string>` JSON，注释写「读端 json.loads」）。  
 REST `ChapterMetaReq.narrative_contract`、`chapters.py` sanitize、MCP `s3_patch_chapter_plan(..., narrative_contract=)` 都会把字段塞进 `update_chapter_meta`。
 
-**`scribe3/store/chapters.py` 全文零命中 `narrative_contract`：**
+**已接线（2026-08-13）：** `CHAPTER_META_ALLOWED` + `coerce_chapter_json_dict` / `dump_chapter_json_meta`；`get_chapter` SELECT 含列并解析；`update_chapter_meta` SET JSON 串。
+
+**历史洞（已修）：** `scribe3/store/chapters.py` 曾全文零命中 `narrative_contract`：
 
 1. **写丢**：`update_chapter_meta` 白名单只有 `narrative_drive` 等，不含本列（`:994-1000`）。非白名单 `continue` 静默丢弃。MCP/REST 审批成功 ≠ 列被 SET。
 2. **读盲**：`get_chapter` SELECT 列表到 `pressure_drive,beats_meta,narrative_drive` 止（`:344`），不取本列；也无 json.loads 镜像。调用方永远看不到落库合同。

@@ -244,6 +244,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         except Exception:
             _inputs = {}
             _nc_txt = ""
+            _record_write_soft_fail("narrative_contract_skip")
         if _nc_txt:
             _push(
                 "narrative_contract",

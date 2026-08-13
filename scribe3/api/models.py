@@ -373,6 +373,7 @@ class ChapterMetaReq(BaseModel):
     pressure_drive: dict | str | None = None
     # 节拍 v2 元数据（schema/chapter_hook/beats_source/drama_validation）；JSON 串或 dict
     beats_meta: dict | str | None = None
+    narrative_contract: dict | None = None
 
     @field_validator("label")
     @classmethod

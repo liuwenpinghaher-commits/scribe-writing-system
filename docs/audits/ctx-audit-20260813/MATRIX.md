@@ -9,7 +9,7 @@
 | W1 | event_drive | 3 | 3 | 4 | 3 | 3 | assemble 单点判定 + empty_event_drive 可观测 |
 | W1 | final_reminder | 5 | 2 | 4 | 2 | 4 | 默认 CORE 短核，文体按书覆盖 |
 | W1 | focalizer | 4 | 3 | 4 | 3 | 2 | 独立 `_push("focalizer")` |
-| W1 | narrative_contract | 2 | 4 | 4 | 2 | 3 | store 按 narrative_drive 同构打通读写 |
+| W1 | narrative_contract | 5 | 5 | 5 | 5 | 5 | store 已与 drive 同构读写；get_chapter 解析 JSON 串；写路径能出场面头 |
 | W1 | outline | 4 | 3 | 4 | 3 | 4 | 半裁改为保拍砍纲 |
 | W1 | scene_truth_proj | 4 | 4 | 4 | 3 | 3 | budget_report 标明真相源路径 |
 | W1 | secret_guard | 4 | 3 | 5 | 3 | 2 | 独立 `_push("secret_guard")` + 揭示字段覆盖 |
