@@ -10,6 +10,7 @@ import { PrefsSection } from '../settings/PrefsSection'
 import { AuditSection } from '../settings/AuditSection'
 import { GatewaySection } from '../settings/GatewaySection'
 import AdminConsole from '../admin/AdminConsole'
+import { RunLogsPage } from '../admin/RunLogsPage'
 import { Btn } from '../ui.jsx'
 
 function ProposeMoveForm({ work, onDone }) {
@@ -644,6 +645,10 @@ export function SystemHub({
     main = <div className="p-5">{renderSettingsList(byCat('flags'), 'flags-settings')}</div>
   } else if (section?.id === 'accounts') {
     main = isAdmin ? <AdminConsole onExit={onExit} hasWork={!!work} /> : <div className="p-8 text-faint">需要管理员</div>
+  } else if (section?.id === 'run-logs') {
+    main = isAdmin
+      ? <div className="p-4"><RunLogsPage defaultWork={work || ''} /></div>
+      : <div className="p-8 text-faint">需要管理员</div>
   } else if (section?.id === 'audit') {
     main = <div className="p-5"><AuditSection /></div>
   } else {

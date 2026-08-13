@@ -86,21 +86,6 @@ export function WriteLayout({ work, seq, sceneIdx }) {
     persistDirtyOldChapter(seq)
     _setChapter(seq)
   }, [seq])
-  useEffect(() => {
-    let cancelled = false
-    api.runCards({ chapter, kind: 'write', limit: 1 }, work)
-      .then((r) => {
-        if (cancelled) return
-        const it = (r && r.items && r.items[0]) || null
-        if (!it) { setRunCardLine(null); return }
-        const n = (it.summary && it.summary.red) || 0
-        setRunCardLine(n > 0
-          ? `本章上次写：${n} 项该进未进`
-          : '本章上次写：对照齐全')
-      })
-      .catch(() => { if (!cancelled) setRunCardLine(null) })
-    return () => { cancelled = true }
-  }, [work, chapter, saved])
   // 切章丢稿根治(F1/彻查 G-B3):外部切章(项目树点章)由上层 DetailPane 的
   // ErrorBoundary(key=节点 id=ch:seq)整树重挂 WriteLayout —— 旧实例直接卸载,上面的
   // [seq] 同步 effect 来不及在旧实例里 flush。ProseEditor 无 onBlur,未手存正文只活在
@@ -141,7 +126,6 @@ export function WriteLayout({ work, seq, sceneIdx }) {
   const [postChecking, setPostChecking] = useState(false)
   // dual-lamp chips from last save/post-check
   const [dualLamps, setDualLamps] = useState(null)
-  const [runCardLine, setRunCardLine] = useState(null)
   // F-05 完整:点正文波浪线弹的悬浮卡 { issue, x, y };忽略后 bump 触发 decoration 重推
   const [issueCard, setIssueCard] = useState(null)
   const [ignoreTick, setIgnoreTick] = useState(0)
@@ -1128,11 +1112,6 @@ export function WriteLayout({ work, seq, sceneIdx }) {
               {dualLamps.mayClaimReadable && (
                 <span className="text-meta text-faint">可宣称给读者</span>
               )}
-            </div>
-          )}
-          {runCardLine && (
-            <div className="mb-2 text-f12 text-meta" data-testid="run-card-line">
-              {runCardLine}
             </div>
           )}
           {renderCheckupCard()}

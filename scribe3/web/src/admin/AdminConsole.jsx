@@ -1,19 +1,21 @@
 /**
- * 管理台：账号 CRUD、跨账号书籍、审计日志。
- * 仅 role=admin 可见；数据经 /admin/* 全局 API。
+ * 管理台：账号 CRUD、跨账号书籍、写路径日志、操作审计。
+ * 仅 role=admin 可见；账号/书籍/审计走 /admin/*，写路径日志走 /debug/run-cards。
  */
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api'
 import {
   Users, BookOpen, ScrollText, LayoutDashboard, RefreshCw,
   Plus, Shield, UserX, KeyRound, LogOut, Archive, RotateCcw, Trash2,
-  ArrowLeft, PenLine,
+  ArrowLeft, PenLine, History,
 } from 'lucide-react'
+import { RunLogsPage } from './RunLogsPage'
 
 const TABS = [
   { key: 'overview', label: '总览', icon: LayoutDashboard },
   { key: 'users', label: '账号', icon: Users },
   { key: 'works', label: '书籍', icon: BookOpen },
+  { key: 'run-logs', label: '写路径日志', icon: History },
   { key: 'audit', label: '审计', icon: ScrollText },
 ]
 
@@ -281,7 +283,7 @@ export function AdminConsole({ onExit, hasWork = false }) {
         <Shield size={18} className="text-brand shrink-0" />
         <div className="min-w-0">
           <div className="text-f14 font-semibold">管理台</div>
-          <div className="text-f12 text-faint">账号 · 书籍归属 · 操作审计（仅管理员）</div>
+          <div className="text-f12 text-faint">账号 · 书籍归属 · 写路径日志 · 操作审计（仅管理员）</div>
         </div>
         <div className="ml-auto flex items-center gap-2">
           {typeof onExit === 'function' && hasWork && (
@@ -302,6 +304,7 @@ export function AdminConsole({ onExit, hasWork = false }) {
               key={key}
               type="button"
               onClick={() => setTab(key)}
+              data-testid={`admin-tab-${key}`}
               className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-f13 text-left cursor-pointer ${
                 tab === key ? 'bg-soft text-brand font-medium' : 'text-faint hover:text-ink hover:bg-soft/70'
               }`}
@@ -642,6 +645,8 @@ export function AdminConsole({ onExit, hasWork = false }) {
               </div>
             </div>
           )}
+
+          {tab === 'run-logs' && <RunLogsPage />}
 
           {tab === 'audit' && (
             <div className="rounded-lg border border-line overflow-hidden">

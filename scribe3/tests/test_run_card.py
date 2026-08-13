@@ -254,14 +254,36 @@ def test_emit_flag_off_skips_persist():
         os.environ.pop("SCRIBE3_RUN_CARD", None)
 
 
-def test_write_layout_has_no_run_card_table():
+def test_write_layout_has_no_run_card_ui():
     from pathlib import Path
     src = (
         Path(__file__).resolve().parents[1] / "web/src/WriteLayout.jsx"
     ).read_text(encoding="utf-8")
-    assert "run-card-line" in src
+    assert "run-card-line" not in src
+    assert "runCards" not in src
     assert "rows.map" not in src
     assert "run_card.rows" not in src
+
+
+def test_admin_has_standalone_run_logs_page():
+    from pathlib import Path
+    web = Path(__file__).resolve().parents[1] / "web/src"
+    page = (web / "admin/RunLogsPage.jsx").read_text(encoding="utf-8")
+    admin = (web / "admin/AdminConsole.jsx").read_text(encoding="utf-8")
+    planes = (web / "system/planes.js").read_text(encoding="utf-8")
+    hub = (web / "system/SystemHub.jsx").read_text(encoding="utf-8")
+    assert 'data-testid="run-logs-page"' in page
+    assert "api.runCards" in page
+    assert "api.runCard" in page
+    assert "写路径日志" in admin
+    assert "run-logs" in admin
+    assert "RunLogsPage" in admin
+    assert "写路径日志" in planes
+    assert "run-logs" in planes
+    assert "RunLogsPage" in hub
+    assert "不展示提示词" in page
+    assert "row.text" not in page
+    assert "instructions" not in page
 
 
 def test_gate_card_same_shape():
