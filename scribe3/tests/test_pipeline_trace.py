@@ -140,6 +140,81 @@ def test_handler_id_consumed_not_reminted():
     assert rid == "cd" * 16
 
 
+class _FakeStore:
+    def __init__(self):
+        self.inserted = []
+        self.updated = []
+
+    def create_only_pipeline_chain(self, trace_id, fields):
+        return None
+
+    def insert_pipeline_spans(self, rows):
+        self.inserted.extend(list(rows or []))
+
+    def update_pipeline_chain(self, trace_id, fields):
+        return None
+
+    def update_pipeline_span(self, span_id, fields):
+        self.updated.append((span_id, dict(fields)))
+
+    def get_pipeline_chain(self, trace_id):
+        return {"trace_id": trace_id, "status": "in_progress"}
+
+
+def test_llm_running_insert_has_no_end_timing_then_finish_writes_duration():
+    """驱动 shipped insert_running_span + finish_ok：INSERT 不得 stamp 终态耗时。"""
+    import time
+    from scribe3.pipeline_trace import enable_pipeline_trace
+    from scribe3.pipeline_trace_hooks import finish_ok, start_llm
+    from scribe3.pipeline_trace_store import start_chain
+
+    enable_pipeline_trace()
+    st = _FakeStore()
+    mt = {"request_id": "11" * 16}
+    start_chain(st, work="w", chapter=2, kind="write", phase="draft", trace_id=mt["request_id"])
+    sid = start_llm(st, mt, work="w", chapter=2)
+    assert sid
+    assert st.inserted, "start_llm must INSERT running span"
+    row = st.inserted[-1]
+    assert row["step_key"] == "llm.generate"
+    assert row["status"] == "running"
+    timing = row.get("timing") or {}
+    assert timing.get("ended_at") is None
+    assert timing.get("duration_ms") is None
+    time.sleep(0.05)
+    finish_ok(st, mt, outcome={"outcome_id": "out1", "status": "succeeded"})
+    patches = [f for sid2, f in st.updated if sid2 == sid]
+    assert patches, "finish_ok must UPDATE llm span"
+    last = patches[-1]
+    t2 = last.get("timing") or {}
+    assert t2.get("ended_at"), last
+    assert t2.get("duration_ms") is not None and float(t2["duration_ms"]) >= 40, t2
+    assert last.get("status") == "ok"
+
+
+def test_tool_end_writes_real_duration():
+    import time
+    from scribe3.pipeline_trace import enable_pipeline_trace
+    from scribe3.pipeline_trace_hooks import end_tool, start_tool
+    from scribe3.pipeline_trace_store import start_chain
+
+    enable_pipeline_trace()
+    st = _FakeStore()
+    mt = {"request_id": "22" * 16}
+    start_chain(st, work="w", chapter=2, kind="write", phase="draft", trace_id=mt["request_id"])
+    sid = start_tool(st, mt, "s3_search", work="w", chapter=2)
+    assert sid
+    ins = st.inserted[-1]
+    assert (ins.get("timing") or {}).get("ended_at") is None
+    time.sleep(0.05)
+    end_tool(st, sid, ok=True)
+    patches = [f for sid2, f in st.updated if sid2 == sid]
+    assert patches
+    t2 = patches[-1].get("timing") or {}
+    assert t2.get("ended_at")
+    assert float(t2.get("duration_ms") or 0) >= 40, t2
+
+
 if __name__ == "__main__":
     tests = [
         test_public_span_strips_forbidden_keys,
@@ -149,6 +224,8 @@ if __name__ == "__main__":
         test_missing_request_id_is_noop_no_uuid_mint,
         test_parent_tree_and_titles,
         test_handler_id_consumed_not_reminted,
+        test_llm_running_insert_has_no_end_timing_then_finish_writes_duration,
+        test_tool_end_writes_real_duration,
     ]
     for fn in tests:
         fn()

@@ -55,6 +55,19 @@ def buffer_for(trace_id: str | None) -> TraceBuffer | None:
         return _BUFFERS.get(trace_id)
 
 
+def buffer_for_span(span_id: str | None) -> TraceBuffer | None:
+    if not span_id:
+        return None
+    cur = current_trace_buffer()
+    if cur is not None and span_id in cur._by_id:
+        return cur
+    with _LOCK:
+        for buf in _BUFFERS.values():
+            if span_id in buf._by_id:
+                return buf
+    return None
+
+
 def start_chain(
     st: Any,
     *,
@@ -149,16 +162,21 @@ def insert_running_span(
         remember_buffer(buf)
     sid = buf.start_span(step_key)
     if extra and sid:
-        buf.end_span(sid, **extra)
+        buf.apply_fields(sid, **extra)
         rec = buf._by_id.get(sid)
         if rec:
             rec.ended = False
+            rec.ended_ns = 0
             rec.status = extra.get("status") or "running"
     try:
         rec = buf._by_id.get(sid)
         if rec and st is not None and hasattr(st, "insert_pipeline_spans"):
             row = rec.as_public(work=work, chapter=chapter, kind=kind)
             row["status"] = rec.status or "running"
+            timing = dict(row.get("timing") or {})
+            timing["ended_at"] = None
+            timing["duration_ms"] = None
+            row["timing"] = timing
             st.insert_pipeline_spans([row])
             rec.flushed = True
         if st is not None and hasattr(st, "update_pipeline_chain"):
@@ -169,16 +187,29 @@ def insert_running_span(
 
 
 def patch_span(st: Any, span_id: str, fields: dict[str, Any]) -> None:
+    """终态回写：先在 buffer 打真实 ended_ns，再把 timing 一并 UPDATE。"""
     if not span_id:
         return
+    store_fields = dict(fields or {})
+    buf = buffer_for_span(span_id)
+    if buf:
+        buf.end_span(span_id, **(fields or {}))
+        rec = buf._by_id.get(span_id)
+        if rec:
+            pub = rec.as_public(work=buf.work, chapter=buf.chapter, kind=buf.kind)
+            store_fields["timing"] = pub.get("timing")
+            store_fields["status"] = rec.status
+            if rec.actual is not None:
+                store_fields["actual"] = rec.actual
+            if rec.links:
+                store_fields["links"] = rec.links
+            if rec.error is not None:
+                store_fields["error"] = rec.error
     try:
         if st is not None and hasattr(st, "update_pipeline_span"):
-            st.update_pipeline_span(span_id, fields)
+            st.update_pipeline_span(span_id, store_fields)
     except Exception as e:
         _log.warning("patch_span fail-soft: %s", e)
-    buf = current_trace_buffer()
-    if buf and span_id in buf._by_id:
-        buf.end_span(span_id, **fields)
 
 
 def finish_chain(

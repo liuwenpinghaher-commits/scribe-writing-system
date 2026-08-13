@@ -295,12 +295,11 @@ class TraceBuffer:
         self.cursor = meta.step_key
         return sid
 
-    def end_span(self, span_id: str, **fields: Any) -> None:
+    def apply_fields(self, span_id: str, **fields: Any) -> None:
+        """改字段，不打 ended。running INSERT 用这个。"""
         if not span_id or span_id not in self._by_id:
             return
         rec = self._by_id[span_id]
-        rec.ended = True
-        rec.ended_ns = _now_ns()
         for k in (
             "status", "expected", "expected_reason", "actual", "actual_reason",
             "verdict", "error",
@@ -319,6 +318,14 @@ class TraceBuffer:
                 rec.verdict = row_verdict(bool(rec.expected), rec.actual)  # type: ignore[arg-type]
             except Exception:
                 pass
+
+    def end_span(self, span_id: str, **fields: Any) -> None:
+        if not span_id or span_id not in self._by_id:
+            return
+        rec = self._by_id[span_id]
+        rec.ended = True
+        rec.ended_ns = _now_ns()
+        self.apply_fields(span_id, **fields)
         if not rec.status or rec.status == "running":
             rec.status = rec.actual or "ok"
 

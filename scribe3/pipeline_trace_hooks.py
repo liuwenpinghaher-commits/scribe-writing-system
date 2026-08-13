@@ -301,7 +301,6 @@ def finish_ok(st: Any, manifest_trace: dict | None, *, outcome=None) -> None:
         if buf:
             sid = buf.span_id_for("llm.generate")
             if sid:
-                buf.end_span(sid, status="ok", actual="present", links=extra)
                 try:
                     patch_span(st, sid, {"status": "ok", "actual": "present", "links": extra})
                 except Exception:
