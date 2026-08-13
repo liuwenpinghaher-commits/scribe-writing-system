@@ -45,7 +45,7 @@
 | W4 | request_constraint | 4 | 4 | 4 | 4 | 3 | 空 extra 不 push（已然）。 |
 | W4 | request_position | 5 | 2 | 5 | 3 | 2 | 可留在 prefix 一行；不必独立段。本卷宗改造=维持一行。 |
 | W4 | revelation_discipline | 4 | 3 | 4 | 3 | 3 | 与 CORE 尾注差集，只保留尾注没有的一句。 |
-| W4 | revision | 4 | 3 | 4 | 3 | 2 | 非修订请求不注入。 |
+| W4 | revision | 5 | 5 | 5 | 5 | 5 | 已落地：非修订请求不注入；skip_reason 可查 |
 | W4 | seed_words | 4 | 3 | 4 | 3 | 3 | 空 soak 不 push。 |
 | W4 | sincerity | 5 | 5 | 5 | 5 | 5 | 已并入 anti_slop 短核，不再独立段 |
 | W4 | story_move | 4 | 4 | 4 | 4 | 4 | 保持零字节默认；观测 plan_missing 原因。 |

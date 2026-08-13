@@ -23,6 +23,7 @@ from scribe3.api.services.write_assemble_blocks import (  # noqa: F401
     _editor_identity_block,
     _write_protocol_block,
     _write_revision_block,
+    is_revision_request,
     inject_floor_env_enabled,
     _anti_slop_floor_block,
     provenance_in_prompt_enabled,
@@ -98,7 +99,16 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             f"\n当前第 {chapter} 章。",
         )
     )
-    _revision_txt = _write_revision_block()
+    _revision_skip = ""
+    if is_revision_request(
+        phase=phase or "",
+        request_text=request_text or "",
+        extra_instructions=extra_instructions or "",
+    ):
+        _revision_txt = _write_revision_block()
+    else:
+        _revision_txt = ""
+        _revision_skip = "revision_skip_not_requested"
     _sd_txt = ""
     try:
         from scribe3.structure_style import (
@@ -241,7 +251,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
 
         _push("identity", "redline", _identity_txt)
         _push("prefix", "redline", prefix)
-        _push("revision", "redline", _revision_txt)
+        if _revision_txt:
+            _push("revision", "redline", _revision_txt)
+        elif _revision_skip:
+            _record_write_soft_fail(_revision_skip)
         _push("structure_diversity", "redline", _sd_txt)
         _push("continue_snapshot", "redline", _continue_txt)
         _push("secret_guard", "redline", _secret_guard_txt)
@@ -789,6 +802,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         bud_rep["drama_vacuum_injected"] = bool(
             _budget_report_holder.get("drama_vacuum_injected")
         )
+        bud_rep["revision_injected"] = bool(_revision_txt)
+        if _revision_skip:
+            bud_rep["revision_skip_reason"] = _revision_skip
         # SL2：始终写入 storyline_inject 键（含 fail-soft / 旗关），便于 injection-trace
         bud_rep["storyline_inject"] = dict(_storyline_meta)
         # W2：discourse_soft 预算观测（meso_source / truncated）

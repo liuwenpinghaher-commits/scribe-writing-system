@@ -425,8 +425,37 @@ def _write_protocol_block() -> str:
     )
 
 
+_REVISION_PHASES = frozenset({
+    "revise", "revision", "rewrite", "edit", "polish", "span",
+})
+
+# 单字「改」太宽（改天/改名）；只认明确改稿意图。
+_REVISION_HINTS = (
+    "改稿", "修订", "重写", "改这段", "改选中", "只改这",
+    "span 级", "span级", "定向改", "revise", "rewrite",
+    "把这段改", "把这句改", "最小片段",
+)
+
+
+def is_revision_request(
+    *,
+    phase: str = "",
+    request_text: str = "",
+    extra_instructions: str = "",
+) -> bool:
+    """是否本次写请求在改已有稿。首稿/续写不灌修订纪律。"""
+    ph = (phase or "").strip().lower()
+    if ph in _REVISION_PHASES:
+        return True
+    blob = f"{request_text or ''}\n{extra_instructions or ''}"
+    if not blob.strip():
+        return False
+    low = blob.lower()
+    return any(h.lower() in low for h in _REVISION_HINTS)
+
+
 def _write_revision_block() -> str:
-    """M8 修订纪律(恒注入)。原 _editor_write_system 内联串原样抽出,旧/ v1 共用。"""
+    """M8 修订纪律。只应在 is_revision_request 为真时注入。"""
     return (
         "\n\n## 修订纪律\n"
         "- 改稿默认 **span 级定向**:只重写被指出的最小片段,其余一字不动;"
