@@ -6,7 +6,7 @@
 
 ## 1. 流程完善性
 
-技法索引渐进披露。with_tools。并入 prefix。
+技法索引渐进披露。仅 `with_tools` 时独立 `_push("craft_skills_index")`。
 
 ## 2. 生成质量
 
@@ -22,15 +22,15 @@
 
 ## 5. 评分
 
-| P_flow | 4 |
-| Q_craft | 3 |
-| R_safety | 3 |
-| B_product | 3 |
-| Observability | 2 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
 
 ## 6. 最优改造
 
-**主方案：** 保持索引；独立 push。
+**主方案（已落地）：** 保持索引；`with_tools` 才独立 `_push`。不灌 4 篇全文。
 
 **放弃：** 把 4 篇全文塞进 L0。
 

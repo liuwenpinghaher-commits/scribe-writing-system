@@ -6,7 +6,7 @@
 
 ## 1. 流程完善性
 
-flag 开则拼进 prefix；fail-soft。不并 38 篇文件名（产品纪律）。
+flag 开则独立 `_push("structure_diversity")`；fail-soft。不并 38 篇文件名（产品纪律）。
 
 ## 2. 生成质量
 
@@ -22,15 +22,15 @@ flag 开则拼进 prefix；fail-soft。不并 38 篇文件名（产品纪律）�
 
 ## 5. 评分
 
-| P_flow | 4 |
-| Q_craft | 3 |
-| R_safety | 3 |
-| B_product | 3 |
-| Observability | 3 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
 
 ## 6. 最优改造
 
-**主方案：** 保持短纪律；独立 _push 名以便 density。
+**主方案（已落地）：** 短纪律独立 `_push`，不再吞进 prefix。
 
 **放弃：** 把 oh-story 38 篇原文塞进来。
 

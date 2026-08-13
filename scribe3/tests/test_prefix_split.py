@@ -26,6 +26,10 @@ def test_v1_prefix_no_longer_swallows_bylines():
     ).read_text(encoding="utf-8")
     assert '_push("revision", "redline", _revision_txt)' in src
     assert '_push("continue_snapshot", "redline", _continue_txt)' in src
+    assert 'bud_rep["continue_snapshot_skip_reason"] = _continue_skip' in src
+    assert '_continue_skip = "empty_snapshot"' in src
+    assert '_continue_skip = "reread_ack_required"' in src
+    assert '_continue_skip = "continue_snapshot_error"' in src
     assert '_push("structure_diversity", "redline", _sd_txt)' in src
     assert '_push("tool_scope", "redline", _tool_txt)' in src
     assert "prefix += _domain_input(\n                    f\"chapter:{chapter}:continue-snapshot\"" not in src

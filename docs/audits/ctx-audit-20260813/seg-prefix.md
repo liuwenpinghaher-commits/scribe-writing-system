@@ -6,7 +6,7 @@
 
 ## 1. 流程完善性
 
-identity+write_protocol+revision+anti_slop 拼成 prefix 再混入 structure_diversity/continue/secret_guard/request_position/tool_scope/craft_skills/focalizer。单段吞多职责。
+`prefix` 现网只留 anti_slop 短核 + 当前第 N 章。`identity` / `write_protocol` / revision / structure_diversity / continue_snapshot / tool_scope / craft_skills_index 已独立 `_push`。
 
 ## 2. 生成质量
 
@@ -28,11 +28,11 @@ identity+write_protocol+revision+anti_slop 拼成 prefix 再混入 structure_div
 | B_product | 5 |
 | Observability | 5 |
 
-已拆出 revision / structure_diversity / continue_snapshot / tool_scope / craft_skills_index。prefix 只留身份+协议+anti_slop+章号。
+已拆出 identity / write_protocol / revision / structure_diversity / continue_snapshot / tool_scope / craft_skills_index。`prefix` = anti_slop 短核 + 当前第 N 章。
 
 ## 6. 最优改造
 
-**主方案：** 拆出已在 NEVER 的旁路为独立 _push（与 W1 secret_guard/focalizer 同一方向），prefix 只留身份+协议+anti_slop。
+**主方案（已落地）：** 旁路独立 `_push`；`prefix` 只留 anti_slop + 章号。
 
 **放弃：** 继续往 prefix 塞设定（v1 已禁止）。
 

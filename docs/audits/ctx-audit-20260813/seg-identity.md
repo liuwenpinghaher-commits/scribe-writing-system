@@ -6,7 +6,7 @@
 
 ## 1. 流程完善性
 
-_editor_identity_block 纯身份，不灌设定。并入 prefix。
+`_editor_identity_block` 纯身份，不灌设定。独立 `_push("identity")`，不并入 prefix。
 
 ## 2. 生成质量
 
@@ -22,15 +22,15 @@ _editor_identity_block 纯身份，不灌设定。并入 prefix。
 
 ## 5. 评分
 
-| P_flow | 4 |
-| Q_craft | 3 |
-| R_safety | 4 |
-| B_product | 3 |
-| Observability | 2 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
 
 ## 6. 最优改造
 
-**主方案：** 独立 push 名 identity 以便 NEVER 真按名裁。
+**主方案（已落地）：** 独立 `_push("identity")`，NEVER 按名裁。prefix 不再吞身份。
 
 **放弃：** 身份块再拼圣经。
 

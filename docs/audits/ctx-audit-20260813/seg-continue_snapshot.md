@@ -6,7 +6,7 @@
 
 ## 1. 流程完善性
 
-有 reread ack 才并入 prefix；否则 soft_fail skip。
+独立 `_push("continue_snapshot")`。无块 / 需重读未 ack / 异常 → `continue_snapshot_skip` + `budget_report.continue_snapshot_skip_reason`。
 
 ## 2. 生成质量
 
@@ -22,15 +22,15 @@
 
 ## 5. 评分
 
-| P_flow | 3 |
-| Q_craft | 3 |
-| R_safety | 3 |
-| B_product | 3 |
-| Observability | 3 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
 
 ## 6. 最优改造
 
-**主方案：** 独立 push；skip 原因进 report。
+**主方案（已落地）：** 独立 `_push`；skip 走 soft_fail；`continue_snapshot_skip_reason` ∈ {empty_snapshot, reread_ack_required, continue_snapshot_error}。
 
 **放弃：** 无 ack 也灌快照。
 

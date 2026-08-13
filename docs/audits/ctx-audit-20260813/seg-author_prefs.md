@@ -6,7 +6,7 @@
 
 ## 1. 流程完善性
 
-_author_prefs_block_safe fail-safe。T3 先裁。与 procedural 升格重叠。
+`_author_prefs_block_safe` fail-safe。T3 先裁。相对 envelope 整行差集；空则 `empty_author_prefs`。
 
 ## 2. 生成质量
 
@@ -22,15 +22,15 @@ _author_prefs_block_safe fail-safe。T3 先裁。与 procedural 升格重叠。
 
 ## 5. 评分
 
-| P_flow | 3 |
-| Q_craft | 3 |
-| R_safety | 3 |
-| B_product | 3 |
-| Observability | 3 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
 
 ## 6. 最优改造
 
-**主方案：** 与 procedural 偏好去重。
+**主方案（已落地）：** 相对 envelope 整行差集 + `empty_author_prefs`，不焊 L0。
 
 **放弃：** 焊 L0。
 

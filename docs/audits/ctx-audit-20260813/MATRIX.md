@@ -1,5 +1,5 @@
 # ctx-audit MATRIX · 全库存
-> W1 分数沿用 `W1-SCORES.md` / 卷宗机读表；W2–W4 新卷宗。代码常量硬顶 48k；demo 可以 env 升 96k。
+> W1 分数沿用 `W1-SCORES.md` / 卷宗机读表；W2–W4 新卷宗。代码常量硬顶 48k；**demo 已 env 全站升 96k**（空白名单）。禁止为刷分再加大常量。
 
 | 波 | 单元 | P | Q | R | B | O | 最优改造（一句） |
 |----|------|---|---|---|---|---|------------------|
@@ -39,8 +39,8 @@
 | W4 | identity | 5 | 5 | 5 | 5 | 5 | 已落地：独立 `_push("identity")` |
 | W4 | material_recall | 5 | 5 | 5 | 5 | 5 | 已落地：与 envelope reference 去重标题 |
 | W4 | phase_role | 5 | 5 | 5 | 5 | 5 | 已落地：去重 + 空不 push；skip 可查 |
-| W4 | prefix | 5 | 5 | 5 | 5 | 5 | 已落地：prefix 只留身份+协议+anti_slop+章号；旁路独立 push |
-| W4 | purpose | 5 | 5 | 5 | 5 | 5 | 已落地：global 有北极星则只留本章目的差集 |
+| W4 | prefix | 5 | 5 | 5 | 5 | 5 | 已落地：`prefix` = anti_slop 短核 + 当前第 N 章；`identity` / `write_protocol` 已独立 `_push` |
+| W4 | purpose | 5 | 5 | 5 | 5 | 5 | 已落地：global 有作品意图（兼容旧「北极星」差集）则只留本章目的 |
 | W4 | reference_craft | 5 | 5 | 5 | 5 | 5 | 已落地：最多 2 条、单次 push |
 | W4 | request_constraint | 5 | 5 | 5 | 5 | 5 | 已落地：空 extra 不 push；skip 可查 |
 | W4 | request_position | 5 | 2 | 5 | 3 | 2 | 可留在 prefix 一行；不必独立段。本卷宗改造=维持一行。 |

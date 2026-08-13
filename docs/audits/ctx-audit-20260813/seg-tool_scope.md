@@ -6,7 +6,7 @@
 
 ## 1. 流程完善性
 
-with_tools 时工作范围。并入 prefix。
+仅 `with_tools` 时独立 `_push("tool_scope")`。无工具不灌。
 
 ## 2. 生成质量
 
@@ -22,15 +22,15 @@ MCP。
 
 ## 5. 评分
 
-| P_flow | 4 |
-| Q_craft | 3 |
-| R_safety | 4 |
-| B_product | 3 |
-| Observability | 2 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
 
 ## 6. 最优改造
 
-**主方案：** 独立 push 当 with_tools。
+**主方案（已落地）：** `with_tools` 才独立 `_push("tool_scope")`。
 
 **放弃：** 无工具时也灌。
 

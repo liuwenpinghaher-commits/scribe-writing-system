@@ -54,31 +54,20 @@ FIX-LOOP 表写 request_position「其余≥4」与 CEILINGS.md「B≥3 O≥2」
 
 **入口缺失类过宣称：0。** 抽查的「已落地」都能在 `write_assemble_v1` / store / `context_budget` 找到对应符号。
 
-### 3.1 卷宗滞后（doc-lag）— 表格 5、卷宗评分表仍 2–4
+### 3.1 卷宗滞后（doc-lag）— **本提交已还**
 
-下列 `seg-*.md` **§5 分数未跟 MATRIX 对齐**，正文甚至还写旧主方案未做：
+七份 `seg-*` §5 已改到与 MATRIX 五维=5 一致，并改掉「并入 prefix」旧主方案句。
 
-| 单元 | 卷宗表 | 代码实际 |
-|------|--------|----------|
-| identity | 4/3/4/3/2，「并入 prefix」 | 独立 `_push("identity")` |
-| author_prefs | 全 3，「与 procedural 去重」 | 已对 envelope 整行差集 + `empty_author_prefs` |
-| continue_snapshot | 全 3，「并入 prefix」 | 独立 `_push`；skip 走 soft_fail |
-| tool_scope / craft_skills_index | 4/3/…，「并入 prefix」 | `with_tools` 才独立 `_push` |
-| structure_diversity | 4/3/3/3/3，「拼进 prefix」 | 独立 `_push` |
-| drama_vacuum | 3/3/4/3/3 | `should_inject_drama_vacuum`（仅无 goal∧conflict）；已剔出 `DRAMA_CORE_NAMES` |
+### 3.2 文案过时 — **本提交已还**
 
-这是 **文档债**，不是「代码没做却标 5」。若要以卷宗为唯一诚实源，应回头把评分表改到与 MATRIX 一致。
+- **prefix**：MATRIX / 卷宗改为「`prefix` = anti_slop 短核 + 当前第 N 章」。
+- **purpose**：MATRIX / 卷宗改为「作品意图」（兼容旧北极星差集）。
 
-### 3.2 文案过时（非断链）
+### 3.3 观测余量
 
-- **prefix**：MATRIX 一句仍写「只留身份+协议+anti_slop+章号」。现网 `prefix = anti_slop + 当前第 N 章`；身份/协议已独立段。五维仍成立，**描述落后一刀**。
-- **purpose**：MATRIX 写「global 有北极星」。global 产品文案已改「作品意图」；差集函数同时认二者。
-
-### 3.3 观测余量（不推翻 5，但未做到卷宗字面）
-
-- `continue_snapshot`：有 `continue_snapshot_skip` soft_fail，**无** `budget_report.continue_snapshot_skip_reason`。
-- `story_move`：零字节纪律成立，缺显式 `plan_missing` 字段。
-- `story_fuel_skip` 是整包燃料异常；单段空是 `empty_story_*`。
+- `continue_snapshot`：已加 `budget_report.continue_snapshot_skip_reason`。
+- `story_move`：零字节时 `meta.plan_missing` + `budget_report.story_move_skip=plan_missing`。
+- `story_fuel_skip` 仍是整包燃料异常；单段空是 `empty_story_*`（保持）。
 
 ---
 
@@ -114,7 +103,7 @@ FIX-LOOP 表写 request_position「其余≥4」与 CEILINGS.md「B≥3 O≥2」
 | 三燃料不进 L0 | **已完成** | ∉ `L0_NEVER_CUT`；档 `T1_fuel` |
 | 讨论近窗不涨 | **已完成** | 12/600/2400/8000；agentic 无 `conversation_history=` |
 | 缺窗/非法数值 fail-loud | **已完成** | 不得吞成 42k |
-| 白名单外 / 未传 work 窄档 | **已完成** | `work_unspecified_narrow` |
+| 白名单外 / 未传 work 窄档 | **代码完成** | 白名单非空时 `work_unspecified_narrow`；**demo 现网空白名单=全站 96k** |
 
 ### PR 切分
 
@@ -122,26 +111,36 @@ FIX-LOOP 表写 request_position「其余≥4」与 CEILINGS.md「B≥3 O≥2」
 |----|------|--------|
 | PR1 | 机械分档，默认 48k | **shipped** `a06b69b` |
 | PR2 | flags + probe/report | **shipped** 同提交 |
-| PR3 | demo recreate + 白名单浸泡 | **运维已开一刀**：`.env` `WIDE=1` `WORKS=wide_soak` `WINDOW=1000000`；**未**采 N=10 `drama_core_share` 基线；**未**记 with_tools usage；活书 `main` 仍 48k |
-| PR1.1 | wide 燃料帽 | **未做**（方案可选 / 本审查非目标） |
+| PR3 | demo recreate + 浸泡 | **全站常驻**：`WIDE=1` `WINDOW=1000000` `WORKS=`（空）。`resolve_write_caps("main")` = 96k/36k。密度基线 **N=2**（见下）。`with_tools` usage **missing**（ledger 无工具通道标记） |
+| PR1.1 | wide 燃料帽 | **未做**（方案可选；无 T1_fuel 半裁证据） |
 | PR4 | 近窗钉测 | **shipped** `test_discuss_window_pin.py` |
-| PR5 | 文档常驻 + 人审后 env | **文档已写**（DEPLOY / FIX-LOOP 头注）；**未**把 demo 改成全站常驻 96k |
+| PR5 | 文档常驻 + env | **已做**：demo 空白名单常驻 96k；代码默认仍关。用户 2026-08-13 裁断 OQ1=必须实现 |
 
-### 还缺什么才算「方案做完」
+### PR3 观测（2026-08-13 只读，不写章）
 
-1. **人审 OQ1**：连续写 + 人工看章后，才决定 demo 是否常驻 96k（或清旗回 48k）。
-2. **PR3 余量**：开旗前 N=10 密度基线；一笔 `with_tools` 的 `prompt_tokens`。
-3. **卷宗还债**：至少把 §3.1 七份 `seg-*` 评分表改到与 MATRIX 一致，prefix/purpose 一句改准。
-4. **明确不做**（方案 Non-Goals）：燃料帽、掉链重建、作者 UI 画满 96k、改 38 条常量钉。
+| 项 | 值 |
+|----|----|
+| 活书 | `main`、`book_qe_live5` |
+| 模型台账 | `llm.model=deepseek-v4-flash-0731`（WIDE 四旗无 DB 覆盖） |
+| `drama_core_share` | **N=2**：`main` ch1 `0.0243`（`write_assemble`）；`book_qe_live5` ch1 `0.42`（`live_verify_ch1b`，源不同不可混中位数） |
+| 告警 | 不足 N=10，**不**判 40% 下降 |
+| ledger | 3119 行全是 `httpx`；历史最大 `input_tokens=24487`（qwen，2026-08-01）≪ `0.85×1e6` |
+| `with_tools` | **missing**（无 Hermes/工具回放字段）；未新打 LLM |
+
+### 还缺什么
+
+1. ~~人审 OQ1~~ **已裁断：demo 全站 96k**。
+2. ~~卷宗债七份 + prefix/purpose~~ **本提交已还**。
+3. N=10 同批 assemble 密度、一笔真实 `with_tools` usage：有新写再记，**不**为采数写章。
+4. **明确不做**：燃料帽、掉链重建、作者 UI 画满 96k、改 38 条常量钉。
 
 ---
 
 ## 6. 结论（给编排）
 
 - **52 行库存：FIX-LOOP 意义上已停机**（49×诚实 5 + 3×合法天花板）。没有 incomplete 行。
-- **「已落地」在写路径上大体诚实**；过宣称是 **卷宗/MATRIX 一句没跟上后拆的 prefix**，不是空表刷分。
-- **96k 目标：代码分档 100% 按 rev.3 落地**；终态「生产默认 96k」**故意没做**（默认钉 48k）。demo 仅 `wide_soak` 白名单浸泡。
-- 下一厘米若还要做：先还卷宗债，再做人审后的 PR3/PR5 运维冻结，不要重开 FIX-LOOP 改分。
+- **卷宗评分表已与 MATRIX 对齐**（identity / prefs / continue / tool_scope / skills / structure_diversity / drama_vacuum + prefix/purpose 一句）。
+- **96k 已实现**：代码默认仍 48k；**demo 全站 env 96k**（`main` / 未传 work 均为 96k/36k）。回滚仍是清旗 + recreate。
 
 ---
 

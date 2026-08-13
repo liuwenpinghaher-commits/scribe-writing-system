@@ -177,17 +177,22 @@ def render_story_move_segment(
     }
     on = move_library_enabled() if enabled is None else bool(enabled)
     meta["enabled"] = on
+    meta["plan_missing"] = False
     if not on:
+        meta["skip_reason"] = "flag_off"
         return {"text": "", "meta": meta}
     p = plan if isinstance(plan, dict) else {}
     val = p.get("validation") if isinstance(p.get("validation"), dict) else validate_story_move_plan(p)
     if not p.get("approved") or not val.get("ok"):
         meta["fed"] = True
+        meta["plan_missing"] = True
+        meta["skip_reason"] = "plan_missing"
         return {"text": "", "meta": meta}
     slug = str(p.get("move_id") or p.get("slug") or "").strip()
     picked = retrieve_story_move(p.get("benyi") or "", move_id=slug or None, cards=cards)
     if not picked:
         meta["fed"] = True
+        meta["skip_reason"] = "card_not_found"
         return {"text": "", "meta": meta}
     card = picked[0]
     meta["slug"] = str(card.get("slug") or "")

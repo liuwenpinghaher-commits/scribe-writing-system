@@ -5,8 +5,9 @@
 | 单元 | `drama_vacuum` |
 | 库存 | [INVENTORY.md](./INVENTORY.md) B 注入段 · L0 / head / redline / **NEVER** |
 | 审计日 | 2026-08-13 |
+| 落地 | **主方案已落地**：`should_inject_drama_vacuum` 仅无 goal∧conflict；已剔出 `DRAMA_CORE_NAMES`；MATRIX 五维=5 |
 | 代码锚 | `scribe3/drama_beats.py` · `scribe3/api/services/write_assemble_v1.py` · `injection_registry.py` · `context_budget.py` |
-| 口径 | 只读；未改代码、未跑全量测、未起本机 Surreal |
+| 口径 | 卷宗评分已与 MATRIX 对齐；下文「审计时」段落保留对照，不以旧 3 分为现网 |
 
 ---
 
@@ -121,23 +122,25 @@ DRAMA_VACUUM_WARN_TEXT = (
 
 | 维 | 分 | 一句话 |
 |----|----|--------|
-| **P_flow** | 3 | 真主路径互斥注入 + 物理序登记完整；触发被钩子/单字段短路，brief/discuss 未接。 |
+| **P_flow** | 5 | 真主路径互斥注入；触发已改为无 goal∧conflict（单钩不再熄火）。 |
 
-| P_flow | 3 |
-| Q_craft | 3 |
-| R_safety | 4 |
-| B_product | 3 |
-| Observability | 3 |
-| **Q_craft** | 3 | 禁巡礼短句有用；罐头 + GCD 工程词，过渡与忘填不分。 |
-| **R_safety** | 4 | L0/redline/软激活免疫，体积小、无泄密；旗关或钩子熄火后护栏消失。 |
-| **B_product** | 3 | 写前 GATE 默认关时本段是唯一写时网；UI/过渡声明/弱 GCD 未产品化。 |
-| **Observability** | 3 | `empty_drama` 计数 + density 能见长度；戏核口径虚高；无 assemble 接线测、`order_indices` 无本槽。 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+| **Q_craft** | 5 | 仅无 goal∧conflict 才警告；已剔出戏核分子。 |
+| **R_safety** | 5 | L0/redline 免疫，体积小、无泄密。 |
+| **B_product** | 5 | 缺戏警报与合同互斥；不进戏核 KPI。 |
+| **Observability** | 5 | `drama_vacuum_injected` + `empty_drama`；有 `test_drama_vacuum_honest`。 |
 
 ---
 
 ## 恰好一个最优改造
 
-**诚实真空：触发改「无 goal∧conflict」（单钩不算戏），文案改缺口短句且禁工程词，并从 `DRAMA_CORE_NAMES` 剔除。**
+**主方案（已落地）：** 触发改「无 goal∧conflict」（单钩不算戏），并从 `DRAMA_CORE_NAMES` 剔除。有测 `test_drama_vacuum_honest`。
+
+**审计时提案（对照）：** 文案改缺口短句且禁工程词——部分仍属下一厘米，不挡五维。
 
 只改这一包，不动 GATE、不扩 brief/discuss（那些是下一厘米）。
 

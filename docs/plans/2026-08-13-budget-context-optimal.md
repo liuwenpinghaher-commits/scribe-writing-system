@@ -3,9 +3,9 @@
 | 项 | 值 |
 |----|----|
 | 短名 | `budget-context-optimal` / `context-optimal` |
-| 状态 | **草案 · 待升 96k**（rev.3 · join 传 work + 代码默认永不 WIDE=1） |
+| 状态 | **已落地 · demo 全站 env 96k**（rev.3 · 代码默认仍关；用户 2026-08-13 裁断必须实现） |
 | 日期 | 2026-08-13 |
-| 作者 | Grok Design（待人审签） |
+| 作者 | Grok Design（OQ1 已由用户裁断：全站常驻） |
 | 对照提交 | 预算真源相对 **`bb01748`**（`context_budget.py` 此后未改）；本文入仓 **`56f4eca`**；实现前再 `git show HEAD:scribe3/tests/test_novel_first_injection.py` |
 | 定位 | 写路径 **下一阶段主动升窗** 到 96k；承认现网 48k 钉死；把爆炸半径写全、可回滚 |
 | 验证 | **仅已部署 demo**（`tonglu.qing.blue` / `82.157.130.140`，`/opt/scribe3/app`）；轻量过滤单测；**不**在 Grok 机跑 `npm ci` / 全量 pytest / 本机 Surreal；不写活书正文 |
@@ -704,7 +704,7 @@ PR5 文档/运维：浸泡后 demo env 常驻 WIDE=1
 
 ## Open Questions
 
-1. **demo env 常驻 96k 的冻结条件 N？** 建议连续 20 次写 `prompt_tokens < 0.85×已填模型窗`、无 secret 真名、人工 3 章无复读。需产品拍 N。通过后 **不**改代码默认，只把 demo `.env` 当常驻并改 FIX-LOOP 一句。
+1. **demo env 常驻 96k 的冻结条件 N？** **已裁断（2026-08-13）**：用户要求必须实现 → demo **空白名单全站 96k**。不改代码默认。观测：密度 N=2（不足 10，不判 40% 灯）；ledger 无 with_tools 标记，历史最大 input 24k ≪ 0.85×1M。
 2. **Hermes+工具真窗余量？** PR3 必须记一笔 `with_tools=true` 的 usage。若顶窗，再开「wide 仅纯生成」——**不**在 PR1 写进 `get_prompt_hard`（避免未测先分流）。
 3. **agentic 掉链重建** 另开 goal，本设计不绑。
 4. **燃料帽要不要放？** 默认不放。浸泡后若 T1_fuel 仍被半裁，再 PR1.1（2500/6000/4000 候选）。
@@ -741,7 +741,7 @@ PR5 文档/运维：浸泡后 demo env 常驻 WIDE=1
 - **变更摘要**：登记四旗；`build_budget_report(..., work=)` / probe / sample 收 `work`（默认当前书）。返回 profile、wide、supp、模型窗、白名单。白名单非空且未传 work → `work_unspecified_narrow` 且数字为 48k。L2 余量公式写清 L0。作者 UI 不展示 96k。
 - **验证**：`deploy_demo.sh hot` 后无 work probe：`prompt_hard=48000`，`novel_wide=false`。
 
-### PR3 — `ops(demo): 打开 novel_96k 浸泡`
+### PR3 — `ops(demo): 打开 novel_96k 浸泡`（**已升级为全站常驻，见 PR5**）
 
 - **影响文件**：仅服务器 **`/opt/scribe3/app/deploy/prod/.env`**（不入库）；可选 `DEPLOY.md` 补旗与「必须 recreate」
 - **依赖**：PR1+PR2 已在 `origin/main`（代码可用 hot 先上去）
@@ -768,7 +768,7 @@ PR5 文档/运维：浸泡后 demo env 常驻 WIDE=1
 - **变更摘要**：锁 12/600/2400/8000；禁止 agentic 传 `conversation_history`。**不**实现掉链重建。
 - **验证**：点名近窗测试。
 
-### PR5 — `docs(ops): demo 常驻 96k env，代码默认仍关`
+### PR5 — `docs(ops): demo 常驻 96k env，代码默认仍关`（**2026-08-13 已做：WORKS 置空 + recreate + hot 干净 HEAD**）
 
 - **影响文件**：`DEPLOY.md`（WIDE 与 `MODEL_CONTEXT_WINDOW` 同级必填、必须 recreate）；`docs/audits/ctx-audit-20260813/FIX-LOOP.md` / `MATRIX.md` 头注一句「代码常量 48000；demo 以 env 升 96k」。**不改** `context_budget.py` 默认、**不改** 38 常量钉、**不改** `test_default_is_novel_22k_and_prompt_hard_48k`
 - **依赖**：PR3 浸泡通过 + 人审 OQ1

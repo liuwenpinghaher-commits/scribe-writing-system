@@ -128,6 +128,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         import logging as _sf_logging
         soft_fail('write_assemble_soft_1', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
     _continue_txt = ""
+    _continue_skip = ""
     try:
         from scribe3.experience.continue_rite import (
             build_continue_snapshot, continue_block_text,
@@ -143,10 +144,13 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 )
             else:
                 _record_write_soft_fail("continue_snapshot_skip")
+                _continue_skip = "empty_snapshot"
         else:
             _record_write_soft_fail("continue_snapshot_skip")
+            _continue_skip = "reread_ack_required"
     except Exception:
         _record_write_soft_fail("continue_snapshot_skip")
+        _continue_skip = "continue_snapshot_error"
     _secret_guard_txt = _domain_input(
         f"chapter:{chapter}:secret-guard", "secret_guard",
         _secret_guard_block(st, chapter),
@@ -989,6 +993,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         # W2：discourse_soft 预算观测（meso_source / truncated）
         bud_rep["discourse_soft"] = dict(_discourse_meta)
         bud_rep["story_move"] = dict(_move_meta)
+        if _move_meta.get("plan_missing"):
+            bud_rep["story_move_skip"] = "plan_missing"
+        if _continue_skip:
+            bud_rep["continue_snapshot_skip_reason"] = _continue_skip
         if _budget_report_holder.get("activation"):
             bud_rep["soft_activation"] = _budget_report_holder["activation"]
         # P2 residual：写路径挂事件图一跳（共享 novel_first_surface，非平行实现）

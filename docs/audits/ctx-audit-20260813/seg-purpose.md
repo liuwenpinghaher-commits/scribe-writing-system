@@ -28,13 +28,13 @@
 | B_product | 5 |
 | Observability | 5 |
 
-P1：envelope global 已有北极星时，purpose 只留本章 delta / 滚入；空章改为一句「北极星已在全局段」。
+P1：envelope global 已有作品意图时，purpose 只留本章 delta / 滚入；空章改为一句「作品意图已在全局段」。差集同时认旧「北极星」。
 
 ## 6. 最优改造
 
-**主方案：** 若 global 已有意图则 purpose 只留「本章目的」差集。
+**主方案（已落地）：** 若 global 已有作品意图则 purpose 只留「本章目的」差集。
 
-**放弃：** 复制北极星全文。
+**放弃：** 复制作品意图/北极星全文。
 
 **验收：** 段名/prefix 组成可断言。
 

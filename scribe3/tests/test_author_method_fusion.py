@@ -82,17 +82,22 @@ def test_no_approved_plan_zero_bytes():
     empty = render_story_move_segment({}, enabled=True)
     assert empty["text"] == ""
     assert empty["meta"]["applied"] is False
+    assert empty["meta"]["plan_missing"] is True
+    assert empty["meta"]["skip_reason"] == "plan_missing"
     flagged_off = render_story_move_segment(
         {"approved": True, "benyi": "穷", "move_id": "triangle_info", "validation": {"ok": True}},
         enabled=False,
     )
     assert flagged_off["text"] == ""
+    assert flagged_off["meta"].get("plan_missing") is False
+    assert flagged_off["meta"].get("skip_reason") == "flag_off"
     ok = render_story_move_segment(
         {"approved": True, "benyi": "穷", "move_id": "triangle_info", "validation": {"ok": True}},
         enabled=True,
     )
     assert "三角" in ok["text"]
     assert ok["meta"]["applied"] is True
+    assert ok["meta"].get("plan_missing") is False
     for stem in OH_STORY_SOURCE_STEMS:
         assert stem not in ok["text"]
 
