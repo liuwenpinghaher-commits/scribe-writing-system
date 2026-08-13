@@ -911,6 +911,16 @@ def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", ll
         return ""
 
 
+def recent_item_count_from_envelope(envelope) -> int:
+    """envelope.recent 块里以「- 」起行的条目数；无块则 0。"""
+    for b in getattr(envelope, "blocks", None) or []:
+        if getattr(b, "name", "") != "recent":
+            continue
+        text = getattr(b, "text", "") or ""
+        return sum(1 for ln in text.splitlines() if ln.lstrip().startswith("- "))
+    return 0
+
+
 def _record_story_soft_fail(kind: str) -> None:
     try:
         from scribe3.api.services.write_assemble import record_write_soft_fail

@@ -217,6 +217,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     retrieval_query = (_build_write_retrieval_query(
         st, chapter=chapter, seed_words=seed_words, request_text=request_text)
                        if retriever is not None else "")
+    if retriever is not None and not (retrieval_query or "").strip():
+        retrieval_query = f"第{chapter}章续写"
+        _record_write_soft_fail("recent_query_fallback")
     # Task 16 最后一厘米:检索发生(retriever 非 None = MEMORY_FABRIC 开)时收集本次完整
     # RetrievalResult,组装后落 memory_trace 给 ContextInspector 真数据。retriever=None
     # (MEMORY_FABRIC 关)→ 收集器 None → assemble 走协议 retrieve() → 与接线前【字节等价】。
@@ -340,6 +343,15 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         )
         _push("drama_contract", "redline", _dr)
         env_text = render_envelope_text(envelope)
+        try:
+            from scribe3.api.services.write_assemble_context import (
+                recent_item_count_from_envelope,
+            )
+            _budget_report_holder["recent_item_count"] = recent_item_count_from_envelope(
+                envelope,
+            )
+        except Exception:
+            _budget_report_holder["recent_item_count"] = 0
         if env_text:
             _push("envelope", "envelope", "\n\n" + env_text)
         # V2：codex 在 envelope 之后（注意力 · 防设定洪水盖住戏剧）
@@ -734,6 +746,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _budget_report_holder.get("codex_chars")
             or (bud_rep.get("domain_lengths") or {}).get("codex")
             or 0
+        )
+        bud_rep["recent_item_count"] = int(
+            _budget_report_holder.get("recent_item_count") or 0
         )
         # SL2：始终写入 storyline_inject 键（含 fail-soft / 旗关），便于 injection-trace
         bud_rep["storyline_inject"] = dict(_storyline_meta)

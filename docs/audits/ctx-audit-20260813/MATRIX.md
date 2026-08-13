@@ -18,7 +18,7 @@
 | W2 | global | 4 | 4 | 4 | 3 | 3 | 渲染标签改为「作品意图」对齐产品文案；strip 红线时留「红线已按实验剥离」一行以免像没配置。 |
 | W2 | procedural | 4 | 3 | 3 | 3 | 3 | assemble 对 craft 段与 procedural 做 compact 去重（已有 phase_role 去重可仿）。 |
 | W2 | provenance | 5 | 2 | 5 | 2 | 5 | 维持 0 额度；检查器读 envelope.omitted / trace 而非 prompt。 |
-| W2 | recent | 3 | 3 | 3 | 3 | 3 | fabric 开时保证 _build_write_retrieval_query 非空（v1 已有）；观测 recent_item_count。 |
+| W2 | recent | 5 | 5 | 5 | 5 | 5 | 已落地：fabric 空 query 兜底 + recent_item_count |
 | W2 | reference | 4 | 4 | 4 | 3 | 3 | 保持免责门；材料空时 omitted 记 no_materials 以便检查器。 |
 | W2 | uncertainty | 4 | 3 | 4 | 3 | 3 | 保留 superseded 行优先于低信心闲聊（allocate 时先留 reason=superseded）。 |
 | W3 | brief_must | 5 | 5 | 5 | 5 | 5 | 已落地：must 条相对大纲/场面合同差集 |

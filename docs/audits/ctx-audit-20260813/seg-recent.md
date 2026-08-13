@@ -22,11 +22,13 @@ working+episodic 候选映射为 recent；无 retriever 时直查近期事件/�
 
 ## 5. 评分
 
-| P_flow | 3 |
-| Q_craft | 3 |
-| R_safety | 3 |
-| B_product | 3 |
-| Observability | 3 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+P1：fabric 开且 query 空时兜底「第 N 章续写」并记 `recent_query_fallback`；`budget_report.recent_item_count` 可查。
 
 ## 6. 最优改造
 
