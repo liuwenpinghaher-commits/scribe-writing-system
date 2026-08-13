@@ -46,7 +46,7 @@
 | W4 | request_position | 5 | 2 | 5 | 3 | 2 | 可留在 prefix 一行；不必独立段。本卷宗改造=维持一行。 |
 | W4 | revelation_discipline | 5 | 5 | 5 | 5 | 5 | 已落地：相对 CORE 只留一句差集 |
 | W4 | revision | 5 | 5 | 5 | 5 | 5 | 已落地：非修订请求不注入；skip_reason 可查 |
-| W4 | seed_words | 4 | 3 | 4 | 3 | 3 | 空 soak 不 push。 |
+| W4 | seed_words | 5 | 5 | 5 | 5 | 5 | 已落地：空 soak 不 push；skip 可查 |
 | W4 | sincerity | 5 | 5 | 5 | 5 | 5 | 已并入 anti_slop 短核，不再独立段 |
 | W4 | story_move | 4 | 4 | 4 | 4 | 4 | 保持零字节默认；观测 plan_missing 原因。 |
 | W4 | storyline_polish | 5 | 5 | 5 | 5 | 5 | 已落地：空 meta 不 push，skip_reason 可查 |

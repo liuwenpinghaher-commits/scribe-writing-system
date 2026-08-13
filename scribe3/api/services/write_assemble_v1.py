@@ -413,11 +413,19 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             )
             _push("codex", "supplemental", _cx)
             _budget_report_holder["codex_chars"] = len(_cx_txt)
-        _sw = _domain_input(
-            f"chapter:{chapter}:seed-words", "seed_words",
-            _soak_block(seed_words),
-        )
-        _push("seed_words", "supplemental", _sw)
+        _sw_raw = _soak_block(seed_words)
+        _seed_injected = False
+        _seed_skip = ""
+        if (_sw_raw or "").strip():
+            _sw = _domain_input(
+                f"chapter:{chapter}:seed-words", "seed_words",
+                _sw_raw,
+            )
+            _push("seed_words", "supplemental", _sw)
+            _seed_injected = True
+        else:
+            _seed_skip = "empty_seed_words"
+            _record_write_soft_fail(_seed_skip)
         # A7：作者粘贴圣经刷分 soft telemetry（不硬拒写 · 不 400）
         try:
             rt = (request_text or "").strip()
@@ -881,6 +889,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         bud_rep["revelation_injected"] = bool(_rev_injected)
         if _rev_skip:
             bud_rep["revelation_skip_reason"] = _rev_skip
+        bud_rep["seed_words_injected"] = bool(_seed_injected)
+        if _seed_skip:
+            bud_rep["seed_words_skip_reason"] = _seed_skip
         # SL2：始终写入 storyline_inject 键（含 fail-soft / 旗关），便于 injection-trace
         bud_rep["storyline_inject"] = dict(_storyline_meta)
         # W2：discourse_soft 预算观测（meso_source / truncated）
