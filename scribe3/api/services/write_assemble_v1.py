@@ -88,10 +88,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     # I1:身份用【纯身份块】而非 _editor_write_system——后者经 _editor_system 注入设定/角色/
     # 伏笔 + 章前简报,会与下方 envelope 的 canonical/global 重复(facts 2×/promises 3×)。
     # v1 让 envelope 独占 facts/promises/角色/北极星的数据注入,身份层只留身份+硬协议+文风。
-    # prefix 只留身份+协议+anti_slop+章号一行；旁路独立 _push。
+    # prefix 只留协议+anti_slop+章号；身份独立 _push("identity")。
+    _identity_txt = _editor_identity_block()
     prefix = (
-        _editor_identity_block()
-        + _write_protocol_block()
+        _write_protocol_block()
         + _anti_slop_floor_block()
         + _domain_input(
             f"chapter:{chapter}:request-position", "request_position",
@@ -239,6 +239,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             segs.append({"name": name, "layer": layer, "text": text})
             return text
 
+        _push("identity", "redline", _identity_txt)
         _push("prefix", "redline", prefix)
         _push("revision", "redline", _revision_txt)
         _push("structure_diversity", "redline", _sd_txt)

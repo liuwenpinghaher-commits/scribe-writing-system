@@ -427,6 +427,7 @@ def resolve_assembler_budgets(
 # 写路径 V2 段序 SSOT：write_assemble._render_final_input 必须经
 # ``ordered_generation_segments`` 接线，禁止另写平行序。
 GENERATION_SEGMENT_LAYERS: dict[str, str] = {
+    "identity": "redline",
     "prefix": "redline",
     "revision": "redline",
     "structure_diversity": "redline",
@@ -873,6 +874,7 @@ def generation_physical_order_names(*, v2: bool = True) -> list[str]:
         outline_after = raw not in ("0", "false", "no", "off", "")
 
     base = [
+        "identity",
         "prefix",
         "revision",
         "structure_diversity",
