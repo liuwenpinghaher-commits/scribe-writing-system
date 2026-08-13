@@ -253,6 +253,7 @@ def prepare_write_storyline_inject(
     }
     try:
         if not storyline_inject_enabled():
+            meta["skip_reason"] = "flag_off"
             return {"meta": meta, "text": ""}
         chapters: list = []
         lines: list = []
@@ -280,6 +281,10 @@ def prepare_write_storyline_inject(
                 prom = list(st.list_promises() or [])
         except Exception:
             prom = []
+        if not lines and not prom:
+            meta["enabled"] = True
+            meta["skip_reason"] = "empty_meta"
+            return {"meta": meta, "text": ""}
         feed = build_storyline_feed_context(
             focus_seq=int(chapter) if chapter is not None else None,
             chapters=chapters,
@@ -301,6 +306,8 @@ def prepare_write_storyline_inject(
             "craft_only_skipped": list(feed.get("craft_only_skipped") or []),
             "audit": seg.get("audit"),
         }
+        if not text.strip():
+            meta["skip_reason"] = "empty_meta"
         return {"meta": meta, "text": text}
     except Exception as e:
         return {
@@ -310,6 +317,7 @@ def prepare_write_storyline_inject(
                 "applied": False,
                 "enabled": True,
                 "error": str(e)[:160],
+                "skip_reason": "error",
             },
             "text": "",
         }

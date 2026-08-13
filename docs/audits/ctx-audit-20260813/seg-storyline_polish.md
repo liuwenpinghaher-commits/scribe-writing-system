@@ -22,11 +22,13 @@ StorylineHub。
 
 ## 5. 评分
 
-| P_flow | 3 |
-| Q_craft | 3 |
-| R_safety | 3 |
-| B_product | 3 |
-| Observability | 3 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+P1：无故事线/伏笔不 push；`skip_reason=empty_meta|flag_off|error` 进 meta。
 
 ## 6. 最优改造
 

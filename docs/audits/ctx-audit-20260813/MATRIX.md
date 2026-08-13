@@ -49,7 +49,7 @@
 | W4 | seed_words | 4 | 3 | 4 | 3 | 3 | 空 soak 不 push。 |
 | W4 | sincerity | 5 | 5 | 5 | 5 | 5 | 已并入 anti_slop 短核，不再独立段 |
 | W4 | story_move | 4 | 4 | 4 | 4 | 4 | 保持零字节默认；观测 plan_missing 原因。 |
-| W4 | storyline_polish | 3 | 3 | 3 | 3 | 3 | 空 meta 不 push；观测 skip 原因。 |
+| W4 | storyline_polish | 5 | 5 | 5 | 5 | 5 | 已落地：空 meta 不 push，skip_reason 可查 |
 | W4 | structure_diversity | 5 | 5 | 5 | 5 | 5 | 已独立 _push，不再吞进 prefix |
 | W4 | tool_scope | 5 | 5 | 5 | 5 | 5 | 已独立 _push（仅 with_tools） |
 | W4 | voice_anchor | 4 | 4 | 4 | 3 | 3 | 无 profile 时一行「未登记声口」而非空。 |
