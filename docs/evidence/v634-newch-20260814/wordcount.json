@@ -1,0 +1,13 @@
+{
+  "slug": "book_79c0d45e",
+  "chapters": [
+    {"seq": 6, "title": "第六章·清册入镇", "visible": 6687, "has_fallback": false},
+    {"seq": 7, "title": "第七章·还鞘", "visible": 4342, "has_fallback": false},
+    {"seq": 8, "title": "第八章·假账对质", "visible": 4397, "has_fallback": false},
+    {"seq": 9, "title": "第九章·入芯破例", "visible": 3611, "has_fallback": false},
+    {"seq": 10, "title": "第十章·揭炉夜", "visible": 3539, "has_fallback": false}
+  ],
+  "visible_new": 22576,
+  "bar": 20000,
+  "pass": true
+}
