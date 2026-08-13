@@ -975,6 +975,15 @@ def uncertainty_stats_from_envelope(envelope) -> dict[str, int]:
     }
 
 
+def global_iron_stripped_from_envelope(envelope) -> bool:
+    """strip 红线实验是否留下了明示行（避免看起来像没配置）。"""
+    for b in getattr(envelope, "blocks", None) or []:
+        if getattr(b, "name", "") != "global":
+            continue
+        return "红线已按实验剥离" in (getattr(b, "text", "") or "")
+    return False
+
+
 def focus_has_outline_pointer_from_envelope(envelope) -> bool:
     """章焦点是否只留「见 outline 域」指针（未再展开 synopsis/beats）。"""
     for b in getattr(envelope, "blocks", None) or []:

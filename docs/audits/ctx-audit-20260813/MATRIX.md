@@ -15,7 +15,7 @@
 | W1 | secret_guard | 5 | 5 | 5 | 5 | 5 | 已落地：独立 `_push` + `reveal_secret_ids` 覆盖 |
 | W2 | canonical | 4 | 4 | 5 | 4 | 4 | codex 与 canonical 做结构化差集（已在 codex 的角色/规则勿再以 fact 行复读）。 |
 | W2 | focus | 5 | 5 | 5 | 5 | 5 | 已落地：outline 指针 + focus_has_outline_pointer |
-| W2 | global | 4 | 4 | 4 | 3 | 3 | 渲染标签改为「作品意图」对齐产品文案；strip 红线时留「红线已按实验剥离」一行以免像没配置。 |
+| W2 | global | 5 | 5 | 5 | 5 | 5 | 已落地：作品意图标签 + strip 明示行 |
 | W2 | procedural | 5 | 5 | 5 | 5 | 5 | 已落地：相对 craft compact 去重；omitted+budget_report 可查 |
 | W2 | provenance | 5 | 2 | 5 | 2 | 5 | 维持 0 额度；检查器读 envelope.omitted / trace 而非 prompt。 |
 | W2 | recent | 5 | 5 | 5 | 5 | 5 | 已落地：fabric 空 query 兜底 + recent_item_count |

@@ -62,7 +62,7 @@ BLOCK_BUDGETS: dict[str, int] = dict(_BLOCK_BUDGETS_V1)
 # 各块标题:进正文也计入预算(estimate_tokens 含标题),空块不渲染标题(见 _render_block)。
 _HEADERS: dict[str, str] = {
     "focus": "## 焦点(此刻在看)",
-    "global": "## 全局(北极星·当前弧光·开放伏笔·主要角色)",
+    "global": "## 全局(作品意图·当前弧光·开放伏笔·主要角色)",
     "canonical": "## 权威事实(正典表:事实/事件/承诺/知识帧)",
     "recent": "## 近期(工作摘要·近期事件/决策)",
     "procedural": "## 工艺方法(已采纳的写作方法/教训)",
@@ -702,8 +702,12 @@ class ContextAssembler:
             strip_iron = should_strip_iron_laws()
         except Exception:
             strip_iron = False
-        red_disp = "—" if strip_iron else (intent.get("red_lines") or "—")
-        star = (f"北极星:读者感受={intent.get('reader_feeling') or '—'};"
+        red_disp = (
+            "红线已按实验剥离"
+            if strip_iron
+            else (intent.get("red_lines") or "—")
+        )
+        star = (f"作品意图:读者感受={intent.get('reader_feeling') or '—'};"
                 f"情感弧={intent.get('emotional_arc') or '—'};"
                 f"红线={red_disp}")
         out.append(_Item("- " + star, ContextSource(

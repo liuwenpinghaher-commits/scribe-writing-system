@@ -12,7 +12,7 @@ from typing import Any
 # 块名 → 作者可读标签
 _BLOCK_LABELS = {
     "focus": "此刻焦点",
-    "global": "全书稳定层（北极星/铁律/角色）",
+    "global": "全书稳定层（作品意图/铁律/角色）",
     "canonical": "正典与戏剧必需",
     "recent": "近期过程/工作摘要",
     "procedural": "工艺与作者偏好",
