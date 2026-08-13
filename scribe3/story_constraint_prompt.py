@@ -66,7 +66,7 @@ def load_evidence_must_show(ch: dict | None) -> list[str]:
     return []
 
 
-# 96k 窗下燃料段配额（窗口护栏，不是「写够才算」）
+# 窗护栏（现网 48k 档）。不是「写够才算」。升窗后是否放宽见 PR1.1。
 FUEL_CAP_EMBER = 1500
 FUEL_CAP_RECALL = 4000
 FUEL_CAP_CAUSAL = 2500

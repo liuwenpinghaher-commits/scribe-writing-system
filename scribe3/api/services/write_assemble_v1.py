@@ -900,7 +900,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             import logging as _sf_logging
             soft_fail('write_assemble_soft_8', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         # 统一 join（V2：L2 有序裁剪；禁止 rendered[:hard] 尾截）
-        joined, bud_rep = join_generation_segments(segs, v2=_v2)
+        joined, bud_rep = join_generation_segments(segs, v2=_v2, work=work)
         bud_rep = dict(bud_rep)
         bud_rep["codex_chars"] = int(
             _budget_report_holder.get("codex_chars")

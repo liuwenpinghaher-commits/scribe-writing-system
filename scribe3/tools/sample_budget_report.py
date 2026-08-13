@@ -39,11 +39,12 @@ def sample_local(*, beat_type: str | None = "dialogue") -> dict:
         get_total_prompt_budget,
     )
 
+    work = os.environ.get("SCRIBE3_SAMPLE_WORK") or None
     bb = get_block_budgets(beat_type=beat_type)
-    rep = build_budget_report(beat_type=beat_type)
+    rep = build_budget_report(beat_type=beat_type, work=work)
     env = get_envelope_token_budget()
-    hard = get_prompt_hard()
-    total = get_total_prompt_budget()
+    hard = get_prompt_hard(work=work)
+    total = get_total_prompt_budget(work=work)
     l1 = env
     l2_room = max(0, hard - env)
     conclusion = (
@@ -63,6 +64,10 @@ def sample_local(*, beat_type: str | None = "dialogue") -> dict:
         "L2_room_est": l2_room,
         "effective_L2_est": l2_room,
         "prompt_hard": hard,
+        "prompt_hard_profile": rep.get("prompt_hard_profile"),
+        "novel_wide": rep.get("novel_wide"),
+        "work": work,
+        "work_unspecified_narrow": rep.get("work_unspecified_narrow"),
         "total_prompt_budget": total,
         "budget_report_keys": sorted(rep.keys()),
         "registry_mode": rep.get("registry_mode"),

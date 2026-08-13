@@ -71,10 +71,10 @@ def test_flag_on_v2_budget():
         b = cb.get_block_budgets()
         assert sum(b.values()) == 18_000
         assert cb.get_envelope_token_budget() == 18_000
-        assert b["canonical"] == 6800
-        assert b["recent"] == 4000
+        assert b["canonical"] == 7400
+        assert b["recent"] == 4400
         tb, bb = cb.resolve_assembler_budgets()
-        assert tb == 18_000 and bb["canonical"] == 6800
+        assert tb == 18_000 and bb["canonical"] == 7400
     finally:
         for k in ("SCRIBE3_ENVELOPE_V2_ENABLE", "SCRIBE3_ENVELOPE_NOVEL", "SCRIBE3_CONTEXT_FIDELITY"):
             os.environ.pop(k, None)

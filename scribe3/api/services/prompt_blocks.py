@@ -110,10 +110,17 @@ PARENT_SESSION_EXCERPT_BOUNDARY = "【来自上一会话的摘录，非本会话
 PARENT_SESSION_TURN_TAG = "【上一会话】"
 
 
-def _thread_history_for_prompt(st, thread_id: str | None, *, max_msgs: int = 12,
-                               max_chars_each: int = 600,
-                               last_assistant_chars: int = 2400,
-                               max_total_chars: int = 8000) -> list[dict]:
+DISCUSS_MAX_MSGS = 12
+DISCUSS_MAX_CHARS_EACH = 600
+DISCUSS_LAST_ASSISTANT_CHARS = 2400
+DISCUSS_MAX_TOTAL_CHARS = 8000
+DISCUSS_SUMMARY_CHARS = 1600
+
+
+def _thread_history_for_prompt(st, thread_id: str | None, *, max_msgs: int = DISCUSS_MAX_MSGS,
+                               max_chars_each: int = DISCUSS_MAX_CHARS_EACH,
+                               last_assistant_chars: int = DISCUSS_LAST_ASSISTANT_CHARS,
+                               max_total_chars: int = DISCUSS_MAX_TOTAL_CHARS) -> list[dict]:
     """U-009:主编速答的对话记忆——把本线程最近几轮 user/assistant 留痕变成 chat messages。
 
     根因:hermes_complete_stream 此前每轮只发 [system, 当前一句],模型从未见过自己
@@ -176,7 +183,7 @@ def _thread_history_for_prompt(st, thread_id: str | None, *, max_msgs: int = 12,
         summ = (thread_row.get("summary") or "").strip()
         if summ:
             out.insert(0, {"role": "assistant",
-                           "content": "【主编讨论早期摘要(系统压缩,更早轮次的要点)】\n" + summ[:1600]})
+                           "content": "【主编讨论早期摘要(系统压缩,更早轮次的要点)】\n" + summ[:DISCUSS_SUMMARY_CHARS]})
         return out
     except Exception:
         # U-011(作者要 fail-loud):此前"取历史失败→本轮无记忆"是静默失忆(恰是 U-009 作者

@@ -126,6 +126,11 @@ DEFAULT_SUPPLEMENTAL_HARD = 18_000
 # 质量优先：标准 V2 回滚档仍可用 42k；生产默认 novel 时 get_prompt_hard→48k
 DEFAULT_PROMPT_HARD = 42_000
 NOVEL_PROMPT_HARD = 48_000
+# 升窗档（仅 env 显式请求；常量钉永不改）
+NOVEL_PROMPT_HARD_WIDE = 96_000
+WIDE_SUPPLEMENTAL_SOFT = 28_000
+WIDE_SUPPLEMENTAL_HARD = 36_000
+WIDE_MIN_MODEL_WINDOW = 2 * NOVEL_PROMPT_HARD_WIDE  # 192_000
 
 # ── L2 四档 DROP（唯一真源 · rev.1.2 WS-6）──────────────────────────
 # 数字越大越先丢；T0/GEN_SEGMENT_PROTECTED 不进 victim 或极低优先级
@@ -181,19 +186,17 @@ L0_NEVER_CUT: frozenset[str] = frozenset({
 DEFAULT_TOTAL_PROMPT_BUDGET = 42_000
 
 
-def get_total_prompt_budget() -> int:
+def get_total_prompt_budget(*, work: str | None = None) -> int:
     """全局 prompt 硬顶（token 估算口径同 estimate_tokens）。
 
     env ``SCRIBE3_TOTAL_BUDGET``：正整数；``>=900000`` 视为关闭全域裁剪。
-    未设时回落 ``get_prompt_hard()``（与 L2 总顶一致）。
+    未设时回落 ``get_prompt_hard(work=)``（与 L2 总顶一致）。
+    禁止把 wide 缺窗的 RuntimeError 吞成 42k。
     """
     raw = (os.environ.get("SCRIBE3_TOTAL_BUDGET") or "").strip()
     if raw.isdigit():
         return int(raw)
-    try:
-        return get_prompt_hard()
-    except Exception:
-        return DEFAULT_TOTAL_PROMPT_BUDGET
+    return get_prompt_hard(work=work)
 
 
 def enforce_total_prompt_budget(
@@ -506,16 +509,24 @@ def join_generation_segments(
     pieces: list[dict[str, Any]],
     *,
     v2: bool = True,
+    work: str | None = None,
     supplemental_hard: int | None = None,
     prompt_hard: int | None = None,
     total_budget: int | None = None,
+    supplemental_soft: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """生产路径用的段 join：V2 走 L2 裁剪；随后 O1 全域硬顶；V1 仅全域硬顶可选。
 
     返回 (joined, report)。**禁止**对最终 joined 串尾截。
+    L2 与 O1 使用同一组 ``resolve_write_caps(work)`` 数字，禁止各算各的。
     active 注册表：``order_names`` 取 ``registry_physical_order_names``，
     真正参与 ``ordered_generation_segments`` 排序（非 no-op）。
     """
+    caps = resolve_write_caps(work)
+    sh = int(supplemental_hard) if supplemental_hard is not None else caps["supplemental_hard"]
+    ph = int(prompt_hard) if prompt_hard is not None else caps["prompt_hard"]
+    tb = int(total_budget) if total_budget is not None else caps["total_budget"]
+    ss = int(supplemental_soft) if supplemental_soft is not None else caps["supplemental_soft"]
     order_names: list[str] | None = None
     order_source = "generation_physical_order"
     try:
@@ -544,13 +555,14 @@ def join_generation_segments(
                 pass
         _joined_l2, l2_rep = apply_l2_trim(
             segs,
-            supplemental_hard=supplemental_hard,
-            prompt_hard=prompt_hard,
+            supplemental_hard=sh,
+            prompt_hard=ph,
+            supplemental_soft=ss,
         )
         del _joined_l2
         segs = list(l2_rep.get("segments") or segs)
 
-    segs, total_rep = enforce_total_prompt_budget(segs, budget=total_budget)
+    segs, total_rep = enforce_total_prompt_budget(segs, budget=tb)
     joined = "".join(str(s.get("text") or "") for s in segs)
     order_idx: dict[str, int] = {}
     for i, s in enumerate(segs):
@@ -563,6 +575,7 @@ def join_generation_segments(
         },
         order_indices=order_idx,
         l2_report=l2_rep,
+        work=work,
     )
     rep["total_enforce"] = total_rep
     rep["order_source"] = order_source
@@ -580,8 +593,52 @@ def get_codex_inject_cap() -> int:
     return DEFAULT_CODEX_INJECT_CAP
 
 
-def get_prompt_hard() -> int:
+def _parse_wide_request() -> bool:
+    """只解析『是否请求升窗』，不含模型窗/书白名单。"""
+    raw = (os.environ.get("SCRIBE3_NOVEL_PROMPT_HARD") or "").strip()
+    if raw:
+        if raw != str(NOVEL_PROMPT_HARD_WIDE):
+            raise RuntimeError(
+                f"SCRIBE3_NOVEL_PROMPT_HARD={raw!r} 非法；只接受空或 {NOVEL_PROMPT_HARD_WIDE}"
+            )
+        return True
+    return _env_truthy("SCRIBE3_NOVEL_WIDE", "0")
+
+
+def novel_wide_enabled() -> bool:
+    """进程是否允许升窗。未过模型窗门禁则 fail-loud（禁止静默 48k）。"""
+    if not _parse_wide_request():
+        return False
+    raw_win = (os.environ.get("SCRIBE3_MODEL_CONTEXT_WINDOW") or "").strip()
+    if not raw_win.isdigit():
+        raise RuntimeError("已请求 novel_wide 但未设正整数 SCRIBE3_MODEL_CONTEXT_WINDOW")
+    if int(raw_win) < WIDE_MIN_MODEL_WINDOW:
+        raise RuntimeError(
+            f"SCRIBE3_MODEL_CONTEXT_WINDOW={raw_win} < {WIDE_MIN_MODEL_WINDOW}，拒绝升窗"
+        )
+    return True
+
+
+def wide_works_slugs() -> frozenset[str]:
+    allow = (os.environ.get("SCRIBE3_NOVEL_WIDE_WORKS") or "").strip()
+    if not allow:
+        return frozenset()
+    return frozenset(p.strip() for p in allow.split(",") if p.strip())
+
+
+def novel_wide_for_work(work: str | None) -> bool:
+    if not novel_wide_enabled():
+        return False
+    slugs = wide_works_slugs()
+    if not slugs:
+        return True  # 全站；PR3 浸泡禁止空名单
+    return (work or "").strip() in slugs
+
+
+def get_prompt_hard(*, work: str | None = None) -> int:
     if novel_envelope_enabled() and envelope_v2_enabled():
+        if novel_wide_for_work(work):
+            return NOVEL_PROMPT_HARD_WIDE
         return NOVEL_PROMPT_HARD
     raw = (os.environ.get("SCRIBE3_PROMPT_HARD") or "").strip()
     if raw.isdigit():
@@ -589,18 +646,38 @@ def get_prompt_hard() -> int:
     return DEFAULT_PROMPT_HARD
 
 
-def get_supplemental_hard() -> int:
+def get_supplemental_hard(*, work: str | None = None) -> int:
     raw = (os.environ.get("SCRIBE3_SUPPLEMENTAL_HARD") or "").strip()
     if raw.isdigit():
         return int(raw)
-    return DEFAULT_SUPPLEMENTAL_HARD
+    return WIDE_SUPPLEMENTAL_HARD if novel_wide_for_work(work) else DEFAULT_SUPPLEMENTAL_HARD
 
 
-def get_supplemental_soft() -> int:
+def get_supplemental_soft(*, work: str | None = None) -> int:
     raw = (os.environ.get("SCRIBE3_SUPPLEMENTAL_SOFT") or "").strip()
     if raw.isdigit():
         return int(raw)
-    return DEFAULT_SUPPLEMENTAL_SOFT
+    return WIDE_SUPPLEMENTAL_SOFT if novel_wide_for_work(work) else DEFAULT_SUPPLEMENTAL_SOFT
+
+
+def resolve_write_caps(work: str | None = None) -> dict[str, Any]:
+    """一次算齐写路径硬顶，供 join / L2 / O1 / probe 共用。"""
+    wide = novel_wide_for_work(work)
+    return {
+        "prompt_hard": get_prompt_hard(work=work),
+        "supplemental_soft": get_supplemental_soft(work=work),
+        "supplemental_hard": get_supplemental_hard(work=work),
+        "total_budget": get_total_prompt_budget(work=work),
+        "novel_wide": wide,
+        "work": work,
+        "prompt_hard_profile": (
+            "novel_96k" if wide
+            else ("novel_48k" if novel_envelope_enabled() and envelope_v2_enabled() else "standard")
+        ),
+        "wide_works": sorted(wide_works_slugs()),
+        "model_context_window": (os.environ.get("SCRIBE3_MODEL_CONTEXT_WINDOW") or "").strip(),
+        "work_unspecified_narrow": bool(wide_works_slugs()) and not (work or "").strip(),
+    }
 
 
 def estimate_tokens(text: str | None) -> int:
@@ -660,12 +737,11 @@ def effective_l2_cap(
     l0_est: int,
     l1_est: int,
     *,
-    supplemental_hard: int | None = None,
-    prompt_hard: int | None = None,
+    supplemental_hard: int,
+    prompt_hard: int,
 ) -> int:
-    """effective_L2_cap = min(HARD, PROMPT_HARD - L0 - L1)."""
-    hard = DEFAULT_SUPPLEMENTAL_HARD if supplemental_hard is None else int(supplemental_hard)
-    ph = DEFAULT_PROMPT_HARD if prompt_hard is None else int(prompt_hard)
+    """effective_L2_cap = min(HARD, PROMPT_HARD - L0 - L1)。两帽必填，内部零 getter。"""
+    hard, ph = int(supplemental_hard), int(prompt_hard)
     room = max(0, int(ph) - max(0, int(l0_est)) - max(0, int(l1_est)))
     return min(max(0, int(hard)), room)
 
@@ -779,6 +855,7 @@ def apply_l2_trim(
     l1_est: int | None = None,
     supplemental_hard: int | None = None,
     prompt_hard: int | None = None,
+    supplemental_soft: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """对 segment 列表做 L2 有序裁剪后 join。
 
@@ -801,7 +878,7 @@ def apply_l2_trim(
     hard = get_supplemental_hard() if supplemental_hard is None else int(supplemental_hard)
     ph = get_prompt_hard() if prompt_hard is None else int(prompt_hard)
     cap = effective_l2_cap(l0_est, l1_est, supplemental_hard=hard, prompt_hard=ph)
-    soft = get_supplemental_soft()
+    soft = get_supplemental_soft() if supplemental_soft is None else int(supplemental_soft)
 
     def _l2_total() -> int:
         return sum(
@@ -959,6 +1036,7 @@ def build_budget_report(
     l2_report: dict[str, Any] | None = None,
     beat_type: str | None = None,
     event_graph_k: int | None = None,
+    work: str | None = None,
 ) -> dict[str, Any]:
     """观测报告（不含成本 KPI）。固定含 registry/fidelity/prompt_hard 等可观测字段。"""
     fid = context_fidelity()
@@ -976,6 +1054,7 @@ def build_budget_report(
             eg_k = int(raw_k) if raw_k.isdigit() else 2
         except Exception:
             eg_k = 2
+    caps = resolve_write_caps(work)
     return {
         "envelope_token_budget": get_envelope_token_budget(),
         "block_budgets": get_block_budgets(beat_type=beat_type),
@@ -990,7 +1069,15 @@ def build_budget_report(
         "registry_mode": reg_mode,
         "adaptive_profile": prof,
         "fidelity": fid,
-        "prompt_hard": get_prompt_hard(),
+        "prompt_hard": caps["prompt_hard"],
+        "prompt_hard_profile": caps["prompt_hard_profile"],
+        "novel_wide": caps["novel_wide"],
+        "supplemental_soft": caps["supplemental_soft"],
+        "supplemental_hard": caps["supplemental_hard"],
+        "model_context_window": caps["model_context_window"],
+        "wide_works": list(caps["wide_works"]),
+        "work": work,
+        "work_unspecified_narrow": caps["work_unspecified_narrow"],
         "event_graph": {"k": int(eg_k or 0)},
         "novel_envelope": novel_envelope_enabled(),
         "adaptive_budget": adaptive_budget_enabled(),

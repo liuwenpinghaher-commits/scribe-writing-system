@@ -1126,22 +1126,32 @@ def budget_probe_ep(req: dict | None = None):
         context_fidelity,
     )
     beat = payload.get("beat_type")
-    rep = build_budget_report(beat_type=str(beat) if beat else None)
+    work = payload.get("work")
+    work_s = str(work).strip() if work not in (None, "") else None
+    rep = build_budget_report(beat_type=str(beat) if beat else None, work=work_s)
     env = int(rep.get("envelope_token_budget") or get_envelope_token_budget())
-    hard = int(rep.get("prompt_hard") or get_prompt_hard())
+    hard = int(rep.get("prompt_hard") or get_prompt_hard(work=work_s))
     l2_room = max(0, hard - env)
     out = {
         "mode": "config",
         "fidelity": rep.get("fidelity") or context_fidelity(),
         "L1_envelope": env,
         "prompt_hard": hard,
+        "prompt_hard_profile": rep.get("prompt_hard_profile"),
+        "novel_wide": rep.get("novel_wide"),
+        "supplemental_soft": rep.get("supplemental_soft"),
+        "supplemental_hard": rep.get("supplemental_hard"),
+        "model_context_window": rep.get("model_context_window"),
+        "wide_works": rep.get("wide_works"),
+        "work": work_s,
+        "work_unspecified_narrow": rep.get("work_unspecified_narrow"),
         "effective_L2_est": l2_room,
         "adaptive_profile": rep.get("adaptive_profile"),
         "registry_mode": rep.get("registry_mode"),
         "block_sum": sum((rep.get("block_budgets") or {}).values()),
         "event_graph_k": (rep.get("event_graph") or {}).get("k"),
         "surface": "debug.budget_probe",
-        "note": "进程内配置快照，非跨副本；与 injection-trace 同权；永不回传完整 prompt",
+        "note": "进程内配置快照，非跨副本；与 injection-trace 同权；永不回传完整 prompt。白名单非空且未传 work 时为窄档。",
     }
     if mode == "assemble":
         # 轻量：仅 domain_lengths 数字；禁止 instructions 全文

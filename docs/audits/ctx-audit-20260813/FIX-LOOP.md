@@ -6,7 +6,7 @@
 | **启动** | 新会话或 `/goal` 粘贴文末「GOAL 正文」 |
 | **进度 SSOT** | [`MATRIX.md`](./MATRIX.md) 五维分 + [`CEILINGS.md`](./CEILINGS.md) |
 | **停机** | MATRIX 每一行：五维皆 5，**或** 该单元在 CEILINGS 且已达标天花板 |
-| **现网硬顶** | `NOVEL_PROMPT_HARD=48000`（禁止为刷分加大） |
+| **现网硬顶** | 代码常量 `NOVEL_PROMPT_HARD=48000`；demo 可以 env 升 96k。禁止为刷分再加大常量 |
 
 ---
 
