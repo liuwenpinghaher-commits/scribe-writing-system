@@ -44,9 +44,11 @@ def test_helper_does_not_reread_chapter_contract(monkeypatch):
     # 章上有合同，但调用方没传 → 不得擅自走 hook
     st = _St({"narrative_contract": CONTRACT, "narrative_drive": DRIVE})
     full = _event_drive_block(st, 5)
-    assert "优先执行" in (full or "")
+    assert "本章冲突时钟" in (full or "")
+    assert "优先执行" not in (full or "")
     hook = _event_drive_block(st, 5, contract=CONTRACT, has_scene=True)
     assert "优先执行" not in (hook or "")
+    assert "本章冲突时钟" not in (hook or "")
     assert "章末还悬着" in (hook or "")
 
 
@@ -58,6 +60,19 @@ def test_same_predicate_and_empty_counter_in_v1_source():
     assert '_record_write_soft_fail("empty_event_drive")' in src
     assert src.count("_ed_is_hook = contract_has_scene_fields(_ed_contract)") == 1
     assert "elif not _ed_is_hook:" in src
+
+
+def test_format_block_drops_priority_edict():
+    from scribe3.narrative_drive import format_event_drive_block, format_event_drive_hook_only
+    full = format_event_drive_block(DRIVE)
+    hook = format_event_drive_hook_only(DRIVE)
+    assert "本章冲突时钟" in full
+    assert "引爆" in full
+    assert "优先执行" not in full
+    assert "必须" not in full
+    assert "外力推戏" in full
+    assert "章末还悬着" in hook
+    assert "本章冲突时钟" not in hook
 
 
 def test_flag_off_returns_empty(monkeypatch):

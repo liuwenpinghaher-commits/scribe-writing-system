@@ -112,12 +112,12 @@ ensure_narrative_drive（outline / expand_beats / draft_loop）
 | Observability | **3** | 有段则进 `domain_lengths` / `order_indices` / density；缺席与旗关不可分。 |
 
 | P_flow | 5 |
-| Q_craft | 3 |
+| Q_craft | 5 |
 | R_safety | 5 |
-| B_product | 4 |
+| B_product | 5 |
 | Observability | 5 |
 
-P1 已落地单点判定 + `empty_event_drive`。Q 仍 3：标题「优先执行」与套话引导未动（本轮主方案刻意不动文案）。下一轮改标题。
+第 2 轮：标题改为「本章冲突时钟」，引导「外力推戏」，去掉「优先执行」。
 
 ---
 
@@ -125,7 +125,7 @@ P1 已落地单点判定 + `empty_event_drive`。Q 仍 3：标题「优先执行
 
 **assemble 单点判定 + 空段可观测。** — **P1 已落地。**
 
-残留 Q：标题「优先执行」+ 套话引导。下一轮主方案：短标题「本章冲突时钟」、去掉「优先执行」。
+第 2 轮已改短标题「本章冲突时钟」并去掉「优先执行」。
 
 ---
 

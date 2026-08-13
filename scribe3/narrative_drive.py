@@ -553,7 +553,7 @@ def format_event_drive_block(
     polar = _s(pov.get("knower_polarity")) or ("limited" if foc else "omniscient")
 
     # 先拼核心戏（引爆/对立/代价），再拼引导；超预算时裁相机与长引导，不丢冲突核
-    header = "## 本章事件驱动（冲突/事件主时钟·优先执行）"
+    header = "## 本章冲突时钟"
     core_lines = [
         f"- 引爆：{kind} — {_clip(summary, 40)}" if summary else f"- 引爆：{kind}",
     ]
@@ -577,12 +577,9 @@ def format_event_drive_block(
         core_lines.append(f"- 钩子：{_clip(end_hook, 28)}")
 
     # OI-3 / EC-1：对白净增；DEFAULT_DRAMA_STEER 开时固定 micro 给 core 让预算
-    guide_full = (
-        "优先冲突/事件；对白须带对立（要求/拒绝/代价）；"
-        "跟主角可以，须逼近或兑现当前戏。"
-    )
-    guide_short = "对白承载对立；逼近戏；冲突优先。"
-    guide_micro = "对白对立；逼近戏。"  # ≤24 字
+    guide_full = "外力推戏；对白带对立；跟人须逼近当前对立。"
+    guide_short = "外力推戏；对白对立。"
+    guide_micro = "外力推戏。"
     prefer_micro = False
     try:
         from scribe3.novel_quality_flags import (
@@ -623,6 +620,23 @@ def format_event_drive_block(
     else:
         text = text[: max_chars - 1] + "…"
     return "\n\n" + text
+
+
+def format_event_drive_hook_only(
+    drive: dict | None,
+    *,
+    max_chars: int = MAX_EVENT_DRIVE_BLOCK,
+) -> str:
+    """有场面合同时的续势钩：仅 end_hook，不称必须/优先执行。"""
+    if not isinstance(drive, dict) or not drive:
+        return ""
+    end_hook = _s(drive.get("end_hook"))
+    if not end_hook:
+        return ""
+    body = f"## 章末还悬着\n- {_clip(end_hook, 40)}"
+    if len(body) > max_chars:
+        body = body[: max(0, max_chars - 1)] + "…"
+    return "\n\n" + body
 
 
 def align_beats_to_drive(

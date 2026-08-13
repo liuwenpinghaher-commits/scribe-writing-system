@@ -274,7 +274,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         except Exception:
             _record_write_soft_fail("story_fuel_skip")
         # 叙事引擎：事件驱动引导块在戏剧 GCD 之前（冲突/事件主时钟）。
-        # 有场面合同则降为续势钩，不再「优先执行」。
+        # 有场面合同则降为续势钩，不再出冲突时钟全文。
         try:
             from scribe3.narrative_contract import contract_has_scene_fields
             _ed_contract = (_inputs or {}).get("contract")

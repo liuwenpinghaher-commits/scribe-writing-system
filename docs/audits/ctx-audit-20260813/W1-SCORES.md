@@ -5,7 +5,7 @@
 | 单元 | P_flow | Q_craft | R_safety | B_product | Observability | 最优改造（一句） |
 |------|--------|---------|----------|-----------|---------------|------------------|
 | narrative_contract | 2 | 4 | 4 | 2 | 3 | store 按 narrative_drive 同构打通读写 |
-| event_drive | 5 | 3 | 5 | 4 | 5 | 单点判定已落地；Q 下一轮去「优先执行」标题 |
+| event_drive | 5 | 5 | 5 | 5 | 5 | 已落地：单点判定 + 短标题「本章冲突时钟」 |
 | drama_contract | 4 | 2 | 3 | 3 | 4 | 400 字先砍 MRU 套话、保代价/冲突 |
 | drama_vacuum | 3 | 3 | 4 | 3 | 3 | 触发改「无 goal∧conflict」+ 可操作短句 |
 | outline | 4 | 3 | 4 | 3 | 4 | 半裁改为保拍砍纲 |
