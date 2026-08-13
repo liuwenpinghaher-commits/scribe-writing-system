@@ -601,6 +601,21 @@ def estimate_tokens(text: str | None) -> int:
     return len(text or "")
 
 
+def subtract_codex_canonical_echoes(codex: str | None, canonical: str | None) -> str:
+    """去掉已在 canonical/envelope 全文中出现的整行（≥8 字），再交给 cap。"""
+    src = str(codex or "")
+    can = str(canonical or "")
+    if not src or not can:
+        return src
+    kept: list[str] = []
+    for line in src.splitlines(keepends=True):
+        body = line.strip()
+        if len(body) >= 8 and body in can:
+            continue
+        kept.append(line)
+    return "".join(kept)
+
+
 def cap_codex_text(text: str | None, cap: int | None = None) -> str:
     s = text or ""
     limit = DEFAULT_CODEX_INJECT_CAP if cap is None else int(cap)

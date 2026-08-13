@@ -98,8 +98,8 @@ while 存在未完成单元:
 | 项 | 值 |
 |----|----|
 | 上次更新 | 2026-08-13 |
-| 下一 NAME | `codex` |
-| 已完成单元 | story_ember, story_recall, story_causal, narrative_contract, deduction_final, secret_guard, focalizer, event_drive, event_drive_hook, outline |
+| 下一 NAME | `final_reminder` |
+| 已完成单元 | story_ember, story_recall, story_causal, narrative_contract, deduction_final, secret_guard, focalizer, event_drive, event_drive_hook, outline, codex |
 | 天花板已登记 | provenance / request_position / story_move |
 
 ---

@@ -22,11 +22,13 @@ V2 在 envelope 后 push；`cap_codex_text` 默认 4500。限知 reveal=not foca
 
 ## 5. 评分
 
-| P_flow | 4 |
-| Q_craft | 3 |
-| R_safety | 4 |
-| B_product | 3 |
-| Observability | 3 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+P1：envelope 渲染后再对 codex 做整行差集，然后 `cap_codex_text`；`budget_report.codex_chars` 可查。
 
 ## 6. 最优改造
 

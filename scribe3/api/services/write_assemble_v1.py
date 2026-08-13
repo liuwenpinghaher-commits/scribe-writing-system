@@ -178,6 +178,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         envelope_v2_enabled,
         get_codex_inject_cap,
         join_generation_segments,
+        subtract_codex_canonical_echoes,
     )
     _v2 = envelope_v2_enabled()
     codex_input = (
@@ -189,10 +190,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     )
     if not _v2:
         prefix += _domain_input(
-            f"work:{work or 'main'}:codex", "codex", codex_input,
+            f"work:{work or 'main'}:codex", "codex",
+            cap_codex_text(codex_input, get_codex_inject_cap()),
         )
-    else:
-        codex_input = cap_codex_text(codex_input, get_codex_inject_cap())
     # 统一上下文段(替代旧 avoid/voice/arc/motif/frame/recap/tail/outline/material 散点拼装)
     # B∪C：memory_trace_ctx 真 session/revision 注入 snapshot，供 TurnBind 与检查器对齐。
     snap = _write_snapshot(st, chapter=chapter, focalizer=focalizer,
@@ -330,10 +330,15 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _push("envelope", "envelope", "\n\n" + env_text)
         # V2：codex 在 envelope 之后（注意力 · 防设定洪水盖住戏剧）
         if _v2 and codex_input:
+            _cx_txt = cap_codex_text(
+                subtract_codex_canonical_echoes(codex_input, env_text or ""),
+                get_codex_inject_cap(),
+            )
             _cx = _domain_input(
-                f"work:{work or 'main'}:codex", "codex", codex_input,
+                f"work:{work or 'main'}:codex", "codex", _cx_txt,
             )
             _push("codex", "supplemental", _cx)
+            _budget_report_holder["codex_chars"] = len(_cx_txt)
         _sw = _domain_input(
             f"chapter:{chapter}:seed-words", "seed_words",
             _soak_block(seed_words),
@@ -686,6 +691,11 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         # 统一 join（V2：L2 有序裁剪；禁止 rendered[:hard] 尾截）
         joined, bud_rep = join_generation_segments(segs, v2=_v2)
         bud_rep = dict(bud_rep)
+        bud_rep["codex_chars"] = int(
+            _budget_report_holder.get("codex_chars")
+            or (bud_rep.get("domain_lengths") or {}).get("codex")
+            or 0
+        )
         # SL2：始终写入 storyline_inject 键（含 fail-soft / 旗关），便于 injection-trace
         bud_rep["storyline_inject"] = dict(_storyline_meta)
         # W2：discourse_soft 预算观测（meso_source / truncated）
