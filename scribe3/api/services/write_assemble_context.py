@@ -153,7 +153,10 @@ def _volume_intro_inject_enabled() -> bool:
     return v not in ("0", "false", "no", "off", "")
 
 
-def _outline_block(st, chapter: int, focalizer: str = "", *, mode: str = "write") -> str:
+def _outline_block(
+    st, chapter: int, focalizer: str = "", *, mode: str = "write",
+    _budget=_OUTLINE_INJECT_BUDGET,
+) -> str:
     """本章大纲(synopsis)+节拍(beats)契约注入。
 
     mode:
@@ -190,11 +193,11 @@ def _outline_block(st, chapter: int, focalizer: str = "", *, mode: str = "write"
         return ""
     parts = ["## 本章大纲/节拍(据此展开正文,勿另起炉灶)"]
     if synopsis:
-        parts.append("〔大纲〕" + _clip_chars(synopsis, _OUTLINE_INJECT_BUDGET))
+        parts.append("〔大纲〕" + _clip_chars(synopsis, _budget))
     if beat_texts:
         parts.append("〔节拍〕" + _clip_chars(
             " ".join(f"{i}.{t}" for i, t in enumerate(beat_texts, 1)),
-            _OUTLINE_INJECT_BUDGET,
+            _budget,
         ))
         if has_beat_budget:
             parts.append(

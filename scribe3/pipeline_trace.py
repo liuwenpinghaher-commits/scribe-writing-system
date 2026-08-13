@@ -377,7 +377,6 @@ class TraceBuffer:
             "contrast_run_id": self.contrast_run_id,
             "contrast_summary": self.contrast_summary,
             "headline": self.headline,
-            "log_count": len(self.logs),
         }
 
     def red_count(self) -> int:
