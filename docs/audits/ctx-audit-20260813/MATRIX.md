@@ -34,7 +34,7 @@
 | W4 | continue_snapshot | 5 | 5 | 5 | 5 | 5 | 已独立 _push；空则 continue_snapshot_skip |
 | W4 | craft | 5 | 5 | 5 | 5 | 5 | 已落地：与 envelope procedural 整行去重 |
 | W4 | craft_skills_index | 5 | 5 | 5 | 5 | 5 | 已独立 _push（仅 with_tools） |
-| W4 | discourse_soft | 4 | 3 | 3 | 3 | 3 | 与 CORE 尾注差集。 |
+| W4 | discourse_soft | 5 | 5 | 5 | 5 | 5 | 已落地：与 final_reminder CORE 整行差集 |
 | W4 | envelope | 4 | 4 | 4 | 3 | 4 | budget_report 必带 envelope_block_lengths 八键（registry density 已支持入参）。 |
 | W4 | identity | 4 | 3 | 4 | 3 | 2 | 独立 push 名 identity 以便 NEVER 真按名裁。 |
 | W4 | material_recall | 5 | 5 | 5 | 5 | 5 | 已落地：与 envelope reference 去重标题 |

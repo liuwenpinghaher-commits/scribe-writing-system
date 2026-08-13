@@ -22,11 +22,13 @@
 
 ## 5. 评分
 
-| P_flow | 4 |
-| Q_craft | 3 |
-| R_safety | 3 |
-| B_product | 3 |
-| Observability | 3 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+P1：与 `_final_reminder` 整行差集；剔空 `skip_reason=echo_core_or_empty`。
 
 ## 6. 最优改造
 

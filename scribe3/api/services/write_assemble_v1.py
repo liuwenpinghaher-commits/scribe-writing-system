@@ -677,12 +677,16 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _discourse_meta = dict(_ds.get("meta") or _discourse_meta)
             _d_txt = str(_ds.get("text") or "")
             if _d_txt.strip():
+                _d_txt = subtract_codex_canonical_echoes(_d_txt, _fr or "")
+            if _d_txt.strip():
                 _d_seg = _domain_input(
                     f"chapter:{chapter}:discourse-soft",
                     "discourse_soft",
                     _d_txt if _d_txt.startswith("\n") else ("\n" + _d_txt),
                 )
                 _push("discourse_soft", "supplemental", _d_seg)
+            else:
+                _discourse_meta["skip_reason"] = "echo_core_or_empty"
         except Exception as _sf_e:
             from scribe3.soft_fail import soft_fail
             import logging as _sf_logging
