@@ -42,6 +42,7 @@ class SegmentMeta:
 # outline → SEGMENT_L1，默认物理序在 drama_vacuum 后、envelope 前（U4）
 SEGMENT_REGISTRY: tuple[SegmentMeta, ...] = (
     SegmentMeta("prefix", "L0", "head", "redline"),
+    SegmentMeta("secret_guard", "L0", "head", "redline"),
     SegmentMeta("structure_diversity", "L0", "head", "redline"),
     SegmentMeta("event_drive", "L0", "head", "redline"),
     SegmentMeta("drama_contract", "L0", "head", "redline"),

@@ -1042,9 +1042,10 @@ async def s3_patch_chapter_plan(
     involved_characters: list[str] | None = None,
     story_move_plan: dict | None = None,
     narrative_contract: dict | None = None,
+    reveal_secret_ids: list[str] | None = None,
     work: str | None = None,
 ) -> dict:
-    """改章阶段内容:大纲/节拍/场景真相/演绎/出场角色/场面合同(写,待批)。不改 prose/身份 meta。
+    """改章阶段内容:大纲/节拍/场景真相/演绎/出场角色/场面合同/本章揭示(写,待批)。不改 prose/身份 meta。
 
     beats 每项必须有 text（beat/action 可作别名）；involved_characters 必须是书内角色
     id 或名字；deductions 每项必须是 {character_id, prose}。非法结构在审批前返回 error，
@@ -1116,6 +1117,9 @@ async def s3_patch_chapter_plan(
         if not nc.get("validation", {}).get("ok"):
             plan_warnings.extend(nc.get("validation", {}).get("errors") or [])
         fields["narrative_contract"] = nc
+    if reveal_secret_ids is not None:
+        from scribe3.chapter_meta_codec import coerce_chapter_json_list
+        fields["reveal_secret_ids"] = coerce_chapter_json_list(reveal_secret_ids)
     # 演绎若显式提交 deductions，必须覆盖本次（或已存）的全部出场角色。
     # 否则 `deductions=[]` 会经审批被写成成功，但 Gate-B/后续限知上下文均不可消费。
     if deductions is not None:

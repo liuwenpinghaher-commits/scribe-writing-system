@@ -3,9 +3,11 @@ from __future__ import annotations
 
 from scribe3.store.core_preamble import *  # noqa: F403
 from scribe3.chapter_meta_codec import (  # noqa: F401
+    CHAPTER_JSON_LIST_META_KEYS,
     CHAPTER_JSON_META_KEYS,
     CHAPTER_META_ALLOWED,
     coerce_chapter_json_dict,
+    coerce_chapter_json_list,
     dump_chapter_json_meta,
 )
 
@@ -348,6 +350,7 @@ class ChaptersMixin:
             "focalizer,prose,synopsis,beats,draft,"
             "scene_truth,scene_truth_revision,involved_characters,deductions,purpose_text,deltas,"
             "pressure_drive,beats_meta,narrative_drive,narrative_contract,"
+            "reveal_secret_ids,"
             "archived,"
             "(IF archived_at IS NONE THEN NONE ELSE <string>archived_at END) AS archived_at,"
             "archive_reason,"
@@ -388,6 +391,7 @@ class ChaptersMixin:
         # narrative_drive / narrative_contract：JSON 串 → dict
         r["narrative_drive"] = coerce_chapter_json_dict(r.get("narrative_drive"))
         r["narrative_contract"] = coerce_chapter_json_dict(r.get("narrative_contract"))
+        r["reveal_secret_ids"] = coerce_chapter_json_list(r.get("reveal_secret_ids"))
         r["scene_truth"] = r.get("scene_truth") or ""
         try:
             r["scene_truth_revision"] = max(0, int(r.get("scene_truth_revision") or 0))
@@ -1020,6 +1024,11 @@ class ChaptersMixin:
                     plain[k] = None
                 else:
                     plain[k] = dump_chapter_json_meta(v)
+            elif k in CHAPTER_JSON_LIST_META_KEYS:
+                if v is None:
+                    plain[k] = json.dumps([], ensure_ascii=False)
+                else:
+                    plain[k] = json.dumps(coerce_chapter_json_list(v), ensure_ascii=False)
             else:
                 plain[k] = v
         # 构建 SET 子句:先处理普通字段,再追加 volume(若有)

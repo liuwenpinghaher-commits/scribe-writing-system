@@ -128,7 +128,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _record_write_soft_fail("continue_snapshot_skip")
     except Exception:
         _record_write_soft_fail("continue_snapshot_skip")
-    prefix += _domain_input(
+    _secret_guard_txt = _domain_input(
         f"chapter:{chapter}:secret-guard", "secret_guard",
         _secret_guard_block(st, chapter),
     )
@@ -227,6 +227,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             return text
 
         _push("prefix", "redline", prefix)
+        _push("secret_guard", "redline", _secret_guard_txt)
         _inputs = {}
         _nc_txt = ""
         try:

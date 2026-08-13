@@ -12,7 +12,7 @@
 | W1 | narrative_contract | 5 | 5 | 5 | 5 | 5 | store 已与 drive 同构读写；get_chapter 解析 JSON 串；写路径能出场面头 |
 | W1 | outline | 4 | 3 | 4 | 3 | 4 | 半裁改为保拍砍纲 |
 | W1 | scene_truth_proj | 4 | 4 | 4 | 3 | 3 | budget_report 标明真相源路径 |
-| W1 | secret_guard | 4 | 3 | 5 | 3 | 2 | 独立 `_push("secret_guard")` + 揭示字段覆盖 |
+| W1 | secret_guard | 5 | 5 | 5 | 5 | 5 | 已落地：独立 `_push` + `reveal_secret_ids` 覆盖 |
 | W2 | canonical | 4 | 4 | 5 | 4 | 4 | codex 与 canonical 做结构化差集（已在 codex 的角色/规则勿再以 fact 行复读）。 |
 | W2 | focus | 4 | 3 | 4 | 3 | 3 | 保持指针不去重失败；budget_report 增加 focus_has_outline_pointer 布尔。 |
 | W2 | global | 4 | 4 | 4 | 3 | 3 | 渲染标签改为「作品意图」对齐产品文案；strip 红线时留「红线已按实验剥离」一行以免像没配置。 |

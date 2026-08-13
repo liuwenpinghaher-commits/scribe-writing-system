@@ -374,6 +374,7 @@ class ChapterMetaReq(BaseModel):
     # 节拍 v2 元数据（schema/chapter_hook/beats_source/drama_validation）；JSON 串或 dict
     beats_meta: dict | str | None = None
     narrative_contract: dict | None = None
+    reveal_secret_ids: list[str] | None = None
 
     @field_validator("label")
     @classmethod

@@ -185,31 +185,80 @@ def _thread_history_for_prompt(st, thread_id: str | None, *, max_msgs: int = 12,
         raise
 
 
+def _fact_secret_keys(f) -> set[str]:
+    """命题可被 reveal_secret_ids 命中的键：id / entity_id / entity:attr 及去前缀裸名。"""
+    keys: set[str] = set()
+    fid = str(getattr(f, "id", "") or "").strip()
+    eid = str(getattr(f, "entity_id", "") or "").strip()
+    attr = str(getattr(f, "attribute", "") or "").strip()
+    for raw in (fid, eid, f"{eid}:{attr}" if eid and attr else ""):
+        if not raw:
+            continue
+        keys.add(raw)
+        bare = raw.split(":", 1)[-1].strip()
+        if bare:
+            keys.add(bare)
+    return keys
+
+
+def _load_reveal_secret_ids(st, chapter: int | None) -> list[str]:
+    """读章字段 reveal_secret_ids。读失败不撤防（返回空=全部仍须藏）。"""
+    if chapter is None or not hasattr(st, "get_chapter"):
+        return []
+    try:
+        from scribe3.chapter_meta_codec import coerce_chapter_json_list
+        ch = st.get_chapter(int(chapter)) or {}
+        return coerce_chapter_json_list(ch.get("reveal_secret_ids"))
+    except Exception:
+        return []
+
+
 def _secret_guard_block(st, chapter: int | None = None) -> str:
     """S-002:知情主角限知泄露修复。project_frame 只屏蔽【焦点者不知道】的帧外私密,
     但焦点者是知情主角时,他自己知道的核心悬念秘密(真名/前史/印记)在帧内、且 backstory
     里也写了 → 写他视角就把该留到揭示章的秘密提前泄露给读者(知情 POV 倒灌)。
     修复:对本书 secret 命题的破绽词(leak_markers),即便视角人物知情,也硬性约束本章
-    藏匿、禁明写。默认所有 secret 都藏;作者要在某章揭示时,写作指令里明说'本章揭示X'覆盖。
+    藏匿、禁明写。默认所有 secret 都藏;揭示章用字段 ``reveal_secret_ids`` 覆盖词表。
     无 secret 命题 → 空串(默认行为字节不变,旧书/无私密书零变化)。
 
     U-011(2026-07-15,作者要 fail-loud):删掉了"facts_at 异常即返空串"——那是把反剧透
     护栏悄悄整体撤除(fail-open),稿子照写、无人知道核心悬念已失防。现在查询失败直接【抛】,
     崩到 SSE error 帧让作者看见,而不是静默拆防线。"""
     facts = st.facts_at(chapter or 99999)
+    reveal_ids = set(_load_reveal_secret_ids(st, chapter))
     markers: list[str] = []
+    revealed_labels: list[str] = []
     for f in facts:
-        if getattr(f, "secret", False):
-            markers.extend(getattr(f, "leak_markers", None) or [])
+        if not getattr(f, "secret", False):
+            continue
+        keys = _fact_secret_keys(f)
+        if reveal_ids and (keys & reveal_ids):
+            label = (
+                str(getattr(f, "entity_id", "") or "").strip()
+                or str(getattr(f, "id", "") or "").strip()
+                or "未名秘密"
+            )
+            if label not in revealed_labels:
+                revealed_labels.append(label)
+            continue
+        markers.extend(getattr(f, "leak_markers", None) or [])
     markers = list(dict.fromkeys(m for m in markers if m and str(m).strip()))
-    if not markers:
-        return ""
-    banned = "、".join(markers[:40])
-    return (
-        "\n\n【核心悬念·限知纪律(本章须藏·硬约束)】本书有读者尚不该知道的核心伏线。"
-        "即便视角人物自己知情,本章也**绝不明写**这些秘密——只可用身体反应、回避、物件、"
-        "欲言又止来暗示,把重量压住、留到揭示章引爆。**严禁在正文出现以下破绽词**(含其明显变体):"
-        f"{banned}。剧情若逼近,以『藏着不说/一闪而过/避而不答』处理,绝不点破。")
+    parts: list[str] = []
+    if revealed_labels:
+        parts.append(
+            "\n\n【核心悬念·本章揭示】已批准揭开："
+            + "、".join(revealed_labels[:12])
+            + "。这些破绽词允许进入正文；未列出的秘密仍须藏。"
+        )
+    if markers:
+        banned = "、".join(markers[:40])
+        parts.append(
+            "\n\n【核心悬念·限知纪律(本章须藏·硬约束)】本书有读者尚不该知道的核心伏线。"
+            "即便视角人物自己知情,本章也**绝不明写**这些秘密——只可用身体反应、回避、物件、"
+            "欲言又止来暗示,把重量压住、留到揭示章引爆。**严禁在正文出现以下破绽词**(含其明显变体):"
+            f"{banned}。剧情若逼近,以『藏着不说/一闪而过/避而不答』处理,绝不点破。"
+        )
+    return "".join(parts)
 
 
 def _strip_preamble(text: str) -> str:
