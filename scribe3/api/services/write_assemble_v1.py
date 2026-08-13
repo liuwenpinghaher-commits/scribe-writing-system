@@ -86,12 +86,17 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         ))
         return text
 
+    from scribe3.pipeline_trace_hooks import (
+        assemble_request_id, start_named, end_named, timed_call, note_push,
+        mark_facts, flush0, after_join, after_compile, after_guard, attach_contrast,
+    )
+    _pre_sid = start_named("assemble.precompute")
     # I1:身份用【纯身份块】而非 _editor_write_system——后者经 _editor_system 注入设定/角色/
     # 伏笔 + 章前简报,会与下方 envelope 的 canonical/global 重复(facts 2×/promises 3×)。
     # v1 让 envelope 独占 facts/promises/角色/北极星的数据注入,身份层只留身份+硬协议+文风。
     # prefix 只留 anti_slop+章号；身份 / 写协议独立 _push。
-    _identity_txt = _editor_identity_block()
-    _protocol_raw = _write_protocol_block()
+    _identity_txt = timed_call("assemble.seg.identity", _editor_identity_block)
+    _protocol_raw = timed_call("assemble.seg.write_protocol", _write_protocol_block)
     prefix = (
         _anti_slop_floor_block()
         + _domain_input(
@@ -117,7 +122,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             structure_diversity_inject_enabled,
         )
         if structure_diversity_inject_enabled():
-            _sd = structure_diversity_block()
+            _sd = timed_call("assemble.seg.structure_diversity", structure_diversity_block)
             if _sd:
                 _sd_txt = _domain_input(
                     f"work:{work or 'main'}:structure-diversity",
@@ -136,7 +141,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         )
         from scribe3.experience import exp_state as _exp_st
         if _exp_st.has_reread_ack(work or "main", chapter) or not _exp_st.get_require_reread(work or "main"):
-            _snap = build_continue_snapshot(st, chapter, work=work or "main")
+            _snap = timed_call(
+                "assemble.seg.continue_snapshot",
+                lambda: build_continue_snapshot(st, chapter, work=work or "main"),
+            )
             _cblk = continue_block_text(_snap)
             if _cblk:
                 _continue_txt = _domain_input(
@@ -154,7 +162,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         _continue_skip = "continue_snapshot_error"
     _secret_guard_txt = _domain_input(
         f"chapter:{chapter}:secret-guard", "secret_guard",
-        _secret_guard_block(st, chapter),
+        timed_call("assemble.seg.secret_guard", _secret_guard_block, st, chapter),
     )
     _run_card_ctx: dict = {
         "secret_guard_nonempty": bool((_secret_guard_txt or "").strip()),
@@ -273,8 +281,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         def _push(name: str, layer: str, text: str) -> str:
             _run_card_ctx["attempted_names"].add(name)
             if not text:
+                note_push(name, "", skip=f"empty_{name}")
                 return ""
             segs.append({"name": name, "layer": layer, "text": text})
+            note_push(name, text)
             return text
 
         _push("identity", "redline", _identity_txt)
@@ -305,7 +315,13 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 load_chapter_story_inputs,
             )
             from scribe3.story_constraint_prompt import format_story_contract_head
-            _inputs = load_chapter_story_inputs(st, chapter) or {}
+            sid_load = start_named("assemble.load_story_inputs")
+            try:
+                _inputs = load_chapter_story_inputs(st, chapter) or {}
+                end_named(sid_load, status="ok", actual="present")
+            except Exception:
+                end_named(sid_load, status="failed", actual="failed")
+                raise
             _nc_txt = format_story_contract_head(
                 _inputs.get("contract"),
                 evidence_must_show=_inputs.get("evidence_must_show"),
@@ -339,14 +355,22 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 extra_instructions=extra_instructions or "",
                 inputs=_inputs, holder=_run_card_ctx,
             )
+            mark_facts(_run_card_ctx["facts"])
         except Exception:
             _run_card_ctx["facts"] = None
+            mark_facts(None)
         try:
             from scribe3.api.services.write_assemble_context import collect_story_fuel_segments
             for _fn_mark in ("story_ember", "story_recall", "story_causal"):
                 _run_card_ctx["attempted_names"].add(_fn_mark)
             _fuel_got: set[str] = set()
-            for _fuel_seg in collect_story_fuel_segments(_inputs, work=work):
+            _fuel_sid = start_named("assemble.collect_fuel")
+            try:
+                _fuel_iter = collect_story_fuel_segments(_inputs, work=work)
+            except Exception:
+                end_named(_fuel_sid, status="failed", actual="failed")
+                raise
+            for _fuel_seg in _fuel_iter:
                 _fn = _fuel_seg.get("name") or ""
                 _ft = _fuel_seg.get("text") or ""
                 if _fn and _ft:
@@ -359,6 +383,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             for _fn_mark in ("story_ember", "story_recall", "story_causal"):
                 if _fn_mark not in _fuel_got:
                     _run_card_ctx["fuel_skips"][f"{_fn_mark}_skip_reason"] = f"empty_{_fn_mark}"
+            end_named(_fuel_sid, status="ok", actual="present" if _fuel_got else "empty")
         except Exception:
             _record_write_soft_fail("story_fuel_skip")
             for _fn_mark in ("story_ember", "story_recall", "story_causal"):
@@ -943,6 +968,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         # 统一 join（V2：L2 有序裁剪；禁止 rendered[:hard] 尾截）
         joined, bud_rep = join_generation_segments(segs, v2=_v2, work=work)
         bud_rep = dict(bud_rep)
+        after_join(st, bud_rep)
         bud_rep["codex_chars"] = int(
             _budget_report_holder.get("codex_chars")
             or (bud_rep.get("domain_lengths") or {}).get("codex")
@@ -1074,9 +1100,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
 
     _budget_report_holder: dict = {}
 
-    import uuid
+    _rid = assemble_request_id(envelope_trace, work=work or "main", chapter=int(chapter or 0))
     context_request = ContextRequest(
-        request_id=uuid.uuid4().hex,
+        request_id=_rid,
         task_kind="final" if (phase or "").strip().lower() == "final" else "draft",
         target_ref=f"chapter:{chapter}",
         navigation_snapshot_id=snap.navigation_id,
@@ -1095,11 +1121,23 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         ),
         policy_version="generation.v1",
     )
-    compiled = CreativeContextEngine(
+    end_named(_pre_sid, status="ok")
+    _eng_sid = start_named("compile.engine")
+    flush0(st)
+    _engine = CreativeContextEngine(
         st, retriever=retriever, retrieval_out=_retrieval_out,
-    ).compile(
+    )
+    _orig_asm = _engine._assembler.assemble
+
+    def _timed_envelope(*_a, **_k):
+        return timed_call("compile.envelope", _orig_asm, *_a, **_k)
+
+    _engine._assembler.assemble = _timed_envelope
+    compiled = _engine.compile(
         context_request, snap, retrieval_query, mode, _render_final_input,
     )
+    end_named(_eng_sid, status="ok")
+    after_compile(st, compiled)
     envelope = compiled.envelope
     # M3 记账 + 指标接入:采样本次组装 envelope 的 token 估算(context_tokens_p95 由 0 变真实)。
     # 纯观测副作用，不改 instructions 字节；统一内核每次成功编译都会采样，
@@ -1296,6 +1334,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             rendered, _hits = guard_write_instructions(
                 rendered, st, focalizer=focalizer, chapter=chapter, scrub=True,
             )
+            after_guard(st, hits=_hits, leaked=False)
             if _hits:
                 # 有命中但已 scrub：仍记 soft 计数（可观测，非成本 KPI）
                 _record_write_soft_fail("epistemic_guard")
@@ -1306,14 +1345,17 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         except EpistemicLeakError:
             # O17 fail-loud：向上抛，不吞
             _record_write_soft_fail("epistemic_guard")
+            after_guard(st, leaked=True)
             raise
         except Exception:
             _record_write_soft_fail("epistemic_guard")
             logging.getLogger("scribe3").warning(
                 "epistemic guard failed (fail-soft keep instructions)", exc_info=True)
+    else:
+        after_guard(st, leaked=False)
     try:
         from scribe3.run_card_store import emit_write_run_card
-        emit_write_run_card(
+        _card = emit_write_run_card(
             st=st,
             work=work or "main",
             chapter=int(chapter or 0),
@@ -1330,6 +1372,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             kind="write",
             assemble_ok=bool((rendered or "").strip()),
         )
+        attach_contrast(st, _card)
     except Exception:
         logging.getLogger("scribe3").warning(
             "emit_write_run_card fail-soft (keep write)", exc_info=True)

@@ -56,10 +56,16 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
     _write_intent = _is_write_intent(msg)
     _wt = _work_has_tools(work) and _write_phase_allows_tools(phase) and not _write_intent
     outcome_binding = _WriteOutcomeBinding(st)
-    instructions = _assemble_write_instructions(
-        st, chapter=chapter, focalizer=focalizer, phase=phase,
-        seed_words=[], short_mode=short_mode, with_tools=_wt, work=work,
-        envelope_trace=outcome_binding.manifest_trace, request_text=msg)
+    from scribe3.pipeline_trace_hooks import open_write_chain, write_chain_guard
+    open_write_chain(
+        st, outcome_binding.manifest_trace, work=work, chapter=int(chapter or 1),
+        kind="write", phase=phase or "draft",
+    )
+    with write_chain_guard(st, outcome_binding.manifest_trace):
+        instructions = _assemble_write_instructions(
+            st, chapter=chapter, focalizer=focalizer, phase=phase,
+            seed_words=[], short_mode=short_mode, with_tools=_wt, work=work,
+            envelope_trace=outcome_binding.manifest_trace, request_text=msg)
     return sse_response(
         _stream_write(msg, instructions, expect_proposal=_write_intent,
                       with_tools=_wt, on_terminal=outcome_binding.persist),
@@ -68,11 +74,19 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
 def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundTasks,
                     work: str = "main"):
     """POST 版写作对话(支持图片附件):前端用 fetch 流式读取。"""
+    st = _store_for(work)
+    outcome_binding = _WriteOutcomeBinding(st)
+    from scribe3.pipeline_trace_hooks import open_write_chain, write_chain_guard, finish_failed
+    open_write_chain(
+        st, outcome_binding.manifest_trace, work=work,
+        chapter=int(req.chapter or 1), kind="write", phase=req.phase or "draft",
+    )
     # 经验压力 E4:硬续写模式未确认重读则禁止生成(草稿存不受此限)
     try:
         from scribe3.api.services.write_assemble import check_generate_reread_gate
         _rg = check_generate_reread_gate(work, int(req.chapter or 1))
         if not _rg.get("allowed"):
+            finish_failed(st, outcome_binding.manifest_trace)
             raise HTTPException(status_code=409, detail={
                 "code": _rg.get("code") or "reread_required",
                 "message": _rg.get("detail") or "请先确认续写重读",
@@ -81,7 +95,6 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
         raise
     except Exception:
         pass
-    st = _store_for(work)
     # Task 4:context 绑定强校验(SCRIBE3_CONTEXT_SNAPSHOT_V1 门控,产品默认开;显式关则不强制)。
     # 必须在 user 落库与 StreamingResponse 之前完成——流一旦开始,4xx 会退化成流中错误。
     # 双通道(I-1):body 三件套缺失时逐字段回退请求头 X-Scribe-Context-*
@@ -89,6 +102,7 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
     try:
         ContextService(st).enforce(req, work, headers=request.headers)
     except (ContextServiceError, StaleContextError) as e:
+        finish_failed(st, outcome_binding.manifest_trace)
         raise _context_http_error(e) from e
     # P0a 零降级:前端带了 thread_id 就必须有效(404/409),绝不静默回落——
     # 同 chat_stream 的 _resolve_thread_or_raise 口径;必须在开流前抛(流中 4xx 会退化)。
@@ -101,17 +115,17 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
     _wt = _work_has_tools(work) and _write_phase_allows_tools(req.phase) and not _write_intent
     # 统一内核把 envelope 安全块清单回填这里，随 assistant 落 trace.context；
     # 编译失败会在开流前直接上抛，不存在 flag 关闭或旧链回退形成的空 trace。
-    outcome_binding = _WriteOutcomeBinding(st)
     _envelope_trace = outcome_binding.manifest_trace
     # Task 16 最后一厘米:前端真实会话绑定(供 v1 检索路径落 memory_trace 给 ContextInspector);
     # 三件套优先 body,缺失回退请求头 X-Scribe-Context-*。仅 MEMORY_FABRIC 开 + 绑定齐备时
     # 被消费落 trace；fabric 关/无绑定时不影响写作字节(纯落库副作用,与 chat_message 同 best-effort)。
     _memory_trace_ctx = _write_context_binding(req, request.headers)
-    instructions = _assemble_write_instructions(
-        st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
-        seed_words=req.seed_words, short_mode=req.short_mode, with_tools=_wt, work=work,
-        envelope_trace=_envelope_trace, memory_trace_ctx=_memory_trace_ctx,
-        request_text=req.msg)
+    with write_chain_guard(st, outcome_binding.manifest_trace):
+        instructions = _assemble_write_instructions(
+            st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
+            seed_words=req.seed_words, short_mode=req.short_mode, with_tools=_wt, work=work,
+            envelope_trace=_envelope_trace, memory_trace_ctx=_memory_trace_ctx,
+            request_text=req.msg)
 
     if req.images:
         content = [{"type": "input_text", "text": req.msg}]
@@ -1231,16 +1245,24 @@ def reader_claim_ep(body: dict = Body(...), work: str = "main"):
     try:
         from scribe3.run_card import build_gate_run_card, run_card_enabled
         from scribe3.run_card_store import emit_write_run_card
+        _claim_rid = _uuid.uuid4().hex
+        card = None
         if run_card_enabled():
             card = build_gate_run_card(
                 work=work, chapter=seq, kind="claim",
-                request_id=_uuid.uuid4().hex,
+                request_id=_claim_rid,
                 gate_rows=_rows, assemble_ok=bool(out.get("allowed")),
             )
             emit_write_run_card(
                 st=st, work=work, chapter=seq, kind="claim",
                 assemble_ok=bool(out.get("allowed")), card=card,
             )
+        from scribe3.pipeline_trace_hooks import emit_gate_spans
+        emit_gate_spans(
+            st, work=work, chapter=seq, kind="claim",
+            trace_id=_claim_rid,
+            rows=_rows, ok=bool(out.get("allowed")), card=card,
+        )
     except Exception:
         logging.getLogger("scribe3.run_card").warning(
             "claim run_card fail-soft", exc_info=True,

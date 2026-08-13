@@ -96,19 +96,25 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
         msg = req.msg or (f"按本章简报、大纲与全部纪律写第 {req.chapter} 章完整正文,"
                           f"用 ⟦PROPOSAL scope=chapter⟧ 围栏交稿。")
         outcome_binding = _WriteOutcomeBinding(st)
-        instructions = _assemble_write_instructions(
-            st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
-            seed_words=[], short_mode=req.short_mode,
-            with_tools=with_tools, work=work,
-            envelope_trace=outcome_binding.manifest_trace,
-            extra_instructions=constraints, request_text=msg)
-        # 整章 loop/pilot 默认拉高生成上限：None 时常被网关截成 ~1.5k 字短稿，
-        # 无法支撑连载验收「约 5k×10」真路径；8192 与 Hermes 长文档常见帽一致。
-        text, proposals = _collect_write(
-            msg, instructions, with_tools=with_tools,
-            on_terminal=outcome_binding.persist,
-            max_tokens=8192,
+        from scribe3.pipeline_trace_hooks import open_write_chain, write_chain_guard
+        open_write_chain(
+            st, outcome_binding.manifest_trace, work=work,
+            chapter=int(req.chapter or 1), kind="write", phase=req.phase or "draft",
         )
+        with write_chain_guard(st, outcome_binding.manifest_trace):
+            instructions = _assemble_write_instructions(
+                st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
+                seed_words=[], short_mode=req.short_mode,
+                with_tools=with_tools, work=work,
+                envelope_trace=outcome_binding.manifest_trace,
+                extra_instructions=constraints, request_text=msg)
+            # 整章 loop/pilot 默认拉高生成上限：None 时常被网关截成 ~1.5k 字短稿，
+            # 无法支撑连载验收「约 5k×10」真路径；8192 与 Hermes 长文档常见帽一致。
+            text, proposals = _collect_write(
+                msg, instructions, with_tools=with_tools,
+                on_terminal=outcome_binding.persist,
+                max_tokens=8192,
+            )
         # P0门审查 P1-7:只认 scope=chapter 围栏(scene/selection 片段不能当整章);
         # 无合格围栏时兜底散文必须过长度门——否则一段短聊天语可能四判据全绿直通
         # pass,把既有整章正文静默覆盖掉。
@@ -653,22 +659,28 @@ def select_chapter(req: SelectChapterReq, work: str = "main"):
 
     def _generate(strategy: dict) -> str:
         outcome_binding = _WriteOutcomeBinding(st)
+        from scribe3.pipeline_trace_hooks import open_write_chain, write_chain_guard
+        open_write_chain(
+            st, outcome_binding.manifest_trace, work=work,
+            chapter=int(req.chapter or 1), kind="write", phase="final",
+        )
         strategy_instructions = (
             "【选择环候选策略(本候选必须执行)】" + strategy["directive"]
         )
         msg = ((req.msg + "\n") if req.msg else "") + (
             f"写第 {req.chapter} 章完整正文,严格执行上面的候选策略,"
             f"用 ⟦PROPOSAL scope=chapter⟧ 围栏交稿。")
-        instructions = _assemble_write_instructions(
-            st, chapter=req.chapter, focalizer=ch.get("focalizer") or "", phase="final",
-            seed_words=[], short_mode=False, with_tools=False, work=work,
-            envelope_trace=outcome_binding.manifest_trace,
-            extra_instructions=strategy_instructions,
-            request_text=msg)   # 候选生成不挂工具(纯写作)
-        text, proposals = _collect_write(
-            msg, instructions, with_tools=False,
-            on_terminal=outcome_binding.persist,
-        )
+        with write_chain_guard(st, outcome_binding.manifest_trace):
+            instructions = _assemble_write_instructions(
+                st, chapter=req.chapter, focalizer=ch.get("focalizer") or "", phase="final",
+                seed_words=[], short_mode=False, with_tools=False, work=work,
+                envelope_trace=outcome_binding.manifest_trace,
+                extra_instructions=strategy_instructions,
+                request_text=msg)   # 候选生成不挂工具(纯写作)
+            text, proposals = _collect_write(
+                msg, instructions, with_tools=False,
+                on_terminal=outcome_binding.persist,
+            )
         chapter_props = [p for p in proposals if p.get("scope") == "chapter"]
         if chapter_props:
             return chapter_props[-1]["prose"]
@@ -876,6 +888,11 @@ def select_light(req: SelectLightReq, work: str = "main"):
 
     def _generate(strategy: dict) -> str:
         outcome_binding = _WriteOutcomeBinding(st)
+        from scribe3.pipeline_trace_hooks import open_write_chain, write_chain_guard
+        open_write_chain(
+            st, outcome_binding.manifest_trace, work=work,
+            chapter=int(req.chapter or 1), kind="write", phase="final",
+        )
         strategy_instructions = (
             "【L1 轻选择·策略短包(非整章)】" + strategy["directive"] +
             f"\n只写开场/切入片段,控制在 {L1_MAX_CHARS} 字以内;"
@@ -884,12 +901,13 @@ def select_light(req: SelectLightReq, work: str = "main"):
         msg = ((req.msg + "\n") if req.msg else "") + (
             f"为第 {req.chapter} 章写一则策略短开场(≤{L1_MAX_CHARS}字),严格执行上面策略,"
             f"用 ⟦PROPOSAL scope=chapter⟧ 围栏。")
-        instructions = _assemble_write_instructions(
+        with write_chain_guard(st, outcome_binding.manifest_trace):
+            instructions = _assemble_write_instructions(
             st, chapter=req.chapter, focalizer=ch.get("focalizer") or "", phase="final",
             seed_words=[], short_mode=True, with_tools=False, work=work,
             envelope_trace=outcome_binding.manifest_trace,
             extra_instructions=strategy_instructions, request_text=msg)
-        text, proposals = _collect_write(
+            text, proposals = _collect_write(
             msg, instructions, with_tools=False,
             on_terminal=outcome_binding.persist,
         )

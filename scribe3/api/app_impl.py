@@ -375,7 +375,18 @@ def _store_for(work: str) -> SurrealStore:
                 old.close()
         else:
             _stores.move_to_end(work)
-        return _stores[work]
+        st = _stores[work]
+    try:
+        from scribe3.pipeline_trace_store import maybe_purge_pipeline_traces
+        maybe_purge_pipeline_traces(st, work=work)
+    except Exception:
+        pass
+    try:
+        from scribe3.run_card_store import maybe_purge_run_cards
+        maybe_purge_run_cards(st, work=work)
+    except Exception:
+        pass
+    return st
 
 
 def _close_cached_stores() -> None:

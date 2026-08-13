@@ -108,7 +108,11 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag("SCRIBE3_NOVEL_PROMPT_HARD", "", "只接受空或 96000；其它 fail-loud", "context_budget", "caution"),
     Flag("SCRIBE3_MODEL_CONTEXT_WINDOW", "", "供应商 token 窗。≥192000 时产品默认 96k", "context_budget", "caution"),
     Flag("SCRIBE3_NOVEL_WIDE_WORKS", "", "升窗书白名单；非空则未传 work 走窄档", "context_budget", "caution"),
-    Flag("SCRIBE3_RUN_CARD", "1", "写/存/宣称 Run 卡（期望×实际×质量）；0=零 I/O", "observability", "safe"),
+    Flag("SCRIBE3_RUN_CARD", "1", "是否派生对照摘要 contrast_summary；0=不算对照", "observability", "safe"),
+    Flag("SCRIBE3_RUN_CARD_PERSIST", "0", "是否 CREATE write_run_card；P3b 默认 0", "observability", "safe"),
+    Flag("SCRIBE3_PIPELINE_TRACE", "1", "写路径 chain+span 主账；0=零 I/O 不挡写", "observability", "safe"),
+    Flag("SCRIBE3_PIPELINE_TRACE_PREVIEW", "0", "步骤片段预览（默认关，不回默认 API）", "observability", "caution"),
+    Flag("SCRIBE3_PIPELINE_TRACE_TTL_DAYS", "7", "pipeline_chain/span TTL 天", "observability", "safe"),
 )
 
 

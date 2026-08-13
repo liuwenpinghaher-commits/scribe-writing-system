@@ -309,14 +309,20 @@ def _pilot_llm_gen(st, work: str, seq: int, phase: str, ask: str, focalizer: str
                    max_tokens: int | None = 1600) -> str:
     """pilot 生成通道:同一 _assemble_write_instructions 组装链(宪法:不另起简化 prompt)。"""
     outcome_binding = _WriteOutcomeBinding(st)
-    ins = _assemble_write_instructions(
-        st, chapter=seq, focalizer=focalizer, phase=phase,
-        with_tools=False, seed_words=[], short_mode=False, work=work,
-        envelope_trace=outcome_binding.manifest_trace, request_text=ask)
-    return _collect_write(
-        ask, ins, with_tools=False, on_terminal=outcome_binding.persist,
-        text_mode=True, max_tokens=max_tokens,
+    from scribe3.pipeline_trace_hooks import open_write_chain, write_chain_guard
+    open_write_chain(
+        st, outcome_binding.manifest_trace, work=work,
+        chapter=int(seq or 1), kind="write", phase=phase or "draft",
     )
+    with write_chain_guard(st, outcome_binding.manifest_trace):
+        ins = _assemble_write_instructions(
+            st, chapter=seq, focalizer=focalizer, phase=phase,
+            with_tools=False, seed_words=[], short_mode=False, work=work,
+            envelope_trace=outcome_binding.manifest_trace, request_text=ask)
+        return _collect_write(
+            ask, ins, with_tools=False, on_terminal=outcome_binding.persist,
+            text_mode=True, max_tokens=max_tokens,
+        )
 
 
 def _pilot_journal(work: str, seq: int):

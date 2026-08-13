@@ -584,6 +584,26 @@ export const api = {
     return j('/debug/run-cards' + (qs ? '?' + qs : ''), work)
   },
   runCard: (id, work) => j('/debug/run-cards/' + enc(id), work),
+  pipelineTraces: (q = {}, work) => {
+    const p = new URLSearchParams()
+    if (q.chapter != null) p.set('chapter', String(q.chapter))
+    if (q.kind) p.set('kind', q.kind)
+    if (q.status) p.set('status', q.status)
+    if (q.q) p.set('q', q.q)
+    if (q.limit) p.set('limit', String(q.limit))
+    const qs = p.toString()
+    return j('/debug/pipeline-traces' + (qs ? '?' + qs : ''), work)
+  },
+  pipelineTrace: (id, work) => j('/debug/pipeline-traces/' + enc(id), work),
+  pipelineSpans: (q = {}, work) => {
+    const p = new URLSearchParams()
+    if (q.step_key) p.set('step_key', q.step_key)
+    if (q.status) p.set('status', q.status)
+    if (q.chapter != null) p.set('chapter', String(q.chapter))
+    if (q.limit) p.set('limit', String(q.limit))
+    const qs = p.toString()
+    return j('/debug/pipeline-spans' + (qs ? '?' + qs : ''), work)
+  },
   budgetProbe: (body) => post('/debug/budget-probe', body || {}),
   debugLocks: () => j('/debug/locks'),
   benchmarkAdvisoryPreview: (bid) => post(`/benchmarks/${enc(bid)}/advisory-preview`, {}),

@@ -273,15 +273,17 @@ def test_admin_has_standalone_run_logs_page():
     planes = (web / "system/planes.js").read_text(encoding="utf-8")
     hub = (web / "system/SystemHub.jsx").read_text(encoding="utf-8")
     assert 'data-testid="run-logs-page"' in page
-    assert "api.runCards" in page
-    assert "api.runCard" in page
-    assert "写路径日志" in admin
+    assert "api.pipelineTraces" in page
+    assert "api.pipelineTrace" in page
+    assert "运行链路" in admin
     assert "run-logs" in admin
     assert "RunLogsPage" in admin
-    assert "写路径日志" in planes
+    assert "运行链路" in planes
     assert "run-logs" in planes
     assert "RunLogsPage" in hub
     assert "不展示提示词" in page
+    assert "run-logs-timeline" in page
+    assert "onlyRed" not in page
     assert "row.text" not in page
     assert "instructions" not in page
 

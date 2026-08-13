@@ -76,6 +76,21 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
     from scribe3.hermes_runtime import HermesEventAdapter
     from scribe3.llm import hermes_responses_events, official_deepseek_provider_identity
     from scribe3.proposal import ProposalParser
+    try:
+        bind = getattr(on_terminal, "__self__", None)
+        if bind is not None:
+            from scribe3.pipeline_trace_hooks import start_llm
+            _mt = getattr(bind, "manifest_trace", None)
+            _st = getattr(bind, "_store", None)
+            from scribe3.pipeline_trace_store import buffer_for
+            _buf = buffer_for(str((_mt or {}).get("request_id") or ""))
+            start_llm(
+                _st, _mt,
+                work=getattr(_buf, "work", None) or "main",
+                chapter=int(getattr(_buf, "chapter", 0) or 0),
+            )
+    except Exception:
+        logging.getLogger("scribe3").warning("start_llm fail-soft", exc_info=True)
     fn = _responses_events or hermes_responses_events
     # GAP-11：写路径必须 filter_tools=False（默认已关）；显式 phase=write 不 enforce
     adapter = HermesEventAdapter(phase=None, filter_tools=False)
@@ -232,12 +247,35 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                     "arguments": app_ev.get("arguments", ""),
                     "call_id": app_ev.get("call_id"),
                 })
+                try:
+                    bind = getattr(on_terminal, "__self__", None)
+                    if bind is not None:
+                        from scribe3.pipeline_trace_hooks import start_tool
+                        from scribe3.pipeline_trace_store import buffer_for
+                        _mt = getattr(bind, "manifest_trace", None)
+                        _buf = buffer_for(str((_mt or {}).get("request_id") or ""))
+                        _sid = start_tool(
+                            getattr(bind, "_store", None), _mt, app_ev.get("name", ""),
+                            work=getattr(_buf, "work", None) or "main",
+                            chapter=int(getattr(_buf, "chapter", 0) or 0),
+                        )
+                        trace.setdefault("_pt_tools", {})[str(app_ev.get("call_id") or app_ev.get("name"))] = _sid
+                except Exception:
+                    pass
                 yield f"data: {_j.dumps({'tool': app_ev.get('name', '')}, ensure_ascii=False)}\n\n"
             elif app_ev["kind"] == "tool.output":
                 trace["tool_outputs"].append({
                     "call_id": app_ev.get("call_id"),
                     "output": app_ev.get("output", ""),
                 })
+                try:
+                    bind = getattr(on_terminal, "__self__", None)
+                    _sid = (trace.get("_pt_tools") or {}).get(str(app_ev.get("call_id") or ""))
+                    if bind is not None and _sid:
+                        from scribe3.pipeline_trace_hooks import end_tool
+                        end_tool(getattr(bind, "_store", None), _sid, ok=True)
+                except Exception:
+                    pass
                 yield f"data: {_j.dumps({'tool_output': app_ev.get('output', ''), 'tool_call_id': app_ev.get('call_id')}, ensure_ascii=False)}\n\n"
             elif app_ev["kind"] == "approval.requested":
                 trace.setdefault("approvals", []).append({
@@ -656,6 +694,11 @@ class _WriteOutcomeBinding:
             logging.getLogger("scribe3").error(
                 "Context Outcome 落库失败，终止本次生成", exc_info=True,
             )
+            try:
+                from scribe3.pipeline_trace_hooks import finish_failed
+                finish_failed(self._store, self.manifest_trace)
+            except Exception:
+                pass
             raise
         try:
             from scribe3.run_card_store import attach_outcome_to_run_card
@@ -680,6 +723,13 @@ class _WriteOutcomeBinding:
             logging.getLogger("scribe3").warning(
                 "attach_outcome_to_run_card fail-soft", exc_info=True,
             )
+        try:
+            from scribe3.pipeline_trace_hooks import finish_ok
+            finish_ok(self._store, self.manifest_trace, outcome=outcome)
+        except Exception:
+            logging.getLogger("scribe3").warning(
+                "pipeline finish_ok fail-soft", exc_info=True,
+            )
 
 
 def _collect_write(message, instructions: str, with_tools: bool = True,
@@ -692,6 +742,20 @@ def _collect_write(message, instructions: str, with_tools: bool = True,
     from scribe3.hermes_runtime import HermesEventAdapter
     from scribe3.llm import hermes_responses_events, official_deepseek_provider_identity
     from scribe3.proposal import ProposalParser
+    try:
+        bind = getattr(on_terminal, "__self__", None)
+        if bind is not None:
+            from scribe3.pipeline_trace_hooks import start_llm
+            from scribe3.pipeline_trace_store import buffer_for
+            _mt = getattr(bind, "manifest_trace", None)
+            _buf = buffer_for(str((_mt or {}).get("request_id") or ""))
+            start_llm(
+                getattr(bind, "_store", None), _mt,
+                work=getattr(_buf, "work", None) or "main",
+                chapter=int(getattr(_buf, "chapter", 0) or 0),
+            )
+    except Exception:
+        logging.getLogger("scribe3").warning("start_llm collect fail-soft", exc_info=True)
     fn = _responses_events or hermes_responses_events
     # GAP-11：写路径必须 filter_tools=False（默认已关）；显式 phase=write 不 enforce
     adapter = HermesEventAdapter(phase=None, filter_tools=False)

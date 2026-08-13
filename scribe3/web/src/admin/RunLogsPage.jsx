@@ -1,6 +1,6 @@
 /**
- * 管理台 · 写路径日志（独立页）。
- * 一次写 / 存 / 宣称 = 一张卡；对照该跑没跑，不回传提示词。
+ * 管理台 · 运行链路（时间线主界面）。
+ * 一次写/存/宣称一条链；点一步看结构化全字段。不回传提示词。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
@@ -10,80 +10,29 @@ const btnCls = 'px-2.5 py-1.5 rounded-md text-f12 border border-line hover:bg-so
 const btnPrimary = 'px-2.5 py-1.5 rounded-md text-f12 bg-brand text-white hover:opacity-90 cursor-pointer'
 
 const KIND_LABEL = { write: '写', save: '存', claim: '宣称' }
-const ACTUAL_LABEL = {
-  present: '有',
-  empty: '空',
-  absent: '无',
-  dropped: '裁光',
-  failed: '失败',
-}
-const FLAG_LABEL = {
-  contract_slogan: '合同空喊',
-  recall_secret_leak: '召回漏密',
-  window_lie: '窗宽不实',
-  empty_required: '该进却空',
-}
-const NAME_LABEL = {
-  prefix: '身份前缀',
-  secret_guard: '密语守卫',
-  focalizer: '限知视角',
-  structure_diversity: '结构多样性',
-  narrative_contract: '场面合同',
-  story_ember: '上章余烬',
-  story_recall: '世界此刻',
-  story_causal: '前因后果',
-  event_drive: '事件驱动',
-  event_drive_hook: '事件钩',
-  drama_contract: '戏剧合同',
-  drama_vacuum: '戏剧真空',
-  outline: '大纲',
-  envelope: '信封',
-  codex: '正典',
-  seed_words: '种子词',
-  craft: '工艺',
-  phase_role: '阶段角色',
-  avoid: '避忌',
-  revelation_discipline: '揭示纪律',
-  sincerity: '诚意',
-  purpose: '本章目的',
-  volume_intro: '卷首',
-  brief_must: '必须发生',
-  pressure_drive: '压力驱动',
-  author_prefs: '作者偏好',
-  voice_anchor: '声口锚',
-  reference_craft: '参考工艺',
-  storyline_polish: '故事线打磨',
-  discourse_soft: '话语讲法',
-  story_move: '招式',
-  deduction_final: '终稿推演',
-  material_recall: '素材召回',
-  final_reminder: '收束提醒',
-  scene_truth_proj: '场面真相',
-  request_constraint: '本轮约束',
-  identity: '身份',
-  write_protocol: '写协议',
-  revision: '改稿',
-  continue_snapshot: '续写快照',
-  tool_scope: '工具范围',
-  craft_skills_index: '技法索引',
-  benchmark_advisory: '标杆提示',
-  craft_gate: '工艺门',
-  persist_chapter: '落库',
+const STATUS_LABEL = {
+  in_progress: '进行中', ok: '完成', failed: '失败', abandoned: '放弃',
+  running: '进行中', empty: '空', dropped: '裁光', skipped: '跳过', present: '有',
 }
 
 function fmtWhen(v) {
   if (v == null || v === '') return '—'
-  if (typeof v === 'object') {
-    v = v.datetime || v.dt || v.value || ''
-  }
+  if (typeof v === 'object') v = v.datetime || v.dt || v.value || ''
   if (typeof v === 'number') {
     const ms = v > 1e12 ? v : v * 1000
     const d = new Date(ms)
     return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleString()
   }
-  const s = String(v)
-  const d = new Date(s)
-  return Number.isNaN(d.getTime()) ? s : d.toLocaleString()
+  const d = new Date(String(v))
+  return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleString()
+}
+
+function fmtMs(ms) {
+  if (ms == null || ms === '') return '—'
+  const n = Number(ms)
+  if (!Number.isFinite(n)) return '—'
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}s`
+  return `${Math.round(n)}ms`
 }
 
 function Err({ e }) {
@@ -96,41 +45,36 @@ function Err({ e }) {
   )
 }
 
-function verdictChip(v) {
-  const red = v === 'red'
+function statusChip(status, verdict) {
+  const red = verdict === 'red' || status === 'failed' || status === 'empty'
+  const run = status === 'in_progress' || status === 'running'
   return (
     <span className={`px-1.5 py-0.5 rounded text-f12 ${
-      red ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300' : 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
+      run ? 'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+        : red ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+          : 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
     }`}>
-      {red ? '该进未进' : '对照齐全'}
+      {STATUS_LABEL[status] || status || (red ? '该进未进' : '对照齐全')}
     </span>
   )
-}
-
-function rowQuality(row) {
-  const q = row?.quality || {}
-  const bits = []
-  if (q.slogan) bits.push('合同空喊')
-  if (q.title_only) bits.push('只剩标题')
-  if (q.trimmed) bits.push('被腰斩')
-  if (q.reveal_only) bits.push('仅揭示')
-  const reason = row?.actual_reason
-  if (reason && reason !== row.actual && !bits.includes(reason)) bits.push(reason)
-  return bits.join(' · ') || '—'
 }
 
 export function RunLogsPage({ defaultWork = '' }) {
   const [works, setWorks] = useState([])
   const [work, setWork] = useState(defaultWork || '')
   const [kind, setKind] = useState('')
-  const [verdict, setVerdict] = useState('')
+  const [status, setStatus] = useState('')
   const [chapter, setChapter] = useState('')
+  const [q, setQ] = useState('')
+  const [stepKey, setStepKey] = useState('')
   const [items, setItems] = useState([])
-  const [count, setCount] = useState(0)
   const [sel, setSel] = useState(null)
+  const [pick, setPick] = useState(null)
+  const [tab, setTab] = useState('timeline')
+  const [onlyBad, setOnlyBad] = useState(false)
+  const [layerOrder, setLayerOrder] = useState(false)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
-  const [onlyRed, setOnlyRed] = useState(true)
 
   useEffect(() => {
     let cancelled = false
@@ -148,50 +92,55 @@ export function RunLogsPage({ defaultWork = '' }) {
     api.adminWorks({ archived: 'active', limit: 200 })
       .then((r) => apply(r.items || []))
       .catch(() => {
-        api.works()
-          .then((rows) => apply(Array.isArray(rows) ? rows : []))
-          .catch((e) => { if (!cancelled) setError(e) })
+        api.works().then((rows) => apply(Array.isArray(rows) ? rows : [])).catch((e) => {
+          if (!cancelled) setError(e)
+        })
       })
     return () => { cancelled = true }
   }, [defaultWork])
 
-  useEffect(() => {
-    if (defaultWork) setWork(defaultWork)
-  }, [defaultWork])
+  useEffect(() => { if (defaultWork) setWork(defaultWork) }, [defaultWork])
 
   const loadList = useCallback(async () => {
-    if (!work) {
-      setItems([])
-      setCount(0)
-      return
-    }
+    if (!work) { setItems([]); return }
     setBusy(true)
     setError(null)
     try {
-      const q = { limit: 50 }
-      if (kind) q.kind = kind
-      if (verdict) q.verdict = verdict
-      if (chapter !== '' && Number.isFinite(Number(chapter))) q.chapter = Number(chapter)
-      const r = await api.runCards(q, work)
-      setItems(r.items || [])
-      setCount(r.count ?? (r.items || []).length)
+      if (stepKey) {
+        const r = await api.pipelineSpans({
+          step_key: stepKey,
+          chapter: chapter !== '' ? Number(chapter) : undefined,
+          limit: 50,
+        }, work)
+        setItems(r.chains || [])
+      } else {
+        const query = { limit: 20 }
+        if (kind) query.kind = kind
+        if (status) query.status = status
+        if (chapter !== '' && Number.isFinite(Number(chapter))) query.chapter = Number(chapter)
+        if (q.trim()) query.q = q.trim()
+        const r = await api.pipelineTraces(query, work)
+        setItems(r.items || [])
+      }
     } catch (e) {
       setError(e)
       setItems([])
     } finally {
       setBusy(false)
     }
-  }, [work, kind, verdict, chapter])
+  }, [work, kind, status, chapter, q, stepKey])
 
   useEffect(() => { loadList() }, [loadList])
 
-  const openCard = async (runId) => {
-    if (!work || !runId) return
+  const openChain = async (traceId) => {
+    if (!work || !traceId) return
     setBusy(true)
     setError(null)
     try {
-      const card = await api.runCard(runId, work)
+      const card = await api.pipelineTrace(traceId, work)
       setSel(card)
+      setPick(null)
+      setTab('timeline')
     } catch (e) {
       setError(e)
     } finally {
@@ -199,29 +148,60 @@ export function RunLogsPage({ defaultWork = '' }) {
     }
   }
 
-  const rows = useMemo(() => {
-    const all = Array.isArray(sel?.rows) ? sel.rows : []
-    return onlyRed ? all.filter((r) => r.verdict === 'red') : all
-  }, [sel, onlyRed])
+  const highlight = useMemo(() => {
+    if (!sel || !pick) return new Set()
+    const spans = sel.spans || []
+    const byParent = {}
+    const byId = {}
+    spans.forEach((s) => {
+      byId[s.span_id] = s
+      if (s.parent_span_id) {
+        byParent[s.parent_span_id] = byParent[s.parent_span_id] || []
+        byParent[s.parent_span_id].push(s.span_id)
+      }
+    })
+    const out = new Set([pick.span_id])
+    let cur = pick
+    while (cur && cur.parent_span_id) {
+      out.add(cur.parent_span_id)
+      cur = byId[cur.parent_span_id]
+    }
+    const stack = [...(byParent[pick.span_id] || [])]
+    while (stack.length) {
+      const id = stack.pop()
+      if (out.has(id)) continue
+      out.add(id)
+      ;(byParent[id] || []).forEach((c) => stack.push(c))
+    }
+    return out
+  }, [sel, pick])
+
+  const spans = useMemo(() => {
+    let all = Array.isArray(sel?.spans) ? [...sel.spans] : []
+    if (onlyBad) {
+      all = all.filter((s) => s.verdict === 'red' || s.status === 'failed' || s.status === 'empty' || s.status === 'dropped')
+    }
+    if (layerOrder) {
+      const order = ['guard', 'assemble', 'compile', 'budget', 'llm', 'tool', 'persist', 'save', 'claim']
+      all.sort((a, b) => order.indexOf(a.layer) - order.indexOf(b.layer))
+    }
+    return all
+  }, [sel, onlyBad, layerOrder])
 
   return (
     <div className="space-y-3" data-testid="run-logs-page">
       <div>
-        <div className="text-f14 font-semibold">写路径日志</div>
+        <div className="text-f14 font-semibold">运行链路</div>
         <div className="text-f12 text-faint mt-0.5">
-          一次写、存、宣称一张卡。看「该跑什么 / 跑没跑 / 跑得好不好」。不是账号审计，也不展示提示词。
+          系统运行分析：每一步叫什么、从哪来、算了什么、产出结构、耗时、和上下游怎么连。不是账号审计，不展示提示词。
         </div>
       </div>
 
       <div className="flex flex-wrap gap-2 items-end">
         <label className="block text-f12">
           <span className="text-faint mb-1 block">书</span>
-          <select
-            className={inputCls}
-            data-testid="run-logs-work"
-            value={work}
-            onChange={(e) => { setSel(null); setWork(e.target.value) }}
-          >
+          <select className={inputCls} data-testid="run-logs-work" value={work}
+            onChange={(e) => { setSel(null); setWork(e.target.value) }}>
             <option value="">选择书籍</option>
             {works.map((w) => (
               <option key={w.slug} value={w.slug}>{w.title || w.slug}</option>
@@ -238,22 +218,27 @@ export function RunLogsPage({ defaultWork = '' }) {
           </select>
         </label>
         <label className="block text-f12">
-          <span className="text-faint mb-1 block">对照</span>
-          <select className={inputCls} value={verdict} onChange={(e) => setVerdict(e.target.value)}>
+          <span className="text-faint mb-1 block">状态</span>
+          <select className={inputCls} value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">全部</option>
-            <option value="red">该进未进</option>
-            <option value="green">对照齐全</option>
+            <option value="in_progress">进行中</option>
+            <option value="ok">完成</option>
+            <option value="failed">失败</option>
           </select>
         </label>
         <label className="block text-f12">
           <span className="text-faint mb-1 block">章</span>
-          <input
-            className={`${inputCls} w-20`}
-            value={chapter}
-            onChange={(e) => setChapter(e.target.value.replace(/[^\d]/g, ''))}
-            placeholder="全部"
-            inputMode="numeric"
-          />
+          <input className={`${inputCls} w-20`} value={chapter}
+            onChange={(e) => setChapter(e.target.value.replace(/[^\d]/g, ''))} placeholder="全部" />
+        </label>
+        <label className="block text-f12">
+          <span className="text-faint mb-1 block">步骤键</span>
+          <input className={`${inputCls} w-48`} value={stepKey}
+            onChange={(e) => setStepKey(e.target.value)} placeholder="assemble.seg.story_ember" />
+        </label>
+        <label className="block text-f12 grow">
+          <span className="text-faint mb-1 block">搜索 trace / request / outcome</span>
+          <input className={inputCls} value={q} onChange={(e) => setQ(e.target.value)} />
         </label>
         <button type="button" className={btnCls} onClick={loadList} disabled={busy || !work}>
           {busy ? '加载中…' : '刷新'}
@@ -262,140 +247,140 @@ export function RunLogsPage({ defaultWork = '' }) {
 
       <Err e={error} />
 
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-4 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.2fr)] gap-4 items-start">
         <div className="rounded-lg border border-line overflow-hidden bg-surface">
-          <table className="w-full text-f12">
-            <thead className="bg-soft/80 text-faint text-left">
-              <tr>
-                <th className="px-3 py-2 font-medium">时间</th>
-                <th className="px-3 py-2 font-medium">章</th>
-                <th className="px-3 py-2 font-medium">类型</th>
-                <th className="px-3 py-2 font-medium">对照</th>
-                <th className="px-3 py-2 font-medium">红 / 绿</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((it) => (
-                <tr
-                  key={it.run_id}
-                  data-testid="run-logs-row"
-                  className={`border-t border-line cursor-pointer hover:bg-soft/50 ${
-                    sel?.run_id === it.run_id ? 'bg-soft/70' : ''
-                  }`}
-                  onClick={() => openCard(it.run_id)}
-                >
-                  <td className="px-3 py-2 text-faint whitespace-nowrap">{fmtWhen(it.created_at)}</td>
-                  <td className="px-3 py-2">{it.chapter ?? '—'}</td>
-                  <td className="px-3 py-2">{KIND_LABEL[it.kind] || it.kind || '—'}</td>
-                  <td className="px-3 py-2">{verdictChip(it.verdict)}</td>
-                  <td className="px-3 py-2 tnum">
-                    {it.summary?.red ?? 0} / {it.summary?.green ?? 0}
-                  </td>
-                </tr>
-              ))}
-              {items.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-3 py-8 text-center text-faint">
-                    {work ? '这本书还没有写 / 存 / 宣称记录。去写作台走一轮后再回来。' : '请先选一本书。'}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-          <div className="px-3 py-1.5 text-f12 text-faint border-t border-line">
-            本页 {count} 条{busy ? ' · 加载中' : ''}
-          </div>
+          <div className="px-3 py-2 text-f12 text-faint border-b border-line">时间线列表</div>
+          <ul data-testid="run-logs-timeline">
+            {items.map((it) => (
+              <li
+                key={it.trace_id}
+                data-testid="run-logs-row"
+                className={`px-3 py-2 border-t border-line cursor-pointer hover:bg-soft/50 ${
+                  sel?.trace_id === it.trace_id ? 'bg-soft/70' : ''
+                } ${it.status === 'in_progress' ? 'border-l-2 border-l-amber-500' : ''}`}
+                onClick={() => openChain(it.trace_id)}
+              >
+                <div className="flex items-center gap-2 text-f12">
+                  <span className="text-faint whitespace-nowrap">{fmtWhen(it.started_at)}</span>
+                  <span>第 {it.chapter ?? '—'} 章 · {KIND_LABEL[it.kind] || it.kind}</span>
+                  {statusChip(it.status)}
+                </div>
+                <div className="text-f13 mt-0.5">{it.headline || '—'}</div>
+                <div className="text-f12 text-faint">{fmtMs(it.duration_ms)} · {it.span_count ?? 0} 步
+                  {it.red_count ? ` · ${it.red_count} 对照红` : ''}
+                  {it.stuck ? ` · ${it.stuck}` : ''}
+                </div>
+              </li>
+            ))}
+            {items.length === 0 && (
+              <li className="px-3 py-8 text-center text-faint text-f12">
+                {work ? '这本书还没有运行链路。去写作台走一轮后再回来。' : '请先选一本书。'}
+              </li>
+            )}
+          </ul>
         </div>
 
         <div className="rounded-lg border border-line bg-surface p-3 min-h-[240px]" data-testid="run-logs-detail">
           {!sel ? (
-            <div className="text-f12 text-faint py-10 text-center">点左侧一条，看这一次该跑没跑</div>
+            <div className="text-f12 text-faint py-10 text-center">点左侧一条，看这一次每一步怎么连</div>
           ) : (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
-                {verdictChip(sel.verdict)}
+                {statusChip(sel.status, sel.contrast_summary?.verdict)}
                 <span className="text-f13 font-medium">
                   第 {sel.chapter ?? '—'} 章 · {KIND_LABEL[sel.kind] || sel.kind}
                 </span>
-                {sel.prompt_hard_profile && (
-                  <span className="text-f12 text-faint">{sel.prompt_hard_profile}</span>
-                )}
-                {sel.assemble_ok === false && (
-                  <span className="text-f12 text-red-600">组装未完成</span>
-                )}
+                <span className="text-f12 text-faint">{fmtMs(sel.duration_ms)} · {(sel.spans || []).length} 步</span>
               </div>
+              <div className="text-f13">{sel.headline || '—'}</div>
               <div className="text-f12 text-faint space-y-0.5">
-                <div>时间 {fmtWhen(sel.created_at)}</div>
-                <div>卡号 {sel.run_id || '—'}</div>
-                <div>请求 {sel.request_id || '—'}</div>
+                <div>请求 {sel.trace_id || '—'}</div>
                 {sel.outcome_status && <div>模型 {sel.outcome_status}</div>}
               </div>
-              {Array.isArray(sel.quality_flags) && sel.quality_flags.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {sel.quality_flags.map((f) => (
-                    <span key={f} className="px-1.5 py-0.5 rounded bg-soft text-f12">
-                      {FLAG_LABEL[f] || f}
-                    </span>
-                  ))}
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className={tab === 'timeline' ? btnPrimary : btnCls} onClick={() => setTab('timeline')}>时间线</button>
+                <button type="button" className={tab === 'contrast' ? btnPrimary : btnCls} onClick={() => setTab('contrast')}>对照摘要</button>
+                <button type="button" className={btnCls} disabled={!sel.prev_trace_id} onClick={() => sel.prev_trace_id && openChain(sel.prev_trace_id)}>同章上一写</button>
+                <button type="button" className={btnCls} disabled={!sel.next_trace_id} onClick={() => sel.next_trace_id && openChain(sel.next_trace_id)}>同章下一写</button>
+              </div>
+
+              {tab === 'timeline' && (
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <button type="button" className={onlyBad ? btnPrimary : btnCls} onClick={() => setOnlyBad((v) => !v)}>只看异常</button>
+                    <button type="button" className={layerOrder ? btnPrimary : btnCls} onClick={() => setLayerOrder((v) => !v)}>按层分析序</button>
+                    <span className="text-f12 text-faint">默认全步墙钟序</span>
+                  </div>
+                  <ul className="rounded-md border border-line max-h-[22rem] overflow-auto" data-testid="run-logs-spans">
+                    {spans.map((s) => (
+                      <li
+                        key={s.span_id}
+                        data-testid="run-logs-span"
+                        className={`px-2 py-1.5 border-t border-line cursor-pointer text-f12 ${
+                          pick?.span_id === s.span_id ? 'bg-brand/10' : highlight.has(s.span_id) ? 'bg-soft/80' : ''
+                        }`}
+                        onClick={() => setPick(s)}
+                      >
+                        <div className="flex items-center gap-2">
+                          {s.parent_span_id ? <span className="text-faint">└</span> : null}
+                          <span className="font-medium">{s.step_title || s.step_key}</span>
+                          <span className="text-faint">{fmtMs(s.timing?.duration_ms)}</span>
+                          {statusChip(s.status, s.verdict)}
+                        </div>
+                        <div className="text-faint">{s.step_key}{s.layer ? ` · ${s.layer}` : ''}</div>
+                      </li>
+                    ))}
+                    {spans.length === 0 && (
+                      <li className="px-2 py-6 text-center text-faint">没有步骤。</li>
+                    )}
+                  </ul>
+                  {pick && (
+                    <div className="rounded-md border border-line p-2 text-f12 space-y-1" data-testid="run-logs-inspector">
+                      <div className="font-medium">{pick.step_title} · {pick.step_key}</div>
+                      <div>该跑 {pick.expected == null ? '—' : (pick.expected ? '要有' : '不该有')}
+                        {pick.expected_reason ? `（${pick.expected_reason}）` : ''}</div>
+                      <div>实际 {STATUS_LABEL[pick.actual] || pick.actual || '—'} {pick.actual_reason ? `/ ${pick.actual_reason}` : ''}</div>
+                      <div>输入 {(pick.input && pick.input.source) || '—'}
+                        {pick.input?.chars_in != null ? ` · ${pick.input.chars_in} 字` : ''}</div>
+                      <div>计算 {(pick.compute && pick.compute.fn) || '—'}</div>
+                      <div>产出 {(pick.output && pick.output.shape) || 'block'} · {pick.output?.chars ?? 0} 字</div>
+                      <div>耗时 {fmtMs(pick.timing?.duration_ms)}</div>
+                      <div>关联 父={pick.parent_span_id || '无'} · 层 {pick.layer}{pick.tier ? ` / ${pick.tier}` : ''}</div>
+                      {Array.isArray(pick.events) && pick.events.length > 0 && (
+                        <div>事件 {pick.events.map((e) => e.tag || e.op).join('、')}</div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className={onlyRed ? btnPrimary : btnCls}
-                  onClick={() => setOnlyRed(true)}
-                >
-                  只看红行
-                </button>
-                <button
-                  type="button"
-                  className={!onlyRed ? btnPrimary : btnCls}
-                  onClick={() => setOnlyRed(false)}
-                >
-                  全部步骤
-                </button>
-                <span className="text-f12 text-faint">
-                  {(sel.rows || []).filter((r) => r.verdict === 'red').length} 红 / {(sel.rows || []).length} 步
-                </span>
-              </div>
-              <div className="rounded-md border border-line overflow-auto max-h-[28rem]">
-                <table className="w-full text-f12">
-                  <thead className="bg-soft/80 text-faint text-left sticky top-0">
-                    <tr>
-                      <th className="px-2 py-1.5 font-medium">步骤</th>
-                      <th className="px-2 py-1.5 font-medium">该跑</th>
-                      <th className="px-2 py-1.5 font-medium">实际</th>
-                      <th className="px-2 py-1.5 font-medium">字数</th>
-                      <th className="px-2 py-1.5 font-medium">质量</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((r) => (
-                      <tr key={r.name} className="border-t border-line align-top">
-                        <td className="px-2 py-1.5">
-                          <div>{NAME_LABEL[r.name] || r.name}</div>
-                          <div className="text-faint">{r.name}{r.tier ? ` · ${r.tier}` : ''}</div>
-                        </td>
-                        <td className="px-2 py-1.5">{r.expected ? '要有' : '不该有'}</td>
-                        <td className="px-2 py-1.5">
-                          <span className={r.verdict === 'red' ? 'text-red-600' : ''}>
-                            {ACTUAL_LABEL[r.actual] || r.actual || '—'}
-                          </span>
-                        </td>
-                        <td className="px-2 py-1.5 tnum">{r.chars ?? 0}</td>
-                        <td className="px-2 py-1.5 text-faint max-w-[14rem]">{rowQuality(r)}</td>
-                      </tr>
-                    ))}
-                    {rows.length === 0 && (
+
+              {tab === 'contrast' && (
+                <div className="rounded-md border border-line overflow-auto max-h-[28rem]">
+                  <table className="w-full text-f12">
+                    <thead className="bg-soft/80 text-faint text-left">
                       <tr>
-                        <td colSpan={5} className="px-2 py-6 text-center text-faint">
-                          {onlyRed ? '这一次没有红行。' : '没有步骤。'}
-                        </td>
+                        <th className="px-2 py-1.5">步骤</th>
+                        <th className="px-2 py-1.5">该跑</th>
+                        <th className="px-2 py-1.5">实际</th>
+                        <th className="px-2 py-1.5">字数</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {(sel.contrast_summary?.rows || []).map((r) => (
+                        <tr key={r.name} className="border-t border-line">
+                          <td className="px-2 py-1.5">{r.name}</td>
+                          <td className="px-2 py-1.5">{r.expected ? '要有' : '不该有'}</td>
+                          <td className={`px-2 py-1.5 ${r.verdict === 'red' ? 'text-red-600' : ''}`}>{r.actual}</td>
+                          <td className="px-2 py-1.5 tnum">{r.chars ?? 0}</td>
+                        </tr>
+                      ))}
+                      {!(sel.contrast_summary?.rows || []).length && (
+                        <tr><td colSpan={4} className="px-2 py-6 text-center text-faint">没有对照摘要。</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </div>

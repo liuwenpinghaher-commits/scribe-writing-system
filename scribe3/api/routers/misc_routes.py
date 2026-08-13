@@ -481,6 +481,11 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
             from scribe3.run_card import build_gate_run_card, run_card_enabled
             from scribe3.run_card_store import emit_write_run_card
             if not run_card_enabled():
+                from scribe3.pipeline_trace_hooks import emit_gate_spans
+                emit_gate_spans(
+                    st, work=work, chapter=int(req.seq), kind="save",
+                    trace_id=_rc_id, rows=list(_rc_rows), ok=ok, card=None,
+                )
                 return
             card = build_gate_run_card(
                 work=work, chapter=int(req.seq), kind="save", request_id=_rc_id,
@@ -490,6 +495,11 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
             emit_write_run_card(
                 st=st, work=work, chapter=int(req.seq), kind="save",
                 assemble_ok=ok, card=card,
+            )
+            from scribe3.pipeline_trace_hooks import emit_gate_spans
+            emit_gate_spans(
+                st, work=work, chapter=int(req.seq), kind="save",
+                trace_id=_rc_id, rows=list(_rc_rows), ok=ok, card=card,
             )
         except Exception:
             import logging as _lg
@@ -1159,7 +1169,18 @@ def get_injection_trace(work: str = "main"):
     persisted = None
     try:
         from scribe3.api import app_impl as core
-        persisted = latest_run_card(core._store_for(work), work=work, kind="write")
+        from scribe3.run_card_store import run_card_persist_enabled
+        st = core._store_for(work)
+        if run_card_persist_enabled():
+            persisted = latest_run_card(st, work=work, kind="write")
+        else:
+            from scribe3.pipeline_trace_store import latest_pipeline_chain
+            ch = latest_pipeline_chain(st, kind="write")
+            if ch:
+                persisted = ch.get("contrast_summary") or _chain_as_run_card_item(ch)
+                persisted = dict(persisted or {})
+                persisted["request_id"] = ch.get("trace_id")
+                persisted["run_id"] = ch.get("contrast_run_id")
     except Exception:
         persisted = None
     if not last:
@@ -1188,13 +1209,26 @@ def get_debug_run_cards(
     verdict: str | None = None,
     limit: int = 20,
 ):
-    """列出本书 Run 卡（无段正文）。"""
-    from scribe3.run_card_store import list_run_cards, publicize
+    """列出本书 Run 卡（无段正文）。P3b 读 chain.contrast_summary。"""
+    from scribe3.run_card_store import list_run_cards, publicize, run_card_persist_enabled
     try:
         from scribe3.api import app_impl as core
         st = core._store_for(work)
     except Exception as e:
         return {"ok": False, "error": str(e)[:160], "items": []}
+    if not run_card_persist_enabled():
+        from scribe3.pipeline_trace_store import list_chains
+        chains = list_chains(st, chapter=chapter, kind=kind, limit=limit)
+        items = []
+        for raw in chains:
+            it = _chain_as_run_card_item(raw)
+            if verdict and it.get("verdict") != verdict:
+                continue
+            items.append(it)
+        return {
+            "ok": True, "work": work, "surface": "debug.run_cards",
+            "count": len(items), "items": items, "source": "chain",
+        }
     rows = list_run_cards(st, chapter=chapter, kind=kind, verdict=verdict, limit=limit)
     items = []
     for raw in rows:
@@ -1224,13 +1258,33 @@ def get_debug_run_cards(
 
 
 def get_debug_run_card(run_id: str, work: str = "main"):
-    """单次 Run 卡。"""
-    from scribe3.run_card_store import get_run_card, publicize
+    """单次 Run 卡。P3b 按 contrast_run_id 读 chain。"""
+    from scribe3.run_card_store import get_run_card, publicize, run_card_persist_enabled
     try:
         from scribe3.api import app_impl as core
         st = core._store_for(work)
     except Exception as e:
         return {"ok": False, "error": str(e)[:160]}
+    if not run_card_persist_enabled() and hasattr(st, "get_pipeline_chain_by_contrast"):
+        chain = st.get_pipeline_chain_by_contrast(run_id)
+        if not chain:
+            from scribe3.pipeline_trace_store import get_chain
+            chain = get_chain(st, run_id)
+        if not chain:
+            return {"ok": False, "error": "not_found", "work": work, "run_id": run_id}
+        cs = chain.get("contrast_summary") if isinstance(chain.get("contrast_summary"), dict) else {}
+        pub = dict(cs) if cs else {
+            "rows": [], "verdict": "green", "summary": {},
+        }
+        pub["ok"] = True
+        pub["work"] = work
+        pub["run_id"] = chain.get("contrast_run_id") or run_id
+        pub["request_id"] = chain.get("trace_id")
+        pub["surface"] = "debug.run_card"
+        pub["created_at"] = chain.get("created_at")
+        if not cs:
+            pub["notes"] = ["no_contrast"]
+        return pub
     raw = get_run_card(st, run_id)
     if not raw:
         return {"ok": False, "error": "not_found", "work": work, "run_id": run_id}
@@ -1253,6 +1307,184 @@ def post_debug_run_cards_purge(work: str = "main", days: int | None = None):
     out["work"] = work
     out["default_ttl_days"] = ttl_days()
     return out
+
+
+def _store_or_err(work: str):
+    from scribe3.api import app_impl as core
+    return core._store_for(work)
+
+
+def _chain_as_run_card_item(raw: dict) -> dict:
+    cs = raw.get("contrast_summary") if isinstance(raw.get("contrast_summary"), dict) else {}
+    return {
+        "run_id": raw.get("contrast_run_id") or "",
+        "request_id": raw.get("trace_id"),
+        "outcome_id": raw.get("outcome_id"),
+        "kind": raw.get("kind"),
+        "chapter": raw.get("chapter"),
+        "phase": raw.get("phase"),
+        "created_at": raw.get("created_at"),
+        "verdict": cs.get("verdict") or "green",
+        "summary": cs.get("summary") or {},
+        "assemble_ok": cs.get("assemble_ok"),
+        "outcome_status": raw.get("outcome_status"),
+        "prompt_hard_profile": (cs.get("caps") or {}).get("prompt_hard_profile") if isinstance(cs.get("caps"), dict) else None,
+        "quality_flags": (cs.get("quality") or {}).get("flags") if isinstance(cs.get("quality"), dict) else cs.get("quality_flags"),
+        "trace_id": raw.get("trace_id"),
+    }
+
+
+def get_debug_pipeline_traces(
+    work: str = "main",
+    chapter: int | None = None,
+    kind: str | None = None,
+    status: str | None = None,
+    q: str | None = None,
+    limit: int = 20,
+):
+    """链列表。status 只滤 chain；按 step 请走 /debug/pipeline-spans。"""
+    from scribe3.pipeline_trace_store import get_chain, list_chains, list_spans, publicize_chain_list_item
+    try:
+        st = _store_or_err(work)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:160], "items": []}
+    qq = (q or "").strip()
+    if qq:
+        hit = get_chain(st, qq)
+        if not hit:
+            try:
+                rows = list_chains(st, limit=100)
+                for r in rows:
+                    if r.get("outcome_id") == qq:
+                        hit = r
+                        break
+            except Exception:
+                hit = None
+        if not hit:
+            found = list_spans(st, trace_id=None, limit=1)
+            try:
+                found = st.list_pipeline_spans(trace_id=qq, limit=1) if hasattr(st, "list_pipeline_spans") else []
+            except Exception:
+                found = []
+            if not found and hasattr(st, "list_pipeline_spans"):
+                try:
+                    # span_id lookup
+                    rows = st._query(
+                        "SELECT trace_id FROM pipeline_span WHERE span_id=$id LIMIT 1",
+                        {"id": qq},
+                    ) or []
+                    if rows:
+                        hit = get_chain(st, str(rows[0].get("trace_id") or ""))
+                except Exception:
+                    hit = None
+            elif found:
+                hit = get_chain(st, str(found[0].get("trace_id") or ""))
+        if not hit:
+            return {"ok": False, "error": "not_found", "work": work, "items": [], "count": 0}
+        return {
+            "ok": True, "work": work, "surface": "debug.pipeline_traces",
+            "count": 1, "items": [publicize_chain_list_item(hit)],
+        }
+    rows = list_chains(st, chapter=chapter, kind=kind, status=status, limit=limit)
+    items = [publicize_chain_list_item(r) for r in rows]
+    return {
+        "ok": True, "work": work, "surface": "debug.pipeline_traces",
+        "count": len(items), "items": items,
+    }
+
+
+def get_debug_pipeline_trace(trace_id: str, work: str = "main"):
+    """单链 + spans（墙钟序）+ 对照摘要 + 同章前后。"""
+    from scribe3.pipeline_trace_store import get_chain, list_spans, publicize_chain_detail
+    try:
+        st = _store_or_err(work)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:160]}
+    raw = get_chain(st, trace_id)
+    if not raw:
+        return {"ok": False, "error": "not_found", "work": work, "trace_id": trace_id}
+    spans = list_spans(st, trace_id=trace_id, limit=200)
+    neighbors = {}
+    try:
+        if hasattr(st, "neighbor_traces"):
+            neighbors = st.neighbor_traces(
+                work=raw.get("work") or work,
+                chapter=int(raw.get("chapter") or 0),
+                kind=str(raw.get("kind") or "write"),
+                created_at=raw.get("created_at"),
+            ) or {}
+    except Exception:
+        neighbors = {}
+    out = publicize_chain_detail(raw, spans, neighbors)
+    out["work"] = work
+    out["surface"] = "debug.pipeline_trace"
+    return out
+
+
+def get_debug_pipeline_trace_spans(
+    trace_id: str, work: str = "main", layer: str | None = None,
+):
+    from scribe3.pipeline_trace import public_span
+    from scribe3.pipeline_trace_store import list_spans
+    try:
+        st = _store_or_err(work)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:160], "items": []}
+    rows = list_spans(st, trace_id=trace_id, layer=layer, limit=200)
+    items = [public_span(r) for r in rows]
+    return {
+        "ok": True, "work": work, "trace_id": trace_id,
+        "count": len(items), "items": [i for i in items if i],
+    }
+
+
+def get_debug_pipeline_spans(
+    work: str = "main",
+    step_key: str | None = None,
+    status: str | None = None,
+    chapter: int | None = None,
+    limit: int = 50,
+):
+    """按 step_key 检索 span，再批量取所属链。"""
+    from scribe3.pipeline_trace import public_span
+    from scribe3.pipeline_trace_store import get_chain, list_spans, publicize_chain_list_item
+    try:
+        st = _store_or_err(work)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:160], "items": [], "chains": []}
+    rows = list_spans(st, step_key=step_key, status=status, chapter=chapter, limit=limit)
+    items = [public_span(r) for r in rows]
+    items = [i for i in items if i]
+    seen: set[str] = set()
+    chains = []
+    for it in items:
+        tid = str(it.get("trace_id") or "")
+        if not tid or tid in seen:
+            continue
+        seen.add(tid)
+        raw = get_chain(st, tid)
+        if raw:
+            chains.append(publicize_chain_list_item(raw))
+    return {
+        "ok": True, "work": work, "surface": "debug.pipeline_spans",
+        "count": len(items), "items": items, "chains": chains,
+    }
+
+
+def post_debug_pipeline_traces_purge(work: str = "main", days: int | None = None):
+    from scribe3.pipeline_trace_store import ttl_days
+    try:
+        st = _store_or_err(work)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:160]}
+    d = ttl_days() if days is None else max(1, int(days))
+    try:
+        out = st.purge_pipeline_traces_older_than(d) if hasattr(st, "purge_pipeline_traces_older_than") else {"ok": False}
+        out["work"] = work
+        out["default_ttl_days"] = ttl_days()
+        return out
+    except Exception as e:
+        return {"ok": False, "work": work, "error": str(e)[:160]}
 
 
 def budget_probe_ep(req: dict | None = None):
@@ -1703,6 +1935,11 @@ def _bind_and_register() -> None:
         ('get_debug_run_cards', '/debug/run-cards', ['GET']),
         ('get_debug_run_card', '/debug/run-cards/{run_id}', ['GET']),
         ('post_debug_run_cards_purge', '/debug/run-cards/purge', ['POST']),
+        ('get_debug_pipeline_traces', '/debug/pipeline-traces', ['GET']),
+        ('get_debug_pipeline_trace', '/debug/pipeline-traces/{trace_id}', ['GET']),
+        ('get_debug_pipeline_trace_spans', '/debug/pipeline-traces/{trace_id}/spans', ['GET']),
+        ('get_debug_pipeline_spans', '/debug/pipeline-spans', ['GET']),
+        ('post_debug_pipeline_traces_purge', '/debug/pipeline-traces/purge', ['POST']),
         ('get_debug_stats', '/debug/stats', ['GET']),
         ('soft_event_led_ep', '/soft/event-led', ['POST']),
         ('soft_discourse_ep', '/soft/discourse', ['POST']),

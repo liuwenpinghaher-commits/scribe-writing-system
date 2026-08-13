@@ -39,8 +39,19 @@ def get_last_run_card() -> dict[str, Any]:
         return dict(_LAST_RUN_CARD)
 
 
+def run_card_persist_enabled() -> bool:
+    if not run_card_enabled():
+        return False
+    raw = os.environ.get("SCRIBE3_RUN_CARD_PERSIST")
+    if raw is None or str(raw).strip() == "":
+        return True
+    return str(raw).strip().lower() not in ("0", "false", "no", "off")
+
+
 def persist_run_card(st: Any, card: dict[str, Any]) -> bool:
     if st is None or not card:
+        return False
+    if not run_card_persist_enabled():
         return False
     run_id = str(card.get("run_id") or "")
     if not run_id:
@@ -182,11 +193,28 @@ def emit_write_run_card(
 
 
 def ttl_days() -> int:
-    raw = (os.environ.get("SCRIBE3_RUN_CARD_TTL_DAYS") or "21").strip()
+    raw = (os.environ.get("SCRIBE3_RUN_CARD_TTL_DAYS") or "7").strip()
     try:
         return max(1, int(raw))
     except ValueError:
-        return 21
+        return 7
+
+
+_PURGE_TS: dict[str, float] = {}
+
+
+def maybe_purge_run_cards(st: Any, *, work: str = "main") -> None:
+    key = str(work or "main")
+    now = time.time()
+    with _LOCK:
+        last = _PURGE_TS.get(key, 0)
+        if now - last < 6 * 3600:
+            return
+        _PURGE_TS[key] = now
+    try:
+        purge_run_cards(st)
+    except Exception as e:
+        _log.warning("maybe_purge_run_cards fail-soft: %s", e)
 
 
 def purge_run_cards(st: Any, *, days: int | None = None) -> dict[str, Any]:

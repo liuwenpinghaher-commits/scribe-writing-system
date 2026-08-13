@@ -15,7 +15,7 @@ const TABS = [
   { key: 'overview', label: '总览', icon: LayoutDashboard },
   { key: 'users', label: '账号', icon: Users },
   { key: 'works', label: '书籍', icon: BookOpen },
-  { key: 'run-logs', label: '写路径日志', icon: History },
+  { key: 'run-logs', label: '运行链路', icon: History },
   { key: 'audit', label: '审计', icon: ScrollText },
 ]
 
@@ -283,7 +283,7 @@ export function AdminConsole({ onExit, hasWork = false }) {
         <Shield size={18} className="text-brand shrink-0" />
         <div className="min-w-0">
           <div className="text-f14 font-semibold">管理台</div>
-          <div className="text-f12 text-faint">账号 · 书籍归属 · 写路径日志 · 操作审计（仅管理员）</div>
+          <div className="text-f12 text-faint">账号 · 书籍归属 · 运行链路 · 操作审计（仅管理员）</div>
         </div>
         <div className="ml-auto flex items-center gap-2">
           {typeof onExit === 'function' && hasWork && (
