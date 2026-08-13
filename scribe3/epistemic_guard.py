@@ -40,7 +40,8 @@ def writing_limited_banner(focalizer: str) -> str:
 def writing_omniscient_author_banner() -> str:
     return (
         "\n【认知分身·作者视角写作】本章未钉限知焦点；可用作者视角，"
-        "但仍勿无端倪地剧透尚未建立的知识边。\n"
+        "但仍勿无端倪地剧透尚未建立的知识边。"
+        "secret 命题仍受 secret_guard 约束，未揭示的破绽词不得明写。\n"
     )
 
 

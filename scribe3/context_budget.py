@@ -428,6 +428,7 @@ def resolve_assembler_budgets(
 GENERATION_SEGMENT_LAYERS: dict[str, str] = {
     "prefix": "redline",
     "secret_guard": "redline",
+    "focalizer": "redline",
     "narrative_contract": "redline",
     "story_ember": "supplemental",
     "story_recall": "supplemental",
@@ -791,6 +792,7 @@ def generation_physical_order_names(*, v2: bool = True) -> list[str]:
     base = [
         "prefix",
         "secret_guard",
+        "focalizer",
         "narrative_contract",
         "story_ember",
         "story_recall",

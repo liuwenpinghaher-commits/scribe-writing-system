@@ -158,8 +158,11 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             from scribe3.epistemic_guard import writing_omniscient_author_banner
             focalizer_input = writing_omniscient_author_banner()
         except Exception:
-            focalizer_input = "本章未指定限知焦点者 → 作者视角(可全知)。"
-    prefix += _domain_input(
+            focalizer_input = (
+                "本章未指定限知焦点者 → 作者视角(可全知)。"
+                "secret 命题仍受 secret_guard 约束。"
+            )
+    _focalizer_txt = _domain_input(
         f"chapter:{chapter}:focalizer", "focalizer",
         focalizer_input,
     )
@@ -228,6 +231,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
 
         _push("prefix", "redline", prefix)
         _push("secret_guard", "redline", _secret_guard_txt)
+        _push("focalizer", "redline", _focalizer_txt)
         _inputs = {}
         _nc_txt = ""
         try:
