@@ -354,12 +354,22 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         try:
             from scribe3.api.services.write_assemble_context import (
                 recent_item_count_from_envelope,
+                procedural_stats_from_envelope,
             )
             _budget_report_holder["recent_item_count"] = recent_item_count_from_envelope(
                 envelope,
             )
+            _proc_stats = procedural_stats_from_envelope(envelope)
+            _budget_report_holder["procedural_item_count"] = _proc_stats[
+                "procedural_item_count"
+            ]
+            _budget_report_holder["procedural_dedup_dropped"] = _proc_stats[
+                "procedural_dedup_dropped"
+            ]
         except Exception:
             _budget_report_holder["recent_item_count"] = 0
+            _budget_report_holder["procedural_item_count"] = 0
+            _budget_report_holder["procedural_dedup_dropped"] = 0
         if env_text:
             _push("envelope", "envelope", "\n\n" + env_text)
         # V2：codex 在 envelope 之后（注意力 · 防设定洪水盖住戏剧）
@@ -769,6 +779,12 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         )
         bud_rep["recent_item_count"] = int(
             _budget_report_holder.get("recent_item_count") or 0
+        )
+        bud_rep["procedural_item_count"] = int(
+            _budget_report_holder.get("procedural_item_count") or 0
+        )
+        bud_rep["procedural_dedup_dropped"] = int(
+            _budget_report_holder.get("procedural_dedup_dropped") or 0
         )
         bud_rep["drama_vacuum_injected"] = bool(
             _budget_report_holder.get("drama_vacuum_injected")

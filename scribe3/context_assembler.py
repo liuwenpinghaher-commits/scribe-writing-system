@@ -72,6 +72,20 @@ _HEADERS: dict[str, str] = {
 }
 
 
+def _procedural_rule_text(rule: dict | None) -> str:
+    """list_craft_rules 实际键是 kind/pattern/note；旧夹具才用 rule/text/name。"""
+    if not isinstance(rule, dict):
+        return ""
+    txt = (rule.get("rule") or rule.get("text") or rule.get("name") or "").strip()
+    if txt:
+        return txt
+    kind = (rule.get("kind") or "").strip()
+    pattern = (rule.get("pattern") or "").strip()
+    note = (rule.get("note") or "").strip()
+    bits = [x for x in (kind, pattern, note) if x]
+    return " — ".join(bits)
+
+
 def _author_preference_constraint(text: str) -> str:
     """把已检索的显式作者写作偏好编译成生成期可执行约束。
 
@@ -439,7 +453,10 @@ class ContextAssembler:
             snapshot, by_kind.get("canonical"), user_query=user_query or "")
         items["recent"] = self._recent_items(
             snapshot, by_kind.get("working", []) + by_kind.get("episodic", []))
-        items["procedural"] = self._procedural_items(snapshot, by_kind.get("procedural"))
+        raw_proc = self._procedural_items(snapshot, by_kind.get("procedural"))
+        items["procedural"], proc_dropped = self._dedup_procedural_against_craft(raw_proc)
+        for it in proc_dropped:
+            policy_omitted.append(_omit(it, "procedural", "deduped_by_craft"))
         items["reference"] = self._reference_items(snapshot, by_kind.get("reference"))
         items["uncertainty"] = self._uncertainty_items(
             snapshot, by_kind.get("uncertainty"), superseded)
@@ -990,12 +1007,36 @@ class ContextAssembler:
         # U-011: 删静默降级,失败上抛(作者要 fail-loud)
         rules = self.store.list_craft_rules() or []
         for r in rules[:8]:
-            txt = (r.get("rule") or r.get("text") or r.get("name") or "").strip()
+            txt = _procedural_rule_text(r)
             if txt:
                 out.append(_Item("- 工艺:" + txt[:80], ContextSource(
                     source_id=str(r.get("id") or "craft"),
                     source_kind="procedural", work=snapshot.work)))
         return out
+
+    def _dedup_procedural_against_craft(
+        self, items: list[_Item],
+    ) -> tuple[list[_Item], list[_Item]]:
+        """丢掉已被独立 craft 段 compact 覆盖的工艺行（仿 phase_role 去重）。"""
+        if not items:
+            return [], []
+        try:
+            from scribe3.craft import build_craft_block
+            from scribe3.injection_compact import line_echoes_cover
+            rules = self.store.list_craft_rules() or []
+            cover = build_craft_block(rules) or ""
+        except Exception:
+            return list(items), []
+        if not str(cover).strip():
+            return list(items), []
+        kept: list[_Item] = []
+        dropped: list[_Item] = []
+        for it in items:
+            if line_echoes_cover(it.text, cover):
+                dropped.append(it)
+            else:
+                kept.append(it)
+        return kept, dropped
 
     def _reference_items(self, snapshot: ContextSnapshot, cands) -> list[_Item]:
         """reference:素材召回,始终带"借鉴非事实"免责。首行恒为免责声明(留痕独立源)。

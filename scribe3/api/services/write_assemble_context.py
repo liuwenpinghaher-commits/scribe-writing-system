@@ -921,6 +921,29 @@ def recent_item_count_from_envelope(envelope) -> int:
     return 0
 
 
+def procedural_stats_from_envelope(envelope) -> dict[str, int]:
+    """信封 procedural 条数 + 因 craft compact 去重而 omitted 的条数。"""
+    item_count = 0
+    for b in getattr(envelope, "blocks", None) or []:
+        if getattr(b, "name", "") != "procedural":
+            continue
+        text = getattr(b, "text", "") or ""
+        item_count = sum(
+            1 for ln in text.splitlines() if ln.lstrip().startswith("- ")
+        )
+        break
+    dropped = 0
+    for o in getattr(envelope, "omitted", None) or []:
+        if not isinstance(o, dict):
+            continue
+        if o.get("block") == "procedural" and o.get("reason") == "deduped_by_craft":
+            dropped += 1
+    return {
+        "procedural_item_count": item_count,
+        "procedural_dedup_dropped": dropped,
+    }
+
+
 def _record_story_soft_fail(kind: str) -> None:
     try:
         from scribe3.api.services.write_assemble import record_write_soft_fail

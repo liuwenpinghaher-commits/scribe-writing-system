@@ -256,3 +256,59 @@ def pressure_diff_keys(
 def should_omit_avoid_domain() -> bool:
     """开旗时独立 avoid 域不推入 segments。"""
     return avoid_merge_antislop_enabled()
+
+
+_PROC_MARKER_RE = re.compile(
+    r"^[-*•]\s*(?:【?工艺(?:方法)?】?[:：]?)?"
+)
+
+
+def _procedural_payload(line: str) -> str:
+    """去掉列表符与「工艺:」前缀，留下可与 craft 对照的载荷。"""
+    body = (line or "").strip()
+    if not body:
+        return ""
+    body = _PROC_MARKER_RE.sub("", body).strip()
+    return body
+
+
+def line_echoes_cover(line: str, cover: str, *, min_len: int = 8) -> bool:
+    """行是否已被 cover compact 覆盖。
+
+    对整块 cover 做 bigram 包含度会误伤（常用二字到处都有），
+    因此只认：去空白子串命中，或与 cover **单行** Jaccard≥0.5 / 包含度≥0.6。
+    """
+    payload = _procedural_payload(line)
+    if not payload or not (cover or "").strip():
+        return False
+    compact_line = _norm(payload)
+    compact_cover = _norm(cover)
+    if len(compact_line) >= min_len and compact_line in compact_cover:
+        return True
+    sb = _bigrams(compact_line)
+    if not sb:
+        return False
+    for raw in (cover or "").splitlines():
+        ct = _norm(raw)
+        if len(ct) < 4:
+            continue
+        if len(compact_line) >= min_len and compact_line in ct:
+            return True
+        cb = _bigrams(ct)
+        if _jaccard(sb, cb) >= 0.5 or _containment(sb, cb) >= 0.6:
+            return True
+    return False
+
+
+def filter_procedural_lines(
+    lines: list[str] | None, craft_text: str,
+) -> tuple[list[str], int]:
+    """丢掉已被 craft 段 compact 覆盖的工艺行。返回 (保留行, 丢弃数)。"""
+    kept: list[str] = []
+    dropped = 0
+    for ln in lines or []:
+        if line_echoes_cover(ln, craft_text):
+            dropped += 1
+            continue
+        kept.append(ln)
+    return kept, dropped
