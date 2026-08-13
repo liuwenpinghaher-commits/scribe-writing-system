@@ -53,5 +53,5 @@
 | W4 | structure_diversity | 5 | 5 | 5 | 5 | 5 | 已独立 _push，不再吞进 prefix |
 | W4 | tool_scope | 5 | 5 | 5 | 5 | 5 | 已独立 _push（仅 with_tools） |
 | W4 | voice_anchor | 4 | 4 | 4 | 3 | 3 | 无 profile 时一行「未登记声口」而非空。 |
-| W4 | volume_intro | 4 | 3 | 4 | 3 | 3 | 保持 compact；空不 push。 |
+| W4 | volume_intro | 5 | 5 | 5 | 5 | 5 | 已落地：compact + 空不 push |
 | W4 | write_protocol | 5 | 5 | 5 | 5 | 5 | 已落地：独立段 + 与 CORE 整行差集 |

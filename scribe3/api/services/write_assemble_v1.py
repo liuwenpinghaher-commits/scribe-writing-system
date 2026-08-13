@@ -612,10 +612,17 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 _vid = str((st.get_chapter(chapter) or {}).get("volume") or "none")
             except Exception:
                 _vid = "none"
-        _vi = _domain_input(
-            f"volume:{_vid}:intro", "volume_intro", _vol_intro,
-        )
-        _push("volume_intro", "supplemental", _vi)
+        _vol_injected = False
+        _vol_skip = ""
+        if (_vol_intro or "").strip():
+            _vi = _domain_input(
+                f"volume:{_vid}:intro", "volume_intro", _vol_intro,
+            )
+            _push("volume_intro", "supplemental", _vi)
+            _vol_injected = True
+        else:
+            _vol_skip = "empty_volume_intro"
+            _record_write_soft_fail(_vol_skip)
         _bm = _domain_input(
             f"chapter:{chapter}:brief-must", "brief_must",
             _brief_must_sections_write_block(st, chapter, focalizer=focalizer or ""),
@@ -908,6 +915,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         bud_rep["seed_words_injected"] = bool(_seed_injected)
         if _seed_skip:
             bud_rep["seed_words_skip_reason"] = _seed_skip
+        bud_rep["volume_intro_injected"] = bool(_vol_injected)
+        if _vol_skip:
+            bud_rep["volume_intro_skip_reason"] = _vol_skip
         # SL2：始终写入 storyline_inject 键（含 fail-soft / 旗关），便于 injection-trace
         bud_rep["storyline_inject"] = dict(_storyline_meta)
         # W2：discourse_soft 预算观测（meso_source / truncated）
