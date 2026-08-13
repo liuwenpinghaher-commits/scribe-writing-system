@@ -1011,6 +1011,8 @@ def _bind_and_register() -> None:
         _re = types.FunctionType(_fn.__code__, core.__dict__, _fn.__name__, _fn.__defaults__, _fn.__closure__)
         if getattr(_fn, '__kwdefaults__', None):
             _re.__kwdefaults__ = dict(_fn.__kwdefaults__)
+        if getattr(_fn, '__annotations__', None):
+            _re.__annotations__ = dict(_fn.__annotations__)
         setattr(core, _fn.__name__, _re)
         g[_fn.__name__] = _re
         router.add_api_route(_path, _re, methods=_methods, name=_name)
