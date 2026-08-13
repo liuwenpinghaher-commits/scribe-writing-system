@@ -377,6 +377,14 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         _push("drama_contract", "redline", _dr)
         env_text = render_envelope_text(envelope)
         try:
+            from scribe3.context_budget import subtract_canonical_lines_in_codex
+            env_text, _n_cx = subtract_canonical_lines_in_codex(
+                env_text, codex_input or "",
+            )
+            _budget_report_holder["canonical_codex_echoes_dropped"] = int(_n_cx)
+        except Exception:
+            _budget_report_holder["canonical_codex_echoes_dropped"] = 0
+        try:
             from scribe3.api.services.write_assemble_context import (
                 recent_item_count_from_envelope,
                 procedural_stats_from_envelope,
@@ -939,6 +947,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         bud_rep["request_constraint_injected"] = bool(_rc_injected)
         if _rc_skip:
             bud_rep["request_constraint_skip_reason"] = _rc_skip
+        bud_rep["canonical_codex_echoes_dropped"] = int(
+            _budget_report_holder.get("canonical_codex_echoes_dropped") or 0
+        )
         bud_rep["drama_vacuum_injected"] = bool(
             _budget_report_holder.get("drama_vacuum_injected")
         )

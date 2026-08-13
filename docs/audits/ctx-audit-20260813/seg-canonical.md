@@ -22,15 +22,17 @@
 
 ## 5. 评分
 
-| P_flow | 4 |
-| Q_craft | 4 |
+| P_flow | 5 |
+| Q_craft | 5 |
 | R_safety | 5 |
-| B_product | 4 |
-| Observability | 4 |
+| B_product | 5 |
+| Observability | 5 |
+
+P1：canonical 相对 codex 结构化差集；`canonical_codex_echoes_dropped`。
 
 ## 6. 最优改造
 
-**主方案：** codex 与 canonical 做结构化差集（已在 codex 的角色/规则勿再以 fact 行复读）。
+**主方案：** codex 与 canonical 做结构化差集（已在 codex 的角色/规则勿再以 fact 行复读）。**已落地。**
 
 **放弃：** 加大 9200 挤死其他块；或无焦点就灌全部 secret。
 

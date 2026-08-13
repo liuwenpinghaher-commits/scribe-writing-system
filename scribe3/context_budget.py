@@ -608,6 +608,31 @@ def estimate_tokens(text: str | None) -> int:
     return len(text or "")
 
 
+def subtract_canonical_lines_in_codex(
+    env_text: str | None, codex: str | None,
+) -> tuple[str, int]:
+    """从 envelope 的 canonical 块丢掉已在 codex 出现的整行（≥8 字）。其它块不动。"""
+    src = str(env_text or "")
+    cx = str(codex or "")
+    if not src or not cx:
+        return src, 0
+    out: list[str] = []
+    in_canon = False
+    dropped = 0
+    for line in src.splitlines(keepends=True):
+        body = line.strip()
+        if body.startswith("## "):
+            in_canon = "权威事实" in body
+            out.append(line)
+            continue
+        payload = body.lstrip("-*• ").strip()
+        if in_canon and len(payload) >= 8 and (body in cx or payload in cx):
+            dropped += 1
+            continue
+        out.append(line)
+    return "".join(out), dropped
+
+
 def subtract_codex_canonical_echoes(codex: str | None, canonical: str | None) -> str:
     """去掉已在 canonical/envelope 全文中出现的整行（≥8 字），再交给 cap。"""
     src = str(codex or "")
