@@ -1,42 +1,45 @@
 # 单元：reference
 
 - 层：L1-env | zone：mid | 裁剪档：ENV
-- 代码锚点：scribe3/context_assembler.py:1000
+- 代码锚点：scribe3/context_assembler.py:1041
 - 预算：见 INVENTORY；现网 `NOVEL_PROMPT_HARD=48000` / 信封 22000
 
 ## 1. 流程完善性
 
-恒先免责「借鉴非事实」；候选或 list_materials 标题。仅免责则整块视为空。额度 1800。
+恒先免责「借鉴非事实」。仅免责则整块空，omitted 记 `no_materials`。budget_report：`reference_no_materials`。
 
 ## 2. 生成质量
 
-第一性：素材不当正典。病：只标题信息量低。探针：有素材 ⇒ 免责行+标题；无素材 ⇒ 块不占额。
+第一性：素材不当正典。探针：空库 ⇒ no_materials；有标题才占额。
 
 ## 3. 爆炸半径
 
-误删免责会把素材当事实。回归：borrow_not_fact reason。
+免责门保留。不把素材正文当 canonical。
 
 ## 4. 业务完善性
 
-对应素材消费；非 50k MUST。
+免责文案「借鉴非事实」人话。
 
 ## 5. 评分
 
-| P_flow | 4 |
-| Q_craft | 4 |
-| R_safety | 4 |
-| B_product | 3 |
-| Observability | 3 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+P1：空素材 omitted.no_materials。
 
 ## 6. 最优改造
 
-**主方案：** 保持免责门；材料空时 omitted 记 no_materials 以便检查器。
+**主方案：** 保持免责门；材料空时 omitted 记 no_materials。**已落地。**
 
 **放弃：** 把素材正文当 canonical。
 
-**验收：** 改后用该段名的 assemble/trace 或纯函数断言覆盖本卷宗探针。
+**验收：** `test_reference_no_materials.py`
 
 ## 7. 证据
 
-- `scribe3/context_assembler.py:1000`
-- `scribe3/context_assembler.py:1005`
+- `scribe3/context_assembler.py` `_reference_items` / assemble omitted
+- `scribe3/api/services/write_assemble_context.py` `reference_no_materials_from_envelope`
+- `scribe3/tests/test_reference_no_materials.py`

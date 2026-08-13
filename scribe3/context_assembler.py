@@ -458,6 +458,17 @@ class ContextAssembler:
         for it in proc_dropped:
             policy_omitted.append(_omit(it, "procedural", "deduped_by_craft"))
         items["reference"] = self._reference_items(snapshot, by_kind.get("reference"))
+        if not items["reference"]:
+            policy_omitted.append({
+                "source_id": "reference:none",
+                "source_kind": "reference",
+                "block": "reference",
+                "reason": "no_materials",
+                "work": snapshot.work,
+                "revision": None,
+                "masked": False,
+                "content_digest": hashlib.sha256(b"").hexdigest(),
+            })
         items["uncertainty"] = self._uncertainty_items(
             snapshot, by_kind.get("uncertainty"), superseded)
         # 轨 2 B：去掉 canonical 中 fact 命题注入（保留 global 铁律/角色等）

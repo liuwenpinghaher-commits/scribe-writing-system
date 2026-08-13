@@ -975,6 +975,16 @@ def uncertainty_stats_from_envelope(envelope) -> dict[str, int]:
     }
 
 
+def reference_no_materials_from_envelope(envelope) -> bool:
+    """素材空块是否记了 no_materials（检查器可读）。"""
+    for o in getattr(envelope, "omitted", None) or []:
+        if not isinstance(o, dict):
+            continue
+        if o.get("block") == "reference" and o.get("reason") == "no_materials":
+            return True
+    return False
+
+
 def global_iron_stripped_from_envelope(envelope) -> bool:
     """strip 红线实验是否留下了明示行（避免看起来像没配置）。"""
     for b in getattr(envelope, "blocks", None) or []:
