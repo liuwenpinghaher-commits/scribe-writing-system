@@ -42,10 +42,8 @@ def get_last_run_card() -> dict[str, Any]:
 def run_card_persist_enabled() -> bool:
     if not run_card_enabled():
         return False
-    raw = os.environ.get("SCRIBE3_RUN_CARD_PERSIST")
-    if raw is None or str(raw).strip() == "":
-        return True
-    return str(raw).strip().lower() not in ("0", "false", "no", "off")
+    from scribe3.feature_flags import flag_truthy
+    return flag_truthy("SCRIBE3_RUN_CARD_PERSIST")
 
 
 def persist_run_card(st: Any, card: dict[str, Any]) -> bool:
