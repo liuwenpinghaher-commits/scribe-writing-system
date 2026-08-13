@@ -55,6 +55,29 @@ def test_l2_trim_keeps_beats_when_outline_is_victim():
     assert joined.count("甲") < 800
 
 
+def test_outline_block_no_fake_budget_command():
+    from scribe3.api.services.write_assemble_context import _outline_block
+
+    class St:
+        def get_chapter(self, seq):
+            if seq == 1:
+                return {
+                    "synopsis": "柳怀玉赴义庄验尸",
+                    "beats": [{"text": "抵达义庄"}, {"text": "发现异样"}],
+                }
+            return {
+                "synopsis": "柳怀玉赴义庄验尸",
+                "beats": [{"text": "抵达义庄", "budget": 400, "density": "密"}],
+            }
+
+    plain = _outline_block(St(), 1, mode="write")
+    assert "抵达义庄" in plain
+    assert "字数预算" not in plain
+    assert "按节拍轻重分配笔墨" in plain
+    funded = _outline_block(St(), 2, mode="write")
+    assert "字数预算" in funded
+
+
 def test_total_budget_keep_beats():
     raw = _outline_text()
     segs = [{"name": "outline", "layer": "supplemental", "text": raw}]

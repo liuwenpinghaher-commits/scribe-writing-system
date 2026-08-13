@@ -129,6 +129,7 @@ def _voice_anchor_block(st, focalizer: str = "") -> str:
 
 
 _VOLUME_INTRO_BUDGET = 400  # 卷纲摘要注入字符上限
+_OUTLINE_INJECT_BUDGET = 1200  # 大纲/节拍各栏上限（与 app_impl._OUTLINE_BUDGET 同量级）
 
 
 def _clip_chars(text: str, n: int) -> str:
@@ -172,19 +173,33 @@ def _outline_block(st, chapter: int, focalizer: str = "", *, mode: str = "write"
         raise   # U-011: fail-loud(_outline_block 大纲/节拍)
     synopsis = (ch.get("synopsis") or "").strip()
     beat_texts = []
+    has_beat_budget = False
     for b in ch.get("beats") or []:
-        t = ((b.get("text") if isinstance(b, dict) else str(b)) or "").strip()
+        if isinstance(b, dict):
+            t = (b.get("text") or "").strip()
+            if b.get("budget") not in (None, "", 0) or str(b.get("density") or "").strip():
+                has_beat_budget = True
+        else:
+            t = str(b or "").strip()
         if t:
             beat_texts.append(t)
     if not synopsis and not beat_texts:
         return ""
     parts = ["## 本章大纲/节拍(据此展开正文,勿另起炉灶)"]
     if synopsis:
-        parts.append("〔大纲〕" + _clip(synopsis, _OUTLINE_BUDGET))
+        parts.append("〔大纲〕" + _clip_chars(synopsis, _OUTLINE_INJECT_BUDGET))
     if beat_texts:
-        parts.append("〔节拍〕" + _clip(" ".join(f"{i}.{t}" for i, t in enumerate(beat_texts, 1)),
-                                       _OUTLINE_BUDGET))
-        parts.append("写作要求:严格按各情节点字数预算分配笔墨,预算内欠账的密点优先补足,不得均匀注水。")
+        parts.append("〔节拍〕" + _clip_chars(
+            " ".join(f"{i}.{t}" for i, t in enumerate(beat_texts, 1)),
+            _OUTLINE_INJECT_BUDGET,
+        ))
+        if has_beat_budget:
+            parts.append(
+                "写作要求:严格按各情节点字数预算分配笔墨,"
+                "预算内欠账的密点优先补足,不得均匀注水。"
+            )
+        else:
+            parts.append("写作要求:按节拍轻重分配笔墨,不得均匀注水。")
     if focalizer:
         parts.append("(以上为作者视角大纲,写限知视角时只呈现焦点者可感知的部分;"
                      "帧外私密留作伏笔,不得由焦点者知晓或道破。)")

@@ -10,7 +10,7 @@
 | W1 | final_reminder | 5 | 2 | 4 | 2 | 4 | 默认 CORE 短核，文体按书覆盖 |
 | W1 | focalizer | 5 | 5 | 5 | 5 | 5 | 已落地：独立 `_push` + 全知横幅点明 secret_guard |
 | W1 | narrative_contract | 5 | 5 | 5 | 5 | 5 | store 已与 drive 同构读写；get_chapter 解析 JSON 串；写路径能出场面头 |
-| W1 | outline | 5 | 5 | 5 | 4 | 5 | 半裁保拍已落地；B 下一轮去掉空喊字数预算 |
+| W1 | outline | 5 | 5 | 5 | 5 | 5 | 已落地：半裁保拍 + 无预算不喊字数预算 |
 | W1 | scene_truth_proj | 4 | 4 | 4 | 3 | 3 | budget_report 标明真相源路径 |
 | W1 | secret_guard | 5 | 5 | 5 | 5 | 5 | 已落地：独立 `_push` + `reveal_secret_ids` 覆盖 |
 | W2 | canonical | 4 | 4 | 5 | 4 | 4 | codex 与 canonical 做结构化差集（已在 codex 的角色/规则勿再以 fact 行复读）。 |

@@ -121,10 +121,10 @@
 | P_flow | 5 |
 | Q_craft | 5 |
 | R_safety | 5 |
-| B_product | 4 |
+| B_product | 5 |
 | Observability | 5 |
 
-P1：半裁改为保拍砍纲（`_half_cut_segment`）。B 残留：write 模式仍空喊「字数预算」。
+半裁保拍已落地。第 2 轮：无 budget/density 时不再空喊「字数预算」。
 
 ---
 

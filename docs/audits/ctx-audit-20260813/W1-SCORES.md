@@ -8,7 +8,7 @@
 | event_drive | 5 | 5 | 5 | 5 | 5 | 已落地：单点判定 + 短标题「本章冲突时钟」 |
 | drama_contract | 4 | 2 | 3 | 3 | 4 | 400 字先砍 MRU 套话、保代价/冲突 |
 | drama_vacuum | 3 | 3 | 4 | 3 | 3 | 触发改「无 goal∧conflict」+ 可操作短句 |
-| outline | 5 | 5 | 5 | 4 | 5 | 半裁保拍已落地；B 下一轮去掉空喊字数预算 |
+| outline | 5 | 5 | 5 | 5 | 5 | 已落地：半裁保拍 + 无预算不喊字数预算 |
 | deduction_final | 5 | 5 | 5 | 5 | 5 | 已落地：焦点优先压缩 + 整包硬帽 + 单段 push |
 | scene_truth_proj | 4 | 4 | 4 | 3 | 3 | budget_report 标明真相源路径 |
 | secret_guard | 5 | 5 | 5 | 5 | 5 | 已落地：独立 `_push` + `reveal_secret_ids` 覆盖 |
