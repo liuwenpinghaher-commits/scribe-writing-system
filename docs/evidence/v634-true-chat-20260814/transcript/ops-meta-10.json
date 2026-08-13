@@ -1,0 +1,64 @@
+{
+  "http": "200",
+  "summary": "meta 10",
+  "ops": [
+    {
+      "tool": "s3_patch_chapter_meta",
+      "args": {
+        "seq": 10,
+        "title": "第十章·揭炉夜",
+        "focalizer": "role:沈拾灯",
+        "synopsis": "三卷收束：揭炉之夜，灯芯、炉契与夜税三条线同时烧到镇口，沈拾灯与阿绣、霍三刀对峙。"
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649133094",
+      "status": "applied",
+      "summary": "meta 10",
+      "ops": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "args": {
+            "seq": 10,
+            "title": "第十章·揭炉夜",
+            "focalizer": "role:沈拾灯",
+            "synopsis": "三卷收束：揭炉之夜，灯芯、炉契与夜税三条线同时烧到镇口，沈拾灯与阿绣、霍三刀对峙。"
+          },
+          "label": "s3_patch_chapter_meta",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "seq": 10,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis"
+            ]
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "result": {
+            "status": "written",
+            "seq": 10,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis"
+            ]
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "http": "200",
+  "summary": "add 霍三刀",
+  "ops": [
+    {
+      "tool": "s3_add_character",
+      "args": {
+        "oid": "霍三刀",
+        "name": "霍三刀",
+        "importance": "major",
+        "appearance": "短髭，左眉断。",
+        "personality_detail": "笑里带刀，收夜路。",
+        "surface_goal": "收保护费保镇安。",
+        "deep_need": "挤走炉行独占夜路。",
+        "fear": "灯册上出现自己的把柄。",
+        "backstory": "行伍逃兵出身。"
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649096982",
+      "status": "error",
+      "summary": "add 霍三刀",
+      "ops": [
+        {
+          "tool": "s3_add_character",
+          "args": {
+            "oid": "霍三刀",
+            "name": "霍三刀",
+            "importance": "major",
+            "appearance": "短髭，左眉断。",
+            "personality_detail": "笑里带刀，收夜路。",
+            "surface_goal": "收保护费保镇安。",
+            "deep_need": "挤走炉行独占夜路。",
+            "fear": "灯册上出现自己的把柄。",
+            "backstory": "行伍逃兵出身。"
+          },
+          "label": "s3_add_character",
+          "out_of_allowlist": false,
+          "status": "error",
+          "error": "Database record `character:`霍三刀`` already exists"
+        }
+      ],
+      "applied": [],
+      "errors": [
+        {
+          "tool": "s3_add_character",
+          "error": "Database record `character:`霍三刀`` already exists"
+        }
+      ]
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "slug": "book_79c0d45e",
+  "title": "炉灰记·v6.3.4·真chat全能力·20260814-1919",
+  "created_iso": "2026-08-13T19:19:18.893020+00:00",
+  "created_at": null,
+  "source": "POST /api/works",
+  "listed": true,
+  "listed_created_at": null,
+  "owner_user_id": "admin",
+  "create_response": {
+    "slug": "book_79c0d45e",
+    "title": "炉灰记·v6.3.4·真chat全能力·20260814-1919",
+    "owner_user_id": "admin"
+  },
+  "now_utc": "2026-08-13T19:19:18.893038+00:00",
+  "thread_id": "ethread:book_79c0d45e:d22b2df29e6641d18adae159a697b148"
+}

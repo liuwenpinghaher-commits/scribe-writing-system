@@ -1,0 +1,64 @@
+{
+  "http": "200",
+  "summary": "syn 5",
+  "ops": [
+    {
+      "tool": "s3_patch_chapter_meta",
+      "args": {
+        "seq": 5,
+        "title": "第五章·当众揭册",
+        "focalizer": "role:沈拾灯",
+        "synopsis": "炉火将灭，沈拾灯当众要揭册，霍三刀抽鞘威吓，阿绣当场报出灯火门假账页码。"
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649237499",
+      "status": "applied",
+      "summary": "syn 5",
+      "ops": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "args": {
+            "seq": 5,
+            "title": "第五章·当众揭册",
+            "focalizer": "role:沈拾灯",
+            "synopsis": "炉火将灭，沈拾灯当众要揭册，霍三刀抽鞘威吓，阿绣当场报出灯火门假账页码。"
+          },
+          "label": "s3_patch_chapter_meta",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "seq": 5,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis"
+            ]
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "result": {
+            "status": "written",
+            "seq": 5,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis"
+            ]
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

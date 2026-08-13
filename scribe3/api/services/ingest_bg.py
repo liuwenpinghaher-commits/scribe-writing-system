@@ -91,6 +91,7 @@ def _bg_ingest(work: str, seq: int) -> None:
     backend = None
     ch_lock_held = False
     try:
+        from scribe3.store import SurrealStore
         st = SurrealStore(ns="scribe3", db=work)
         # A5: 统一章锁表面（ingest kind）+ 既有 lease CAS
         try:

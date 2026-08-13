@@ -1,0 +1,56 @@
+{
+  "http": "200",
+  "summary": "motif 炉契",
+  "ops": [
+    {
+      "tool": "s3_add_motif",
+      "args": {
+        "name": "炉契",
+        "theme": "炉火即契约",
+        "echoes": "炉契",
+        "unfolding": "全书"
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649100757",
+      "status": "applied",
+      "summary": "motif 炉契",
+      "ops": [
+        {
+          "tool": "s3_add_motif",
+          "args": {
+            "name": "炉契",
+            "theme": "炉火即契约",
+            "echoes": "炉契",
+            "unfolding": "全书"
+          },
+          "label": "s3_add_motif",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "name": "炉契",
+            "module": "motif"
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_add_motif",
+          "result": {
+            "status": "written",
+            "name": "炉契",
+            "module": "motif"
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

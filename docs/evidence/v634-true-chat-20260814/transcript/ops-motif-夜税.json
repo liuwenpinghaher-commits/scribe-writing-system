@@ -1,0 +1,56 @@
+{
+  "http": "200",
+  "summary": "motif 夜税",
+  "ops": [
+    {
+      "tool": "s3_add_motif",
+      "args": {
+        "name": "夜税",
+        "theme": "灯火门收夜税",
+        "echoes": "夜税",
+        "unfolding": "全书"
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649100977",
+      "status": "applied",
+      "summary": "motif 夜税",
+      "ops": [
+        {
+          "tool": "s3_add_motif",
+          "args": {
+            "name": "夜税",
+            "theme": "灯火门收夜税",
+            "echoes": "夜税",
+            "unfolding": "全书"
+          },
+          "label": "s3_add_motif",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "name": "夜税",
+            "module": "motif"
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_add_motif",
+          "result": {
+            "status": "written",
+            "name": "夜税",
+            "module": "motif"
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

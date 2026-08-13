@@ -1,0 +1,95 @@
+{
+  "slug": "book_79c0d45e",
+  "pass": true,
+  "fail_count": 0,
+  "pass_count": 17,
+  "fails": [],
+  "passes": [
+    {
+      "check": "intent.reader_feeling",
+      "ok": true,
+      "detail": "len=19"
+    },
+    {
+      "check": "intent.emotional_arc",
+      "ok": true,
+      "detail": "len=11"
+    },
+    {
+      "check": "intent.red_lines",
+      "ok": true,
+      "detail": "preview='一、不写无因果的超能开挂。\\n二、密不泄给不该知的人。\\n三、不把死人当笑话。'"
+    },
+    {
+      "check": "intent.total_word_goal",
+      "ok": true,
+      "detail": "goal=45000"
+    },
+    {
+      "check": "characters.count>=4",
+      "ok": true,
+      "detail": "n=4"
+    },
+    {
+      "check": "characters.codex_full(backstory+5fields)",
+      "ok": true,
+      "detail": "full=4/4 names=['沈拾灯', '老桂', '阿绣', '霍三刀']"
+    },
+    {
+      "check": "characters.has_protagonist",
+      "ok": true,
+      "detail": "importance values"
+    },
+    {
+      "check": "relations.ge3_or_graph_edges",
+      "ok": true,
+      "detail": "rel_or_edges=4"
+    },
+    {
+      "check": "world_rules_or_propositions.ge3",
+      "ok": true,
+      "detail": "rules=3 fact_nodes=6"
+    },
+    {
+      "check": "facts.ge5_or_graph",
+      "ok": true,
+      "detail": "facts=6 prop_nodes=6"
+    },
+    {
+      "check": "faction_item_term.two_categories",
+      "ok": true,
+      "detail": "kinds={'character': 4, 'faction': 1, 'item': 1, 'term': 1}"
+    },
+    {
+      "check": "promises.ge3",
+      "ok": true,
+      "detail": "n=3"
+    },
+    {
+      "check": "motifs.ge3",
+      "ok": true,
+      "detail": "n=3 names=['灯芯', '炉契', '夜税']"
+    },
+    {
+      "check": "volumes.ge3",
+      "ok": true,
+      "detail": "n=3"
+    },
+    {
+      "check": "chapters.ge10",
+      "ok": true,
+      "detail": "n=10"
+    },
+    {
+      "check": "synopsis.ge40chars.ge10",
+      "ok": true,
+      "detail": "syn_ok=10"
+    },
+    {
+      "check": "synopsis.mentions_character.ge8",
+      "ok": true,
+      "detail": "align=10"
+    }
+  ],
+  "policy": "WCG must pass before any acceptance draft_loop"
+}

@@ -1,0 +1,58 @@
+{
+  "http": "200",
+  "summary": "add 老桂",
+  "ops": [
+    {
+      "tool": "s3_add_character",
+      "args": {
+        "oid": "老桂",
+        "name": "老桂",
+        "importance": "major",
+        "appearance": "背微驼，袖藏火折。",
+        "personality_detail": "嘴甜手稳，会装听不见。",
+        "surface_goal": "卖桂花糖。",
+        "deep_need": "替灯火门盯炉火。",
+        "fear": "炉灭后无人记名。",
+        "backstory": "做过二十年炉旁学徒。"
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649097402",
+      "status": "error",
+      "summary": "add 老桂",
+      "ops": [
+        {
+          "tool": "s3_add_character",
+          "args": {
+            "oid": "老桂",
+            "name": "老桂",
+            "importance": "major",
+            "appearance": "背微驼，袖藏火折。",
+            "personality_detail": "嘴甜手稳，会装听不见。",
+            "surface_goal": "卖桂花糖。",
+            "deep_need": "替灯火门盯炉火。",
+            "fear": "炉灭后无人记名。",
+            "backstory": "做过二十年炉旁学徒。"
+          },
+          "label": "s3_add_character",
+          "out_of_allowlist": false,
+          "status": "error",
+          "error": "Database record `character:`老桂`` already exists"
+        }
+      ],
+      "applied": [],
+      "errors": [
+        {
+          "tool": "s3_add_character",
+          "error": "Database record `character:`老桂`` already exists"
+        }
+      ]
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

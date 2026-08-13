@@ -1,0 +1,64 @@
+{
+  "http": "200",
+  "summary": "syn5 4",
+  "ops": [
+    {
+      "tool": "s3_patch_chapter_meta",
+      "args": {
+        "seq": 4,
+        "title": "第四章·旧师记号",
+        "focalizer": "role:阿绣",
+        "synopsis": "老桂夜里偷抄灯册，阿绣撞见旧师兄记号，沈拾灯第一次把密册藏进腕上旧烫疤里。本章必写对峙场面。"
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649307788",
+      "status": "applied",
+      "summary": "syn5 4",
+      "ops": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "args": {
+            "seq": 4,
+            "title": "第四章·旧师记号",
+            "focalizer": "role:阿绣",
+            "synopsis": "老桂夜里偷抄灯册，阿绣撞见旧师兄记号，沈拾灯第一次把密册藏进腕上旧烫疤里。本章必写对峙场面。"
+          },
+          "label": "s3_patch_chapter_meta",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "seq": 4,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis"
+            ]
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "result": {
+            "status": "written",
+            "seq": 4,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis"
+            ]
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

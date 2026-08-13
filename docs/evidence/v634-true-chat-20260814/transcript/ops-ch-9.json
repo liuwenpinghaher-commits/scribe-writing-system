@@ -1,0 +1,60 @@
+{
+  "http": "200",
+  "summary": "第九章·入芯破例",
+  "ops": [
+    {
+      "tool": "s3_add_chapter",
+      "args": {
+        "title": "第九章·入芯破例",
+        "volume": "0xlzpfby025ok89y6gpv",
+        "seq": 9
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649132365",
+      "status": "applied",
+      "summary": "第九章·入芯破例",
+      "ops": [
+        {
+          "tool": "s3_add_chapter",
+          "args": {
+            "title": "第九章·入芯破例",
+            "volume": "0xlzpfby025ok89y6gpv",
+            "seq": 9
+          },
+          "label": "s3_add_chapter",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "chapter": {
+              "seq": 9,
+              "title": "第九章·入芯破例",
+              "volume": "0xlzpfby025ok89y6gpv"
+            }
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_add_chapter",
+          "result": {
+            "status": "written",
+            "chapter": {
+              "seq": 9,
+              "title": "第九章·入芯破例",
+              "volume": "0xlzpfby025ok89y6gpv"
+            }
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

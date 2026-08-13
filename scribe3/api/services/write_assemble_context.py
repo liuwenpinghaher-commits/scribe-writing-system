@@ -440,6 +440,7 @@ def _apply_deduction_pack_cap(parts: list[dict], cap: int) -> None:
 
 def _deduction_context_segments(
     st, seq: int, *, focalizer: str = "",
+    _focal_cap: int = FOCAL_DEDUCTION_PROSE_CAP,
 ) -> list[tuple[str, str, str]]:
     """把场景真相、每条限知投影与固定协议分开，供 Manifest 逐源追溯。
 
@@ -488,7 +489,7 @@ def _deduction_context_segments(
         if not prose:
             continue
         if _deduction_item_is_focal(item, focalizer):
-            clipped = _clip_chars(prose, FOCAL_DEDUCTION_PROSE_CAP)
+            clipped = _clip_chars(prose, _focal_cap)
             parts.append({
                 "source_id": f"chapter:{seq}:deduction:{ordinal:04d}:{identity}",
                 "source_kind": "deduction",

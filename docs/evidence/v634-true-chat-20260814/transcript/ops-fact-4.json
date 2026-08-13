@@ -1,0 +1,58 @@
+{
+  "http": "200",
+  "summary": "fact 4",
+  "ops": [
+    {
+      "tool": "s3_add_fact",
+      "args": {
+        "id": "fact:v634-4",
+        "entity": "role:老桂",
+        "attribute": "occupation",
+        "value": "卖糖盯炉",
+        "valid_from": 1
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649101880",
+      "status": "applied",
+      "summary": "fact 4",
+      "ops": [
+        {
+          "tool": "s3_add_fact",
+          "args": {
+            "id": "fact:v634-4",
+            "entity": "role:老桂",
+            "attribute": "occupation",
+            "value": "卖糖盯炉",
+            "valid_from": 1
+          },
+          "label": "s3_add_fact",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "fact_id": "fact:v634-4",
+            "value": "卖糖盯炉"
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_add_fact",
+          "result": {
+            "status": "written",
+            "fact_id": "fact:v634-4",
+            "value": "卖糖盯炉"
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

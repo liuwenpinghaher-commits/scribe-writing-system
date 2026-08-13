@@ -1,0 +1,56 @@
+{
+  "http": "200",
+  "summary": "faction 灯火门",
+  "ops": [
+    {
+      "tool": "s3_add_faction",
+      "args": {
+        "name": "灯火门",
+        "ideology": "收灯税控夜火",
+        "status": "active",
+        "public_face": "镇口灯税",
+        "first_mention_chapter": 1
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649099155",
+      "status": "applied",
+      "summary": "faction 灯火门",
+      "ops": [
+        {
+          "tool": "s3_add_faction",
+          "args": {
+            "name": "灯火门",
+            "ideology": "收灯税控夜火",
+            "status": "active",
+            "public_face": "镇口灯税",
+            "first_mention_chapter": 1
+          },
+          "label": "s3_add_faction",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "name": "灯火门"
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_add_faction",
+          "result": {
+            "status": "written",
+            "name": "灯火门"
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

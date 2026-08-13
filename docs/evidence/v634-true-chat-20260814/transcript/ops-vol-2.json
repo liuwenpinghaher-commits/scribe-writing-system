@@ -1,0 +1,52 @@
+{
+  "http": "200",
+  "summary": "卷三·揭炉",
+  "ops": [
+    {
+      "tool": "s3_add_volume",
+      "args": {
+        "title": "卷三·揭炉",
+        "intro": "当众揭册",
+        "sort_order": 2
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649128022",
+      "status": "applied",
+      "summary": "卷三·揭炉",
+      "ops": [
+        {
+          "tool": "s3_add_volume",
+          "args": {
+            "title": "卷三·揭炉",
+            "intro": "当众揭册",
+            "sort_order": 2
+          },
+          "label": "s3_add_volume",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "volume": "0xlzpfby025ok89y6gpv"
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_add_volume",
+          "result": {
+            "status": "written",
+            "volume": "0xlzpfby025ok89y6gpv"
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

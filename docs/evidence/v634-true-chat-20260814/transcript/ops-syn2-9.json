@@ -1,0 +1,64 @@
+{
+  "http": "200",
+  "summary": "syn 9",
+  "ops": [
+    {
+      "tool": "s3_patch_chapter_meta",
+      "args": {
+        "seq": 9,
+        "title": "第九章·入芯破例",
+        "focalizer": "role:沈拾灯",
+        "synopsis": "人名入芯的禁令被破例，沈拾灯差点把自己写进灯芯换阿绣失踪的哥哥，霍三刀在场冷看。"
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649238401",
+      "status": "applied",
+      "summary": "syn 9",
+      "ops": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "args": {
+            "seq": 9,
+            "title": "第九章·入芯破例",
+            "focalizer": "role:沈拾灯",
+            "synopsis": "人名入芯的禁令被破例，沈拾灯差点把自己写进灯芯换阿绣失踪的哥哥，霍三刀在场冷看。"
+          },
+          "label": "s3_patch_chapter_meta",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "seq": 9,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis"
+            ]
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "result": {
+            "status": "written",
+            "seq": 9,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis"
+            ]
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

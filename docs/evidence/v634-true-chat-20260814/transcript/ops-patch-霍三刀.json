@@ -1,0 +1,84 @@
+{
+  "http": "200",
+  "summary": "patch 霍三刀",
+  "ops": [
+    {
+      "tool": "s3_patch_character",
+      "args": {
+        "name": "霍三刀",
+        "importance": "major",
+        "appearance": "短髭，左眉断。",
+        "personality_detail": "笑里带刀，收夜路。",
+        "surface_goal": "收保护费保镇安。",
+        "deep_need": "挤走炉行独占夜路。",
+        "fear": "灯册上出现自己的把柄。",
+        "backstory": "行伍逃兵出身。",
+        "character_id": "霍三刀"
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649097189",
+      "status": "applied",
+      "summary": "patch 霍三刀",
+      "ops": [
+        {
+          "tool": "s3_patch_character",
+          "args": {
+            "name": "霍三刀",
+            "importance": "major",
+            "appearance": "短髭，左眉断。",
+            "personality_detail": "笑里带刀，收夜路。",
+            "surface_goal": "收保护费保镇安。",
+            "deep_need": "挤走炉行独占夜路。",
+            "fear": "灯册上出现自己的把柄。",
+            "backstory": "行伍逃兵出身。",
+            "character_id": "霍三刀"
+          },
+          "label": "s3_patch_character",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "character_id": "role:霍三刀",
+            "fields": [
+              "name",
+              "importance",
+              "appearance",
+              "personality_detail",
+              "surface_goal",
+              "deep_need",
+              "fear",
+              "backstory"
+            ]
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_patch_character",
+          "result": {
+            "status": "written",
+            "character_id": "role:霍三刀",
+            "fields": [
+              "name",
+              "importance",
+              "appearance",
+              "personality_detail",
+              "surface_goal",
+              "deep_need",
+              "fear",
+              "backstory"
+            ]
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

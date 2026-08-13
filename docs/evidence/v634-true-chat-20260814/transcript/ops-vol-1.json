@@ -1,0 +1,52 @@
+{
+  "http": "200",
+  "summary": "卷二·对册",
+  "ops": [
+    {
+      "tool": "s3_add_volume",
+      "args": {
+        "title": "卷二·对册",
+        "intro": "假账与还鞘",
+        "sort_order": 1
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649127816",
+      "status": "applied",
+      "summary": "卷二·对册",
+      "ops": [
+        {
+          "tool": "s3_add_volume",
+          "args": {
+            "title": "卷二·对册",
+            "intro": "假账与还鞘",
+            "sort_order": 1
+          },
+          "label": "s3_add_volume",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "volume": "ehvgy6vtsuo43x7jtxh9"
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_add_volume",
+          "result": {
+            "status": "written",
+            "volume": "ehvgy6vtsuo43x7jtxh9"
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

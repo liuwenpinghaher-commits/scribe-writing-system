@@ -1,0 +1,58 @@
+{
+  "http": "200",
+  "summary": "add 阿绣",
+  "ops": [
+    {
+      "tool": "s3_add_character",
+      "args": {
+        "oid": "阿绣",
+        "name": "阿绣",
+        "importance": "major",
+        "appearance": "编发缠铜丝，眼亮而冷。",
+        "personality_detail": "账目极清，对人极冷。",
+        "surface_goal": "帮沈拾灯记炉账。",
+        "deep_need": "查清失踪的哥哥。",
+        "fear": "再信错一个人。",
+        "backstory": "幼年在灯火门当过记名弟子。"
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649096560",
+      "status": "error",
+      "summary": "add 阿绣",
+      "ops": [
+        {
+          "tool": "s3_add_character",
+          "args": {
+            "oid": "阿绣",
+            "name": "阿绣",
+            "importance": "major",
+            "appearance": "编发缠铜丝，眼亮而冷。",
+            "personality_detail": "账目极清，对人极冷。",
+            "surface_goal": "帮沈拾灯记炉账。",
+            "deep_need": "查清失踪的哥哥。",
+            "fear": "再信错一个人。",
+            "backstory": "幼年在灯火门当过记名弟子。"
+          },
+          "label": "s3_add_character",
+          "out_of_allowlist": false,
+          "status": "error",
+          "error": "Database record `character:`阿绣`` already exists"
+        }
+      ],
+      "applied": [],
+      "errors": [
+        {
+          "tool": "s3_add_character",
+          "error": "Database record `character:`阿绣`` already exists"
+        }
+      ]
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "http": "200",
+  "summary": "meta 2",
+  "ops": [
+    {
+      "tool": "s3_patch_chapter_meta",
+      "args": {
+        "seq": 2,
+        "title": "第二章·夜税假账",
+        "focalizer": "role:阿绣",
+        "synopsis": "阿绣对账发现灯火门多收了三户夜税，沈拾灯不敢揭，老桂却笑着送糖。"
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649129274",
+      "status": "applied",
+      "summary": "meta 2",
+      "ops": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "args": {
+            "seq": 2,
+            "title": "第二章·夜税假账",
+            "focalizer": "role:阿绣",
+            "synopsis": "阿绣对账发现灯火门多收了三户夜税，沈拾灯不敢揭，老桂却笑着送糖。"
+          },
+          "label": "s3_patch_chapter_meta",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "seq": 2,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis"
+            ]
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "result": {
+            "status": "written",
+            "seq": 2,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis"
+            ]
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

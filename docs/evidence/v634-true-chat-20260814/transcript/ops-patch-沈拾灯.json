@@ -1,0 +1,84 @@
+{
+  "http": "200",
+  "summary": "patch 沈拾灯",
+  "ops": [
+    {
+      "tool": "s3_patch_character",
+      "args": {
+        "name": "沈拾灯",
+        "importance": "protagonist",
+        "appearance": "青衫窄袖，腕上旧烫疤。",
+        "personality_detail": "守夜隐忍，却会在灯册前失声。",
+        "surface_goal": "守住镇口铜炉不被封。",
+        "deep_need": "赎父亲把人写进灯芯的债。",
+        "fear": "自己的名字被写进灯芯。",
+        "backstory": "炉行三代守夜人之后。",
+        "character_id": "沈拾灯"
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649096336",
+      "status": "applied",
+      "summary": "patch 沈拾灯",
+      "ops": [
+        {
+          "tool": "s3_patch_character",
+          "args": {
+            "name": "沈拾灯",
+            "importance": "protagonist",
+            "appearance": "青衫窄袖，腕上旧烫疤。",
+            "personality_detail": "守夜隐忍，却会在灯册前失声。",
+            "surface_goal": "守住镇口铜炉不被封。",
+            "deep_need": "赎父亲把人写进灯芯的债。",
+            "fear": "自己的名字被写进灯芯。",
+            "backstory": "炉行三代守夜人之后。",
+            "character_id": "沈拾灯"
+          },
+          "label": "s3_patch_character",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "character_id": "role:沈拾灯",
+            "fields": [
+              "name",
+              "importance",
+              "appearance",
+              "personality_detail",
+              "surface_goal",
+              "deep_need",
+              "fear",
+              "backstory"
+            ]
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_patch_character",
+          "result": {
+            "status": "written",
+            "character_id": "role:沈拾灯",
+            "fields": [
+              "name",
+              "importance",
+              "appearance",
+              "personality_detail",
+              "surface_goal",
+              "deep_need",
+              "fear",
+              "backstory"
+            ]
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

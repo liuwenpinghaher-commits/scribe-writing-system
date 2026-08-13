@@ -1,0 +1,48 @@
+{
+  "http": "200",
+  "summary": "rel 沈拾灯-霍三刀",
+  "ops": [
+    {
+      "tool": "s3_add_character_relation",
+      "args": {
+        "src_oid": "沈拾灯",
+        "dst_oid": "霍三刀",
+        "relation": "对峙",
+        "since_chapter": 1
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649098065",
+      "status": "error",
+      "summary": "rel 沈拾灯-霍三刀",
+      "ops": [
+        {
+          "tool": "s3_add_character_relation",
+          "args": {
+            "src_oid": "沈拾灯",
+            "dst_oid": "霍三刀",
+            "relation": "对峙",
+            "since_chapter": 1
+          },
+          "label": "s3_add_character_relation",
+          "out_of_allowlist": false,
+          "status": "error",
+          "error": "Found '对峙' for field `relation`, with record `character_relation:96cbdyu45f0uv50hk2eb`, but field must conform to: $value INSIDE ['父子', '母子', '兄弟', '姐妹', '夫妻', '师徒', '养父子', '知己', '战友', '盟友', '同门', '恩人', '同行', '熟人', '上下级', '雇主雇员', '仇敌', '宿敌', '竞争者', '利益对立', '爱恨交织', '前恋人', '背叛者', 'ally', 'enemy', 'kin', 'master_disciple', 'lover', 'custom']"
+        }
+      ],
+      "applied": [],
+      "errors": [
+        {
+          "tool": "s3_add_character_relation",
+          "error": "Found '对峙' for field `relation`, with record `character_relation:96cbdyu45f0uv50hk2eb`, but field must conform to: $value INSIDE ['父子', '母子', '兄弟', '姐妹', '夫妻', '师徒', '养父子', '知己', '战友', '盟友', '同门', '恩人', '同行', '熟人', '上下级', '雇主雇员', '仇敌', '宿敌', '竞争者', '利益对立', '爱恨交织', '前恋人', '背叛者', 'ally', 'enemy', 'kin', 'master_disciple', 'lover', 'custom']"
+        }
+      ]
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

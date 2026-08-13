@@ -1,0 +1,134 @@
+{
+  "http": "200",
+  "summary": "gate-b ch1",
+  "ops": [
+    {
+      "tool": "s3_patch_chapter_meta",
+      "args": {
+        "seq": 1,
+        "title": "第一章·缺页灯册",
+        "focalizer": "role:沈拾灯",
+        "synopsis": "沈拾灯守炉到四更，阿绣送来缺页灯册，镇口风里霍三刀的断刀鞘轻响。炉火未冷，夜税将至。本章必写对峙场面：缺页、铜腥、刀鞘三线同时落地。沈拾灯必须在灯册前失声一次，却不能揭破炉契全文。",
+        "scene_truth": "四更镇口铜炉未灭。阿绣把缺了三页的灯册塞进沈拾灯手里。霍三刀在巷口敲断刀鞘。沈拾灯腕上旧烫疤发烫。灯册缺页处留着灯火门的夜税记号。老桂隔巷卖糖，听得见炉响。夜风把铜腥灌进袖口。",
+        "involved_characters": [
+          "role:沈拾灯",
+          "role:阿绣",
+          "role:霍三刀"
+        ],
+        "beats": [
+          {
+            "text": "沈拾灯守炉闻铜腥，发现灯册缺页。"
+          },
+          {
+            "text": "阿绣到炉前对账，指出夜税被人改过。"
+          },
+          {
+            "text": "霍三刀巷口敲鞘，逼沈拾灯表态是否封炉。"
+          }
+        ],
+        "deductions": [
+          {
+            "character_id": "role:沈拾灯",
+            "prose": "四更镇口铜炉未灭。阿绣把缺了三页的灯册塞进沈拾灯手里。"
+          },
+          {
+            "character_id": "role:阿绣",
+            "prose": "阿绣把缺了三页的灯册塞进沈拾灯手里。"
+          },
+          {
+            "character_id": "role:霍三刀",
+            "prose": "霍三刀在巷口敲断刀鞘。"
+          }
+        ]
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649679672",
+      "status": "applied",
+      "summary": "gate-b ch1",
+      "ops": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "args": {
+            "seq": 1,
+            "title": "第一章·缺页灯册",
+            "focalizer": "role:沈拾灯",
+            "synopsis": "沈拾灯守炉到四更，阿绣送来缺页灯册，镇口风里霍三刀的断刀鞘轻响。炉火未冷，夜税将至。本章必写对峙场面：缺页、铜腥、刀鞘三线同时落地。沈拾灯必须在灯册前失声一次，却不能揭破炉契全文。",
+            "scene_truth": "四更镇口铜炉未灭。阿绣把缺了三页的灯册塞进沈拾灯手里。霍三刀在巷口敲断刀鞘。沈拾灯腕上旧烫疤发烫。灯册缺页处留着灯火门的夜税记号。老桂隔巷卖糖，听得见炉响。夜风把铜腥灌进袖口。",
+            "involved_characters": [
+              "role:沈拾灯",
+              "role:阿绣",
+              "role:霍三刀"
+            ],
+            "beats": [
+              {
+                "text": "沈拾灯守炉闻铜腥，发现灯册缺页。"
+              },
+              {
+                "text": "阿绣到炉前对账，指出夜税被人改过。"
+              },
+              {
+                "text": "霍三刀巷口敲鞘，逼沈拾灯表态是否封炉。"
+              }
+            ],
+            "deductions": [
+              {
+                "character_id": "role:沈拾灯",
+                "prose": "四更镇口铜炉未灭。阿绣把缺了三页的灯册塞进沈拾灯手里。"
+              },
+              {
+                "character_id": "role:阿绣",
+                "prose": "阿绣把缺了三页的灯册塞进沈拾灯手里。"
+              },
+              {
+                "character_id": "role:霍三刀",
+                "prose": "霍三刀在巷口敲断刀鞘。"
+              }
+            ]
+          },
+          "label": "s3_patch_chapter_meta",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "seq": 1,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis",
+              "scene_truth",
+              "involved_characters",
+              "beats",
+              "deductions"
+            ]
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "result": {
+            "status": "written",
+            "seq": 1,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis",
+              "scene_truth",
+              "involved_characters",
+              "beats",
+              "deductions"
+            ]
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "http": "200",
+  "summary": "term 炉契",
+  "ops": [
+    {
+      "tool": "s3_add_term",
+      "args": {
+        "name": "炉契",
+        "category": "禁令",
+        "definition": "把人名写进灯芯便不得反悔",
+        "first_mention_chapter": 1
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649099653",
+      "status": "applied",
+      "summary": "term 炉契",
+      "ops": [
+        {
+          "tool": "s3_add_term",
+          "args": {
+            "name": "炉契",
+            "category": "禁令",
+            "definition": "把人名写进灯芯便不得反悔",
+            "first_mention_chapter": 1
+          },
+          "label": "s3_add_term",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "name": "炉契"
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_add_term",
+          "result": {
+            "status": "written",
+            "name": "炉契"
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

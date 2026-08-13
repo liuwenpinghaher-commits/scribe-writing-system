@@ -1,0 +1,134 @@
+{
+  "http": "200",
+  "summary": "gate-b ch5",
+  "ops": [
+    {
+      "tool": "s3_patch_chapter_meta",
+      "args": {
+        "seq": 5,
+        "title": "第五章·当众揭册",
+        "focalizer": "role:沈拾灯",
+        "synopsis": "炉火将灭，沈拾灯当众要揭册，霍三刀抽鞘威吓，阿绣当场报出灯火门假账页码与人名。本章收束卷一，灯芯、炉契、夜税三条线同时烧到镇口，须当众对峙。揭册不是胜利，是把债摊到所有人面前。",
+        "scene_truth": "炉火将灭。沈拾灯当众揭册。霍三刀抽鞘。阿绣报出假账页码。镇口人听见炉契二字。灯芯债第一次被当众点到。铜腥与炉灰同时扑面。没人敢先眨眼，刀鞘已经出了一寸。炉火只剩一层薄皮。",
+        "involved_characters": [
+          "role:沈拾灯",
+          "role:阿绣",
+          "role:霍三刀"
+        ],
+        "beats": [
+          {
+            "text": "炉火将灭，沈拾灯当众揭册。"
+          },
+          {
+            "text": "霍三刀抽鞘威吓。"
+          },
+          {
+            "text": "阿绣报出假账页码，夜税败露。"
+          }
+        ],
+        "deductions": [
+          {
+            "character_id": "role:沈拾灯",
+            "prose": "沈拾灯当众揭册。"
+          },
+          {
+            "character_id": "role:阿绣",
+            "prose": "阿绣报出假账页码。"
+          },
+          {
+            "character_id": "role:霍三刀",
+            "prose": "霍三刀抽鞘。"
+          }
+        ]
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786651201317",
+      "status": "applied",
+      "summary": "gate-b ch5",
+      "ops": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "args": {
+            "seq": 5,
+            "title": "第五章·当众揭册",
+            "focalizer": "role:沈拾灯",
+            "synopsis": "炉火将灭，沈拾灯当众要揭册，霍三刀抽鞘威吓，阿绣当场报出灯火门假账页码与人名。本章收束卷一，灯芯、炉契、夜税三条线同时烧到镇口，须当众对峙。揭册不是胜利，是把债摊到所有人面前。",
+            "scene_truth": "炉火将灭。沈拾灯当众揭册。霍三刀抽鞘。阿绣报出假账页码。镇口人听见炉契二字。灯芯债第一次被当众点到。铜腥与炉灰同时扑面。没人敢先眨眼，刀鞘已经出了一寸。炉火只剩一层薄皮。",
+            "involved_characters": [
+              "role:沈拾灯",
+              "role:阿绣",
+              "role:霍三刀"
+            ],
+            "beats": [
+              {
+                "text": "炉火将灭，沈拾灯当众揭册。"
+              },
+              {
+                "text": "霍三刀抽鞘威吓。"
+              },
+              {
+                "text": "阿绣报出假账页码，夜税败露。"
+              }
+            ],
+            "deductions": [
+              {
+                "character_id": "role:沈拾灯",
+                "prose": "沈拾灯当众揭册。"
+              },
+              {
+                "character_id": "role:阿绣",
+                "prose": "阿绣报出假账页码。"
+              },
+              {
+                "character_id": "role:霍三刀",
+                "prose": "霍三刀抽鞘。"
+              }
+            ]
+          },
+          "label": "s3_patch_chapter_meta",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "seq": 5,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis",
+              "scene_truth",
+              "involved_characters",
+              "beats",
+              "deductions"
+            ]
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "result": {
+            "status": "written",
+            "seq": 5,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis",
+              "scene_truth",
+              "involved_characters",
+              "beats",
+              "deductions"
+            ]
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

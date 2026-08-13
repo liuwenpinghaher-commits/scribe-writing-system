@@ -168,6 +168,36 @@ def test_pack_cap_drops_nonfocal_then_excerpts_truth():
     assert text.startswith("\n\n## 本章演绎") or "本章演绎" in text
 
 
+def test_rebound_globals_without_cap_name_still_clips():
+    """生产路径把函数 __globals__ 换成 app_impl；不得再 NameError FOCAL_DEDUCTION_PROSE_CAP。"""
+    import types
+    from scribe3.api.services import write_assemble_context as wac
+
+    bare = {
+        "_clip_chars": wac._clip_chars,
+        "_deduction_item_is_focal": wac._deduction_item_is_focal,
+        "_nonfocal_boundary_line": wac._nonfocal_boundary_line,
+        "_apply_deduction_pack_cap": wac._apply_deduction_pack_cap,
+    }
+    rebound = types.FunctionType(
+        wac._deduction_context_segments.__code__,
+        bare,
+        "_deduction_context_segments",
+        wac._deduction_context_segments.__defaults__,
+        wac._deduction_context_segments.__closure__,
+    )
+    rebound.__kwdefaults__ = dict(wac._deduction_context_segments.__kwdefaults__ or {})
+    segs = rebound(_Store(_default_chapter()), 1, focalizer="role:灰七")
+    assert segs
+    text = "".join(t for _, _, t in segs)
+    assert TRUTH in text
+
+
+def test_write_assemble_rebind_whitelist_includes_focal_cap():
+    from scribe3.api.services.write_assemble import WRITE_ASSEMBLE_REBIND_NAMES
+    assert "FOCAL_DEDUCTION_PROSE_CAP" in WRITE_ASSEMBLE_REBIND_NAMES
+
+
 def test_budget_report_length_equals_joined_and_under_cap():
     text, _ = _joined(_Store(_default_chapter(truth="真" * 3000)))
     assert 0 < len(text) <= DEFAULT_CODEX_INJECT_CAP

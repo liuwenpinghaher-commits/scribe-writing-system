@@ -1,0 +1,56 @@
+{
+  "http": "200",
+  "summary": "item 断刀鞘",
+  "ops": [
+    {
+      "tool": "s3_add_item",
+      "args": {
+        "name": "断刀鞘",
+        "category": "兵器",
+        "description": "霍三刀手持断刀鞘",
+        "current_owner": "role:霍三刀",
+        "first_chapter": 1
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649099378",
+      "status": "applied",
+      "summary": "item 断刀鞘",
+      "ops": [
+        {
+          "tool": "s3_add_item",
+          "args": {
+            "name": "断刀鞘",
+            "category": "兵器",
+            "description": "霍三刀手持断刀鞘",
+            "current_owner": "role:霍三刀",
+            "first_chapter": 1
+          },
+          "label": "s3_add_item",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "name": "断刀鞘"
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_add_item",
+          "result": {
+            "status": "written",
+            "name": "断刀鞘"
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

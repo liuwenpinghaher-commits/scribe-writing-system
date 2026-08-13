@@ -1,0 +1,82 @@
+{
+  "http": "200",
+  "body": {
+    "seq": 1,
+    "work": "book_79c0d45e",
+    "source": "body_confirmed",
+    "prose_chars": 5648,
+    "change_pack": {
+      "id": "cp_6b645996fc30",
+      "work": "book_79c0d45e",
+      "source": "body_confirmed",
+      "items": [],
+      "impact": {
+        "chapters": [],
+        "inject_surfaces": [
+          "chapter_brief",
+          "pilot_steer",
+          "write_assemble",
+          "project_frame"
+        ],
+        "note": "empty chapters means no prior chapter index hit (explicit empty, not omitted)"
+      },
+      "status": "proposed",
+      "l1_count": 0,
+      "l2_count": 0,
+      "requires_approval_count": 0
+    },
+    "sections": {
+      "l2_objective": {
+        "label": "客观账本（知识/可见事件类，可自动或一键 objective apply）",
+        "modules": [],
+        "items": [],
+        "auto_applied": false
+      },
+      "l1_requires_approval": {
+        "label": "设定正典（Codex/规则/关系基石，须人批后 apply）",
+        "modules": [],
+        "items": [],
+        "auto_applied": false
+      }
+    },
+    "impact": {
+      "chapters": [],
+      "inject_surfaces": [
+        "chapter_brief",
+        "pilot_steer",
+        "write_assemble",
+        "project_frame"
+      ],
+      "note": "empty chapters means no prior chapter index hit (explicit empty, not omitted)"
+    },
+    "silent_l1_write": false,
+    "debt": {
+      "total": 30,
+      "high": 4,
+      "by_module": {
+        "character": 24,
+        "promise": 3,
+        "relation": 3
+      }
+    },
+    "modules_all": [],
+    "extract_mode": "llm",
+    "extract_used_llm": false,
+    "unified_analysis": false,
+    "unified_format": null,
+    "ingest": null,
+    "qc_quick": {
+      "source": "deterministic",
+      "empty": false,
+      "grade": "heavy",
+      "gates_hit": [],
+      "counts": {
+        "structural": 1,
+        "ai_tics": 3,
+        "degeneration": 1,
+        "rhythm": 1
+      },
+      "word_count": 5648
+    }
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "http": "200",
+  "summary": "第七章·还鞘",
+  "ops": [
+    {
+      "tool": "s3_add_chapter",
+      "args": {
+        "title": "第七章·还鞘",
+        "volume": "ehvgy6vtsuo43x7jtxh9",
+        "seq": 7
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649131411",
+      "status": "applied",
+      "summary": "第七章·还鞘",
+      "ops": [
+        {
+          "tool": "s3_add_chapter",
+          "args": {
+            "title": "第七章·还鞘",
+            "volume": "ehvgy6vtsuo43x7jtxh9",
+            "seq": 7
+          },
+          "label": "s3_add_chapter",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "chapter": {
+              "seq": 7,
+              "title": "第七章·还鞘",
+              "volume": "ehvgy6vtsuo43x7jtxh9"
+            }
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_add_chapter",
+          "result": {
+            "status": "written",
+            "chapter": {
+              "seq": 7,
+              "title": "第七章·还鞘",
+              "volume": "ehvgy6vtsuo43x7jtxh9"
+            }
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

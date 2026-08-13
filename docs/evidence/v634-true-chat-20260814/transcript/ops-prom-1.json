@@ -1,0 +1,74 @@
+{
+  "http": "200",
+  "summary": "promise 1",
+  "ops": [
+    {
+      "tool": "s3_plant_promise",
+      "args": {
+        "text": "炉火若灭沈拾灯必须当众揭册",
+        "setup_chapter": 1,
+        "tier": "arc",
+        "kind": "promise"
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649099870",
+      "status": "applied",
+      "summary": "promise 1",
+      "ops": [
+        {
+          "tool": "s3_plant_promise",
+          "args": {
+            "text": "炉火若灭沈拾灯必须当众揭册",
+            "setup_chapter": 1,
+            "tier": "arc",
+            "kind": "promise"
+          },
+          "label": "s3_plant_promise",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "promise": {
+              "id": "17pgpjdzks4tlyo0mlw2",
+              "text": "炉火若灭沈拾灯必须当众揭册",
+              "setup_chapter": 1,
+              "tier": "arc",
+              "kind": "promise",
+              "status": "open",
+              "payoff_min": 6,
+              "payoff_max": 16,
+              "resolution": null
+            }
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_plant_promise",
+          "result": {
+            "status": "written",
+            "promise": {
+              "id": "17pgpjdzks4tlyo0mlw2",
+              "text": "炉火若灭沈拾灯必须当众揭册",
+              "setup_chapter": 1,
+              "tier": "arc",
+              "kind": "promise",
+              "status": "open",
+              "payoff_min": 6,
+              "payoff_max": 16,
+              "resolution": null
+            }
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

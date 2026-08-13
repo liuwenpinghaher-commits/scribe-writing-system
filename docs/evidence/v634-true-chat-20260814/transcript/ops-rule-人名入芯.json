@@ -1,0 +1,54 @@
+{
+  "http": "200",
+  "summary": "rule 人名入芯",
+  "ops": [
+    {
+      "tool": "s3_add_world_rule",
+      "args": {
+        "name": "人名入芯",
+        "category": "social",
+        "note": "人名写进灯芯便不得反悔",
+        "established_chapter": 1
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649098939",
+      "status": "applied",
+      "summary": "rule 人名入芯",
+      "ops": [
+        {
+          "tool": "s3_add_world_rule",
+          "args": {
+            "name": "人名入芯",
+            "category": "social",
+            "note": "人名写进灯芯便不得反悔",
+            "established_chapter": 1
+          },
+          "label": "s3_add_world_rule",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "name": "人名入芯"
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_add_world_rule",
+          "result": {
+            "status": "written",
+            "name": "人名入芯"
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

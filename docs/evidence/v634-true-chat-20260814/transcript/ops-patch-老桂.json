@@ -1,0 +1,84 @@
+{
+  "http": "200",
+  "summary": "patch 老桂",
+  "ops": [
+    {
+      "tool": "s3_patch_character",
+      "args": {
+        "name": "老桂",
+        "importance": "major",
+        "appearance": "背微驼，袖藏火折。",
+        "personality_detail": "嘴甜手稳，会装听不见。",
+        "surface_goal": "卖桂花糖。",
+        "deep_need": "替灯火门盯炉火。",
+        "fear": "炉灭后无人记名。",
+        "backstory": "做过二十年炉旁学徒。",
+        "character_id": "老桂"
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649097625",
+      "status": "applied",
+      "summary": "patch 老桂",
+      "ops": [
+        {
+          "tool": "s3_patch_character",
+          "args": {
+            "name": "老桂",
+            "importance": "major",
+            "appearance": "背微驼，袖藏火折。",
+            "personality_detail": "嘴甜手稳，会装听不见。",
+            "surface_goal": "卖桂花糖。",
+            "deep_need": "替灯火门盯炉火。",
+            "fear": "炉灭后无人记名。",
+            "backstory": "做过二十年炉旁学徒。",
+            "character_id": "老桂"
+          },
+          "label": "s3_patch_character",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "character_id": "role:老桂",
+            "fields": [
+              "name",
+              "importance",
+              "appearance",
+              "personality_detail",
+              "surface_goal",
+              "deep_need",
+              "fear",
+              "backstory"
+            ]
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_patch_character",
+          "result": {
+            "status": "written",
+            "character_id": "role:老桂",
+            "fields": [
+              "name",
+              "importance",
+              "appearance",
+              "personality_detail",
+              "surface_goal",
+              "deep_need",
+              "fear",
+              "backstory"
+            ]
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

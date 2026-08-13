@@ -1,0 +1,64 @@
+{
+  "http": "200",
+  "summary": "syn 7",
+  "ops": [
+    {
+      "tool": "s3_patch_chapter_meta",
+      "args": {
+        "seq": 7,
+        "title": "第七章·还鞘",
+        "focalizer": "role:霍三刀",
+        "synopsis": "霍三刀被灯册反咬把柄，来炉前还鞘求情，老桂两头传话，沈拾灯不收也不肯放人。"
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649237928",
+      "status": "applied",
+      "summary": "syn 7",
+      "ops": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "args": {
+            "seq": 7,
+            "title": "第七章·还鞘",
+            "focalizer": "role:霍三刀",
+            "synopsis": "霍三刀被灯册反咬把柄，来炉前还鞘求情，老桂两头传话，沈拾灯不收也不肯放人。"
+          },
+          "label": "s3_patch_chapter_meta",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "seq": 7,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis"
+            ]
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "result": {
+            "status": "written",
+            "seq": 7,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis"
+            ]
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

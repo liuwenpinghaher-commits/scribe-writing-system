@@ -1,0 +1,64 @@
+{
+  "http": "200",
+  "summary": "meta 3",
+  "ops": [
+    {
+      "tool": "s3_patch_chapter_meta",
+      "args": {
+        "seq": 3,
+        "title": "第三章·封炉之夜",
+        "focalizer": "role:沈拾灯",
+        "synopsis": "霍三刀逼沈拾灯封炉一夜，沈拾灯想起父亲写进灯芯的人名，阿绣挡在炉前。"
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649129746",
+      "status": "applied",
+      "summary": "meta 3",
+      "ops": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "args": {
+            "seq": 3,
+            "title": "第三章·封炉之夜",
+            "focalizer": "role:沈拾灯",
+            "synopsis": "霍三刀逼沈拾灯封炉一夜，沈拾灯想起父亲写进灯芯的人名，阿绣挡在炉前。"
+          },
+          "label": "s3_patch_chapter_meta",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "seq": 3,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis"
+            ]
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "result": {
+            "status": "written",
+            "seq": 3,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis"
+            ]
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

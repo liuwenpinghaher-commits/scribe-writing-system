@@ -1,0 +1,134 @@
+{
+  "http": "200",
+  "summary": "gate-b ch3",
+  "ops": [
+    {
+      "tool": "s3_patch_chapter_meta",
+      "args": {
+        "seq": 3,
+        "title": "第三章·封炉之夜",
+        "focalizer": "role:沈拾灯",
+        "synopsis": "霍三刀逼沈拾灯封炉一夜，沈拾灯想起父亲写进灯芯的人名，阿绣挡在滚烫炉前不肯让开。本章必写封炉威胁与灯芯债回指，不得无因果开挂，并让缺页灯册再次出现。封炉等于把夜税交给霍三刀，沈拾灯必须在炉前做出选择。",
+        "scene_truth": "霍三刀逼沈拾灯封炉一夜。沈拾灯想起父亲写进灯芯的人名。阿绣挡在滚烫炉前。炉火一低，灯册缺页像一张嘴。封炉意味着夜税改由霍三刀收。铜腥压在喉咙。镇口人在巷口看热闹，没人敢上前添柴。",
+        "involved_characters": [
+          "role:沈拾灯",
+          "role:阿绣",
+          "role:霍三刀"
+        ],
+        "beats": [
+          {
+            "text": "霍三刀下令封炉一夜。"
+          },
+          {
+            "text": "沈拾灯想起灯芯里的父债。"
+          },
+          {
+            "text": "阿绣以身挡炉，封炉未成。"
+          }
+        ],
+        "deductions": [
+          {
+            "character_id": "role:沈拾灯",
+            "prose": "沈拾灯想起父亲写进灯芯的人名。"
+          },
+          {
+            "character_id": "role:阿绣",
+            "prose": "阿绣挡在滚烫炉前。"
+          },
+          {
+            "character_id": "role:霍三刀",
+            "prose": "霍三刀逼沈拾灯封炉一夜。"
+          }
+        ]
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786650797266",
+      "status": "applied",
+      "summary": "gate-b ch3",
+      "ops": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "args": {
+            "seq": 3,
+            "title": "第三章·封炉之夜",
+            "focalizer": "role:沈拾灯",
+            "synopsis": "霍三刀逼沈拾灯封炉一夜，沈拾灯想起父亲写进灯芯的人名，阿绣挡在滚烫炉前不肯让开。本章必写封炉威胁与灯芯债回指，不得无因果开挂，并让缺页灯册再次出现。封炉等于把夜税交给霍三刀，沈拾灯必须在炉前做出选择。",
+            "scene_truth": "霍三刀逼沈拾灯封炉一夜。沈拾灯想起父亲写进灯芯的人名。阿绣挡在滚烫炉前。炉火一低，灯册缺页像一张嘴。封炉意味着夜税改由霍三刀收。铜腥压在喉咙。镇口人在巷口看热闹，没人敢上前添柴。",
+            "involved_characters": [
+              "role:沈拾灯",
+              "role:阿绣",
+              "role:霍三刀"
+            ],
+            "beats": [
+              {
+                "text": "霍三刀下令封炉一夜。"
+              },
+              {
+                "text": "沈拾灯想起灯芯里的父债。"
+              },
+              {
+                "text": "阿绣以身挡炉，封炉未成。"
+              }
+            ],
+            "deductions": [
+              {
+                "character_id": "role:沈拾灯",
+                "prose": "沈拾灯想起父亲写进灯芯的人名。"
+              },
+              {
+                "character_id": "role:阿绣",
+                "prose": "阿绣挡在滚烫炉前。"
+              },
+              {
+                "character_id": "role:霍三刀",
+                "prose": "霍三刀逼沈拾灯封炉一夜。"
+              }
+            ]
+          },
+          "label": "s3_patch_chapter_meta",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "seq": 3,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis",
+              "scene_truth",
+              "involved_characters",
+              "beats",
+              "deductions"
+            ]
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "result": {
+            "status": "written",
+            "seq": 3,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis",
+              "scene_truth",
+              "involved_characters",
+              "beats",
+              "deductions"
+            ]
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

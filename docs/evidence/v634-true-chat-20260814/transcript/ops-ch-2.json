@@ -1,0 +1,60 @@
+{
+  "http": "200",
+  "summary": "第二章·夜税假账",
+  "ops": [
+    {
+      "tool": "s3_add_chapter",
+      "args": {
+        "title": "第二章·夜税假账",
+        "volume": "d5tfmrvo9nw3k8taie8v",
+        "seq": 2
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649128968",
+      "status": "applied",
+      "summary": "第二章·夜税假账",
+      "ops": [
+        {
+          "tool": "s3_add_chapter",
+          "args": {
+            "title": "第二章·夜税假账",
+            "volume": "d5tfmrvo9nw3k8taie8v",
+            "seq": 2
+          },
+          "label": "s3_add_chapter",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "chapter": {
+              "seq": 2,
+              "title": "第二章·夜税假账",
+              "volume": "d5tfmrvo9nw3k8taie8v"
+            }
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_add_chapter",
+          "result": {
+            "status": "written",
+            "chapter": {
+              "seq": 2,
+              "title": "第二章·夜税假账",
+              "volume": "d5tfmrvo9nw3k8taie8v"
+            }
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

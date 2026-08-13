@@ -1,0 +1,1 @@
+{"flags":{"snapshot_v1":true,"editorial_thread_v1":true,"memory_fabric_v1":true,"context_inspector_v1":true,"assembler_v1":true,"emergency_rest_write":false,"ingest_lease":true,"ingest_policy":true,"mcp_craft_gate":true},"ingest_policy_default":"auto_if_pass","versions":{"retrieval_policy":"1","embedding_model":"BAAI/bge-small-zh-v1.5"}}

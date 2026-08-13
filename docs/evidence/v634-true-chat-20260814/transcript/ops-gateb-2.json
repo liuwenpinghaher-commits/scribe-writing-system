@@ -1,0 +1,134 @@
+{
+  "http": "200",
+  "summary": "gate-b ch2",
+  "ops": [
+    {
+      "tool": "s3_patch_chapter_meta",
+      "args": {
+        "seq": 2,
+        "title": "第二章·夜税假账",
+        "focalizer": "role:阿绣",
+        "synopsis": "阿绣对账发现灯火门多收了三户夜税，沈拾灯不敢揭册，老桂却笑着送来桂花糖试探。本章必写账页与人情对峙，阿绣要逼沈拾灯在假账和炉火之间选一边，并回指缺页灯册。糖香、炉灰、假账三线同时压在阿绣的限知里，不得写成全知旁白。",
+        "scene_truth": "阿绣把三户夜税假账摊在炉边。沈拾灯不敢揭册。老桂送来桂花糖，笑问谁敢在灯火门账上动字。灯册上多出来的税印与缺页同一笔迹。糖香盖不住炉灰。账页边角有灯火门的旧印，阿绣认得那一笔。",
+        "involved_characters": [
+          "role:阿绣",
+          "role:沈拾灯",
+          "role:老桂"
+        ],
+        "beats": [
+          {
+            "text": "阿绣对出三户多收的夜税。"
+          },
+          {
+            "text": "沈拾灯按住灯册不肯揭。"
+          },
+          {
+            "text": "老桂送糖试探，假账笔迹对上缺页。"
+          }
+        ],
+        "deductions": [
+          {
+            "character_id": "role:阿绣",
+            "prose": "阿绣把三户夜税假账摊在炉边。"
+          },
+          {
+            "character_id": "role:沈拾灯",
+            "prose": "沈拾灯不敢揭册。"
+          },
+          {
+            "character_id": "role:老桂",
+            "prose": "老桂送来桂花糖，笑问谁敢在灯火门账上动字。"
+          }
+        ]
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786650558242",
+      "status": "applied",
+      "summary": "gate-b ch2",
+      "ops": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "args": {
+            "seq": 2,
+            "title": "第二章·夜税假账",
+            "focalizer": "role:阿绣",
+            "synopsis": "阿绣对账发现灯火门多收了三户夜税，沈拾灯不敢揭册，老桂却笑着送来桂花糖试探。本章必写账页与人情对峙，阿绣要逼沈拾灯在假账和炉火之间选一边，并回指缺页灯册。糖香、炉灰、假账三线同时压在阿绣的限知里，不得写成全知旁白。",
+            "scene_truth": "阿绣把三户夜税假账摊在炉边。沈拾灯不敢揭册。老桂送来桂花糖，笑问谁敢在灯火门账上动字。灯册上多出来的税印与缺页同一笔迹。糖香盖不住炉灰。账页边角有灯火门的旧印，阿绣认得那一笔。",
+            "involved_characters": [
+              "role:阿绣",
+              "role:沈拾灯",
+              "role:老桂"
+            ],
+            "beats": [
+              {
+                "text": "阿绣对出三户多收的夜税。"
+              },
+              {
+                "text": "沈拾灯按住灯册不肯揭。"
+              },
+              {
+                "text": "老桂送糖试探，假账笔迹对上缺页。"
+              }
+            ],
+            "deductions": [
+              {
+                "character_id": "role:阿绣",
+                "prose": "阿绣把三户夜税假账摊在炉边。"
+              },
+              {
+                "character_id": "role:沈拾灯",
+                "prose": "沈拾灯不敢揭册。"
+              },
+              {
+                "character_id": "role:老桂",
+                "prose": "老桂送来桂花糖，笑问谁敢在灯火门账上动字。"
+              }
+            ]
+          },
+          "label": "s3_patch_chapter_meta",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "seq": 2,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis",
+              "scene_truth",
+              "involved_characters",
+              "beats",
+              "deductions"
+            ]
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "result": {
+            "status": "written",
+            "seq": 2,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis",
+              "scene_truth",
+              "involved_characters",
+              "beats",
+              "deductions"
+            ]
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

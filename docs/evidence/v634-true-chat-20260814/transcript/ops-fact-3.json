@@ -1,0 +1,58 @@
+{
+  "http": "200",
+  "summary": "fact 3",
+  "ops": [
+    {
+      "tool": "s3_add_fact",
+      "args": {
+        "id": "fact:v634-3",
+        "entity": "role:霍三刀",
+        "attribute": "occupation",
+        "value": "收夜路",
+        "valid_from": 1
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649101654",
+      "status": "applied",
+      "summary": "fact 3",
+      "ops": [
+        {
+          "tool": "s3_add_fact",
+          "args": {
+            "id": "fact:v634-3",
+            "entity": "role:霍三刀",
+            "attribute": "occupation",
+            "value": "收夜路",
+            "valid_from": 1
+          },
+          "label": "s3_add_fact",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "fact_id": "fact:v634-3",
+            "value": "收夜路"
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_add_fact",
+          "result": {
+            "status": "written",
+            "fact_id": "fact:v634-3",
+            "value": "收夜路"
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

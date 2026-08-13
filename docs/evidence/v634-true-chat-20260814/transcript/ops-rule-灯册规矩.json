@@ -1,0 +1,54 @@
+{
+  "http": "200",
+  "summary": "rule 灯册规矩",
+  "ops": [
+    {
+      "tool": "s3_add_world_rule",
+      "args": {
+        "name": "灯册规矩",
+        "category": "social",
+        "note": "按灯册规矩未登记的火不许过夜",
+        "established_chapter": 1
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649098718",
+      "status": "applied",
+      "summary": "rule 灯册规矩",
+      "ops": [
+        {
+          "tool": "s3_add_world_rule",
+          "args": {
+            "name": "灯册规矩",
+            "category": "social",
+            "note": "按灯册规矩未登记的火不许过夜",
+            "established_chapter": 1
+          },
+          "label": "s3_add_world_rule",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "name": "灯册规矩"
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_add_world_rule",
+          "result": {
+            "status": "written",
+            "name": "灯册规矩"
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

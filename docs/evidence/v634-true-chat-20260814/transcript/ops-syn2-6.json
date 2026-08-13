@@ -1,0 +1,64 @@
+{
+  "http": "200",
+  "summary": "syn 6",
+  "ops": [
+    {
+      "tool": "s3_patch_chapter_meta",
+      "args": {
+        "seq": 6,
+        "title": "第六章·清册入镇",
+        "focalizer": "role:沈拾灯",
+        "synopsis": "第二卷灯火门派人入镇清册，沈拾灯与阿绣分头藏人，霍三刀在巷口观望不肯下场。"
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649237714",
+      "status": "applied",
+      "summary": "syn 6",
+      "ops": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "args": {
+            "seq": 6,
+            "title": "第六章·清册入镇",
+            "focalizer": "role:沈拾灯",
+            "synopsis": "第二卷灯火门派人入镇清册，沈拾灯与阿绣分头藏人，霍三刀在巷口观望不肯下场。"
+          },
+          "label": "s3_patch_chapter_meta",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "seq": 6,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis"
+            ]
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_patch_chapter_meta",
+          "result": {
+            "status": "written",
+            "seq": 6,
+            "fields": [
+              "title",
+              "focalizer",
+              "synopsis"
+            ]
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

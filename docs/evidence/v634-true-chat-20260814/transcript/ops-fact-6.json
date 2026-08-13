@@ -1,0 +1,58 @@
+{
+  "http": "200",
+  "summary": "fact 6",
+  "ops": [
+    {
+      "tool": "s3_add_fact",
+      "args": {
+        "id": "fact:v634-6",
+        "entity": "role:老桂",
+        "attribute": "knows",
+        "value": "仅老桂知侧门开法",
+        "valid_from": 1
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649102349",
+      "status": "applied",
+      "summary": "fact 6",
+      "ops": [
+        {
+          "tool": "s3_add_fact",
+          "args": {
+            "id": "fact:v634-6",
+            "entity": "role:老桂",
+            "attribute": "knows",
+            "value": "仅老桂知侧门开法",
+            "valid_from": 1
+          },
+          "label": "s3_add_fact",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "fact_id": "fact:v634-6",
+            "value": "仅老桂知侧门开法"
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_add_fact",
+          "result": {
+            "status": "written",
+            "fact_id": "fact:v634-6",
+            "value": "仅老桂知侧门开法"
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

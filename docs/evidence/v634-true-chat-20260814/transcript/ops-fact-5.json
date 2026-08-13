@@ -1,0 +1,58 @@
+{
+  "http": "200",
+  "summary": "fact 5",
+  "ops": [
+    {
+      "tool": "s3_add_fact",
+      "args": {
+        "id": "fact:v634-5",
+        "entity": "world:灯火门",
+        "attribute": "tax",
+        "value": "灯税",
+        "valid_from": 1
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649102110",
+      "status": "applied",
+      "summary": "fact 5",
+      "ops": [
+        {
+          "tool": "s3_add_fact",
+          "args": {
+            "id": "fact:v634-5",
+            "entity": "world:灯火门",
+            "attribute": "tax",
+            "value": "灯税",
+            "valid_from": 1
+          },
+          "label": "s3_add_fact",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "fact_id": "fact:v634-5",
+            "value": "灯税"
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_add_fact",
+          "result": {
+            "status": "written",
+            "fact_id": "fact:v634-5",
+            "value": "灯税"
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

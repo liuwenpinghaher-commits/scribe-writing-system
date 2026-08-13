@@ -1,0 +1,64 @@
+{
+  "http": "200",
+  "summary": "intent from s2 chat",
+  "ops": [
+    {
+      "tool": "s3_set_intent",
+      "args": {
+        "reader_feeling": "灯火能救命也能卖命，人情比规矩更烫手。",
+        "emotional_arc": "从求安稳到必须当众揭炉",
+        "red_lines": "一、不写无因果的超能开挂。\n二、密不泄给不该知的人。\n三、不把死人当笑话。",
+        "total_word_goal": 45000
+      }
+    }
+  ],
+  "res": {
+    "work": "book_79c0d45e",
+    "proposal": {
+      "id": "p1786649095884",
+      "status": "applied",
+      "summary": "intent from s2 chat",
+      "ops": [
+        {
+          "tool": "s3_set_intent",
+          "args": {
+            "reader_feeling": "灯火能救命也能卖命，人情比规矩更烫手。",
+            "emotional_arc": "从求安稳到必须当众揭炉",
+            "red_lines": "一、不写无因果的超能开挂。\n二、密不泄给不该知的人。\n三、不把死人当笑话。",
+            "total_word_goal": 45000
+          },
+          "label": "s3_set_intent",
+          "out_of_allowlist": false,
+          "status": "written",
+          "result": {
+            "status": "written",
+            "fields": [
+              "reader_feeling",
+              "emotional_arc",
+              "red_lines",
+              "total_word_goal"
+            ]
+          }
+        }
+      ],
+      "applied": [
+        {
+          "tool": "s3_set_intent",
+          "result": {
+            "status": "written",
+            "fields": [
+              "reader_feeling",
+              "emotional_arc",
+              "red_lines",
+              "total_word_goal"
+            ]
+          }
+        }
+      ],
+      "errors": []
+    },
+    "ui_events": [],
+    "ui_target": null,
+    "focus_policy": "soft"
+  }
+}

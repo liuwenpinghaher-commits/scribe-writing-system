@@ -1,0 +1,932 @@
+{
+  "version": "v6.3.4",
+  "slug": "book_79c0d45e",
+  "wave": "A-partial",
+  "author_human": false,
+  "should_rate": 1.0,
+  "must_failed": [
+    "J3",
+    "J4",
+    "C2",
+    "M1",
+    "M2",
+    "M3",
+    "M5",
+    "M6",
+    "I1",
+    "I2",
+    "I6",
+    "Drm1",
+    "Q1",
+    "Q3",
+    "Q7",
+    "K1",
+    "P1",
+    "Ch1",
+    "Ch2",
+    "SH1",
+    "X1",
+    "QL1",
+    "QL3"
+  ],
+  "items": [
+    {
+      "id": "J1",
+      "priority": "Must",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/health.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 本轮触达"
+    },
+    {
+      "id": "J2",
+      "priority": "Must",
+      "status": "PASS",
+      "evidence_type": "UI+API",
+      "evidence_path": [
+        "01-book.md"
+      ],
+      "skip_reason": "",
+      "notes": "API 本轮触达"
+    },
+    {
+      "id": "J3",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "J4",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "J5",
+      "priority": "Must",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "00-world-complete-gate.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 本轮触达"
+    },
+    {
+      "id": "C1",
+      "priority": "Must",
+      "status": "PASS",
+      "evidence_type": "UI+API",
+      "evidence_path": [
+        "transcript/ops-intent.json",
+        "00-world-complete-gate.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 本轮触达"
+    },
+    {
+      "id": "C2",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "C3",
+      "priority": "Must",
+      "status": "PASS",
+      "evidence_type": "UI+API",
+      "evidence_path": [
+        "00-world-complete-gate.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 本轮触达"
+    },
+    {
+      "id": "C4",
+      "priority": "Must",
+      "status": "SKIP",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "engineering partial / 无 UI",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "C5",
+      "priority": "Must",
+      "status": "PASS",
+      "evidence_type": "API+UI",
+      "evidence_path": [
+        "13-capability-audit/post-finalize-ch1.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 本轮触达"
+    },
+    {
+      "id": "C6",
+      "priority": "Should",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "C7",
+      "priority": "Should",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "无头浏览器不可用",
+      "notes": "UI Should 跳过"
+    },
+    {
+      "id": "C8",
+      "priority": "Must",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "transcript/ops-s8-sheath.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 本轮触达"
+    },
+    {
+      "id": "M0",
+      "priority": "Must",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/capabilities.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 本轮触达"
+    },
+    {
+      "id": "M1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "M2",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "M3",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "M4",
+      "priority": "Must",
+      "status": "SKIP",
+      "evidence_type": "API+UI",
+      "evidence_path": [],
+      "skip_reason": "engineering partial / 无 UI",
+      "notes": "TEMPLATE: fill during journey"
+    },
+    {
+      "id": "M5",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "M6",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "I1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "I2",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "I3",
+      "priority": "Should",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "无头浏览器不可用",
+      "notes": "UI Should 跳过"
+    },
+    {
+      "id": "I4",
+      "priority": "Should",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "I5",
+      "priority": "Should",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "无头浏览器不可用",
+      "notes": "UI Should 跳过"
+    },
+    {
+      "id": "I6",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "Drm1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "Drm2",
+      "priority": "Must-if-triggered",
+      "status": "N/A",
+      "evidence_type": "UI+API",
+      "evidence_path": [
+        "00-author-path.md"
+      ],
+      "skip_reason": "",
+      "notes": "本旅程未触发接地失败"
+    },
+    {
+      "id": "Drm3",
+      "priority": "Must",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "Drm4",
+      "priority": "Should",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "Drm5",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could 本轮未强制",
+      "notes": ""
+    },
+    {
+      "id": "H1",
+      "priority": "Should",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "无头浏览器不可用",
+      "notes": "UI Should 跳过"
+    },
+    {
+      "id": "H2",
+      "priority": "Should",
+      "status": "SKIP",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "无头浏览器不可用",
+      "notes": "UI Should 跳过"
+    },
+    {
+      "id": "H3",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "Could 本轮未强制",
+      "notes": ""
+    },
+    {
+      "id": "H4",
+      "priority": "Should",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "无头浏览器不可用",
+      "notes": "UI Should 跳过"
+    },
+    {
+      "id": "H5",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could 本轮未强制",
+      "notes": ""
+    },
+    {
+      "id": "H6",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could 本轮未强制",
+      "notes": ""
+    },
+    {
+      "id": "H7",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "Could 本轮未强制",
+      "notes": ""
+    },
+    {
+      "id": "H8",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "Could 本轮未强制",
+      "notes": ""
+    },
+    {
+      "id": "H9",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could 本轮未强制",
+      "notes": ""
+    },
+    {
+      "id": "H10",
+      "priority": "Should",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "无头浏览器不可用",
+      "notes": "UI Should 跳过"
+    },
+    {
+      "id": "H11",
+      "priority": "Must",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/capabilities.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 本轮触达"
+    },
+    {
+      "id": "Q1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "Q2",
+      "priority": "Must",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "Q3",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "Q4",
+      "priority": "Should",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "Q5",
+      "priority": "Should",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "无头浏览器不可用",
+      "notes": "UI Should 跳过"
+    },
+    {
+      "id": "Q6",
+      "priority": "Should",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "无头浏览器不可用",
+      "notes": "UI Should 跳过"
+    },
+    {
+      "id": "Q7",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "Q8",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "Could 本轮未强制",
+      "notes": ""
+    },
+    {
+      "id": "K1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "K2",
+      "priority": "Should",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "K3",
+      "priority": "Should",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "K4",
+      "priority": "Should",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "无头浏览器不可用",
+      "notes": "UI Should 跳过"
+    },
+    {
+      "id": "K5",
+      "priority": "Should",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "无头浏览器不可用",
+      "notes": "UI Should 跳过"
+    },
+    {
+      "id": "K6",
+      "priority": "Should",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "P1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "P2",
+      "priority": "Must",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-finalize-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 本轮触达"
+    },
+    {
+      "id": "P3",
+      "priority": "Should",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/capabilities.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 本轮触达"
+    },
+    {
+      "id": "P4",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could 本轮未强制",
+      "notes": ""
+    },
+    {
+      "id": "P5",
+      "priority": "Should",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "P6",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could 本轮未强制",
+      "notes": ""
+    },
+    {
+      "id": "Ch1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "Ch2",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "Ch3",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could 本轮未强制",
+      "notes": ""
+    },
+    {
+      "id": "Ch4",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could 本轮未强制",
+      "notes": ""
+    },
+    {
+      "id": "Ch5",
+      "priority": "Should",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "无头浏览器不可用",
+      "notes": "UI Should 跳过"
+    },
+    {
+      "id": "SH1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "SH2",
+      "priority": "Should",
+      "status": "SKIP",
+      "evidence_type": "UI+API",
+      "evidence_path": [],
+      "skip_reason": "无头浏览器不可用",
+      "notes": "UI Should 跳过"
+    },
+    {
+      "id": "SH3",
+      "priority": "Should",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "SH4",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could 本轮未强制",
+      "notes": ""
+    },
+    {
+      "id": "SH5",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "API",
+      "evidence_path": [],
+      "skip_reason": "Could 本轮未强制",
+      "notes": ""
+    },
+    {
+      "id": "G1",
+      "priority": "Should",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "无头浏览器不可用",
+      "notes": "UI Should 跳过"
+    },
+    {
+      "id": "G2",
+      "priority": "Should",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "无头浏览器不可用",
+      "notes": "UI Should 跳过"
+    },
+    {
+      "id": "G3",
+      "priority": "Should",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "无头浏览器不可用",
+      "notes": "UI Should 跳过"
+    },
+    {
+      "id": "G4",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "Could 本轮未强制",
+      "notes": ""
+    },
+    {
+      "id": "G5",
+      "priority": "Should",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "X1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "X2",
+      "priority": "Should",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "X3",
+      "priority": "Should",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "X4",
+      "priority": "Should",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "无头浏览器不可用",
+      "notes": "UI Should 跳过"
+    },
+    {
+      "id": "V1",
+      "priority": "Must",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "V2",
+      "priority": "Should",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "V3",
+      "priority": "Should",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "V4",
+      "priority": "Should",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "V5",
+      "priority": "Should",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "V6",
+      "priority": "Must",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/health.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 本轮触达"
+    },
+    {
+      "id": "V7",
+      "priority": "Should",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "13-capability-audit/post-check-ch3.json"
+      ],
+      "skip_reason": "",
+      "notes": "API 触达或同源读面"
+    },
+    {
+      "id": "QL1",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "QL2",
+      "priority": "Must",
+      "status": "PASS",
+      "evidence_type": "API",
+      "evidence_path": [
+        "08-wordcount-rollup.md"
+      ],
+      "skip_reason": "",
+      "notes": "API 本轮触达"
+    },
+    {
+      "id": "QL3",
+      "priority": "Must",
+      "status": "FAIL",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "",
+      "notes": "无 Playwright，UI Must 不得 PASS"
+    },
+    {
+      "id": "QL4",
+      "priority": "Could",
+      "status": "SKIP",
+      "evidence_type": "UI",
+      "evidence_path": [],
+      "skip_reason": "Could 本轮未强制",
+      "notes": ""
+    }
+  ],
+  "notes": "engineering PARTIAL；真人=否；UI Must FAIL"
+}
