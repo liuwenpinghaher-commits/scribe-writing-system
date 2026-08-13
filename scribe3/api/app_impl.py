@@ -211,7 +211,7 @@ def _is_rest_world_write_path(path: str) -> bool:
             parts = [p for p in rest.split("/") if p]
             if len(parts) == 2 and parts[0].isdigit() and parts[1] in (
                     "archive", "restore", "restore-version",
-                    "gcd-fields", "beats-fields"):
+                    "gcd-fields", "beats-fields", "story-move-plan"):
                 return False
     for p in _REST_WORLD_WRITE_PREFIXES:
         if path == p or path.startswith(p + "/"):

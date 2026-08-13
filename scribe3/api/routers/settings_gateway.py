@@ -764,9 +764,13 @@ def craft_banned_lexicon():
     return banned_lexicon_preview()
 
 
-def story_moves_propose(req: dict | None = None, work: str = "main"):
+async def story_moves_propose(request: Request, work: str = "main"):
     from scribe3.store import SurrealStore
     from scribe3.story_move import propose_story_move, work_cards
+    try:
+        req = await request.json()
+    except Exception:
+        req = {}
     st = SurrealStore(db=work or "main")
     extras = work_cards(st)
     out = propose_story_move(req if isinstance(req, dict) else {}, extra_cards=extras)
@@ -775,8 +779,11 @@ def story_moves_propose(req: dict | None = None, work: str = "main"):
     return out
 
 
-def story_moves_review(slug: str, req: dict | None = None, work: str = "main"):
-    body = req if isinstance(req, dict) else {}
+async def story_moves_review(slug: str, request: Request, work: str = "main"):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
     verdict = str(body.get("verdict") or body.get("status") or "").strip()
     if verdict not in ("approved", "rejected"):
         raise HTTPException(422, "verdict 须为 approved|rejected")
@@ -787,9 +794,13 @@ def story_moves_review(slug: str, req: dict | None = None, work: str = "main"):
     return {"ok": True, "slug": slug, "status": verdict}
 
 
-def chapter_story_move_plan_put(seq: int, req: dict | None = None, work: str = "main"):
+async def chapter_story_move_plan_put(seq: int, request: Request, work: str = "main"):
     from scribe3.store import SurrealStore
     from scribe3.story_move import save_story_move_plan_on_chapter
+    try:
+        req = await request.json()
+    except Exception:
+        req = {}
     st = SurrealStore(db=work or "main")
     out = save_story_move_plan_on_chapter(st, int(seq), req if isinstance(req, dict) else {})
     if not out.get("ok"):

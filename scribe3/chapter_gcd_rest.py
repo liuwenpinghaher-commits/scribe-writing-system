@@ -88,6 +88,7 @@ def is_emergency_bypass_chapter_path(path: str) -> bool:
         "archive", "restore", "restore-version",
         "gcd-fields", "beats-fields",
         "stage",
+        "story-move-plan",
     ):
         return True
     # /chapters/{seq}/stage/advance
