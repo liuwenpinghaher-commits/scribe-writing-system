@@ -128,11 +128,13 @@ join_generation_segments（NEVER 裁整段）
 
 **均分 3.2**。不是缺段，是**段在、钉歪**。
 
-| P_flow | 4 |
-| Q_craft | 2 |
-| R_safety | 3 |
-| B_product | 3 |
-| Observability | 4 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+P1：400 字先保冲突/代价走法，去掉固定 MRU 与「必须执行」标题。
 
 ---
 

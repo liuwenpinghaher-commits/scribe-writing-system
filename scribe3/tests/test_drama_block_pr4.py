@@ -45,19 +45,19 @@ def test_format_drama_block_empty_without_gcd():
     assert format_drama_block(None) == ""
 
 
-def test_format_drama_block_contains_contract_and_mru():
+def test_format_drama_block_keeps_conflict_cost_drops_mru():
     blk = format_drama_block(_gcd_beats(), chapter_hook="井底有声")
     assert blk.startswith("\n\n")
     body = blk.strip()
-    assert "本章戏剧合同" in body
-    assert "禁止风景巡礼" in body
-    assert "目标：夺回铜匙" in body or "夺回铜匙" in body
-    assert "阻力：麻三娘拦门" in body or "麻三娘拦门" in body
-    assert "章末钩子" in body and "井底有声" in body
-    assert "微观节奏" in body or "MRU" in body
-    assert "外在刺激" in body or "动机-反应-行动" in body
-    assert "外在阻力" in body or "禁只逛地点" in body
-    assert "信息差" in body or "未揭" in body
+    assert "本章拍级走法" in body
+    assert "必须执行" not in body
+    assert "麻三娘拦门" in body
+    assert "暴露行踪" in body
+    assert "井底有声" in body
+    assert "微观节奏" not in body
+    assert "MRU" not in body
+    assert "动机-反应-行动" not in body
+    assert "目标：" not in body
     assert len(body) <= MAX_DRAMA_BLOCK
 
 
@@ -88,7 +88,7 @@ def test_format_drama_block_respects_max_chars():
     assert blk
     assert len(blk.strip()) <= MAX_DRAMA_BLOCK
     # 限知免责在预算内尽量保留
-    assert "限知" in blk or "戏剧合同" in blk
+    assert "限知" in blk or "拍级走法" in blk
 
 
 def test_render_brief_drama_contract_on_top():
