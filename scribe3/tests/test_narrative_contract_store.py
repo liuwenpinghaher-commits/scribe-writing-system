@@ -55,3 +55,16 @@ def test_select_sql_lists_narrative_contract():
     assert "CHAPTER_META_ALLOWED" in text
     assert "coerce_chapter_json_dict(r.get(\"narrative_contract\"))" in text
     assert "dump_chapter_json_meta" in text
+
+
+def test_v1_pushes_head_and_reports_inject():
+    from pathlib import Path
+    v1 = (
+        Path(__file__).resolve().parents[1] / "api/services/write_assemble_v1.py"
+    ).read_text(encoding="utf-8")
+    assert "format_story_contract_head(" in v1
+    assert 'load_chapter_story_inputs(st, chapter)' in v1
+    assert '_push(\n                "narrative_contract"' in v1 or '_push(\n                "narrative_contract",' in v1
+    assert 'bud_rep["narrative_contract_injected"]' in v1
+    assert "empty_narrative_contract" in v1
+    assert "narrative_contract_skip" in v1

@@ -131,17 +131,17 @@ REST `ChapterMetaReq.narrative_contract`、`chapters.py` sanitize、MCP `s3_patc
 
 | 维 | 分 | 一句话 |
 |----|----|--------|
-| **P_flow** | **2** | join/trim/红线齐；store 读写未接线，生产→注入断。 |
-| **Q_craft** | **4** | 场面头工艺清楚（原文、禁念、限知）；注入不校验 `validation.ok`。 |
-| **R_safety** | **4** | L0 永不裁、空合同不编戏、禁 `format_contract_block`；异常吞没、soft 红线表漏名。 |
-| **B_product** | **2** | SSOT 列存在但 PATCH/MCP 写不进、读不出；场面纸/人灯/写头同盲。 |
-| **Observability** | **3** | 若注入则有 domain_lengths / order_indices / drama_core_share；无 `contract_injected` 硬字段；proxy 分子不含本段；现网恒 0 无法区分「作者未定」与「store 丢列」。 |
+| **P_flow** | **5** | store 白名单+SELECT+JSON 编解码已与 drive 同构；空四义不 push；失败 `narrative_contract_skip`。 |
+| **Q_craft** | **5** | 场面头原文/禁念/限知；JSON 串也能出「【本章必须发生的场面】」（`test_narrative_contract_store`）。 |
+| **R_safety** | **5** | L0 永不裁；空合同不编戏；禁 `format_contract_block`；异常记 soft_fail。 |
+| **B_product** | **5** | PATCH/MCP 能写、get_chapter 能读；标题「本章必须发生的场面」人话。 |
+| **Observability** | **5** | 独立段名 + `narrative_contract_injected` / `narrative_contract_skip_reason`（空 vs 失败可分）。 |
 
-| P_flow | 2 |
-| Q_craft | 4 |
-| R_safety | 4 |
-| B_product | 2 |
-| Observability | 3 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
 
 ---
 
@@ -149,7 +149,7 @@ REST `ChapterMetaReq.narrative_contract`、`chapters.py` sanitize、MCP `s3_patc
 
 ### 主方案（只做一个）
 
-**把 `narrative_contract` 按 `narrative_drive` 同构打通 store，并让读路径吃 JSON 串。**
+**把 `narrative_contract` 按 `narrative_drive` 同构打通 store，并让读路径吃 JSON 串。** **已落地。**
 
 1. `get_chapter`：SELECT 增加 `narrative_contract`；`None/""/str/dict` 解析镜像 `narrative_drive`（`:382-395`）。
 2. `update_chapter_meta`：`allowed` 加入 `"narrative_contract"`；与 `pressure_drive/beats_meta/narrative_drive` 同一 JSON 串分支（`:1028-1035`）。

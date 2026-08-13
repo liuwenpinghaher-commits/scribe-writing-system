@@ -277,6 +277,8 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _push("craft_skills_index", "supplemental", _skills_txt)
         _inputs = {}
         _nc_txt = ""
+        _nc_injected = False
+        _nc_skip = ""
         try:
             from scribe3.api.services.write_assemble_context import (
                 collect_story_fuel_segments,
@@ -292,7 +294,8 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         except Exception:
             _inputs = {}
             _nc_txt = ""
-            _record_write_soft_fail("narrative_contract_skip")
+            _nc_skip = "narrative_contract_skip"
+            _record_write_soft_fail(_nc_skip)
         if _nc_txt:
             _push(
                 "narrative_contract",
@@ -303,6 +306,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                     _nc_txt,
                 ),
             )
+            _nc_injected = True
+        elif not _nc_skip:
+            _nc_skip = "empty_narrative_contract"
+            _record_write_soft_fail(_nc_skip)
         try:
             from scribe3.api.services.write_assemble_context import collect_story_fuel_segments
             for _fuel_seg in collect_story_fuel_segments(_inputs):
@@ -950,6 +957,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         bud_rep["canonical_codex_echoes_dropped"] = int(
             _budget_report_holder.get("canonical_codex_echoes_dropped") or 0
         )
+        bud_rep["narrative_contract_injected"] = bool(_nc_injected)
+        if _nc_skip:
+            bud_rep["narrative_contract_skip_reason"] = _nc_skip
         bud_rep["drama_vacuum_injected"] = bool(
             _budget_report_holder.get("drama_vacuum_injected")
         )
