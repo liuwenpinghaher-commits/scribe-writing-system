@@ -328,11 +328,100 @@ def _drama_block(st, chapter: int, focalizer: str = "") -> str:
         return ""
 
 
-def _deduction_context_segments(st, seq: int) -> list[tuple[str, str, str]]:
+FOCAL_DEDUCTION_PROSE_CAP = 1800  # 焦点者五层单条字帽（整包另有 DEFAULT_CODEX_INJECT_CAP）
+
+
+def _deduction_item_is_focal(item: dict, focalizer: str) -> bool:
+    """焦点者命中：character_id / 显示名与 focalizer 的 role 键有交集。"""
+    from scribe3.deduce_helpers import role_id_keys
+
+    if not str(focalizer or "").strip():
+        return False
+    keys = role_id_keys(focalizer)
+    if not keys:
+        return False
+    cid = item.get("character_id") or ""
+    name = item.get("name") or ""
+    return bool(keys & (role_id_keys(cid) | role_id_keys(name)))
+
+
+def _nonfocal_boundary_line(name: str, prose: str) -> str:
+    """非焦点一行边界（可见/已做）；禁止注入其「没察觉的」长文。"""
+    from scribe3.deduce_helpers import extract_layer_body
+
+    seen = (extract_layer_body(prose, "看到/听到") or "").replace("\n", " ").strip()
+    known = (extract_layer_body(prose, "知道") or "").replace("\n", " ").strip()
+    did = (extract_layer_body(prose, "做了/说了") or "").replace("\n", " ").strip()
+    vis = "；".join(part for part in (seen, known) if part)
+    if not vis and not did:
+        unaware = extract_layer_body(prose, "没察觉的") or ""
+        leftover = prose or ""
+        if unaware:
+            leftover = leftover.replace(unaware, "")
+        leftover = leftover.replace("### 没察觉的", "")
+        vis = leftover.replace("\n", " ").strip()
+    vis = _clip_chars(vis, 80)
+    did = _clip_chars(did, 60)
+    bits: list[str] = []
+    if vis:
+        bits.append(f"可见:{vis}")
+    if did:
+        bits.append(f"已做:{did}")
+    body = "；".join(bits) if bits else "言行以场面可见为准"
+    return f"\n〔{name}·限知边界〕{body}。勿写其不知之事。"
+
+
+def _apply_deduction_pack_cap(parts: list[dict], cap: int) -> None:
+    """整包硬帽。超帽顺序：砍非焦点行 → 真相摘录 → 焦点半裁。原地改 parts。"""
+
+    def total() -> int:
+        return sum(len(p.get("text") or "") for p in parts)
+
+    while total() > cap:
+        drop_at = next(
+            (i for i in range(len(parts) - 1, -1, -1) if parts[i].get("role") == "nonfocal"),
+            None,
+        )
+        if drop_at is None:
+            break
+        parts.pop(drop_at)
+
+    if total() > cap:
+        for p in parts:
+            if p.get("role") != "truth":
+                continue
+            room = max(0, cap - (total() - len(p.get("text") or "")))
+            p["text"] = _clip_chars(p.get("text") or "", room)
+            break
+
+    while total() > cap:
+        focals = [p for p in parts if p.get("role") == "focal" and len(p.get("text") or "") > 1]
+        if not focals:
+            break
+        victim = max(focals, key=lambda p: len(p.get("text") or ""))
+        text = victim.get("text") or ""
+        victim["text"] = text[: max(1, len(text) // 2)]
+
+    if total() > cap:
+        for p in reversed(parts):
+            if p.get("role") in ("header", "footer"):
+                continue
+            room = max(0, cap - (total() - len(p.get("text") or "")))
+            p["text"] = _clip_chars(p.get("text") or "", room)
+            if total() <= cap:
+                break
+
+
+def _deduction_context_segments(
+    st, seq: int, *, focalizer: str = "",
+) -> list[tuple[str, str, str]]:
     """把场景真相、每条限知投影与固定协议分开，供 Manifest 逐源追溯。
 
     stale 投影默认**不注入全文**（只标过期提示），避免草稿采信旧限知。
+    焦点者 fresh 保留五层（单条 ≤ FOCAL_DEDUCTION_PROSE_CAP）；其余 fresh 只给
+    一行可见/已做边界，禁止其「没察觉的」。整包对齐 DEFAULT_CODEX_INJECT_CAP。
     """
+    from scribe3.context_budget import DEFAULT_CODEX_INJECT_CAP
     from scribe3.deduce_helpers import inject_deduction_items
 
     ch = st.get_chapter(seq) or {}
@@ -340,45 +429,68 @@ def _deduction_context_segments(st, seq: int) -> list[tuple[str, str, str]]:
     items = inject_deduction_items(ch)
     if not truth and not items:
         return []
-    segments = [(
-        "protocol:scribe3-deduction-context:v1:header",
-        "deduction_protocol",
-        "## 本章演绎(据此以作者视角写限知初稿)",
-    )]
+    parts: list[dict] = [{
+        "source_id": "protocol:scribe3-deduction-context:v1:header",
+        "source_kind": "deduction_protocol",
+        "role": "header",
+        "text": "\n\n## 本章演绎(据此以作者视角写限知初稿)",
+    }]
     if truth:
-        segments.append((
-            f"chapter:{seq}:scene-truth",
-            "scene_truth",
-            f"\n〔场景真相·全知〕{truth}",
-        ))
+        parts.append({
+            "source_id": f"chapter:{seq}:scene-truth",
+            "source_kind": "scene_truth",
+            "role": "truth",
+            "text": f"\n〔场景真相·全知〕{truth}",
+        })
     for ordinal, item in enumerate(items):
         identity = item.get("character_id") or "unknown"
         name = item.get("name") or identity
         if item.get("status") == "stale":
             based = item.get("based_on_truth_rev")
             cur = item.get("truth_revision")
-            segments.append((
-                f"chapter:{seq}:deduction:{ordinal:04d}:{identity}:stale",
-                "deduction_stale",
-                f"\n〔{name}·限知投影·过期〕基于真相 rev {based}，当前 rev {cur}；"
-                f"请重演后再采信。正文勿将该角色旧限知当有效边界。",
-            ))
+            parts.append({
+                "source_id": f"chapter:{seq}:deduction:{ordinal:04d}:{identity}:stale",
+                "source_kind": "deduction_stale",
+                "role": "stale",
+                "text": (
+                    f"\n〔{name}·限知投影·过期〕基于真相 rev {based}，当前 rev {cur}；"
+                    f"请重演后再采信。正文勿将该角色旧限知当有效边界。"
+                ),
+            })
             continue
         prose = (item.get("prose") or "").strip()
         if not prose:
             continue
-        segments.append((
-            f"chapter:{seq}:deduction:{ordinal:04d}:{identity}",
-            "deduction",
-            f"\n〔{name}·限知投影〕{prose}",
-        ))
-    segments.append((
-        "protocol:scribe3-deduction-context:v1:footer",
-        "deduction_protocol",
-        "\n要求:以场景真相为事实骨架;焦点者**未过期**投影当 POV、他人投影约束其言行并埋反讽;"
-        "过期投影仅提示勿采信;不写角色不知道的私密。",
-    ))
-    return segments
+        if _deduction_item_is_focal(item, focalizer):
+            clipped = _clip_chars(prose, FOCAL_DEDUCTION_PROSE_CAP)
+            parts.append({
+                "source_id": f"chapter:{seq}:deduction:{ordinal:04d}:{identity}",
+                "source_kind": "deduction",
+                "role": "focal",
+                "text": f"\n〔{name}·限知投影〕{clipped}",
+            })
+        else:
+            parts.append({
+                "source_id": f"chapter:{seq}:deduction:{ordinal:04d}:{identity}",
+                "source_kind": "deduction",
+                "role": "nonfocal",
+                "text": _nonfocal_boundary_line(str(name), prose),
+            })
+    parts.append({
+        "source_id": "protocol:scribe3-deduction-context:v1:footer",
+        "source_kind": "deduction_protocol",
+        "role": "footer",
+        "text": (
+            "\n要求:以场景真相为事实骨架;焦点者**未过期**投影当 POV、他人投影约束其言行并埋反讽;"
+            "过期投影仅提示勿采信;不写角色不知道的私密。"
+        ),
+    })
+    _apply_deduction_pack_cap(parts, DEFAULT_CODEX_INJECT_CAP)
+    return [
+        (str(p["source_id"]), str(p["source_kind"]), str(p.get("text") or ""))
+        for p in parts
+        if p.get("text")
+    ]
 
 
 def _purpose_and_lessons_write_block(st, chapter: int, with_tools: bool = False,

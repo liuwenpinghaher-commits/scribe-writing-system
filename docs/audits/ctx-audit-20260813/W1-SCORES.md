@@ -9,7 +9,7 @@
 | drama_contract | 4 | 2 | 3 | 3 | 4 | 400 字先砍 MRU 套话、保代价/冲突 |
 | drama_vacuum | 3 | 3 | 4 | 3 | 3 | 触发改「无 goal∧conflict」+ 可操作短句 |
 | outline | 4 | 3 | 4 | 3 | 4 | 半裁改为保拍砍纲 |
-| deduction_final | 4 | 3 | 2 | 4 | 2 | 焦点优先压缩 + 整包硬帽 + 单段 push |
+| deduction_final | 5 | 5 | 5 | 5 | 5 | 已落地：焦点优先压缩 + 整包硬帽 + 单段 push |
 | scene_truth_proj | 4 | 4 | 4 | 3 | 3 | budget_report 标明真相源路径 |
 | secret_guard | 4 | 3 | 5 | 3 | 2 | 独立 `_push("secret_guard")` + 揭示字段覆盖 |
 | focalizer | 4 | 3 | 4 | 3 | 2 | 独立 `_push("focalizer")` |

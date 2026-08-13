@@ -530,14 +530,15 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 from scribe3.soft_fail import soft_fail
                 import logging as _sf_logging
                 soft_fail('write_assemble_soft_7', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
-            for ordinal, (source_id, source_kind, text) in enumerate(
-                _deduction_context_segments(st, chapter)
+            _dd_parts: list[str] = []
+            for source_id, source_kind, text in _deduction_context_segments(
+                st, chapter, focalizer=focalizer or "",
             ):
-                _dd = _domain_input(
-                    source_id, source_kind,
-                    ("\n\n" if ordinal == 0 else "") + text,
-                )
-                _push("deduction_final", "redline", _dd)
+                _dd = _domain_input(source_id, source_kind, text)
+                if _dd:
+                    _dd_parts.append(_dd)
+            if _dd_parts:
+                _push("deduction_final", "redline", "".join(_dd_parts))
             _mr = _domain_input(
                 f"chapter:{chapter}:material-recall", "material_recall",
                 _material_recall_block(st, chapter, phase=normalized_phase,

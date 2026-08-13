@@ -1271,10 +1271,14 @@ def _clip(s: str, n: int) -> str:
 
 
 
-def _deduction_block(st, seq: int) -> str:
+def _deduction_block(st, seq: int, *, focalizer: str = "") -> str:
     """草稿期把本章「场景真相 + 各角色限知投影」注入 instructions。
     空(无真相且无投影)→ 返回空串(默认行为不变)。"""
-    return "".join(text for _, _, text in _deduction_context_segments(st, seq))
+    return "".join(
+        text for _, _, text in _deduction_context_segments(
+            st, seq, focalizer=focalizer,
+        )
+    )
 
 
 

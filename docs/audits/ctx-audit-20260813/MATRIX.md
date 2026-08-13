@@ -3,7 +3,7 @@
 
 | 波 | 单元 | P | Q | R | B | O | 最优改造（一句） |
 |----|------|---|---|---|---|---|------------------|
-| W1 | deduction_final | 4 | 3 | 2 | 4 | 2 | 焦点优先压缩 + 整包硬帽 + 单段 push |
+| W1 | deduction_final | 5 | 5 | 5 | 5 | 5 | 已落地：焦点优先压缩 + 整包硬帽 + 单段 push |
 | W1 | drama_contract | 4 | 2 | 3 | 3 | 4 | 400 字先砍 MRU 套话、保代价/冲突 |
 | W1 | drama_vacuum | 3 | 3 | 4 | 3 | 3 | 触发改「无 goal∧conflict」+ 可操作短句 |
 | W1 | event_drive | 3 | 3 | 4 | 3 | 3 | assemble 单点判定 + empty_event_drive 可观测 |

@@ -98,8 +98,8 @@ while 存在未完成单元:
 | 项 | 值 |
 |----|----|
 | 上次更新 | 2026-08-13 |
-| 下一 NAME | `deduction_final` |
-| 已完成单元 | story_ember, story_recall, story_causal, narrative_contract |
+| 下一 NAME | `secret_guard` |
+| 已完成单元 | story_ember, story_recall, story_causal, narrative_contract, deduction_final |
 | 天花板已登记 | provenance / request_position / story_move |
 
 ---
