@@ -273,6 +273,10 @@ def _event_drive_block(st, chapter: int, focalizer: str = "") -> str:
     if not isinstance(drive, dict) or not drive:
         return ""
     try:
+        from scribe3.narrative_contract import contract_has_scene_fields
+        if contract_has_scene_fields(ch.get("narrative_contract")):
+            from scribe3.narrative_drive import format_event_drive_hook_only
+            return format_event_drive_hook_only(drive) or ""
         from scribe3.narrative_drive import format_event_drive_block
         return format_event_drive_block(
             drive, focalizer=focalizer or "",
@@ -575,5 +579,174 @@ def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", ll
     except Exception:
         logging.getLogger("scribe3").debug("素材召回块失败(不阻断写作)", exc_info=True)
         return ""
+
+
+def _record_story_soft_fail(kind: str) -> None:
+    try:
+        from scribe3.api.services.write_assemble import record_write_soft_fail
+        record_write_soft_fail(kind)
+    except Exception:
+        pass
+
+
+def _query_from_contract_and_synopsis(st, chapter: int) -> str:
+    """召回 query：合同 turn/desire + 大纲首句，截 200。"""
+    try:
+        ch = st.get_chapter(int(chapter)) or {}
+    except Exception:
+        return ""
+    nc = ch.get("narrative_contract") if isinstance(ch.get("narrative_contract"), dict) else {}
+    bits = [
+        str(nc.get("turn") or "").strip(),
+        str(nc.get("desire") or "").strip(),
+        str(ch.get("synopsis") or "").strip().splitlines()[0] if ch.get("synopsis") else "",
+    ]
+    q = " ".join(b for b in bits if b)
+    return q[:200]
+
+
+def _hybrid_recall_for_write(st, chapter: int) -> str:
+    """限知写作用世界此刻。secret 恒掩码。失败记 empty_story_recall。"""
+    try:
+        q = _query_from_contract_and_synopsis(st, chapter)
+        if not q or not hasattr(st, "hybrid_recall"):
+            return ""
+        facts = st.hybrid_recall(q, int(chapter), k=5)
+    except Exception:
+        _record_story_soft_fail("empty_story_recall")
+        return ""
+    lines: list[str] = []
+    for f in facts or []:
+        if isinstance(f, dict):
+            ent = str(f.get("entity") or f.get("entity_id") or "")
+            attr = str(f.get("attribute") or "")
+            val = str(f.get("value") or "")
+            secret = bool(f.get("secret") or f.get("is_secret"))
+        else:
+            ent = str(getattr(f, "entity_id", "") or "")
+            attr = str(getattr(f, "attribute", "") or "")
+            val = str(getattr(f, "value", "") or "")
+            secret = bool(getattr(f, "secret", False))
+        if secret:
+            val = "🔒 私密"
+        label = ".".join(x for x in (ent, attr) if x) or "事实"
+        lines.append(f"- {label}：{val}")
+        if len(lines) >= 8:
+            break
+    return "\n".join(lines)
+
+
+def _event_id_local(ev) -> str:
+    if ev is None:
+        return ""
+    if isinstance(ev, dict):
+        raw = str(ev.get("id") or ev.get("event_id") or "")
+    else:
+        raw = str(getattr(ev, "id", "") or "")
+    if raw.startswith("ev:"):
+        raw = raw.split(":", 1)[-1]
+    return raw.strip()
+
+
+def _causal_chain_for_write(st, chapter: int) -> str:
+    """本章/上章事件的回溯链。查询失败记 empty_story_causal（与「无链」区分）。"""
+    try:
+        events: list = []
+        if hasattr(st, "events_at"):
+            if int(chapter) > 1:
+                events.extend(list(st.events_at(int(chapter) - 1) or []))
+            events.extend(list(st.events_at(int(chapter)) or []))
+        seeds = [e for e in events if _event_id_local(e)][:3]
+        if not seeds or not hasattr(st, "causal_chain"):
+            return ""
+        lines: list[str] = []
+        seen: set[str] = set()
+        for ev in seeds:
+            eid = _event_id_local(ev)
+            chain = st.causal_chain(eid, direction="backward", max_depth=3) or []
+            for node in chain:
+                if isinstance(node, dict):
+                    nid = str(node.get("id") or "")
+                    title = str(node.get("title") or "").strip()
+                    seq = node.get("seq")
+                else:
+                    nid = str(getattr(node, "id", "") or "")
+                    title = str(getattr(node, "title", "") or "").strip()
+                    seq = getattr(node, "seq", None)
+                key = nid or title
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                prefix = f"第{seq}章 " if seq not in (None, "") else ""
+                lines.append(f"- {prefix}{title or key}")
+                if len(lines) >= 8:
+                    break
+            if len(lines) >= 8:
+                break
+        return "\n".join(lines)
+    except Exception:
+        _record_story_soft_fail("empty_story_causal")
+        return ""
+
+
+def collect_story_fuel_segments(inputs: dict | None) -> list[dict]:
+    """assemble 真入口：format_story_fuel_parts → supplemental 段。空则记 soft_fail。"""
+    from scribe3.story_constraint_prompt import format_story_fuel_parts
+    inp = inputs if isinstance(inputs, dict) else {}
+    fuel = format_story_fuel_parts(
+        prior_consequences=inp.get("prior_consequences") or "",
+        recall_context=inp.get("recall_context") or "",
+        causal_graph=inp.get("causal_graph") or "",
+    )
+    segs: list[dict] = []
+    for name in ("story_ember", "story_recall", "story_causal"):
+        text = (fuel.get(name) or "").strip()
+        if text:
+            segs.append({"name": name, "layer": "supplemental", "text": text})
+        else:
+            _record_story_soft_fail(f"empty_{name}")
+    return segs
+
+
+def load_chapter_story_inputs(st, chapter: int) -> dict:
+    """写路径场面 IO：合同 / 痕迹 / 声口 / 三燃料。零写。"""
+    out = {
+        "contract": {},
+        "evidence_must_show": [],
+        "voice": {},
+        "prior_consequences": "",
+        "recall_context": "",
+        "causal_graph": "",
+    }
+    if st is None or chapter is None:
+        return out
+    try:
+        ch = st.get_chapter(int(chapter)) or {}
+    except Exception:
+        return out
+    nc = ch.get("narrative_contract") if isinstance(ch.get("narrative_contract"), dict) else {}
+    out["contract"] = nc
+    try:
+        from scribe3.story_constraint_prompt import load_evidence_must_show
+        out["evidence_must_show"] = load_evidence_must_show(ch)
+    except Exception:
+        out["evidence_must_show"] = []
+    voice = {}
+    if isinstance(nc.get("bindings"), dict) and isinstance(nc["bindings"].get("scene_voice"), dict):
+        voice = nc["bindings"]["scene_voice"]
+    out["voice"] = voice
+    if int(chapter) > 1:
+        try:
+            prev = st.get_chapter(int(chapter) - 1) or {}
+            pnd = prev.get("narrative_drive") if isinstance(prev.get("narrative_drive"), dict) else {}
+            hook = str(pnd.get("end_hook") or "").strip()
+            if hook:
+                out["prior_consequences"] = hook
+        except Exception:
+            pass
+    out["recall_context"] = _hybrid_recall_for_write(st, int(chapter))
+    out["causal_graph"] = _causal_chain_for_write(st, int(chapter))
+    return out
+
 
 

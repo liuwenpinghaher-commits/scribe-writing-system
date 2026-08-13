@@ -227,13 +227,63 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             return text
 
         _push("prefix", "redline", prefix)
+        _inputs = {}
+        _nc_txt = ""
+        try:
+            from scribe3.api.services.write_assemble_context import (
+                collect_story_fuel_segments,
+                load_chapter_story_inputs,
+            )
+            from scribe3.story_constraint_prompt import format_story_contract_head
+            _inputs = load_chapter_story_inputs(st, chapter) or {}
+            _nc_txt = format_story_contract_head(
+                _inputs.get("contract"),
+                evidence_must_show=_inputs.get("evidence_must_show"),
+                voice=_inputs.get("voice"),
+            )
+        except Exception:
+            _inputs = {}
+            _nc_txt = ""
+        if _nc_txt:
+            _push(
+                "narrative_contract",
+                "redline",
+                _domain_input(
+                    f"chapter:{chapter}:narrative-contract",
+                    "narrative_contract",
+                    _nc_txt,
+                ),
+            )
+        try:
+            from scribe3.api.services.write_assemble_context import collect_story_fuel_segments
+            for _fuel_seg in collect_story_fuel_segments(_inputs):
+                _fn = _fuel_seg.get("name") or ""
+                _ft = _fuel_seg.get("text") or ""
+                if _fn and _ft:
+                    _push(
+                        _fn,
+                        "supplemental",
+                        _domain_input(f"chapter:{chapter}:{_fn}", _fn, _ft),
+                    )
+        except Exception:
+            _record_write_soft_fail("story_fuel_skip")
         # 叙事引擎：事件驱动引导块在戏剧 GCD 之前（冲突/事件主时钟）。
-        # PR-4：戏剧合同置顶、先于 envelope 重记忆；冲突时裁记忆不裁戏剧（见 must-link cap）。
-        _ed = _domain_input(
-            f"chapter:{chapter}:event-drive", "event_drive",
-            _event_drive_block(st, chapter, focalizer=focalizer or ""),
-        )
-        _push("event_drive", "redline", _ed)
+        # 有场面合同则降为续势钩，不再「优先执行」。
+        _ed_raw = _event_drive_block(st, chapter, focalizer=focalizer or "")
+        _ed_is_hook = False
+        try:
+            from scribe3.narrative_contract import contract_has_scene_fields
+            _ed_is_hook = contract_has_scene_fields((_inputs or {}).get("contract"))
+        except Exception:
+            _ed_is_hook = False
+        _ed_name = "event_drive_hook" if _ed_is_hook else "event_drive"
+        _ed_layer = "supplemental" if _ed_is_hook else "redline"
+        if _ed_raw:
+            _push(
+                _ed_name,
+                _ed_layer,
+                _domain_input(f"chapter:{chapter}:{_ed_name}", _ed_name, _ed_raw),
+            )
         _dr_raw = _drama_block(st, chapter, focalizer=focalizer or "")
         if not (_dr_raw or "").strip():
             _record_write_soft_fail("empty_drama")

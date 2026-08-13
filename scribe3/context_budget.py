@@ -134,6 +134,8 @@ L2_DROP_TIER: dict[str, tuple[str, ...]] = {
     "T3": ("material_recall", "discourse_soft", "story_move", "storyline_polish", "reference_craft", "seed_words", "author_prefs"),
     "T2": ("craft", "phase_role", "avoid", "volume_intro", "request_constraint"),
     "T1": ("codex", "purpose", "pressure_drive"),
+    # 故事燃料：T3→T2→T1 之后才裁；段内先丢 recall，最后丢 ember
+    "T1_fuel": ("story_recall", "story_causal", "story_ember"),
 }
 # 生成段保护集（outline 等）：超 cap 时后于 T3→T2→T1 才考虑半裁
 GEN_SEGMENT_PROTECTED: frozenset[str] = frozenset({
@@ -151,6 +153,8 @@ def _build_l2_drop_priority() -> dict[str, int]:
         pri[name] = 60 - i
     for i, name in enumerate(L2_DROP_TIER["T1"]):
         pri[name] = 30 - i
+    for i, name in enumerate(L2_DROP_TIER.get("T1_fuel") or ()):
+        pri[name] = 22 - i
     # 保护段：仅在 T* 裁尽后才可被选为 victim（priority 极低但仍 > envelope 的 12）
     for name in GEN_SEGMENT_PROTECTED:
         pri[name] = 8
@@ -165,6 +169,7 @@ L0_NEVER_CUT: frozenset[str] = frozenset({
     "identity", "write_protocol", "revision", "anti_slop",
     "continue_snapshot", "secret_guard", "request_position",
     "tool_scope", "craft_skills_index", "focalizer",
+    "narrative_contract",
     "event_drive", "drama_contract", "drama_vacuum", "envelope",
     "revelation_discipline", "sincerity", "final_reminder",
     "deduction_final", "scene_truth_proj",
@@ -422,7 +427,12 @@ def resolve_assembler_budgets(
 # ``ordered_generation_segments`` 接线，禁止另写平行序。
 GENERATION_SEGMENT_LAYERS: dict[str, str] = {
     "prefix": "redline",
+    "narrative_contract": "redline",
+    "story_ember": "supplemental",
+    "story_recall": "supplemental",
+    "story_causal": "supplemental",
     "event_drive": "redline",
+    "event_drive_hook": "supplemental",
     "drama_contract": "redline",
     "envelope": "envelope",
     "codex": "supplemental",
@@ -613,6 +623,7 @@ def effective_l2_cap(
 def physical_order_markers() -> tuple[str, ...]:
     """写路径关键标记（用于序断言 / budget_report）。"""
     return (
+        "narrative_contract",
         "event_drive",
         "drama_contract",
         "envelope",
@@ -622,18 +633,31 @@ def physical_order_markers() -> tuple[str, ...]:
 
 
 def assert_physical_order_indices(indices: dict[str, int]) -> None:
-    """indices: domain → first index in assembled string or segment list."""
+    """indices: domain → first index in assembled string or segment list.
+
+    narrative_contract 可缺；有合同时允许 event_drive 缺席、改认 event_drive_hook。
+    """
     ed = indices.get("event_drive")
+    hook = indices.get("event_drive_hook")
     dr = indices.get("drama_contract")
     env = indices.get("envelope")
     cx = indices.get("codex")
     fr = indices.get("final_reminder")
-    if None in (ed, dr, env, cx, fr):
-        missing = [k for k in physical_order_markers() if indices.get(k) is None]
-        raise AssertionError(f"missing order markers: {missing}")
-    if not (ed < dr < env < cx < fr):
+    drive_slot = ed if ed is not None else hook
+    if None in (drive_slot, dr, env, cx, fr):
+        missing = [k for k in ("event_drive", "drama_contract", "envelope", "codex", "final_reminder") if indices.get(k) is None]
+        if not (ed is None and hook is not None):
+            raise AssertionError(f"missing order markers: {missing}")
+    nc = indices.get("narrative_contract")
+    if nc is not None and drive_slot is not None and not (nc < drive_slot):
         raise AssertionError(
-            f"bad physical order: event_drive={ed} drama={dr} "
+            f"bad physical order: narrative_contract={nc} must precede drive/hook={drive_slot}")
+    if hook is not None and fr is not None and not (hook < fr):
+        raise AssertionError(
+            f"bad physical order: event_drive_hook={hook} must precede final_reminder={fr}")
+    if not (drive_slot < dr < env < cx < fr):
+        raise AssertionError(
+            f"bad physical order: drive/hook={drive_slot} drama={dr} "
             f"envelope={env} codex={cx} final_reminder={fr}"
         )
 
@@ -765,7 +789,12 @@ def generation_physical_order_names(*, v2: bool = True) -> list[str]:
 
     base = [
         "prefix",
+        "narrative_contract",
+        "story_ember",
+        "story_recall",
+        "story_causal",
         "event_drive",
+        "event_drive_hook",
         "drama_contract",
         "drama_vacuum",
     ]

@@ -97,10 +97,10 @@ while 存在未完成单元:
 
 | 项 | 值 |
 |----|----|
-| 上次更新 | 2026-08-13（任务设定；尚未开工修分） |
-| 下一 NAME | `story_ember`（三燃料同 PR） |
-| 已完成单元 | （无） |
-| 天花板已登记 | 见上表三行，尚未验收 |
+| 上次更新 | 2026-08-13 |
+| 下一 NAME | `narrative_contract` |
+| 已完成单元 | story_ember, story_recall, story_causal |
+| 天花板已登记 | provenance / request_position / story_move |
 
 ---
 

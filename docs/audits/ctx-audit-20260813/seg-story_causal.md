@@ -6,7 +6,7 @@
 
 ## 1. 流程完善性
 
-格式化【前因后果】存在；物理序断言 ember < event_drive；assemble 未 push。因果查询失败应 soft_fail 而非装无链。
+`_causal_chain_for_write` 回溯本章/上章事件；失败记 `empty_story_causal`（与无链空串区分）。assemble `_push("story_causal","supplemental")`。
 
 ## 2. 生成质量
 
@@ -22,11 +22,13 @@
 
 ## 5. 评分
 
-| P_flow | 1 |
-| Q_craft | 2 |
-| R_safety | 3 |
-| B_product | 2 |
-| Observability | 2 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+仅引擎。探针：`test_causal_fail_records_soft_fail`。
 
 ## 6. 最优改造
 

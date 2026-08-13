@@ -6,7 +6,7 @@
 
 ## 1. 流程完善性
 
-format 可出【世界此刻】且有 4000 字燃料帽（测试）。assemble **未 push**，与 ember 同病。
+`_hybrid_recall_for_write` 用合同+大纲组 query，secret 恒掩码；`collect_story_fuel_segments` 后 assemble `_push("story_recall","supplemental")`。失败 `empty_story_recall`。
 
 ## 2. 生成质量
 
@@ -22,11 +22,13 @@ format 可出【世界此刻】且有 4000 字燃料帽（测试）。assemble *
 
 ## 5. 评分
 
-| P_flow | 1 |
-| Q_craft | 2 |
-| R_safety | 3 |
-| B_product | 2 |
-| Observability | 2 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+仅引擎。探针：`test_secret_masked_on_recall_entry`。
 
 ## 6. 最优改造
 

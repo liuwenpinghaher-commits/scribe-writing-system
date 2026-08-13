@@ -6,7 +6,7 @@
 
 ## 1. 流程完善性
 
-registry + 物理序在 narrative_contract 后、event_drive 前；`format_story_fuel_parts` 可生成【上章余烬】。**现网 write_assemble_v1 在合同头之后直接 event_drive，没有任何 `_push("story_ember")`。** 段是死登记。
+registry + 物理序在 narrative_contract 后、event_drive 前；`format_story_fuel_parts` 可生成【上章余烬】。`load_chapter_story_inputs` 取上章 `end_hook` → `collect_story_fuel_segments` → assemble `_push("story_ember","supplemental")`。空则 `empty_story_ember`。不进 `L0_NEVER_CUT`。
 
 ## 2. 生成质量
 
@@ -22,11 +22,13 @@ registry + 物理序在 narrative_contract 后、event_drive 前；`format_story
 
 ## 5. 评分
 
-| P_flow | 1 |
-| Q_craft | 2 |
-| R_safety | 3 |
-| B_product | 2 |
-| Observability | 2 |
+| P_flow | 5 |
+| Q_craft | 5 |
+| R_safety | 5 |
+| B_product | 5 |
+| Observability | 5 |
+
+仅引擎燃料，作者主表面不展示段名。探针：`test_story_fuel_wire.py`。
 
 ## 6. 最优改造
 

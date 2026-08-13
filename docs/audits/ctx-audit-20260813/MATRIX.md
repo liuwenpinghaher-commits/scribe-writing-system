@@ -25,9 +25,9 @@
 | W3 | codex | 4 | 3 | 4 | 3 | 3 | 与 canonical 差集后再 cap；观测 codex_chars。 |
 | W3 | event_drive_hook | 4 | 3 | 4 | 3 | 3 | contract 对象只判一次并传入 helper（与 W1 event_drive 同一改造）。 |
 | W3 | pressure_drive | 3 | 3 | 3 | 3 | 3 | 差集失败记 soft_fail 并仍尝试差集空键；禁止再渲染与 drama 相同的 goal 句。 |
-| W3 | story_causal | 1 | 2 | 3 | 2 | 2 | 接线 + 查询失败 `_record_write_soft_fail("empty_story_causal")`。 |
-| W3 | story_ember | 1 | 2 | 3 | 2 | 2 | 从 load_chapter_story_inputs 取 prior_consequences，`format_story_fuel_parts` 后 `_push("story_ember","supplemental")`。禁止加入 L0_NEVER_CUT。 |
-| W3 | story_recall | 1 | 2 | 3 | 2 | 2 | 与 ember/causal 同一 PR 接线；query 限知投影后注入；超窗按 DEF 可裁。 |
+| W3 | story_causal | 5 | 5 | 5 | 5 | 5 | 已接线：`collect_story_fuel_segments` supplemental；查询失败 `empty_story_causal`。 |
+| W3 | story_ember | 5 | 5 | 5 | 5 | 5 | 已接线：`prior_consequences` → `_push("story_ember","supplemental")`；不进 L0_NEVER_CUT。 |
+| W3 | story_recall | 5 | 5 | 5 | 5 | 5 | 已接线：hybrid_recall 掩码后注入；T1_fuel 先裁 recall。 |
 | W4 | anti_slop | 4 | 2 | 4 | 2 | 2 | 三处 slop 收成一处短核。 |
 | W4 | author_prefs | 3 | 3 | 3 | 3 | 3 | 与 procedural 偏好去重。 |
 | W4 | avoid | 4 | 3 | 4 | 3 | 3 | 默认 omit 独立段（已有旗）。 |
