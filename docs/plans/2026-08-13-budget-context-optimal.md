@@ -3,7 +3,7 @@
 | 项 | 值 |
 |----|----|
 | 短名 | `budget-context-optimal` / `context-optimal` |
-| 状态 | **草案 · 待升 96k**（rev.2 · 评审收口） |
+| 状态 | **草案 · 待升 96k**（rev.3 · join 传 work + 代码默认永不 WIDE=1） |
 | 日期 | 2026-08-13 |
 | 作者 | Grok Design（待人审签） |
 | 对照提交 | 预算真源相对 **`bb01748`**（`context_budget.py` 此后未改）；本文入仓 **`56f4eca`**；实现前再 `git show HEAD:scribe3/tests/test_novel_first_injection.py` |
@@ -56,7 +56,7 @@
 | FIX-LOOP 钉 48k | **38 个测试文件**各一条 `assert NOVEL_PROMPT_HARD == 48000`（钉的是**常量**，不是 getter） | 本设计是另一 goal，不得偷偷改常量冒充审计完成 |
 | **已提交**的 novel-first 测 | `git show HEAD:scribe3/tests/test_novel_first_injection.py`：`NOVEL` 信封 **22_000**，`get_prompt_hard()==48_000` | **不要**把工作区未提交的 32k/96k 回退当现状，**禁止提交**那份脏改 |
 | 真正过期的 V2 块断言 | 同文件 `test_flag_on_v2_budget` 写死 `canonical==6800` / `recent==4000`；`BLOCK_BUDGETS_V2` 现为 **7400 / 4400** | PR1 顺手改对齐，或单列小修；与 96k 无关 |
-| getter 行为测 | `test_default_is_novel_22k_and_prompt_hard_48k`：`get_prompt_hard()==48_000`；`test_thicken_halfdone`：`prompt_hard >= 48_000` 且信封 **22_000**（HEAD） | PR1 默认关旗时仍绿；PR5 翻默认后前者要改期望 |
+| getter 行为测 | `test_default_is_novel_22k_and_prompt_hard_48k`：`get_prompt_hard()==48_000`；`test_thicken_halfdone`：`prompt_hard >= 48_000` 且信封 **22_000**（HEAD） | 代码默认永不 WIDE=1，这两条保持绿 |
 
 ### 为何还要升到 96k
 
@@ -91,7 +91,7 @@ L0 redline（identity / protocol / secret_guard / focalizer / 场面头 / event_
 ### Goals
 
 1. **终态窗 96k**：升窗档下 `get_prompt_hard() == 96000`，`get_total_prompt_budget()` 跟随（除非显式 `SCRIBE3_TOTAL_BUDGET`）。
-2. **默认仍 48k**，直到 PR5 翻 `novel_wide_enabled` 默认值 + demo 浸泡通过。
+2. **代码默认永远 48k**（`novel_wide_enabled` 默认 `"0"`）。96k 终态只靠 **demo/prod env** 常驻 `SCRIBE3_NOVEL_WIDE=1` + 模型窗，不靠改代码默认。
 3. 升窗后 L2 真的吃到余量：`get_supplemental_soft/hard()` 随档变为 28k/36k。
 4. 信封 22k、codex 4500、燃料帽、差集/空不 push、L0 集合、T1_fuel 序 **行为不变**。
 5. 爆炸半径可执行：测试分档、观测字段、compose recreate 回滚、限知不降级。
@@ -113,6 +113,7 @@ L0 redline（identity / protocol / secret_guard / focalizer / 场面头 / event_
 | NG10 | Grok 机全量测 / 本机 Surreal / 第二栈 | 资源纪律 |
 | NG11 | PR1 放宽燃料段帽 | 见 OQ4 / PR1.1 |
 | NG12 | 本 goal 实现 agentic 掉链近窗重建 | 见 OQ3 |
+| NG13 | 把 `novel_wide_enabled` 代码默认改成 `"1"` | 缺窗 fail-loud 会炸现网 `join_generation_segments` 测试与裸进程；96k 用 env |
 
 ---
 
@@ -121,8 +122,8 @@ L0 redline（identity / protocol / secret_guard / focalizer / 场面头 / event_
 1. **终态 96k，默认 48k，用显式升窗旗。**  
    理由：FIX-LOOP + 38 个**常量钉**禁止静默改常量；注意力/成本/模型窗未浸泡。主开关只有 `SCRIBE3_NOVEL_WIDE`。数值别名 `SCRIBE3_NOVEL_PROMPT_HARD` 仅接受空或 `96000`；其它非空值 **fail-loud**（禁止运维以为设了 72k）。**不**复用 `SCRIBE3_PROMPT_HARD`。
 
-2. **`NOVEL_PROMPT_HARD` 常量永远表示窄档钉 48000。**  
-   理由：38 个文件钉的就是这个标识符。翻默认（PR5）**只**把 `novel_wide_enabled()` 的 env 默认从 `"0"` 改成 `"1"`，**不改常量**。另增「默认 `get_prompt_hard()==96000`」探针，并改 FIX-LOOP 一句为「禁止为刷分再加大（超过 96k）」。关 `SCRIBE3_NOVEL_WIDE=0` 仍回 48k。禁止把断言改成 `in (48000, 96000)`。
+2. **`NOVEL_PROMPT_HARD` 常量永远 48000；`novel_wide_enabled()` 代码默认永远 `"0"`。**  
+   理由：38 个文件钉常量。代码默认改成 `"1"` + 缺窗 fail-loud 会炸所有未设 `SCRIBE3_MODEL_CONTEXT_WINDOW` 的 `join_generation_segments` 测试与裸进程。96k 终态 = **demo/prod `.env` 常驻 WIDE=1**（PR3 浸泡后不撤），不是改 Python 默认。关 env 仍回 48k。禁止 `in (48000, 96000)`。FIX-LOOP 浸泡成功后改一句：「代码常量仍 48000；demo 以 env 升 96k，禁止为刷分再加大」。
 
 3. **信封保持 22k，不随窗翻倍。**  
    理由：旧文 32k 与 `BLOCK_BUDGETS_NOVEL` 不符；信封是注意力税最高的中段。
@@ -148,17 +149,21 @@ L0 redline（identity / protocol / secret_guard / focalizer / 场面头 / event_
 10. **回滚必须两旗都清 + compose recreate。**  
     `deploy_demo.sh hot` / `docker restart` **不会**重读 `env_file`。运维 SSOT 是 `/opt/scribe3/app/deploy/prod/.env`（compose `env_file: .env`），**不要**改 `app/.env`。
 
-11. **`effective_l2_cap` 参数为 None 时改调 getter。**  
-    现网 `None` 回落 `DEFAULT_SUPPLEMENTAL_HARD` / `DEFAULT_PROMPT_HARD`（18k/42k），与 wide **脱节**。PR1 改成 `get_supplemental_hard()` / `get_prompt_hard()`，消灭第二套默认。测试也可显式传入，但生产与 `effective_l2_cap(l0,l1)` 无参路径必须吃到档位。
+11. **`effective_l2_cap` 禁止内部再调无参 getter。**  
+    现网 `None` 回落 18k/42k 常量，是假升窗源。生产路径由 `join` **一次** `resolve_write_caps(work)` 算出 `prompt_hard` / `supplemental_hard` / `total_budget`，再显式传入 `apply_l2_trim` 与 `effective_l2_cap(l0, l1, supplemental_hard=sh, prompt_hard=ph)`。函数签名两帽为必填 int。单测直接传字面量，不测「无参猜档」。
 
-12. **升窗旗是进程级；浸泡必须收窄。**  
-    加 `SCRIBE3_NOVEL_WIDE_WORKS`（逗号分隔 work slug）。**非空**则只对这些书走 96k，其它书仍 48k。空 = 全站（仅 PR5 之后允许默认空）。PR3 必须写成具体 slug，禁止空白名单浸泡活书。`get_prompt_hard(work=)` / assemble 咽喉传入当前 `work`。
+12. **`work` 必须贯穿 join → L2 → O1 → probe，supplemental 与 PH 同一门禁。**  
+    现网 `join_generation_segments(segs, v2=_v2)` 不传 work；`enforce_total_prompt_budget` 走 `get_total_prompt_budget()` → **无参** `get_prompt_hard()`；异常还被吞成 **42000**。只在 assemble 调 `get_prompt_hard(work=)` 会出现「L2 96k、O1 48k/42k」或 probe 假 48k。  
+    规定：`write_assemble_v1` 调 `join_generation_segments(..., work=work)`；`join` 内 `caps = resolve_write_caps(work)`，把同一组 int 传给 `apply_l2_trim` 与 `enforce_total_prompt_budget(budget=caps.total)`；`get_supplemental_*(work=)` 与 PH 共用 `novel_wide_for_work`；`get_total_prompt_budget(work=)` **不得** `except` 吞 `RuntimeError`；`build_budget_report` / probe 收 `work`（PR3 打指定 slug）。白名单非空且 `work is None` → 窄档 48k（测试无 work 仍安全）。PR3 必填 slug，禁止空名单浸泡。
 
 13. **告警只用 `density_trace.drama_core_share`。**  
     分子 = `DRAMA_CORE_NAMES`（场面头 + event_drive + drama_contract + outline + brief_must）。`signal_density_proxy` 分子含已合并的 `sincerity`、不含场面头，**不作告警尺**。48k 基线 = PR3 开旗前同一批章 **N=10 次 assemble 中位数**；告警 = 相对该中位数下降 **超过 40%**（不是 `0.5 ×` 绝对值，避免常亮灯）。
 
 14. **PR1 不改燃料段帽。**  
     只改注释（「窗护栏，现网 48k」）。放帽是浸泡后的可选 PR1.1。
+
+15. **fail-loud 只在显式请求 wide 时触发。**  
+    代码默认 WIDE=0 时，未设模型窗的 `join` / 测试 / 裸进程保持今日 48k 行为。只有 `_parse_wide_request()` 为真才检查窗。`get_total_prompt_budget` 不再 `except Exception: return 42000`。
 
 ---
 
@@ -167,29 +172,33 @@ L0 redline（identity / protocol / secret_guard / focalizer / 场面头 / event_
 ### 1. 一句话架构
 
 ```text
-profile = novel_48k（默认）| novel_96k（SCRIBE3_NOVEL_WIDE=1
+profile = novel_48k（代码默认）| novel_96k（env WIDE=1
            ∧ 模型窗门禁通过
            ∧ work 在白名单或白名单为空）
 
-get_prompt_hard(work=)
-  novel+V2 且 wide_for(work) → 96000
-  novel+V2                   → 48000
-  其它                       → SCRIBE3_PROMPT_HARD 或 42000
+caps = resolve_write_caps(work)     # 一次算齐，禁止 L2/O1 各算各的
+  prompt_hard / supplemental_soft / supplemental_hard / total_budget / novel_wide
 
-get_supplemental_{soft,hard}()
-  wide（进程旗，与 work 相同门禁）→ 28000 / 36000
-  默认 → 14000 / 18000
-  SCRIBE3_SUPPLEMENTAL_* 仍可显式覆盖
+get_prompt_hard(work=) / get_supplemental_{soft,hard}(work=)
+  同一 novel_wide_for_work(work)
+  wide → PH=96000，supp=28/36k
+  窄  → PH=48000，supp=14/18k
+  SCRIBE3_SUPPLEMENTAL_* / SCRIBE3_TOTAL_BUDGET 仍可显式覆盖
 
-effective_l2_cap(l0, l1, supplemental_hard=None, prompt_hard=None)
-  None → get_supplemental_hard() / get_prompt_hard()
-  禁止再回落 18k/42k 常量
+get_total_prompt_budget(work=)
+  TOTAL_BUDGET 正整数优先（≥900000 关全域裁）
+  否则 = get_prompt_hard(work=)
+  禁止 except 吞 RuntimeError → 42000
 
-信封 / 八块表 / 燃料帽 / DEFAULT_CODEX_INJECT_CAP
-  两档共用，第一刀不随 wide 变
+effective_l2_cap(l0, l1, *, supplemental_hard: int, prompt_hard: int)
+  两帽必填；内部零 getter
 
-join_generation_segments → apply_l2_trim → enforce_total_prompt_budget
-  算法不变；禁止 rendered[:hard]
+join_generation_segments(..., work=None, prompt_hard=None, supplemental_hard=None, total_budget=None)
+  缺省用 resolve_write_caps(work) 填齐
+  apply_l2_trim(..., supplemental_hard=sh, prompt_hard=ph)   # 只收 int
+  enforce_total_prompt_budget(..., budget=tb)                # 只收 int
+  build_budget_report(..., work=work)
+  禁止 rendered[:hard]
 ```
 
 ### 2. 现网 vs 升窗档
@@ -200,7 +209,7 @@ join_generation_segments → apply_l2_trim → enforce_total_prompt_budget
 | `NOVEL_PROMPT_HARD_WIDE` | — | **96000**（新常量） | `get_prompt_hard()` |
 | `get_prompt_hard()` | 48000 | 96000（过门禁且 work 命中） | `apply_l2_trim` / report |
 | `DEFAULT_PROMPT_HARD` | 42000 | 不变 | 非 novel |
-| `DEFAULT_TOTAL_PROMPT_BUDGET` | 42000（fallback） | 不变；live 跟随 getter | `get_total_prompt_budget()` |
+| `DEFAULT_TOTAL_PROMPT_BUDGET` | 42000（仅非 novel 无旗 fallback） | **不再**当 wide 异常吞值 | `get_total_prompt_budget(work=)` |
 | `NOVEL_ENVELOPE_TOKEN_BUDGET` | **22000** | **22000 不变** | assembler |
 | supplemental soft/hard | 14000 / 18000 | **28000 / 36000** | `effective_l2_cap` |
 | `DEFAULT_CODEX_INJECT_CAP` | 4500 | **4500 不变** | `cap_codex_text` |
@@ -225,21 +234,14 @@ novel_96k（帽不改）
 
 ```mermaid
 flowchart TB
-  subgraph flags["档位门禁"]
-    WIDEFLAG["SCRIBE3_NOVEL_WIDE=1"]
-    WIN["SCRIBE3_MODEL_CONTEXT_WINDOW≥192000"]
-    WL["SCRIBE3_NOVEL_WIDE_WORKS 含当前 work"]
-  end
-  WIDEFLAG --> WIN
-  WIN -->|fail-loud 若缺/过小| GATE["novel_wide_for(work)"]
-  WL --> GATE
-  GATE -->|过| WIDE["PH=96k supp=28/36k"]
-  GATE -->|不过| NARROW["PH=48k supp=14/18k"]
-  WIDE --> JOIN["join_generation_segments"]
-  NARROW --> JOIN
-  JOIN --> L2["apply_l2_trim T3→T2→T1→T1_fuel"]
-  L2 --> O1["enforce_total_prompt_budget"]
-  O1 --> OUT["joined 全文 禁止 [:hard]"]
+  ASSEMBLE["write_assemble_v1 work=当前书"]
+  ASSEMBLE --> JOIN["join_generation_segments work="]
+  JOIN --> RES["resolve_write_caps work"]
+  RES -->|同一组 int| L2["apply_l2_trim ph+sh"]
+  RES -->|同一组 int| O1["enforce_total_prompt_budget budget=tb"]
+  L2 --> OUT["joined 禁止 [:hard]"]
+  O1 --> OUT
+  RES --> REP["build_budget_report / probe 同一 work"]
 ```
 
 ### 3. 常量 / 函数 / flag
@@ -296,14 +298,69 @@ def get_prompt_hard(*, work: str | None = None) -> int:
         return int(raw)
     return DEFAULT_PROMPT_HARD
 
-def effective_l2_cap(l0_est, l1_est, *, supplemental_hard=None, prompt_hard=None) -> int:
-    hard = get_supplemental_hard() if supplemental_hard is None else int(supplemental_hard)
-    ph = get_prompt_hard() if prompt_hard is None else int(prompt_hard)
-    room = max(0, int(ph) - max(0, int(l0_est)) - max(0, int(l1_est)))
-    return min(max(0, int(hard)), room)
+def get_supplemental_hard(*, work: str | None = None) -> int:
+    raw = (os.environ.get("SCRIBE3_SUPPLEMENTAL_HARD") or "").strip()
+    if raw.isdigit():
+        return int(raw)
+    return WIDE_SUPPLEMENTAL_HARD if novel_wide_for_work(work) else DEFAULT_SUPPLEMENTAL_HARD
+
+def get_supplemental_soft(*, work: str | None = None) -> int:
+    raw = (os.environ.get("SCRIBE3_SUPPLEMENTAL_SOFT") or "").strip()
+    if raw.isdigit():
+        return int(raw)
+    return WIDE_SUPPLEMENTAL_SOFT if novel_wide_for_work(work) else DEFAULT_SUPPLEMENTAL_SOFT
+
+def get_total_prompt_budget(*, work: str | None = None) -> int:
+    raw = (os.environ.get("SCRIBE3_TOTAL_BUDGET") or "").strip()
+    if raw.isdigit():
+        return int(raw)
+    return get_prompt_hard(work=work)  # 不 catch；wide 缺窗的 RuntimeError 必须冒泡
+
+def resolve_write_caps(work: str | None = None) -> dict:
+    return {
+        "prompt_hard": get_prompt_hard(work=work),
+        "supplemental_soft": get_supplemental_soft(work=work),
+        "supplemental_hard": get_supplemental_hard(work=work),
+        "total_budget": get_total_prompt_budget(work=work),
+        "novel_wide": novel_wide_for_work(work),
+        "work": work,
+    }
+
+def effective_l2_cap(l0_est, l1_est, *, supplemental_hard: int, prompt_hard: int) -> int:
+    """两帽必填。禁止内部 get_*()。"""
+    hard, ph = int(supplemental_hard), int(prompt_hard)
+    room = max(0, ph - max(0, int(l0_est)) - max(0, int(l1_est)))
+    return min(max(0, hard), room)
 ```
 
-`apply_l2_trim` / `join_generation_segments` 必须把当前 `work` 传进 `get_prompt_hard(work=)`（assemble 已有 work）。无 work 的纯函数测走默认：白名单空则跟进程旗，白名单非空则窄档。
+`join_generation_segments` / `apply_l2_trim` / `enforce_total_prompt_budget` 签名（PR1 必改，不是只改 assemble 一行）：
+
+```python
+def join_generation_segments(
+    pieces, *, v2=True, work=None,
+    supplemental_hard=None, prompt_hard=None, total_budget=None,
+):
+    caps = resolve_write_caps(work)
+    sh = int(supplemental_hard) if supplemental_hard is not None else caps["supplemental_hard"]
+    ph = int(prompt_hard) if prompt_hard is not None else caps["prompt_hard"]
+    tb = int(total_budget) if total_budget is not None else caps["total_budget"]
+    _, l2_rep = apply_l2_trim(segs, supplemental_hard=sh, prompt_hard=ph)
+    segs, total_rep = enforce_total_prompt_budget(list(l2_rep["segments"]), budget=tb)
+    return joined, build_budget_report(..., work=work)
+
+def apply_l2_trim(segments, *, supplemental_hard: int, prompt_hard: int, ...):
+    cap = effective_l2_cap(l0, l1, supplemental_hard=supplemental_hard, prompt_hard=prompt_hard)
+    # 不得再调 get_prompt_hard() / get_supplemental_hard()
+
+def enforce_total_prompt_budget(segments, *, budget: int):
+    # 生产由 join 传入 budget；禁止在函数内再 get_total_prompt_budget()
+```
+
+`write_assemble_v1`：`join_generation_segments(segs, v2=_v2, work=work)`（assemble 已有 `work`）。
+
+无 `work` 的单测：未开 WIDE → 48k（与今日相同）。开了 WIDE 且白名单非空、未传 work → 窄档。开了 WIDE + 窗 + 空白名单 → 96k（仅 wide 专用测这样做）。
+
+现网 `get_total_prompt_budget` 的 `except Exception: return 42000` **删除**。`DEFAULT_TOTAL_PROMPT_BUDGET` 只留给非 novel 无 env 的回落，不再当保险阀。
 
 `story_constraint_prompt.py` **PR1 只改注释**：
 
@@ -321,7 +378,7 @@ FUEL_CAP_CAUSAL = 2500
 | `SCRIBE3_NOVEL_WIDE` | `0` | 升窗总开关 |
 | `SCRIBE3_NOVEL_PROMPT_HARD` | `""` | 只接受空或 `96000`；其它 fail-loud |
 | `SCRIBE3_MODEL_CONTEXT_WINDOW` | `""` | 供应商 token 窗；wide 时必填 ≥192000 |
-| `SCRIBE3_NOVEL_WIDE_WORKS` | `""` | 书白名单；PR3 必填 |
+| `SCRIBE3_NOVEL_WIDE_WORKS` | `""` | 书白名单；非空则只这些书 96k，`work is None` → 窄档。PR3 必填。空=全站（仅运维有意为之，浸泡禁止） |
 
 `build_budget_report`（PR2）增加：`prompt_hard_profile`、`novel_wide`、`supplemental_soft/hard`、`model_context_window`、`wide_works`。
 
@@ -386,10 +443,12 @@ join 两段裁剪都保留；**禁止** `rendered[:hard]`。
 | 面 | 变更 | 哪个 PR |
 |----|------|---------|
 | HTTP 路由 | 无新路径 | — |
-| `get_prompt_hard(work=)` | 新增可选 work | **PR1** |
-| `effective_l2_cap` None→getter | 消灭 18k/42k 第二默认 | **PR1** |
+| `get_prompt_hard(work=)` / `get_supplemental_*(work=)` / `get_total_prompt_budget(work=)` | 同一 `novel_wide_for_work` | **PR1** |
+| `resolve_write_caps(work)` | join 一次算齐 | **PR1** |
+| `join_generation_segments(..., work=)` → L2/O1 只收 int | 贯穿白名单 | **PR1** |
+| `effective_l2_cap` 两帽必填 | 禁止内部 getter | **PR1** |
 | `feature_flags` / `/debug/flags` | 登记四新旗 | **PR2** |
-| injection-trace / budget-probe | `prompt_hard_profile` / `novel_wide` / supp / 模型窗 | **PR2** |
+| injection-trace / budget-probe | 收 `work`（默认当前书）；返回 profile / wide / supp；白名单非空且未传 work → `work_unspecified_narrow` + 48k | **PR2** |
 | 作者 UI | 不展示 96k 目标 | 禁止改 |
 | MCP / store | 无 schema | — |
 
@@ -463,7 +522,7 @@ effective_L2_est = min(supplemental_hard, max(0, prompt_hard - envelope - l0_est
 | **不会炸（PR1）** | 38 条常量钉；HEAD 已是 22k/48k 的 novel 信封断言 |
 | **脏工作区** | 若有人把上述测试改成 32k/96k：**禁止 commit** |
 | **另修** | `test_flag_on_v2_budget`：6800/4000 → 7400/4400 |
-| **缓解** | PR1 默认关旗 + `monkeypatch` 后 pop。PR5 只改旗默认，改 getter 探针，**不动** 38 常量钉 |
+| **缓解** | PR1 默认关旗 + `monkeypatch` 后 pop。**不**把代码默认改成 WIDE=1，getter 默认测保持 48k。38 常量钉不动 |
 | **回滚点** | revert 代码 PR |
 
 ### B6. join / 裁剪算术
@@ -471,8 +530,8 @@ effective_L2_est = min(supplemental_hard, max(0, prompt_hard - envelope - l0_est
 | | |
 |--|--|
 | **严重度** | **高** |
-| **触发** | 只改 PH；或 `effective_l2_cap()` 仍走 18k/42k 常量；或加入 `[:hard]` |
-| **缓解** | PR1 改 getter 回落；单测无参 `effective_l2_cap(l0,l1)` 在 wide 下必须反映 36k |
+| **触发** | 只改 PH；L2/O1 各算各的顶；`get_total_prompt_budget` 吞异常成 42k；`effective_l2_cap` 内部无参 getter；或 `[:hard]` |
+| **缓解** | join 一次 `resolve_write_caps(work)`；`effective_l2_cap` 必填两帽。单测 `join(..., work="soak")` 在 wide+白名单下 L2 cap 与 O1 budget 同为 96k 侧 |
 | **观测** | `l2.effective_l2_cap`、`dropped`、`over_budget`、`final_reminder_kept` |
 | **回滚点** | 清旗。尾截代码必须 revert |
 
@@ -578,10 +637,10 @@ effective_L2_est = min(supplemental_hard, max(0, prompt_hard - envelope - l0_est
 | D. 关硬顶 | 爆窗 |
 | E. 燃料进 L0 | 挤死信封 |
 | F. 复用 `SCRIBE3_PROMPT_HARD` | 生产路径不读 |
-| G. PR5 改常量而不是旗默认 | 38 钉全红，收益只是少一个间接层 |
+| G. 代码默认 WIDE=1（或改常量） | 缺窗 fail-loud 炸 join 测试；38 钉/getter 默认测全红。96k 用 demo env |
 | H. 第一刀同时放燃料帽 | B3 更早恶化；OQ4 未解 |
 
-本方案 = 分档 96k + 真抬 L2 + 信封/帽不动 + 旗默认翻终态。
+本方案 = 分档 96k + 真抬 L2 + 信封/帽不动 + **代码默认永不 WIDE=1，终态靠 demo env**。
 
 ---
 
@@ -615,30 +674,28 @@ effective_L2_est = min(supplemental_hard, max(0, prompt_hard - envelope - l0_est
 ## Rollout Plan
 
 ```text
-PR1 机械（默认 48k）
-  context_budget getters + effective_l2_cap 改调 getter
-  模型窗 fail-loud + work 白名单
+PR1 机械（代码默认 48k）
+  resolve_write_caps + join(..., work=) 贯穿 L2/O1
+  get_total_prompt_budget 不再吞异常
+  effective_l2_cap 两帽必填
+  模型窗 fail-loud（仅显式 WIDE）+ 白名单
   新测；修 V2 6800/4000
-  不改燃料帽、不改 feature_flags、不改 report 键、不改 demo env
-  禁止提交工作区 32k/96k 脏测
+  不改燃料帽、不改 feature_flags、不改 demo env
 
 PR2 观测
-  feature_flags 四旗 + build_budget_report + probe
-  代码热更可用 hot（env 未变）
+  flags + report/probe 收 work
 
 PR3 demo 浸泡
-  先读现网 model / DAILY_CALL_CAP / usage
-  填 MODEL_CONTEXT_WINDOW、WIDE=1、WIDE_WORKS=<指定书>
-  compose recreate（不是 hot）
-  采 48k 基线 N=10 后再开旗
+  读现网 model / cap / usage
+  填窗 + WIDE=1 + WIDE_WORKS=<slug>
+  compose recreate
+  probe 必须带该 slug → 96000
 
-PR4 钉死讨论近窗 12/600/8000（可选并行）
-  不做掉链重建
+PR4 钉死讨论近窗
 
-PR5 翻默认 = novel_wide_enabled 默认 "1"
-  不改 NOVEL_PROMPT_HARD 常量
-  改 getter 探针 + FIX-LOOP 一句
-  仍可用 WIDE=0 回 48k
+PR5 文档/运维：浸泡后 demo env 常驻 WIDE=1
+  不改代码默认、不改常量
+  更新 FIX-LOOP / DEPLOY.md 一句
 ```
 
 回滚：B9。任何阶段清两旗 + recreate / revert PR。
@@ -647,7 +704,7 @@ PR5 翻默认 = novel_wide_enabled 默认 "1"
 
 ## Open Questions
 
-1. **翻默认冻结条件的 N？** 建议连续 20 次写 `prompt_tokens < 0.85×已填模型窗`、无 secret 真名、人工 3 章无复读。需产品拍 N。
+1. **demo env 常驻 96k 的冻结条件 N？** 建议连续 20 次写 `prompt_tokens < 0.85×已填模型窗`、无 secret 真名、人工 3 章无复读。需产品拍 N。通过后 **不**改代码默认，只把 demo `.env` 当常驻并改 FIX-LOOP 一句。
 2. **Hermes+工具真窗余量？** PR3 必须记一笔 `with_tools=true` 的 usage。若顶窗，再开「wide 仅纯生成」——**不**在 PR1 写进 `get_prompt_hard`（避免未测先分流）。
 3. **agentic 掉链重建** 另开 goal，本设计不绑。
 4. **燃料帽要不要放？** 默认不放。浸泡后若 T1_fuel 仍被半裁，再 PR1.1（2500/6000/4000 候选）。
@@ -671,18 +728,18 @@ PR5 翻默认 = novel_wide_enabled 默认 "1"
 
 ### PR1 — `feat(context): 96k 升窗档机械，默认仍 48k`
 
-- **影响文件**：`scribe3/context_budget.py`；`scribe3/story_constraint_prompt.py`（**仅注释**）；`scribe3/api/services/write_assemble_v1.py`（`join`/`get_prompt_hard` 传入 `work`，若现网未传）；`scribe3/tests/test_novel_wide_profile.py`（新）；`scribe3/tests/test_novel_first_injection.py`（**只**修 `test_flag_on_v2_budget` 6800/4000→7400/4400；可加 wide 用例；**禁止**把 22k/48k 改回 32k/96k）
+- **影响文件**：`scribe3/context_budget.py`（`resolve_write_caps`、`get_prompt_hard/supplemental_*/total_prompt_budget(work=)`、`join_generation_segments(..., work=)`、`apply_l2_trim` 只收 int、`enforce_total_prompt_budget(..., budget=)`、`effective_l2_cap` 两帽必填、删 total 的 `except→42000`）；`scribe3/story_constraint_prompt.py`（**仅注释**）；`scribe3/api/services/write_assemble_v1.py`（`join_generation_segments(..., work=work)`）；`scribe3/tests/test_novel_wide_profile.py`（新）；`scribe3/tests/test_novel_first_injection.py`（**只**修 V2 6800/4000→7400/4400；可加 wide+`work=` 用例；**禁止** 32k/96k 脏改）
 - **依赖**：无
-- **变更摘要**：`NOVEL_PROMPT_HARD_WIDE`、`novel_wide_enabled` / `novel_wide_for_work`、分档 getter、`effective_l2_cap` None→getter、模型窗 fail-loud、非法 `SCRIBE3_NOVEL_PROMPT_HARD` fail-loud。**不**改 `NOVEL_PROMPT_HARD`。**不**改 38 个常量钉。**不**改 `feature_flags.py`。**不**改 `build_budget_report` 新键。**不**放燃料帽。**不**改 demo env。
-- **单测**：默认 `get_prompt_hard()==48000`；wide+窗=256000 后 ==96000 且无参 `effective_l2_cap` 随 36k；缺模型窗 raise；`PROMPT_HARD=72000` raise；白名单外 work 仍 48k；关旗回 48k；超窗场面头仍在。
+- **变更摘要**：分档 getter 与 PH/supp **同一** `novel_wide_for_work`。join 一次算 caps，L2 与 O1 用同一组 int。代码默认 WIDE=0。缺窗 fail-loud 仅在显式请求 wide 时。**不**改 `NOVEL_PROMPT_HARD`。**不**改 38 常量钉。**不**改 `feature_flags.py` / report 新键。**不**放燃料帽。**不**改 demo env。
+- **单测**：默认无旗 `get_prompt_hard()==48000`，`join(...)` 无 work 仍 48k。wide+窗+`WIDE_WORKS=soak`：`join(..., work="soak")` 的 `l2.prompt_hard` 与 `total_enforce.total_budget` **同为 96000**；`work="other"` 两者同为 48000；supp hard 随同一门禁 36k/18k。未传 work 且白名单非空 → 窄档。缺窗 + WIDE=1 → raise，**不得**变成 42k。`72000` 数值旗 raise。
 - **验证**：点名上述测试。不跑全量。
 
 ### PR2 — `feat(context): flags + budget-probe 暴露 novel_wide`
 
 - **影响文件**：`scribe3/feature_flags.py`；`context_budget.build_budget_report`；`api/routers/misc_routes.py`；`scribe3/tools/sample_budget_report.py`；相关小测
 - **依赖**：PR1
-- **变更摘要**：登记四旗；report/probe 增加 profile、wide、supp、模型窗、白名单。L2 余量公式写清 L0。作者 UI 不展示 96k。
-- **验证**：`deploy_demo.sh hot`（**只热更代码**，env 未变）后 probe：`prompt_hard=48000`，`novel_wide=false`。
+- **变更摘要**：登记四旗；`build_budget_report(..., work=)` / probe / sample 收 `work`（默认当前书）。返回 profile、wide、supp、模型窗、白名单。白名单非空且未传 work → `work_unspecified_narrow` 且数字为 48k。L2 余量公式写清 L0。作者 UI 不展示 96k。
+- **验证**：`deploy_demo.sh hot` 后无 work probe：`prompt_hard=48000`，`novel_wide=false`。
 
 ### PR3 — `ops(demo): 打开 novel_96k 浸泡`
 
@@ -694,7 +751,8 @@ PR5 翻默认 = novel_wide_enabled 默认 "1"
   3. `SCRIBE3_NOVEL_WIDE=1`、`SCRIBE3_NOVEL_WIDE_WORKS=<指定非压力书>`
   4. 开旗前采同一批章 N=10 `drama_core_share` 中位数
   5. **`docker compose -f deploy/prod/docker-compose.yml --env-file deploy/prod/.env up -d backend`**
-  6. probe=`96000`；assemble 场面头在、secret 掩码、信封八键量级不变；记 `prompt_tokens`（含一笔 with_tools）
+  6. probe **带该 slug** → `prompt_hard=96000`；不带 slug 且白名单非空 → 48k + `work_unspecified_narrow`（禁止用这条当验收绿）
+  7. assemble 场面头在、secret 掩码、信封八键量级不变；`l2.prompt_hard` 与 `total_enforce` 同档；记 `prompt_tokens`（含一笔 with_tools）
 - **回滚**：B9。不写活书。
 
 ### PR1.1 — `feat(context): wide 燃料帽`（可选，浸泡后）
@@ -710,14 +768,13 @@ PR5 翻默认 = novel_wide_enabled 默认 "1"
 - **变更摘要**：锁 12/600/2400/8000；禁止 agentic 传 `conversation_history`。**不**实现掉链重建。
 - **验证**：点名近窗测试。
 
-### PR5 — `feat(context): 默认打开 novel_wide`
+### PR5 — `docs(ops): demo 常驻 96k env，代码默认仍关`
 
-- **影响文件**：`context_budget.py`（`_env_truthy("SCRIBE3_NOVEL_WIDE", "1")` 或等价）；`test_default_is_novel_22k_and_prompt_hard_48k`（getter 期望 96000，并设测试用模型窗）；新探针「关 WIDE=0 则 48k」；`FIX-LOOP.md` / `MATRIX.md` 头注一句；`feature_flags` 默认
-- **不改**：`NOVEL_PROMPT_HARD = 48000`；38 个常量钉
+- **影响文件**：`DEPLOY.md`（WIDE 与 `MODEL_CONTEXT_WINDOW` 同级必填、必须 recreate）；`docs/audits/ctx-audit-20260813/FIX-LOOP.md` / `MATRIX.md` 头注一句「代码常量 48000；demo 以 env 升 96k」。**不改** `context_budget.py` 默认、**不改** 38 常量钉、**不改** `test_default_is_novel_22k_and_prompt_hard_48k`
 - **依赖**：PR3 浸泡通过 + 人审 OQ1
-- **变更摘要**：生产默认 96k（仍要模型窗 env，否则 fail-loud——demo 必须保留 `MODEL_CONTEXT_WINDOW`）。`WIDE=0` 回 48k 至少一个版本。
-- **验证**：recreate 后 probe=96000；关旗 recreate 后 48000；38 常量钉仍绿；getter 默认测更新。
+- **变更摘要**：96k 终态 = 服务器 `.env` 留下 `SCRIBE3_NOVEL_WIDE=1` + 窗 + 白名单（或浸泡结束后再决定是否放空白名单）。代码 `_env_truthy(..., "0")` **永不**改成 `"1"`，避免未设窗的 join 测试 / 新容器 500。回滚仍是清两旗 + recreate。
+- **验证**：demo probe+slug=96000；本地无 env 测试仍 48k；38 常量钉绿。
 
 ---
 
-*本文取代同路径旧稿及 rev.1（误把脏工作区 32k/96k、qwen 默认、hot 重读 env 写成事实）。短名与日期保留。*
+*本文取代同路径旧稿及 rev.1/rev.2（rev.2 未把 work 贯穿 O1，且 PR5 误拟代码默认 WIDE=1）。短名与日期保留。*
