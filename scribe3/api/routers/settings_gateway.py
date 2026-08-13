@@ -745,9 +745,12 @@ def author_panels():
     return panel_payload()
 
 
-def story_moves_list():
-    from scribe3.story_move import approved_cards
-    return {"moves": approved_cards(), "count": len(approved_cards())}
+def story_moves_list(work: str = "main"):
+    from scribe3.store import SurrealStore
+    from scribe3.story_move import work_cards
+    st = SurrealStore(db=work or "main")
+    cards = work_cards(st)
+    return {"moves": cards, "count": len(cards)}
 
 
 def story_moves_retrieve(q: str = "", move_id: str | None = None):
@@ -759,6 +762,39 @@ def story_moves_retrieve(q: str = "", move_id: str | None = None):
 def craft_banned_lexicon():
     from scribe3.story_move import banned_lexicon_preview
     return banned_lexicon_preview()
+
+
+def story_moves_propose(req: dict | None = None, work: str = "main"):
+    from scribe3.store import SurrealStore
+    from scribe3.story_move import propose_story_move, work_cards
+    st = SurrealStore(db=work or "main")
+    extras = work_cards(st)
+    out = propose_story_move(req if isinstance(req, dict) else {}, extra_cards=extras)
+    if out.get("ok") and not out.get("merged") and out.get("card"):
+        st.upsert_author_story_move(out["card"])
+    return out
+
+
+def story_moves_review(slug: str, req: dict | None = None, work: str = "main"):
+    body = req if isinstance(req, dict) else {}
+    verdict = str(body.get("verdict") or body.get("status") or "").strip()
+    if verdict not in ("approved", "rejected"):
+        raise HTTPException(422, "verdict 须为 approved|rejected")
+    from scribe3.store import SurrealStore
+    st = SurrealStore(db=work or "main")
+    if not st.set_story_move_status(slug, verdict):
+        raise HTTPException(404, f"未知招式 {slug}")
+    return {"ok": True, "slug": slug, "status": verdict}
+
+
+def chapter_story_move_plan_put(seq: int, req: dict | None = None, work: str = "main"):
+    from scribe3.store import SurrealStore
+    from scribe3.story_move import save_story_move_plan_on_chapter
+    st = SurrealStore(db=work or "main")
+    out = save_story_move_plan_on_chapter(st, int(seq), req if isinstance(req, dict) else {})
+    if not out.get("ok"):
+        raise HTTPException(404, "chapter not found")
+    return out
 
 
 def story_move_preview(work: str = "main", seq: int = 1):
@@ -950,7 +986,10 @@ def _bind_and_register() -> None:
         ('/author-methods/{slug}', author_methods_read, ['GET'], 'author_methods_read'),
         ('/author-panels', author_panels, ['GET'], 'author_panels'),
         ('/story-moves', story_moves_list, ['GET'], 'story_moves_list'),
+        ('/story-moves', story_moves_propose, ['POST'], 'story_moves_propose'),
         ('/story-moves/retrieve', story_moves_retrieve, ['GET'], 'story_moves_retrieve'),
+        ('/story-moves/{slug}/review', story_moves_review, ['POST'], 'story_moves_review'),
+        ('/chapters/{seq}/story-move-plan', chapter_story_move_plan_put, ['POST'], 'chapter_story_move_plan_put'),
         ('/craft-banned-lexicon', craft_banned_lexicon, ['GET'], 'craft_banned_lexicon'),
         ('/debug/story-move-preview', story_move_preview, ['GET'], 'story_move_preview'),
         ('/mcp/catalog', mcp_catalog, ['GET'], 'mcp_catalog'),

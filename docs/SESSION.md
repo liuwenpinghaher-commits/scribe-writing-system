@@ -55,18 +55,16 @@
 
 ## 当前状态
 
-### 故事招式库 · 命名绕法卡片（2026-08-13）
+### 故事招式库 + 38 融合（2026-08-13）
 
-> **短名：`move-library` / 招式库** · 「继续 招式库」或读 [`docs/plans/2026-08-13-move-library-design.md`](./plans/2026-08-13-move-library-design.md)
+> **短名：`move-library` / `38 融合`** · 设计 [`docs/plans/2026-08-13-oh-story-38-fusion.md`](./plans/2026-08-13-oh-story-38-fusion.md) · [`docs/plans/2026-08-13-move-library-design.md`](./plans/2026-08-13-move-library-design.md)
 
-- **状态**：Draft R4 · 设计循环共识（0 open）· **人审两项已并入** · 待按 PR 开工
-- **定调**：招式卡 = 想让读者感到 X，别直线说 X，按公式绕一圈；检索键 **本意 × 绕法**
-- **v1 种子**：`triangle_info`（三角信息法）；假→破→真 同族 **合并进三角**
-- **人审**：① 作者可 REST 提案新公式卡（pending→approved）；② 「这一圈」构造拍为主、可选 `beat_id` 软挂戏剧拍，不扩 beats 类型
-- **分层**：不并入 `craft_skills` / `craft.py` / `lesson`；**不**改 `may_claim_story`
-- **注入**：仅 `approved ∧ validation.ok ∧ benyi` 的章计划；assemble 同步读 plan；旗 `SCRIBE3_MOVE_LIBRARY` 默认 0
-- **作者环**：MetaPane「这一圈」world-write 种子，发送强制 `runPhase=plan`
-- **下一步**：按 PR-1…5b…6 开工
+- **状态**：已上 demo（`402a46d` + 本轮写环）
+- **入口**：系统中心 → 技法与招式（三栏：技法 4 / 招式 5 / 编目 37）
+- **卡全集**：triangle_info / bond_tear / one_word_crush / speech_wither / withhold_escalate
+- **写环**：章信息「登记这一圈」REST；系统中心可提案新卡（假破真并三角）；`POST /story-moves` + `/review`
+- **注入**：旗 `SCRIBE3_MOVE_LIBRARY` 默认 0；无已批计划零字节
+- **女频**：编目隐藏
 
 ### 工程健康度结案（2026-08-12）
 

@@ -12,6 +12,44 @@ import { GatewaySection } from '../settings/GatewaySection'
 import AdminConsole from '../admin/AdminConsole'
 import { Btn } from '../ui.jsx'
 
+function ProposeMoveForm({ work, onDone }) {
+  const [name, setName] = useState('')
+  const [line, setLine] = useState('')
+  const [straight, setStraight] = useState('')
+  const [msg, setMsg] = useState('')
+  const submit = () => {
+    api.storyMovePropose?.({
+      name,
+      one_liner: line,
+      straight_line: straight,
+      formula: {
+        arrow: 'A→B→C',
+        beats: [
+          { role: 'A', hint: '第一拍' },
+          { role: 'B', hint: '第二拍' },
+          { role: 'C', hint: '第三拍' },
+        ],
+      },
+    }, work).then((r) => {
+      if (r.merged) setMsg('已并入三角：' + (r.reason || ''))
+      else if (r.ok) setMsg('已提案 pending：' + r.slug)
+      else setMsg(r.code || (r.errors || []).join('；') || '未通过')
+      onDone?.()
+    }).catch((e) => setMsg(e?.message || '失败'))
+  }
+  return (
+    <div className="rounded-lg border border-line p-3 space-y-2" data-testid="propose-move-form">
+      <h4 className="text-f13 font-medium">登记新招式</h4>
+      <p className="text-meta text-faint">假→破→真会并进三角，不会新开卡。限知/观众多知禁建。</p>
+      <input className="w-full rounded border border-line px-2 py-1 text-f12 bg-canvas" placeholder="名称 2–16 字" value={name} onChange={(e) => setName(e.target.value)} />
+      <input className="w-full rounded border border-line px-2 py-1 text-f12 bg-canvas" placeholder="一句话" value={line} onChange={(e) => setLine(e.target.value)} />
+      <input className="w-full rounded border border-line px-2 py-1 text-f12 bg-canvas" placeholder="直线病（至少 8 字）" value={straight} onChange={(e) => setStraight(e.target.value)} />
+      <Btn size="sm" variant="soft" onClick={submit}>提交提案</Btn>
+      {msg && <p className="text-f12">{msg}</p>}
+    </div>
+  )
+}
+
 /**
  * 系统中心 + 活地图默认首页（控制面 KD-M2）。
  * 无书可开；依赖 work 的区 disabled。
@@ -446,9 +484,15 @@ export function SystemHub({
                 <li key={c.slug}>
                   <button type="button" className="text-left w-full rounded-lg border border-line px-3 py-2 hover:bg-soft cursor-pointer"
                     onClick={() => { setMoveBody(c); setSkillBody(null); setMethodBody(null) }}>
-                    <div className="text-f13 font-medium">{c.name}</div>
+                    <div className="text-f13 font-medium">{c.name}{c.status && c.status !== 'approved' ? ` · ${c.status}` : ''}</div>
                     <div className="text-meta text-faint">{c.formula?.arrow || c.one_liner}</div>
                   </button>
+                  {c.origin === 'author' && c.status === 'pending' && (
+                    <div className="flex gap-1 mt-1">
+                      <Btn size="xs" variant="soft" onClick={() => api.storyMoveReview?.(c.slug, 'approved', work).then(() => api.storyMoves?.(work).then((r) => setMoves(r.moves || [])))}>批准</Btn>
+                      <Btn size="xs" variant="ghost" onClick={() => api.storyMoveReview?.(c.slug, 'rejected', work).then(() => api.storyMoves?.(work).then((r) => setMoves(r.moves || [])))}>驳回</Btn>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -514,6 +558,7 @@ export function SystemHub({
             </div>
           </div>
         </div>
+        <ProposeMoveForm work={work} onDone={() => api.storyMoves?.(work).then((r) => setMoves(r.moves || [])).catch(() => {})} />
         {bannedLex && (
           <p className="text-meta text-faint" data-testid="banned-lexicon-link">
             禁词只读：{bannedLex.source} · {bannedLex.count} 类（不进技法正文）

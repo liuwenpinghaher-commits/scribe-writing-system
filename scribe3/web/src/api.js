@@ -610,7 +610,11 @@ export const api = {
   // O14 / emergency 闸外：仅 beats GCD 微调（拍数守恒）；勿用 patchChapter 存 GCD 面板
   patchChapterGcdFields: (seq, b, work) => patch('/chapters/' + seq + '/gcd-fields', b, work),
   // work 可选:演绎卸载兜底 flush 读现状(合并 deductions)时钉住目标书,防切书读错书(F6,同 patchChapter 钉书)。
-  chapter: (seq, work) => fetch(BASE + ww(`/chapter?seq=${seq}`, work)).then(handle),
+  chapter: (seq, work, opts) => {
+    const q = new URLSearchParams({ seq: String(seq) })
+    if (opts && opts.includeSuggest) q.set('include_suggest', '1')
+    return fetch(BASE + ww(`/chapter?${q.toString()}`, work)).then(handle)
+  },
   // 角色投影只能以服务端场景真相为证据审查；客户端不传 source，避免伪造事实来源。
   validateDeduction: (seq, candidate, characterId = '', work) => post(
     `/chapters/${seq}/deductions/grounding`, { candidate, character_id: characterId }, work),
@@ -773,8 +777,11 @@ export const api = {
   authorMethods: () => jraw('/author-methods'),
   authorMethod: (slug) => jraw('/author-methods/' + enc(slug)),
   authorPanels: () => jraw('/author-panels'),
-  storyMoves: () => jraw('/story-moves'),
+  storyMoves: (work) => jraw('/story-moves?work=' + enc(work || 'main')),
   storyMoveRetrieve: (q, moveId) => jraw('/story-moves/retrieve?q=' + enc(q || '') + (moveId ? '&move_id=' + enc(moveId) : '')),
+  storyMovePropose: (body, work) => postRaw('/story-moves?work=' + enc(work || 'main'), body || {}),
+  storyMoveReview: (slug, verdict, work) => postRaw('/story-moves/' + enc(slug) + '/review?work=' + enc(work || 'main'), { verdict }),
+  saveStoryMovePlan: (seq, body, work) => postRaw('/chapters/' + enc(seq) + '/story-move-plan?work=' + enc(work || 'main'), body || {}),
   craftBannedLexicon: () => jraw('/craft-banned-lexicon'),
   mcpCatalog: () => jraw('/mcp/catalog'),
   dataHealth: (work) => jraw('/data/health?work=' + enc(work || 'main')),

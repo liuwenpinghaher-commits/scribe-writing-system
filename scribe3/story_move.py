@@ -247,6 +247,89 @@ def sanitize_uses_for_inject(uses: list[dict] | None) -> list[dict]:
     return out
 
 
+def validate_move_card(payload: dict | None) -> dict[str, Any]:
+    p = payload if isinstance(payload, dict) else {}
+    errors: list[str] = []
+    name = str(p.get("name") or "").strip()
+    if not (2 <= len(name) <= 16):
+        errors.append("name 须 2–16 字")
+    ol = str(p.get("one_liner") or "").strip()
+    if len(ol) > 40:
+        errors.append("one_liner ≤40 字")
+    form = p.get("formula") if isinstance(p.get("formula"), dict) else {}
+    beats = form.get("beats") if isinstance(form.get("beats"), list) else []
+    if len(beats) < 2:
+        errors.append("formula.beats 至少 2 拍")
+    sl = str(p.get("straight_line") or "").strip()
+    if len(sl) < 8:
+        errors.append("straight_line 过短")
+    return {"ok": not errors, "errors": errors}
+
+
+def _slug_from_name(name: str) -> str:
+    import hashlib
+    h = hashlib.sha256((name or "").encode("utf-8")).hexdigest()[:10]
+    return "am_" + h
+
+
+def propose_story_move(payload: dict | None, *, extra_cards: list[dict] | None = None) -> dict[str, Any]:
+    """纯函数提案闸：禁建 / 并三角 / 生成 pending 卡身。不写库。"""
+    p = dict(payload or {})
+    gate = propose_merge_gate(p)
+    if not gate.get("ok"):
+        return gate
+    if gate.get("merged"):
+        return gate
+    val = validate_move_card(p)
+    if not val["ok"]:
+        return {"ok": False, "code": "invalid", "errors": val["errors"]}
+    slug = str(p.get("slug") or "").strip() or _slug_from_name(str(p.get("name") or ""))
+    seeds = {c.get("slug") for c in load_seed_cards()}
+    extras = {c.get("slug") for c in (extra_cards or []) if (c.get("status") == "approved")}
+    if slug in seeds or slug in extras:
+        return {"ok": False, "code": "conflict", "slug": slug}
+    card = {
+        "slug": slug,
+        "name": str(p.get("name") or "").strip(),
+        "one_liner": str(p.get("one_liner") or "").strip()[:40],
+        "formula_family": str(p.get("formula_family") or "custom"),
+        "formula": p.get("formula") if isinstance(p.get("formula"), dict) else {},
+        "straight_line": str(p.get("straight_line") or "").strip(),
+        "aliases": list(p.get("aliases") or []),
+        "usage": str(p.get("usage") or ""),
+        "status": "pending",
+        "origin": "author",
+    }
+    return {"ok": True, "merged": False, "slug": slug, "status": "pending", "card": card}
+
+
+def save_story_move_plan_on_chapter(st: Any, seq: int, plan: dict) -> dict[str, Any]:
+    """合并写入 chapter.beats_meta.story_move_plan。"""
+    smp = dict(plan or {})
+    smp["validation"] = validate_story_move_plan(smp)
+    if smp.get("approved") and not smp["validation"].get("ok"):
+        smp["approved"] = False
+    ch = st.get_chapter(int(seq)) or {}
+    if not ch:
+        return {"ok": False, "code": "not_found"}
+    bm = ch.get("beats_meta") if isinstance(ch.get("beats_meta"), dict) else {}
+    bm = dict(bm)
+    bm["story_move_plan"] = smp
+    if not st.update_chapter_meta(int(seq), {"beats_meta": bm}):
+        return {"ok": False, "code": "not_found"}
+    return {"ok": True, "plan": smp}
+
+
+def work_cards(st: Any | None = None) -> list[dict[str, Any]]:
+    cards = load_seed_cards()
+    if st is not None and hasattr(st, "list_author_story_moves"):
+        try:
+            cards = cards + list(st.list_author_story_moves() or [])
+        except Exception:
+            pass
+    return cards
+
+
 def propose_merge_gate(payload: dict | None) -> dict[str, Any]:
     """新卡闸：假破真并三角；限知禁建。"""
     p = payload if isinstance(payload, dict) else {}

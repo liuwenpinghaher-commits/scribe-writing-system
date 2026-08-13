@@ -74,6 +74,62 @@ function StatusDot({ ok, warn }) {
   )
 }
 
+function ThisCircleBlock({ seq, work, chapter, toast, setChapter }) {
+  const plan = (chapter?.beats_meta && chapter.beats_meta.story_move_plan) || chapter?.story_move_plan || {}
+  const hookType = chapter?.beats_meta?.chapter_hook_type || ''
+  const [benyi, setBenyi] = useState(plan.benyi || '')
+  const [moveId, setMoveId] = useState(plan.move_id || plan.slug || 'triangle_info')
+  const [moves, setMoves] = useState([])
+  useEffect(() => {
+    api.storyMoves?.(work).then((r) => {
+      const rows = (r.moves || []).filter((c) => (c.status || 'approved') === 'approved')
+      setMoves(rows)
+    }).catch(() => setMoves([]))
+  }, [work])
+  const save = () => {
+    api.saveStoryMovePlan?.(seq, { benyi, move_id: moveId, approved: true }, work)
+      .then((r) => {
+        const next = r.plan || { benyi, move_id: moveId, approved: true }
+        setChapter?.((ch) => {
+          const cur = ch || {}
+          const bm = { ...(cur.beats_meta || {}), story_move_plan: next }
+          return { ...cur, beats_meta: bm }
+        })
+        toast(next.approved ? '这一圈已登记' : '已记下，本意或招式还缺', { tone: next.approved ? 'ok' : 'warn' })
+      })
+      .catch((e) => toast(e?.message || '保存失败', { tone: 'danger' }))
+  }
+  return (
+    <section className="mb-4" data-testid="chapter-this-circle">
+      <h4 className="text-f13 font-medium text-ink mb-1">这一圈</h4>
+      <div className="rounded-md border border-line/40 bg-canvas/50 px-3 py-2 text-f13 space-y-2">
+        <p className="text-ink">
+          {plan.approved
+            ? `${plan.move_id || plan.slug || '招式'} · 本意 ${plan.benyi || '—'}`
+            : <span className="text-faint">还没画。本意×绕法，不是完成灯。</span>}
+        </p>
+        <label className="block text-f12">本意
+          <input className="mt-0.5 w-full rounded border border-line px-2 py-1 bg-canvas" value={benyi}
+            maxLength={40} onChange={(e) => setBenyi(e.target.value)} placeholder="这一圈要让人感到什么" />
+        </label>
+        <label className="block text-f12">招式
+          <select className="mt-0.5 w-full rounded border border-line px-2 py-1 bg-canvas" value={moveId}
+            onChange={(e) => setMoveId(e.target.value)}>
+            {(moves.length ? moves : [{ slug: 'triangle_info', name: '三角信息法' }]).map((c) => (
+              <option key={c.slug} value={c.slug}>{c.name || c.slug}</option>
+            ))}
+          </select>
+        </label>
+        <div className="flex flex-wrap gap-1">
+          <Btn variant="soft" size="xs" data-testid="save-this-circle" onClick={save}>登记这一圈</Btn>
+          <Btn variant="ghost" size="xs" data-testid="seed-draw-triangle" onClick={() => seedChiefMovePlan(seq, benyi)}>让主编画</Btn>
+          <Btn variant="ghost" size="xs" onClick={() => seedChiefHookType(seq, hookType)}>钩类型{hookType ? ` · ${hookType}` : ''}</Btn>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function clip(text, n) {
   const s = String(text || '').trim()
   if (!s) return ''
@@ -235,26 +291,7 @@ export function ChapterMetaPane({
           beats={beats}
         />
 
-      <section className="mb-4" data-testid="chapter-this-circle">
-        <h4 className="text-f13 font-medium text-ink mb-1">这一圈</h4>
-        {(() => {
-          const plan = (chapter?.beats_meta && chapter.beats_meta.story_move_plan) || chapter?.story_move_plan || {}
-          const hookType = chapter?.beats_meta?.chapter_hook_type || ''
-          return (
-            <div className="rounded-md border border-line/40 bg-canvas/50 px-3 py-2 text-f13 space-y-2">
-              <p className="text-ink">
-                {plan.approved
-                  ? `${plan.move_id || plan.slug || '招式'} · 本意 ${plan.benyi || '—'}`
-                  : <span className="text-faint">还没画。本意×绕法，不是完成灯。</span>}
-              </p>
-              <div className="flex flex-wrap gap-1">
-                <Btn variant="ghost" size="xs" data-testid="seed-draw-triangle" onClick={() => seedChiefMovePlan(seq)}>画三角</Btn>
-                <Btn variant="ghost" size="xs" onClick={() => seedChiefHookType(seq, hookType)}>钩类型{hookType ? ` · ${hookType}` : ''}</Btn>
-              </div>
-            </div>
-          )
-        })()}
-      </section>
+      <ThisCircleBlock seq={seq} work={work} chapter={chapter} toast={toast} setChapter={setChapter} />
       </section>
 
       {showVolPeek && (

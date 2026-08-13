@@ -16,9 +16,13 @@ from scribe3.craft_skills import list_skills, read_skill
 from scribe3.story_move import (
     OH_STORY_SOURCE_STEMS,
     load_seed_cards,
+    propose_merge_gate,
+    propose_story_move,
     render_story_move_segment,
     retrieve_story_move,
     same_formula_family,
+    validate_move_card,
+    validate_story_move_plan,
 )
 
 
@@ -113,6 +117,36 @@ def test_physical_order_story_move_before_final_reminder():
     assert names.index("story_move") < names.index("final_reminder")
     from scribe3.injection_registry import SEGMENT_REGISTRY
     assert any(s.name == "story_move" for s in SEGMENT_REGISTRY)
+
+
+def test_propose_merges_triangle_aliases():
+    g = propose_merge_gate({"name": "欲扬先抑", "one_liner": "先扬后抑", "straight_line": "上来就掏底牌啊"})
+    assert g.get("merged") is True
+    assert g.get("into") == "triangle_info"
+    bad = propose_merge_gate({"name": "限知反讽", "one_liner": "观众多知", "straight_line": "叙述者抢答"})
+    assert bad.get("ok") is False
+    assert bad.get("code") == "belongs_to_skill"
+
+
+def test_propose_new_card_pending():
+    out = propose_story_move({
+        "name": "错位对视",
+        "one_liner": "对上看别处",
+        "straight_line": "直接写他们不敢对视",
+        "formula": {"arrow": "看→偏→空", "beats": [{"role": "看"}, {"role": "偏"}, {"role": "空"}]},
+    })
+    assert out.get("ok") and not out.get("merged")
+    assert out["status"] == "pending"
+    assert out["card"]["slug"].startswith("am_")
+    val = validate_move_card({"name": "x"})
+    assert val["ok"] is False
+
+
+def test_plan_validation_requires_benyi():
+    v = validate_story_move_plan({"move_id": "triangle_info", "approved": True})
+    assert v["ok"] is False
+    v2 = validate_story_move_plan({"benyi": "穷", "move_id": "triangle_info"})
+    assert v2["ok"] is True
 
 
 def test_flag_registered():
