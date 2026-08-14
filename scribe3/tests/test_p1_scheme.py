@@ -62,14 +62,14 @@ def test_registry_density_and_v2_order_under_active():
         names = registry_physical_order_names(v2=True)
         assert "event_drive" in names and "final_reminder" in names
         tr = density_trace_for_segments(
-            domain_lengths={"drama_contract": 10, "envelope": 100, "codex": 50},
+            domain_lengths={"drama_contract": 10, "envelope": 100, "codex_named": 50},
             order_indices={"event_drive": 0},
         )
         assert tr["mode"] == "active"
         assert "registry_names" in tr and tr["by_tier"]["L0"] == 10
         pieces = [
             {"name": "final_reminder", "text": "【最终提醒】限知"},
-            {"name": "codex", "text": "设定" + ("x" * 100)},
+            {"name": "codex_named", "text": "设定" + ("x" * 100)},
             {"name": "envelope", "text": "ENV"},
             {"name": "drama_contract", "text": "戏"},
             {"name": "event_drive", "text": "事"},
@@ -203,9 +203,9 @@ def test_beats_schema_and_approval_fingerprint():
     assert is_emergency_bypass_chapter_path("/chapters/1/gcd-fields")
     ok2, _, n2 = apply_gcd_beats_patch(
         [{"text": "a", "goal": "g", "conflict": "c"}],
-        [{"text": "ab", "goal": "g", "conflict": "c"}],
+        [{"text": "ab", "goal": "g2", "conflict": "c"}],
     )
-    assert ok2 and n2
+    assert ok2 and n2 and n2[0]["text"] == "a" and n2[0]["goal"] == "g2"
     pol = resolve_run_stage_policy("chapter:1:outline")
     assert not (pol.allowed_tools & PLAN_SCAFFOLD_FORBIDDEN)
 

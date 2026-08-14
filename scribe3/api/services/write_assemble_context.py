@@ -132,7 +132,6 @@ def _voice_anchor_block(st, focalizer: str = "") -> str:
 
 
 _VOLUME_INTRO_BUDGET = 400  # 卷纲摘要注入字符上限
-_OUTLINE_INJECT_BUDGET = 800  # 大纲栏；节拍按段另裁，避免三拍挤进 1200 被削成口号
 
 
 def _clip_chars(text: str, n: int) -> str:
@@ -155,7 +154,6 @@ def _volume_intro_inject_enabled() -> bool:
 
 def _outline_block(
     st, chapter: int, focalizer: str = "", *, mode: str = "write",
-    _budget=_OUTLINE_INJECT_BUDGET,
 ) -> str:
     """本章大纲(synopsis)+节拍(beats)契约注入。
 
@@ -338,7 +336,20 @@ def _drama_block(st, chapter: int, focalizer: str = "") -> str:
         return ""
 
 
-FOCAL_DEDUCTION_PROSE_CAP = 4000  # 单人五层上限（final 也吃满；不再 1800 尖端）
+FOCAL_DEDUCTION_PROSE_CAP = 6000  # 对齐 INJECT_CAP.deduction；_floor_for 保持 0
+
+
+def _chapter_mention_from_ch(ch: dict | None) -> str:
+    if not isinstance(ch, dict):
+        return ""
+    bits = [str(ch.get("synopsis") or "")]
+    for b in ch.get("beats") or []:
+        if isinstance(b, dict):
+            bits.append(str(b.get("text") or ""))
+        else:
+            bits.append(str(b or ""))
+    bits.append(str(ch.get("scene_truth") or ""))
+    return "\n".join(bits)
 
 
 def _deduction_item_is_focal(item: dict, focalizer: str) -> bool:
@@ -355,34 +366,8 @@ def _deduction_item_is_focal(item: dict, focalizer: str) -> bool:
     return bool(keys & (role_id_keys(cid) | role_id_keys(name)))
 
 
-def _nonfocal_boundary_line(name: str, prose: str) -> str:
-    """非焦点一行边界（可见/已做）；禁止注入其「没察觉的」长文。"""
-    from scribe3.deduce_helpers import extract_layer_body
-
-    seen = (extract_layer_body(prose, "看到/听到") or "").replace("\n", " ").strip()
-    known = (extract_layer_body(prose, "知道") or "").replace("\n", " ").strip()
-    did = (extract_layer_body(prose, "做了/说了") or "").replace("\n", " ").strip()
-    vis = "；".join(part for part in (seen, known) if part)
-    if not vis and not did:
-        unaware = extract_layer_body(prose, "没察觉的") or ""
-        leftover = prose or ""
-        if unaware:
-            leftover = leftover.replace(unaware, "")
-        leftover = leftover.replace("### 没察觉的", "")
-        vis = leftover.replace("\n", " ").strip()
-    vis = _clip_chars(vis, 80)
-    did = _clip_chars(did, 60)
-    bits: list[str] = []
-    if vis:
-        bits.append(f"可见:{vis}")
-    if did:
-        bits.append(f"已做:{did}")
-    body = "；".join(bits) if bits else "言行以场面可见为准"
-    return f"\n〔{name}·限知边界〕{body}。勿写其不知之事。"
-
-
 def _apply_deduction_pack_cap(parts: list[dict], cap: int) -> None:
-    """整包硬帽。超帽顺序：砍非焦点行 → 真相摘录 → 焦点半裁。原地改 parts。"""
+    """整包硬帽。先丢非焦点；仍超才按溢出序削最低优先者尾巴。禁止焦点对半。"""
 
     def total() -> int:
         return sum(len(p.get("text") or "") for p in parts)
@@ -396,21 +381,28 @@ def _apply_deduction_pack_cap(parts: list[dict], cap: int) -> None:
             break
         parts.pop(drop_at)
 
-    if total() > cap:
-        for p in parts:
-            if p.get("role") != "truth":
-                continue
-            room = max(0, cap - (total() - len(p.get("text") or "")))
-            p["text"] = _clip_chars(p.get("text") or "", room)
-            break
-
     while total() > cap:
-        focals = [p for p in parts if p.get("role") == "focal" and len(p.get("text") or "") > 1]
-        if not focals:
+        victims = [
+            p for p in parts
+            if p.get("role") in ("focal", "stale", "truth") and len(p.get("text") or "") > 1
+        ]
+        if not victims:
             break
-        victim = max(focals, key=lambda p: len(p.get("text") or ""))
+        victim = max(
+            victims,
+            key=lambda p: (
+                int(p.get("evict") or 3),
+                0 if p.get("role") == "truth" else 1,
+                len(p.get("text") or ""),
+            ),
+        )
         text = victim.get("text") or ""
-        victim["text"] = text[: max(1, len(text) // 2)]
+        room = max(1, cap - (total() - len(text)))
+        if room >= len(text):
+            break
+        victim["text"] = _clip_chars(text, room)
+        if len(victim["text"]) >= len(text):
+            break
 
     if total() > cap:
         for p in reversed(parts):
@@ -422,20 +414,39 @@ def _apply_deduction_pack_cap(parts: list[dict], cap: int) -> None:
                 break
 
 
+def _deduction_evict_rank(item: dict, *, request_text: str, focalizer: str, chapter_text: str) -> int:
+    """越大越先削。request > focalizer > 章内提及 > 其余。"""
+    needles = [
+        str(item.get("name") or "").strip(),
+        str(item.get("character_name") or "").strip(),
+        str(item.get("character_id") or "").strip(),
+    ]
+    needles = [n for n in needles if n]
+    if request_text and any(n in request_text for n in needles):
+        return 0
+    if _deduction_item_is_focal(item, focalizer):
+        return 1
+    if chapter_text and any(n in chapter_text for n in needles):
+        return 2
+    return 3
+
+
 def _deduction_context_segments(
     st, seq: int, *, focalizer: str = "",
+    request_text: str = "",
     _focal_cap: int = FOCAL_DEDUCTION_PROSE_CAP,
 ) -> list[tuple[str, str, str]]:
     """把场景真相、每条限知投影与固定协议分开，供 Manifest 逐源追溯。
 
     stale 投影默认**不注入全文**（只标过期提示），避免草稿采信旧限知。
-    每人 fresh 五层全文（单条 ≤ FOCAL_DEDUCTION_PROSE_CAP）。draft/final 同档吃满。
-    整包帽 DEDUCTION_PACK_CAP（≥5000 地板）。
+    每人 fresh 五层全文（单条 clip_for deduction，帽 6000）。draft/final 同档吃满。
+    整包帽 DEDUCTION_PACK_CAP=8500（5000+2500+头尾）。
     """
     from scribe3.iceberg import DEDUCTION_PACK_CAP, clip_for
     from scribe3.deduce_helpers import inject_deduction_items
 
     ch = st.get_chapter(seq) or {}
+    mention = _chapter_mention_from_ch(ch)
     truth = (ch.get("scene_truth") or "").strip()
     items = inject_deduction_items(ch)
     if not truth and not items:
@@ -451,11 +462,16 @@ def _deduction_context_segments(
             "source_id": f"chapter:{seq}:scene-truth",
             "source_kind": "scene_truth",
             "role": "truth",
-            "text": f"\n〔场景真相·全知〕{truth}",
+            "evict": 1,
+            "text": f"\n〔场景真相·全知〕{clip_for('scene_truth', truth)}",
         })
     for ordinal, item in enumerate(items):
         identity = item.get("character_id") or "unknown"
-        name = item.get("name") or identity
+        name = item.get("name") or item.get("character_name") or identity
+        evict = _deduction_evict_rank(
+            item, request_text=request_text or "",
+            focalizer=focalizer or "", chapter_text=mention,
+        )
         if item.get("status") == "stale":
             based = item.get("based_on_truth_rev")
             cur = item.get("truth_revision")
@@ -463,6 +479,7 @@ def _deduction_context_segments(
                 "source_id": f"chapter:{seq}:deduction:{ordinal:04d}:{identity}:stale",
                 "source_kind": "deduction_stale",
                 "role": "stale",
+                "evict": evict,
                 "text": (
                     f"\n〔{name}·限知投影·过期〕基于真相 rev {based}，当前 rev {cur}；"
                     f"请重演后再采信。正文勿将该角色旧限知当有效边界。"
@@ -478,6 +495,7 @@ def _deduction_context_segments(
             "source_id": f"chapter:{seq}:deduction:{ordinal:04d}:{identity}",
             "source_kind": "deduction",
             "role": role,
+            "evict": evict,
             "text": f"\n〔{name}·限知投影〕{clipped}",
         })
     parts.append({

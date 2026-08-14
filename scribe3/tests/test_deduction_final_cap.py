@@ -13,6 +13,7 @@ from scribe3.context_budget import (
     NOVEL_PROMPT_HARD,
     join_generation_segments,
 )
+from scribe3.iceberg import DEDUCTION_PACK_CAP
 
 
 NONFOCAL_UNAWARE = "NONFOCAL_UNAWARE_炉心真名铜钥不该进稿"
@@ -77,7 +78,8 @@ def test_hard_budget_constant_unchanged():
     assert NOVEL_PROMPT_HARD == 48000
     assert "deduction_final" in L0_NEVER_CUT
     assert DEFAULT_CODEX_INJECT_CAP == 4500
-    assert FOCAL_DEDUCTION_PROSE_CAP == 4000
+    assert FOCAL_DEDUCTION_PROSE_CAP == 6000
+    assert DEDUCTION_PACK_CAP == 8500
 
 
 def test_empty_chapter_returns_no_segments():
@@ -128,8 +130,12 @@ def test_stale_hint_without_old_body():
 
 
 def test_focal_prose_capped_at_inject_cap():
-    huge = "焦" * 5000
+    just = "焦" * 5000
     ch = _default_chapter()
+    ch["deductions"][0]["prose"] = just
+    text, segs = _joined(_Store(ch))
+    assert just in text
+    huge = "焦" * 7000
     ch["deductions"][0]["prose"] = huge
     text, segs = _joined(_Store(ch))
     assert huge not in text
@@ -170,8 +176,9 @@ def test_rebound_globals_without_cap_name_still_clips():
     bare = {
         "_clip_chars": wac._clip_chars,
         "_deduction_item_is_focal": wac._deduction_item_is_focal,
-        "_nonfocal_boundary_line": wac._nonfocal_boundary_line,
         "_apply_deduction_pack_cap": wac._apply_deduction_pack_cap,
+        "_deduction_evict_rank": wac._deduction_evict_rank,
+        "_chapter_mention_from_ch": wac._chapter_mention_from_ch,
     }
     rebound = types.FunctionType(
         wac._deduction_context_segments.__code__,
@@ -194,12 +201,12 @@ def test_write_assemble_rebind_whitelist_includes_focal_cap():
 
 def test_budget_report_length_equals_joined_and_under_cap():
     text, _ = _joined(_Store(_default_chapter(truth="真" * 3000)))
-    assert 0 < len(text) <= DEFAULT_CODEX_INJECT_CAP
+    assert 0 < len(text) <= DEDUCTION_PACK_CAP
     _out, rep = join_generation_segments([
         {"name": "deduction_final", "layer": "redline", "text": text},
     ])
     assert rep["domain_lengths"]["deduction_final"] == len(text)
-    assert rep["domain_lengths"]["deduction_final"] <= DEFAULT_CODEX_INJECT_CAP
+    assert rep["domain_lengths"]["deduction_final"] <= DEDUCTION_PACK_CAP
 
 
 def test_v1_pushes_deduction_final_once_and_passes_focalizer():

@@ -1,8 +1,7 @@
 """软 lore 激活（P2 · O-3）。
 
-旗 ``SCRIBE3_SOFT_ACTIVATION=1`` 时：material/reference/long-codex 类段
-在激活键未命中时可降权或丢弃；must-link / drama / secret 红线类**永不**被挡。
-默认关 = 注入行为与现网一致。
+旗 ``SCRIBE3_SOFT_ACTIVATION`` 默认开：material/reference/名片 类段
+在激活键未命中时可丢弃；must-link / drama / secret / outline / 点名设定**永不**被挡。
 """
 from __future__ import annotations
 
@@ -10,11 +9,11 @@ import os
 import re
 from typing import Any
 
-# 可软丢弃 / 降权（L2/L3 类）
+# 可软丢弃 / 降权（L2/L3 类）。outline / 点名设定永不进本集。
 SOFT_SEGMENT_NAMES: frozenset[str] = frozenset({
     "material_recall",
     "reference_craft",
-    "codex",
+    "codex_cards",
     "volume_intro",
     "seed_words",
     "craft",
@@ -22,7 +21,6 @@ SOFT_SEGMENT_NAMES: frozenset[str] = frozenset({
     "avoid",
     "author_prefs",
     "purpose",
-    "outline",
 })
 
 # 红线 / 铁律：激活键缺失也不得省略
@@ -84,11 +82,13 @@ def is_redline_segment(name: str) -> bool:
 
 def is_soft_segment(name: str) -> bool:
     n = str(name or "")
+    if n in ("outline", "codex_named", "codex", "draft_full"):
+        return False
     if n in SOFT_SEGMENT_NAMES:
         return True
     if n in REDLINE_SEGMENT_NAMES:
         return False
-    return n in ("codex", "material_recall", "reference_craft")
+    return n in ("codex_cards", "material_recall", "reference_craft")
 
 
 def apply_soft_activation(

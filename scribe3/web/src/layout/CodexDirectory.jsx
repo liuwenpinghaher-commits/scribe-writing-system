@@ -47,10 +47,12 @@ function CategoryRow({ category, selected, onSelect }) {
 
 function ItemRow({ node, selected, onSelect }) {
   const chapter = node?.meta?.chapter ?? node?.meta?.first_chapter ?? node?.meta?.seq
+  const ready = (node?.badges || []).find((b) => b?.kind === 'codex_ready')
+  const bits = [ready?.value, chapter != null ? `第 ${chapter} 章` : null].filter(Boolean)
   return (
     <DirectoryRow
       title={node.label}
-      meta={chapter != null ? `第 ${chapter} 章` : undefined}
+      meta={bits.length ? bits.join(' · ') : undefined}
       active={selected}
       aria-label={node.label}
       onClick={() => onSelect?.(node)}

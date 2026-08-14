@@ -38,11 +38,12 @@ EXPECTED_WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_r
                           # P0:结构运维 + 母题(emergency REST 关时作者主路径)
                           "s3_reorder_chapters", "s3_delete_volume",
                           "s3_add_motif", "s3_patch_motif", "s3_patch_promise",
-                          "s3_delete_codex"}
+                          "s3_delete_codex", "s3_generate_codex"}
 EXPECTED_WRITE_UNGATED = {"s3_save_chapter"}   # manuscript 草稿,非世界状态,不待批
 EXPECTED_WRITE_UNGATED_WORLD = {"s3_ingest_chapter"}  # 世界知识态客观回写(读定稿抽),不待批
 EXPECTED_READ = {"s3_project_frame", "s3_find_leaks", "s3_causal_complete",
-                 "s3_dramatic_irony", "s3_semantic_recall", "s3_get_chapter", "s3_qc_chapter",
+                 "s3_dramatic_irony", "s3_semantic_recall", "s3_get_chapter",
+                 "s3_suggest_scene_contract", "s3_qc_chapter",
                  "s3_list_chapters", "s3_list_volumes",
                  "s3_list_promises", "s3_promise_timeline", "s3_discipline_check", "s3_list_motifs",
                  "s3_emotion_palette", "s3_craft_rule_list", "s3_list_voice_flags",

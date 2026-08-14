@@ -45,12 +45,18 @@ SEGMENT_REGISTRY: tuple[SegmentMeta, ...] = (
     SegmentMeta("secret_guard", "L0", "head", "redline"),
     SegmentMeta("focalizer", "L0", "head", "redline"),
     SegmentMeta("structure_diversity", "L0", "head", "redline"),
+    SegmentMeta("narrative_contract", "L0", "head", "redline"),
+    SegmentMeta("story_ember", "L2", "head", "world"),
+    SegmentMeta("story_recall", "L2", "head", "world"),
+    SegmentMeta("story_causal", "L2", "head", "world"),
     SegmentMeta("event_drive", "L0", "head", "redline"),
+    SegmentMeta("event_drive_hook", "L2", "head", "world"),
     SegmentMeta("drama_contract", "L0", "head", "redline"),
     SegmentMeta("drama_vacuum", "L0", "head", "redline"),
     SegmentMeta("outline", "L1", "head", "frame"),  # SEGMENT_L1 · 高注意力
     SegmentMeta("envelope", "L1", "mid", "frame"),
-    SegmentMeta("codex", "L2", "mid", "world"),
+    SegmentMeta("codex_named", "L2", "mid", "world"),
+    SegmentMeta("codex_cards", "L3", "mid", "world"),
     SegmentMeta("seed_words", "L3", "mid", "craft"),
     SegmentMeta("craft", "L3", "mid", "craft"),
     SegmentMeta("phase_role", "L3", "mid", "craft"),
@@ -79,7 +85,7 @@ META_SEGMENT_NAMES: frozenset[str] = frozenset({
     "phase_role", "avoid", "material_recall", "seed_words", "volume_intro",
 })
 DRAMA_CORE_NAMES: frozenset[str] = frozenset({
-    "event_drive", "drama_contract", "outline", "brief_must",
+    "narrative_contract", "event_drive", "drama_contract", "outline", "brief_must",
 })
 
 
@@ -163,12 +169,12 @@ def registry_physical_order_names(*, v2: bool = True) -> list[str]:
     except Exception:
         base = [s.name for s in SEGMENT_REGISTRY]
         if not v2:
-            base = [n for n in base if n != "codex"]
+            base = [n for n in base if n not in ("codex", "codex_named")]
         return base
     reg = [s.name for s in SEGMENT_REGISTRY]
     if not v2:
-        reg = [n for n in reg if n != "codex"]
-        base = [n for n in base if n != "codex"]
+        reg = [n for n in reg if n not in ("codex", "codex_named")]
+        base = [n for n in base if n not in ("codex", "codex_named")]
     seen = set(base)
     extra = [n for n in reg if n not in seen]
     return list(base) + extra

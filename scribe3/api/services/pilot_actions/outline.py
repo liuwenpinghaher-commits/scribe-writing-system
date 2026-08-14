@@ -34,6 +34,7 @@ def build_actions(work: str) -> dict:
             persist_fn=lambda fields: st.update_chapter_meta(seq, fields),
             seq=seq,
             extra=(f"作者意图(最高优先):{steer}" if steer else ""),
+            st=st, work=work, focalizer="",
         )
         if result.get("skipped"):
             return result

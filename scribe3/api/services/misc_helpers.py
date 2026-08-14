@@ -260,7 +260,8 @@ def _phase_role_block(phase: str) -> str:
         "draft": "## 阶段角色(排演)\n你此刻走场面排演：糙可改，≥10000 字，只落 chapter.draft"
                  "（s3_save_chapter_draft），禁止写入 prose，禁止越界写焦点者不知之事。",
         "final": "## 阶段角色(正文期)\n你此刻写读者正文：冰山齐才开写，水面 ≥5000。"
-                 "只吃冰山尖与排演骨架，禁止复读万字排演。用 s3_save_chapter 落 prose。",
+                 "材料全文在提示词里；读者正文另写，勿复读排演，守限知。"
+                 "用 s3_save_chapter 落 prose。",
     }
     block = roles.get(p)
     return f"\n\n{block}" if block else ""

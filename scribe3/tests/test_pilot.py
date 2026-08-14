@@ -132,6 +132,14 @@ def _wire_llm(monkeypatch):
             return "无"
         if "节拍" in prompt:
             return "- 老范开门\n- 哑姑递布包\n- 井边对峙\n- 章末钩子:布包里是半张纸人脸"
+        if any(k in prompt for k in ("限知投影", "场景真相", "五个小标题", "五层投影")):
+            pad = "甲" * 1100
+            return (
+                "## 场景真相\n井底有骨，布包未开。\n## 在场者\n"
+                f"### 看到/听到\n{pad}\n### 知道\n{pad}\n"
+                f"### 以为(误读)\n{pad}\n### 做了/说了\n{pad}\n"
+                f"### 没察觉的\n{pad}"
+            )
         return "第2章大纲提案:哑姑在井边第一次开口。压力级:3。钩子:布包。"
     A.set_complete_fn(fake_complete)
     # grounding/纪律等非 Pilot 生成路径仍使用 complete。
@@ -412,7 +420,8 @@ def test_deduce_treats_bare_and_role_prefix_as_same_character(store, monkeypatch
     ch = store.get_chapter(15)
     assert len(ch["deductions"]) == 1
     assert ch["deductions"][0]["prose"] == "裸名投影。"
-    assert r.get("skipped") or r.get("made", 0) == 0
+    assert r.get("made", 0) == 0
+    assert r.get("pilot_park") or r.get("skipped")
 
 
 def test_deduce_does_not_persist_inferred_involved(store, monkeypatch):

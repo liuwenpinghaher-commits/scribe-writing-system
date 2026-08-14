@@ -12,6 +12,7 @@ from scribe3.stage_generate import (
     parse_outline_payload,
     stage_max_tokens,
     stage_ready,
+    stage_spec,
     thicken_beats,
     thicken_draft,
     thicken_outline,
@@ -20,6 +21,14 @@ from scribe3.stage_generate import (
 
 def _fat(seed: str, n: int) -> str:
     return seed + ("甲" * n)
+
+
+def test_final_kernel_eats_full_materials():
+    spec = stage_spec("final")
+    assert "只吃冰山尖" not in spec["short_kernel"]
+    assert "只吃大纲尖" not in spec["ask"]
+    assert "材料全文" in spec["short_kernel"] or "另写" in spec["short_kernel"]
+    assert "另写" in spec["ask"]
 
 
 def test_stage_craft_is_kernel_not_slogan():
@@ -55,6 +64,18 @@ def test_parse_beats_scene_paper():
     assert len(parsed["beats"]) == 3
     assert all(n >= BEAT_EACH_FLOOR for n in parsed["each"])
     assert parsed["source"] == "llm"
+
+
+def test_thicken_without_store_does_not_pretend_bible():
+    seen = []
+
+    def llm(prompt, max_tokens=2048):
+        seen.append(prompt)
+        return "一句口号大纲。"
+
+    thicken_outline({"synopsis": "短"}, llm_fn=llm)
+    assert seen
+    assert "本书设定圣经" not in seen[0]
 
 
 def test_thicken_outline_requires_llm_and_rejects_template():

@@ -19,6 +19,7 @@ from typing import Any, Optional
 from scribe3.api.services.write_assemble_blocks import (  # noqa: F401
     _faction_prompt_block,
     _codex_block,
+    _codex_segments,
     _editor_system,
     _editor_identity_block,
     _write_protocol_block,
@@ -218,12 +219,11 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     # for_generation=True,唯一生成入口——v1 同样是生成路径,必须同传,漏传就是泄密)。
     # novel-first V2：codex 移到 drama/envelope 之后（注意力）；V1 保持 prefix 兼容。
     from scribe3.context_budget import (
-        cap_codex_text,
         envelope_v2_enabled,
-        get_codex_inject_cap,
         join_generation_segments,
         subtract_codex_canonical_echoes,
     )
+    from scribe3.iceberg import named_pack_soft_cap
     from scribe3.api.services.prompt_blocks import _final_reminder
     _protocol_txt = subtract_codex_canonical_echoes(
         _protocol_raw or "", _final_reminder() or "",
@@ -233,17 +233,22 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         _protocol_txt = ""
         _protocol_skip = "write_protocol_echo_core_or_empty"
     _v2 = envelope_v2_enabled()
-    codex_input = (
-        "\n\n【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n"
-        + (_codex_block(st, reveal=not focalizer, focalizer=focalizer,
-                        chapter=chapter, for_generation=True,
-                        request_text=request_text) or "(尚无设定)")
-        + "\n"
+    _named_txt, _cards_txt, _codex_stats = _codex_segments(
+        st, reveal=not focalizer, focalizer=focalizer,
+        chapter=chapter, for_generation=True,
+        request_text=request_text, work=work,
+        named_soft_cap=named_pack_soft_cap(work=work),
     )
+    if not _named_txt and not _cards_txt:
+        _named_txt = (
+            "【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n"
+            "(尚无设定)"
+        )
     if not _v2:
+        _legacy = "\n".join(p for p in (_named_txt, _cards_txt) if p)
         prefix += _domain_input(
-            f"work:{work or 'main'}:codex", "codex",
-            cap_codex_text(codex_input, get_codex_inject_cap()),
+            f"work:{work or 'main'}:codex", "codex_named",
+            "\n\n" + _legacy + "\n",
         )
     # 统一上下文段(替代旧 avoid/voice/arc/motif/frame/recap/tail/outline/material 散点拼装)
     # B∪C：memory_trace_ctx 真 session/revision 注入 snapshot，供 TurnBind 与检查器对齐。
@@ -285,6 +290,22 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 return ""
             segs.append({"name": name, "layer": layer, "text": text})
             note_push(name, text)
+            try:
+                from scribe3.pipeline_recorder import current_recorder
+                from scribe3.pipeline_trace import current_trace_buffer
+                rec = current_recorder()
+                buf = current_trace_buffer()
+                if rec is not None:
+                    sid = buf.span_id_for(f"assemble.seg.{name}") if buf else ""
+                    aid = rec.put_artifact(
+                        kind="segment", name=name, body=str(text),
+                        span_id=sid,
+                        redact="secret_guard" if name == "secret_guard" else None,
+                    )
+                    if aid:
+                        rec.produce(sid, aid, name=name)
+            except Exception:
+                pass
             return text
 
         _push("identity", "redline", _identity_txt)
@@ -318,6 +339,27 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             sid_load = start_named("assemble.load_story_inputs")
             try:
                 _inputs = load_chapter_story_inputs(st, chapter) or {}
+                try:
+                    import json as _json
+                    from scribe3.pipeline_recorder import current_recorder, dump_story_inputs
+                    rec = current_recorder()
+                    if rec is not None:
+                        dump = dump_story_inputs({**_inputs, "chapter": chapter})
+                        aid = rec.put_artifact(
+                            kind="story_inputs", name="chapter_story_io",
+                            body=_json.dumps(dump, ensure_ascii=False),
+                            media="json", span_id=sid_load,
+                        )
+                        rec.emit(
+                            sid_load, "read",
+                            empty=not any(dump.get("presence", {}).values()),
+                            artifact_ids=[aid] if aid else None,
+                            payload={"source": "chapter_story_io"},
+                        )
+                        if aid:
+                            rec.produce(sid_load, aid, name="chapter_story_io")
+                except Exception:
+                    pass
                 end_named(sid_load, status="ok", actual="present")
             except Exception:
                 end_named(sid_load, status="failed", actual="failed")
@@ -373,6 +415,44 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             for _fuel_seg in _fuel_iter:
                 _fn = _fuel_seg.get("name") or ""
                 _ft = _fuel_seg.get("text") or ""
+                try:
+                    from scribe3.pipeline_recorder import current_recorder
+                    from scribe3.pipeline_trace import current_trace_buffer
+                    rec = current_recorder()
+                    buf = current_trace_buffer()
+                    if rec is not None and _fn:
+                        sid = buf.span_id_for(f"assemble.seg.{_fn}") if buf else ""
+                        if not sid and buf:
+                            sid = buf.start_span(f"assemble.seg.{_fn}")
+                        raw_src = {
+                            "story_ember": "prior_consequences",
+                            "story_recall": "recall_context",
+                            "story_causal": "causal_graph",
+                        }.get(_fn, "")
+                        raw = str((_inputs or {}).get(raw_src) or "") if raw_src else ""
+                        rec.emit(
+                            sid, "read",
+                            empty=not raw.strip(),
+                            payload={
+                                "source": raw_src or _fn,
+                                "text": raw[:512],
+                                "chars_in": len(raw),
+                            },
+                        )
+                        if _fn == "story_ember":
+                            rec.emit(
+                                sid, "pred", pred="prev_end_hook",
+                                pred_value=bool(raw.strip()),
+                                payload={"inputs": {"chars": len(raw), "empty": not raw.strip()}},
+                            )
+                        fa = rec.put_artifact(
+                            kind="fuel_block", name=_fn, body=str(_ft or ""), span_id=sid,
+                        )
+                        if fa:
+                            rec.produce(sid, fa, name=f"{_fn}_fuel")
+                        rec.consume(sid, name="chapter_story_io", role="input")
+                except Exception:
+                    pass
                 if _fn and _ft:
                     _fuel_got.add(_fn)
                     _push(
@@ -452,7 +532,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         try:
             from scribe3.context_budget import subtract_canonical_lines_in_codex
             env_text, _n_cx = subtract_canonical_lines_in_codex(
-                env_text, codex_input or "",
+                env_text, "\n".join(p for p in (_named_txt, _cards_txt) if p),
             )
             _budget_report_holder["canonical_codex_echoes_dropped"] = int(_n_cx)
         except Exception:
@@ -503,17 +583,31 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _budget_report_holder["reference_no_materials"] = False
         if env_text:
             _push("envelope", "envelope", "\n\n" + env_text)
-        # V2：codex 在 envelope 之后（注意力 · 防设定洪水盖住戏剧）
-        if _v2 and codex_input:
-            _cx_txt = cap_codex_text(
-                subtract_codex_canonical_echoes(codex_input, env_text or ""),
-                get_codex_inject_cap(),
+        # V2：点名公开档 + 未点名名片分开放；不得对 named 打 4500 尾截
+        if _v2:
+            _cx_named = subtract_codex_canonical_echoes(_named_txt or "", env_text or "")
+            if _cx_named:
+                _cx = _domain_input(
+                    f"work:{work or 'main'}:codex_named", "codex_named",
+                    "\n\n" + _cx_named + "\n",
+                )
+                _push("codex_named", "supplemental", _cx)
+            _cx_cards = subtract_codex_canonical_echoes(_cards_txt or "", env_text or "")
+            if _cx_cards:
+                _cc = _domain_input(
+                    f"work:{work or 'main'}:codex_cards", "codex_cards",
+                    "\n\n" + _cx_cards + "\n",
+                )
+                _push("codex_cards", "supplemental", _cc)
+            _budget_report_holder["codex_chars"] = len(_cx_named or "") + len(_cx_cards or "")
+            _budget_report_holder["codex_named_chars"] = len(_cx_named or "")
+            _budget_report_holder["codex_cards_chars"] = len(_cx_cards or "")
+            _budget_report_holder["codex_entities_full"] = list(
+                (_codex_stats or {}).get("codex_entities_full") or []
             )
-            _cx = _domain_input(
-                f"work:{work or 'main'}:codex", "codex", _cx_txt,
+            _budget_report_holder["codex_entities_card"] = list(
+                (_codex_stats or {}).get("codex_entities_card") or []
             )
-            _push("codex", "supplemental", _cx)
-            _budget_report_holder["codex_chars"] = len(_cx_txt)
         _sw_raw = _soak_block(seed_words)
         _seed_injected = False
         _seed_skip = ""
@@ -843,6 +937,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _dd_parts: list[str] = []
             for source_id, source_kind, text in _deduction_context_segments(
                 st, chapter, focalizer=focalizer or "",
+                request_text=request_text or "",
             ):
                 _dd = _domain_input(source_id, source_kind, text)
                 if _dd:
@@ -992,10 +1087,28 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         joined, bud_rep = join_generation_segments(segs, v2=_v2, work=work)
         bud_rep = dict(bud_rep)
         after_join(st, bud_rep)
+        _dl = bud_rep.get("domain_lengths") or {}
         bud_rep["codex_chars"] = int(
             _budget_report_holder.get("codex_chars")
-            or (bud_rep.get("domain_lengths") or {}).get("codex")
+            or _dl.get("codex_named") or _dl.get("codex")
             or 0
+        )
+        bud_rep["codex_named_chars"] = int(
+            _budget_report_holder.get("codex_named_chars") or _dl.get("codex_named") or 0
+        )
+        bud_rep["codex_cards_chars"] = int(
+            _budget_report_holder.get("codex_cards_chars") or _dl.get("codex_cards") or 0
+        )
+        bud_rep["codex_entities_full"] = list(
+            _budget_report_holder.get("codex_entities_full") or []
+        )
+        bud_rep["codex_entities_card"] = list(
+            _budget_report_holder.get("codex_entities_card") or []
+        )
+        _act = _budget_report_holder.get("activation") or {}
+        _dropped = list(_act.get("dropped") or [])
+        bud_rep["soft_activation_kept_named"] = (
+            "codex_named" not in _dropped and "outline" not in _dropped
         )
         bud_rep["recent_item_count"] = int(
             _budget_report_holder.get("recent_item_count") or 0

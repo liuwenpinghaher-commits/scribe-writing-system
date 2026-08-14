@@ -7,7 +7,8 @@ import { AsyncState } from './ui/AsyncState.jsx'
 import { showToast } from './ui/Toast'
 import { Btn, SectionTitle, Empty, Tag } from './ui'
 import { ReadOnlyText } from './ui/EditableText.jsx'
-import { seedChiefDeleteCodex } from './lib/chiefSeed.js'
+import { seedChiefCodexBatch, seedChiefDeleteCodex } from './lib/chiefSeed.js'
+import { lampOf, detailTypeToKind } from './lib/codexReady.js'
 import { atlasFocusId } from './lib/atlasFocus.js'
 import {
   registerPendingCodexDelete, clearPendingCodexDelete,
@@ -830,9 +831,24 @@ export function CodexDetail({ node, onDeleted, onNavigateToObject }) {
     }
   }
 
+  const lamp = lampOf(detailTypeToKind(detailType), row)
+
   return (
     <div className="h-full overflow-y-auto bg-canvas" data-testid="codex-detail">
       <div className="max-w-2xl mx-auto px-5 py-4">
+        <div className="mb-2 flex flex-wrap items-center gap-2" data-testid="codex-ready-lamp">
+          <Tag>{lamp.label}</Tag>
+          {lamp.status !== 'ready' && (
+            <button type="button" className="text-meta text-brand hover:text-brand/80 cursor-pointer"
+              onClick={() => seedChiefCodexWrite(detailType, row)}>
+              让主编按合同写厚
+            </button>
+          )}
+          <button type="button" className="text-meta text-faint hover:text-brand cursor-pointer"
+            onClick={() => seedChiefCodexBatch()}>
+            写厚本书空壳（直接落库）
+          </button>
+        </div>
         {entityAtlasFocus && (
           <div className="mb-2 flex flex-wrap items-center gap-2" data-testid="codex-detail-toolbar">
             <button type="button" data-testid="codex-open-graph" onClick={graphFocus}

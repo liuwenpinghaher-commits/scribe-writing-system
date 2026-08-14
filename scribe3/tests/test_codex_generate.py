@@ -1,0 +1,280 @@
+"""设定库 thicken / batch。假 llm_fn，禁止 Surreal。"""
+from __future__ import annotations
+
+from scribe3.codex_generate import (
+    apply_codex_persist_fields,
+    build_codex_prompt,
+    list_codex_thicken_targets,
+    load_codex_row,
+    parse_codex_payload,
+    persist_codex_row,
+    thicken_codex,
+    thicken_codex_batch,
+)
+from scribe3.mcp._common import WRITE_GATED
+from scribe3.write_commit import DEFAULT_WRITE_GATED
+
+
+def _fat_term(_prompt, max_tokens=4096):
+    body = (
+        "是什么：炉前口头祭火契约。不是什么：不是朝廷文书。本书用法：当场应声。"
+        "边界：不得隔夜另造。" + ("义" * 1200)
+    )
+    return '{"definition": "' + body + '"}'
+
+
+def test_must_llm():
+    import pytest
+    with pytest.raises(ValueError, match="llm_fn"):
+        thicken_codex("term", {"name": "炉令"}, llm_fn=None)
+
+
+def test_thicken_term_fat():
+    out = thicken_codex("term", {"name": "炉令"}, llm_fn=_fat_term)
+    assert out["ok"] is True
+    assert "是什么" in out["public_fields"]["definition"]
+    assert out.get("bible_attached") is False
+
+
+def test_thicken_term_thin_then_fail():
+    out = thicken_codex("term", {"name": "炉令"}, llm_fn=lambda *a, **k: "短")
+    assert out["ok"] is False
+    assert out["code"] == "llm_thin"
+
+
+def test_batch_not_in_write_gated():
+    assert "s3_generate_codex" in WRITE_GATED
+    assert "s3_generate_codex" in DEFAULT_WRITE_GATED
+    assert "s3_generate_codex_batch" not in WRITE_GATED
+    assert "s3_generate_codex_batch" not in DEFAULT_WRITE_GATED
+
+
+class _BatchStore:
+    def __init__(self):
+        self.terms = [
+            {"name": "炉令", "definition": ""},
+            {"name": "隔夜禁忌", "definition": ""},
+        ]
+        self.written = []
+
+    def characters(self):
+        return []
+
+    def list_factions(self):
+        return []
+
+    def list_items(self):
+        return []
+
+    def list_world_rules(self):
+        return []
+
+    def list_motifs(self):
+        return []
+
+    def facts_at(self, *_a, **_k):
+        return []
+
+    def entity_relations_at(self, *_a, **_k):
+        return []
+
+    def list_terms(self):
+        return list(self.terms)
+
+    def get_term(self, n):
+        return next((t for t in self.terms if t["name"] == n), None)
+
+    def patch_term(self, n, fields):
+        self.written.append((n, dict(fields)))
+        for t in self.terms:
+            if t["name"] == n:
+                t.update(fields)
+        return True
+
+    def add_term(self, n, **kw):
+        self.written.append((n, kw))
+        self.terms.append({"name": n, **kw})
+
+
+def test_batch_persist_zero_ask():
+    st = _BatchStore()
+    out = thicken_codex_batch(st, llm_fn=_fat_term, persist=True, kinds=["term"])
+    assert out["status"] == "ok"
+    assert len(out["items"]) == 2
+    assert all(i["persist"] == "written" for i in out["items"])
+    assert len(st.written) == 2
+
+
+def test_batch_one_thin_continues():
+    n = {"i": 0}
+
+    def llm(prompt, max_tokens=4096):
+        n["i"] += 1
+        if n["i"] <= 2 and "炉令" in prompt:
+            return "短"
+        return _fat_term(prompt)
+
+    st = _BatchStore()
+    out = thicken_codex_batch(st, llm_fn=llm, persist=True, kinds=["term"])
+    statuses = {i["name"]: i["status"] for i in out["items"]}
+    assert statuses.get("隔夜禁忌") == "ok" or any(i["persist"] == "written" for i in out["items"])
+
+
+def test_no_bible_without_store():
+    prompt = build_codex_prompt("term", {"name": "炉令"})
+    assert "本书设定圣经" not in prompt
+
+
+def test_character_public_excludes_secret_agenda_bag():
+    def llm(prompt, max_tokens=4096):
+        return (
+            '{"personality_detail":"' + ("慎" * 220) + '",'
+            '"surface_goal":"' + ("要" * 90) + '",'
+            '"deep_need":"' + ("需" * 90) + '",'
+            '"fear":"' + ("惧" * 90) + '",'
+            '"internal_conflict":"' + ("撕" * 90) + '",'
+            '"appearance":"' + ("貌" * 200) + '",'
+            '"backstory":"' + ("史" * 420) + '",'
+            '"abilities":["辨潮"],"weaknesses":["不求助"],'
+            '"secret_agenda":"不该出现"}'
+        )
+    out = thicken_codex("character", {"name": "灰七"}, llm_fn=llm)
+    assert out["ok"] is True
+    assert "secret_agenda" not in (out.get("public_fields") or {})
+
+
+def _fat_def():
+    return (
+        "是什么：炉前口头祭火契约。不是什么：不是朝廷文书。"
+        "本书用法：当场应声。边界：不得隔夜另造。" + ("义" * 1200)
+    )
+
+
+def test_skip_when_store_ready_name_only():
+    calls = {"n": 0}
+
+    def llm(*_a, **_k):
+        calls["n"] += 1
+        return _fat_term(*_a, **_k)
+
+    st = _BatchStore()
+    st.terms = [{"name": "炉令", "definition": _fat_def()}]
+    out = thicken_codex("term", {"name": "炉令"}, llm_fn=llm, st=st)
+    assert out.get("skipped") is True
+    assert calls["n"] == 0
+    assert load_codex_row(st, "term", "炉令")["definition"] == _fat_def()
+
+
+def test_force_rewrites_ready_row():
+    calls = {"n": 0}
+
+    def llm(*_a, **_k):
+        calls["n"] += 1
+        return _fat_term(*_a, **_k)
+
+    st = _BatchStore()
+    st.terms = [{"name": "炉令", "definition": _fat_def()}]
+    out = thicken_codex("term", {"name": "炉令"}, llm_fn=llm, st=st, force=True)
+    assert out.get("ok") is True
+    assert not out.get("skipped")
+    assert calls["n"] >= 1
+
+
+def test_apply_secret_flags():
+    fields = apply_codex_persist_fields(
+        "character",
+        {"personality_detail": "慎" * 40},
+        {"backstory": "暗史" * 20},
+        {},
+    )
+    assert fields["backstory"] == "暗史" * 20
+    assert fields["backstory_secret"] is True
+    assert "secret_agenda" not in fields
+
+
+def test_apply_chief_only_not_public():
+    fields = apply_codex_persist_fields(
+        "faction",
+        {"ideology": "甲" * 40, "secret_agenda": "不该公开"},
+        {},
+        {"secret_agenda": "隐秘议程正文"},
+    )
+    assert fields["secret_agenda"] == "隐秘议程正文"
+    assert fields.get("secret_agenda_secret") is True
+
+
+def test_catalog_codex_duty():
+    from scribe3.orchestration.catalog import CATALOG
+    domains = {e["domain"]: e for e in CATALOG}
+    for d, needle in (
+        ("codex.character", "s3_generate_codex"),
+        ("codex.faction", "s3_generate_codex"),
+        ("codex.item", "s3_generate_codex"),
+        ("codex.term", "s3_generate_codex"),
+        ("codex.world_rule", "s3_generate_codex"),
+        ("codex.lifecycle", "s3_generate_codex_batch"),
+        ("motif.manage", "s3_generate_codex"),
+        ("voice.manage", "s3_generate_codex"),
+    ):
+        duty = domains[d].get("instruction_duty") or ""
+        assert needle in duty, d
+
+
+def test_parse_term_unstructured_does_not_inject_slogans():
+    blob = "炉令是口头祭火契约。" + ("义" * 1200)
+    fields = parse_codex_payload("term", blob)
+    d = fields["definition"]
+    assert d.startswith("炉令是口头祭火契约。")
+    assert "不是其它书的同名物" not in d
+    assert "正文按此义使用" not in d
+    from scribe3.iceberg import persist_codex_fields_blocked
+    blocked = persist_codex_fields_blocked("term", fields, mode="pack")
+    assert blocked is not None
+    ids = {m["id"] for m in blocked["missing"]}
+    assert any(i.startswith("part:") for i in ids)
+
+
+def test_parse_term_nested_definition_object():
+    raw = (
+        '{"definition":{"是什么":"' + ("甲" * 80) +
+        '","不是什么":"' + ("乙" * 80) +
+        '","本书用法":"' + ("丙" * 80) +
+        '","边界":"' + ("丁" * 80) + '"}}'
+    )
+    fields = parse_codex_payload("term", raw)
+    d = fields["definition"]
+    assert isinstance(d, str)
+    for h in ("是什么", "不是什么", "本书用法", "边界"):
+        assert h in d
+
+
+def test_persist_motif_adds_when_missing():
+    class _MotifStore:
+        def __init__(self):
+            self.added = []
+
+        def get_motif(self, _n):
+            return None
+
+        def list_motifs(self):
+            return []
+
+        def add_motif(self, name, theme="", echoes="", unfolding="", echo_terms=None,
+                      phase="seed", tier="book", scope=None):
+            self.added.append({"name": name, "theme": theme, "unfolding": unfolding})
+
+    st = _MotifStore()
+    ok = persist_codex_row(st, "motif", "回声", {"theme": "潮" * 40, "unfolding": "展" * 80,
+                                               "echo_terms": ["潮", "炉", "债"]})
+    assert ok is True
+    assert st.added and st.added[0]["name"] == "回声"
+
+
+def test_batch_scans_voice():
+    class _VoiceStore(_BatchStore):
+        def list_voice_profiles(self):
+            return [{"character_id": "role:灰七", "style_summary": ""}]
+
+    st = _VoiceStore()
+    listed = list_codex_thicken_targets(st, kinds=["voice"])
+    assert any(t["name"] == "role:灰七" for t in listed["queued"])

@@ -178,6 +178,7 @@ def build_actions(work: str) -> dict:
             persist_fn=None,
             seq=seq,
             extra=("作者意图:\n" + steer) if steer else "",
+            st=st, work=work, focalizer="",
         )
         if thick.get("skipped"):
             return thick
@@ -206,6 +207,7 @@ def build_actions(work: str) -> dict:
                 persist_fn=None,
                 seq=seq,
                 extra="【重试】禁止新增大纲没有的人物/物件/规则。只写场面纸。",
+                st=st, work=work, focalizer="",
             )
             if thick2.get("ok") and thick2.get("beats"):
                 cand2 = _pr.grounding_candidate_from_beats(thick2["beats"])

@@ -48,7 +48,9 @@ CATALOG: list[dict[str, Any]] = [
         ),
         "read_tools": ("s3_list_chapters", "s3_character_timeline", "s3_get_voice_profile"),
         "write_tools": (
-            "s3_add_character", "s3_patch_character", "s3_set_char_anchors",
+            "s3_add_character", "s3_patch_character", "s3_patch_codex",
+            "s3_generate_codex",
+            "s3_set_char_anchors",
             "s3_set_voice_profile", "s3_add_char_state",
             "s3_add_arc_beat", "s3_delete_arc_beat",
         ),
@@ -56,6 +58,11 @@ CATALOG: list[dict[str, Any]] = [
         "ui": {"entry": "codex", "phase": None, "node": {"type": "character"}, "right_tab": "chief",
                "layout_mode": "collaboration", "panel": "codex_character"},
         "channel": "world_write",
+        "instruction_duty": (
+            "域纪律(角色设定):必须用 LLM 按合同写厚（性格/目标/需求/恐惧/冲突+能力弱点，公开包≥1200）；"
+            "可用 s3_generate_codex(kind=character, persist=true) 一次待批；"
+            "禁止口头补全、禁止把薄字段预填进 s3_patch_codex。"
+        ),
     },
     {
         "domain": "codex.faction",
@@ -63,11 +70,16 @@ CATALOG: list[dict[str, Any]] = [
         "match_keywords": ("势力", "组织", "门派", "faction", "s3_add_faction", "s3_patch_faction"),
         "match_force": ("s3_add_faction", "s3_patch_faction"),
         "read_tools": ("s3_list_factions",),
-        "write_tools": ("s3_add_faction", "s3_patch_faction"),
+        "write_tools": ("s3_add_faction", "s3_patch_faction", "s3_patch_codex", "s3_generate_codex"),
         "required_outcome": "write_proposal",
         "ui": {"entry": "codex", "phase": None, "node": {"type": "faction"}, "right_tab": "chief",
                "layout_mode": "collaboration", "panel": "codex_faction"},
         "channel": "world_write",
+        "instruction_duty": (
+            "域纪律(势力):必须用 LLM 写组织行为卡（意识形态/公开面目/结构或招募/领袖/阶段目标，公开包≥1200）；"
+            "可用 s3_generate_codex(kind=faction, persist=true)；"
+            "禁止口头补全、禁止 private_operation、禁止预填薄字段。"
+        ),
     },
     {
         "domain": "codex.item",
@@ -75,11 +87,15 @@ CATALOG: list[dict[str, Any]] = [
         "match_keywords": ("物件", "物品", "道具", "item", "s3_add_item", "s3_patch_item"),
         "match_force": ("s3_add_item", "s3_patch_item"),
         "read_tools": ("s3_list_items",),
-        "write_tools": ("s3_add_item", "s3_patch_item"),
+        "write_tools": ("s3_add_item", "s3_patch_item", "s3_patch_codex", "s3_generate_codex"),
         "required_outcome": "write_proposal",
         "ui": {"entry": "codex", "phase": None, "node": {"type": "item"}, "right_tab": "chief",
                "layout_mode": "collaboration", "panel": "codex_item"},
         "channel": "world_write",
+        "instruction_duty": (
+            "域纪律(物件):必须用 LLM 写叙事功能卡（描述≥400+持有者+属性或[\"无\"]，公开包≥1200）；"
+            "可用 s3_generate_codex(kind=item, persist=true)；禁止只回名字、禁止预填薄描述。"
+        ),
     },
     {
         "domain": "codex.term",
@@ -87,11 +103,15 @@ CATALOG: list[dict[str, Any]] = [
         "match_keywords": ("术语", "名词", "term", "s3_add_term", "s3_patch_term"),
         "match_force": ("s3_add_term", "s3_patch_term"),
         "read_tools": ("s3_list_terms",),
-        "write_tools": ("s3_add_term", "s3_patch_term"),
+        "write_tools": ("s3_add_term", "s3_patch_term", "s3_patch_codex", "s3_generate_codex"),
         "required_outcome": "write_proposal",
         "ui": {"entry": "codex", "phase": None, "node": {"type": "term"}, "right_tab": "chief",
                "layout_mode": "collaboration", "panel": "codex_term"},
         "channel": "world_write",
+        "instruction_duty": (
+            "域纪律(术语):必须用 LLM 写四格定义（是什么/不是什么/本书用法/边界）≥1200；"
+            "可用 s3_generate_codex(kind=term, persist=true)；禁止一句词典、禁止预填薄 definition。"
+        ),
     },
     {
         "domain": "codex.world_rule",
@@ -99,23 +119,31 @@ CATALOG: list[dict[str, Any]] = [
         "match_keywords": ("世界规则", "法则", "设定规则", "world_rule", "s3_add_world_rule", "s3_patch_world_rule"),
         "match_force": ("s3_add_world_rule", "s3_patch_world_rule"),
         "read_tools": ("s3_list_world_rules",),
-        "write_tools": ("s3_add_world_rule", "s3_patch_world_rule"),
+        "write_tools": ("s3_add_world_rule", "s3_patch_world_rule", "s3_patch_codex", "s3_generate_codex"),
         "required_outcome": "write_proposal",
         "ui": {"entry": "codex", "phase": None, "node": {"type": "world_rule"}, "right_tab": "chief",
                "layout_mode": "collaboration", "panel": "codex_world_rule"},
         "channel": "world_write",
+        "instruction_duty": (
+            "域纪律(世界规则):必须用 LLM 写代价/限制/例外/能力，公开包≥1200；"
+            "可用 s3_generate_codex(kind=world_rule, persist=true)；禁止免费超能力、禁止预填薄 cost。"
+        ),
     },
     {
         "domain": "codex.lifecycle",
         "label": "设定生命周期",
-        "match_keywords": ("删除设定", "归档设定", "s3_delete_codex", "删角色"),
-        "match_force": ("s3_delete_codex",),
+        "match_keywords": ("删除设定", "归档设定", "s3_delete_codex", "删角色", "全书写厚", "空壳写厚"),
+        "match_force": ("s3_delete_codex", "s3_generate_codex_batch"),
         "read_tools": (),
-        "write_tools": ("s3_delete_codex",),
+        "write_tools": ("s3_delete_codex", "s3_generate_codex_batch"),
         "required_outcome": "write_proposal",
         "ui": {"entry": "codex", "phase": None, "node": None, "right_tab": "chief",
                "layout_mode": "collaboration", "panel": "codex"},
         "channel": "world_write",
+        "instruction_duty": (
+            "域纪律(设定生命周期):全书写厚用 s3_generate_codex_batch(persist=true)，过闸直接落库无需再批；"
+            "一条失败继续下一条。删除/归档用 s3_delete_codex。禁止 enrich_all，禁止只口头补全。"
+        ),
     },
     # —— 关系 / 事实 / 知识 ——
     {
@@ -216,11 +244,15 @@ CATALOG: list[dict[str, Any]] = [
         "match_keywords": ("母题", "motif", "s3_add_motif", "s3_patch_motif", "回响"),
         "match_force": ("s3_add_motif", "s3_patch_motif"),
         "read_tools": ("s3_list_motifs",),
-        "write_tools": ("s3_add_motif", "s3_patch_motif"),
+        "write_tools": ("s3_add_motif", "s3_patch_motif", "s3_generate_codex"),
         "required_outcome": "write_proposal",
         "ui": {"entry": "manuscript", "phase": None, "node": {"type": "motif"}, "right_tab": "chief",
                "layout_mode": "collaboration", "panel": "motif"},
         "channel": "world_write",
+        "instruction_duty": (
+            "域纪律(母题):必须用 LLM 写轻量调度卡（theme≥40、echo_terms≥3、unfolding≥80）；"
+            "可用 s3_generate_codex(kind=motif)；禁止写成 1200 字圣经散文、禁止预填薄 theme。"
+        ),
     },
     {
         "domain": "clue.manage",
@@ -460,11 +492,16 @@ CATALOG: list[dict[str, Any]] = [
         "match_keywords": ("声线", "声音档案", "OOC", "s3_set_voice_profile", "s3_resolve_voice_flag"),
         "match_force": ("s3_set_voice_profile", "s3_resolve_voice_flag", "s3_fold_voice_flags"),
         "read_tools": ("s3_get_voice_profile", "s3_list_voice_flags", "s3_check_ooc"),
-        "write_tools": ("s3_set_voice_profile", "s3_resolve_voice_flag", "s3_fold_voice_flags"),
+        "write_tools": ("s3_set_voice_profile", "s3_resolve_voice_flag", "s3_fold_voice_flags", "s3_generate_codex"),
         "required_outcome": "write_proposal",
         "ui": {"entry": "codex", "phase": None, "node": {"type": "character"}, "right_tab": "chief",
                "layout_mode": "collaboration", "panel": "voice"},
         "channel": "world_write",
+        "instruction_duty": (
+            "域纪律(声口):必须用 LLM 写 style_summary≥80 且至少两节"
+            "（catchphrases/tone_rules/internal_monologue_style/sentence_patterns）；"
+            "可用 s3_generate_codex(kind=voice) 或 s3_set_voice_profile；禁止一句标签。"
+        ),
     },
     # —— 目的合同 ——
     {

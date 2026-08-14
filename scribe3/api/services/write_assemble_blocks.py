@@ -36,13 +36,21 @@ def _faction_prompt_block(st, row: dict, *, chapter: int, known_ids: set,
     正证,不再用 `_secret_fact_ids` 反证"它是不是秘密"——那是黑名单式,`_secret_fact_ids`
     fail-soft 失败退空集会让黑名单式判据变成 fail-open(不看知不知情直接注入明文)。
     (secret_ids 参数保留在签名里供调用方兼容,判定不使用。)"""
+    from scribe3.codex_schema import (
+        chief_only_keys,
+        fields_for,
+        prompt_keys,
+        secret_capable_keys,
+        secret_flag_key,
+    )
+    from scribe3.api.services.prompt_blocks import _codex_value_repr, _faction_relation_summary
     name = row.get("name") or ""
-    field_defs = {f.key: f for f in codex_fields_for("faction")}
-    secret_keys = set(codex_secret_capable_keys("faction"))
-    chief_keys = set(codex_chief_only_keys("faction"))
+    field_defs = {f.key: f for f in fields_for("faction")}
+    secret_keys = set(secret_capable_keys("faction"))
+    chief_keys = set(chief_only_keys("faction"))
     entity_id = f"faction:{name}"
     parts = []
-    for key in codex_prompt_keys("faction"):
+    for key in prompt_keys("faction"):
         if key == "name":
             continue
         value = row.get(key)
@@ -52,7 +60,7 @@ def _faction_prompt_block(st, row: dict, *, chapter: int, known_ids: set,
             if for_generation:
                 continue   # ① 主编独知:生成/续写路径永不注入,即便字段有值
             # for_generation=False(作者/主编对话):直接注入,落到下面的拼接
-        elif key in secret_keys and row.get(codex_secret_flag_key(key)):
+        elif key in secret_keys and row.get(secret_flag_key(key)):
             if for_generation:
                 fid = fact_index.get((entity_id, key))
                 if fid is None or fid not in known_ids:
@@ -69,153 +77,373 @@ def _faction_prompt_block(st, row: dict, *, chapter: int, known_ids: set,
         parts.append(f"关系:{rel}")
     body = "；".join(parts)
     text = f"{name}（{body}）" if body else name
-    if len(text) > _FACTION_PROMPT_CHAR_CAP:
-        text = text[:_FACTION_PROMPT_CHAR_CAP] + "…(略)"
+    # 点名公开档由调用方 clip_for(faction_public)；未点名走名片 ≤80。禁止 400+「…(略)」。
     return text
 
 
-def _codex_block(st, reveal: bool = True, focalizer: str = "", chapter: int | None = None,
-                 for_generation: bool = False, request_text: str = "") -> str:
-    """注入当前书的「设定圣经」(codex:角色前史/势力/物件/术语/世界规则/母题)。
-    关键:经 codex 表(非命题)建的书,_editor_system 的 facts_at 注入为空 → 主编看不到设定;
-    此块直接从当前 store 的 codex 表读,确保主编(讨论/写作)看到的是**这本书**的设定,
-    不依赖 MCP(MCP 网关连固定库,会串到别的书)。
+def _field_text(value, *, item_limit: int = 12) -> str:
+    """拼公开档字段：不按字段 160 预裁，整档再 clip_for。"""
+    if value in (None, "", [], {}):
+        return ""
+    if isinstance(value, (list, tuple, set)):
+        items = [str(item).strip() for item in value if str(item).strip()]
+        return "、".join(items[:item_limit])
+    if isinstance(value, dict):
+        bits = []
+        for k, v in value.items():
+            sv = _field_text(v, item_limit=item_limit)
+            if sv:
+                bits.append(f"{k}={sv}")
+        return "，".join(bits)
+    return str(value).strip()
 
-    reveal=False(限知模式,focalizer 非空):对 backstory_secret 角色隐去 backstory,
-    防 POV 倒灌(F-3——限知章设定圣经明文注入私密前史);reveal=True(全知)保留。
-    (这一路只管角色 backstory,与下面 for_generation 管的势力 secret_capable/chief_only
-    字段是两套独立机制,互不影响——见 F-3 与 U-003 各自的历史沿革。)
 
-    CX-Task 6 + U-003 三档可见性(2026-07-15):势力段改为注册表驱动
-    (codex_schema.prompt_keys('faction')),不再只有 name+ideology[:18]。字段按
-    `for_generation` 分两档門控(详见 `_faction_prompt_block` 的完整规则):
-    - `for_generation=True`(限知续写/生成路径,读者最终会看到的正文——**唯一生成
-      入口是 _editor_write_system**,它调用本函数时恒传 True):`secret_capable`
-      字段只有在"能证明当前 focalizer 知情"时才注入(project_frame 投影 fail-closed);
-      `chief_only` 字段(如 secret_agenda)永不注入,即便 focalizer 知情也不例外。
-    - `for_generation=False`(默认;作者/主编对话,不流进正文):`secret_capable` 与
-      `chief_only` 字段都直接注入——作者自己标记的秘密、连核心层都不知道的隐秘议程,
-      作者/主编讨论创作时当然都看得见,这不是"泄露给读者",是"跟作者商量剧情"。
-    **fail-closed 只在 for_generation=True 时生效**:focalizer 为空(拿不到焦点角色)
-    时,`secret_capable` 字段一律不注入——即便 reveal=True(作者全知)也不例外
-    (对齐既有测试红线,历史上 reveal 从不放行势力 secret 字段)。"""
-    def _safe(fn):
-        # U-011: 删静默降级(作者要 fail-loud)。此前 6 类设定(角色/势力/物件/术语/世界规则/
-        # 母题)任一取数异常→返 []→主编看到"本书无此设定",与真没有无区别,把真 bug 悄悄躲过。
-        # 现在直接抛→崩到 SSE error 帧、前端亮红,作者当场看见"设定读取失败"。名字保留兼容调用点。
-        return fn() or []
-    def _as_text(value, *, item_limit: int = 8, char_limit: int = 160) -> str:
-        """把角色公开字段压成稳定、可读、预算受控的一行。"""
-        if value is None:
-            return ""
-        if isinstance(value, (list, tuple, set)):
-            items = [str(item).strip() for item in value if str(item).strip()]
-            text = "、".join(items[:item_limit])
-        else:
-            text = str(value).strip()
-        return text[:char_limit] + ("…" if len(text) > char_limit else "")
+def _card_line(name: str, extra: str = "") -> str:
+    from scribe3.iceberg import CARD_LINE_CAP
+    label = str(name or "").strip()
+    extra = str(extra or "").strip()
+    text = f"- {label}（{extra}）" if extra else f"- {label}"
+    if len(text) > CARD_LINE_CAP:
+        return text[: max(1, CARD_LINE_CAP - 1)] + "…"
+    return text
 
-    def _is_active_character(character) -> bool:
-        """焦点者或作者本轮明确点名的人，才注入完整公开档案。
 
-        未点名角色仍保留旧的轻量姓名/前史摘要，避免在多人长篇里把全部履历
-        粗暴塞进上下文；但一旦作者点名，字段不得只停留在 UI 和数据库。
-        """
-        name = str(getattr(character, "name", "") or "").strip()
-        cid = str(getattr(character, "id", "") or "").strip()
-        traits = (getattr(character, "traits", None) or {})
+def _needles_for(kind: str, entity) -> list[str]:
+    if kind == "character":
+        name = str(getattr(entity, "name", "") or "").strip()
+        cid = str(getattr(entity, "id", "") or "").strip()
+        traits = getattr(entity, "traits", None) or {}
         aliases = traits.get("aliases") or []
-        needles = [name, cid, *[str(alias).strip() for alias in aliases]]
-        if focalizer and any(focalizer == needle for needle in needles if needle):
-            return True
-        return bool(request_text and any(needle and needle in request_text for needle in needles))
+        return [n for n in (name, cid, *[str(a).strip() for a in aliases]) if n]
+    row = entity if isinstance(entity, dict) else {}
+    name = str(row.get("name") or "").strip()
+    out = [name] if name else []
+    if kind in ("faction", "term"):
+        for a in row.get("aliases") or []:
+            s = str(a).strip()
+            if s:
+                out.append(s)
+    return out
 
-    parts = []
+
+def _haystack_hit(needles: list[str], haystack: str) -> bool:
+    if not haystack:
+        return False
+    return any(n and n in haystack for n in needles)
+
+
+def _chapter_mention_blob(ch: dict | None) -> str:
+    if not isinstance(ch, dict):
+        return ""
+    bits = [str(ch.get("synopsis") or "")]
+    for b in ch.get("beats") or []:
+        if isinstance(b, dict):
+            bits.append(str(b.get("text") or ""))
+        else:
+            bits.append(str(b or ""))
+    bits.append(str(ch.get("scene_truth") or ""))
+    return "\n".join(bits)
+
+
+def _named_priority(kind: str, request_hit: bool, focal_hit: bool, chapter_hit: bool, idx: int) -> tuple:
+    """越大越先淘汰。request > focalizer > 章内提及 > 存储序；非 request 时保 term/rule/item。"""
+    if request_hit:
+        hit = 0
+    elif focal_hit:
+        hit = 1
+    elif chapter_hit:
+        hit = 2
+    else:
+        hit = 3
+    kind_penalty = 0 if (request_hit or kind in ("term", "world_rule", "item")) else 1
+    return (hit, kind_penalty, idx)
+
+
+def _clip_named(kind: str, text: str) -> str:
+    from scribe3.iceberg import clip_for
+    field = {
+        "character": "character_public",
+        "faction": "faction_public",
+        "item": "item",
+        "term": "term",
+        "world_rule": "world_rule",
+    }.get(kind, kind)
+    return clip_for(field, text)
+
+
+def _character_named_line(c, *, reveal: bool) -> str:
+    traits = (c.traits or {}) if hasattr(c, "traits") else {}
+    bs = str(traits.get("backstory") or "")
+    if bs and not reveal and traits.get("backstory_secret"):
+        bs = ""
+    fields = [
+        ("别名", _field_text(traits.get("aliases"))),
+        ("外观习惯", _field_text(traits.get("appearance"))),
+        ("性格细节", _field_text(traits.get("personality_detail"))),
+        ("性格标签", _field_text(traits.get("personality_tags"))),
+        ("表层目标", _field_text(traits.get("surface_goal"))),
+        ("深层需要", _field_text(traits.get("deep_need"))),
+        ("恐惧", _field_text(traits.get("fear"))),
+        ("内在冲突", _field_text(traits.get("internal_conflict"))),
+        ("能力", _field_text(traits.get("abilities"))),
+        ("弱点", _field_text(traits.get("weaknesses"))),
+        ("叙事重要性", _field_text(traits.get("importance"))),
+        ("首次登场", _field_text(traits.get("first_appearance"))),
+    ]
+    profile = "；".join(f"{label}:{value}" for label, value in fields if value)
+    if bs:
+        profile = f"前史:{bs}" + (f"；{profile}" if profile else "")
+    body = f"- {c.name}" + (f"（{profile}）" if profile else "")
+    return _clip_named("character", body)
+
+
+def _item_named_line(row: dict) -> str:
+    fields = [
+        ("类别", _field_text(row.get("category"))),
+        ("描述", _field_text(row.get("description"))),
+        ("状态", _field_text(row.get("symbolic_state"))),
+        ("持有者", _field_text(row.get("current_owner"))),
+        ("特殊属性", _field_text(row.get("special_properties"))),
+    ]
+    body = "；".join(f"{lab}:{val}" for lab, val in fields if val)
+    name = str(row.get("name") or "")
+    text = f"- {name}" + (f"：{body}" if body else "")
+    return _clip_named("item", text)
+
+
+def _term_named_line(row: dict) -> str:
+    fields = [
+        ("类别", _field_text(row.get("category"))),
+        ("定义", _field_text(row.get("definition"))),
+        ("别名", _field_text(row.get("aliases"))),
+    ]
+    body = "；".join(f"{lab}:{val}" for lab, val in fields if val)
+    name = str(row.get("name") or "")
+    text = f"- {name}" + (f"：{body}" if body else "")
+    return _clip_named("term", text)
+
+
+def _rule_named_line(row: dict) -> str:
+    fields = [
+        ("类别", _field_text(row.get("category"))),
+        ("源头", _field_text(row.get("source"))),
+        ("代价", _field_text(row.get("cost"))),
+        ("作用域", _field_text(row.get("scope"))),
+        ("限制", _field_text(row.get("limitations"))),
+        ("例外", _field_text(row.get("exceptions"))),
+        ("赋予能力", _field_text(row.get("capabilities"))),
+        ("备注", _field_text(row.get("note"))),
+    ]
+    body = "；".join(f"{lab}:{val}" for lab, val in fields if val)
+    name = str(row.get("name") or "")
+    text = f"- {name}" + (f"（{body}）" if body else "")
+    return _clip_named("world_rule", text)
+
+
+def _codex_known_ids(st, focalizer: str, chapter: int) -> set:
+    if not focalizer:
+        return set()
+    if not hasattr(st, "load_knowledge") and not hasattr(st, "knowledge"):
+        return set()
+    from scribe3.knowledge import project_frame
+    frame = project_frame(st, focalizer, chapter)
+    return {f.id for f in frame.facts}
+
+
+def _codex_bridge_index(st, chapter: int) -> dict:
+    try:
+        return {(f.entity_id, f.attribute): f.id for f in st.facts_at(chapter)}
+    except Exception:
+        return {}
+
+
+def _join_kind_section(title: str, lines: list[str]) -> str:
+    kept = [ln for ln in lines if ln]
+    if not kept:
+        return ""
+    return title + "\n" + "\n".join(kept)
+
+
+def _codex_segments(st, reveal: bool = True, focalizer: str = "", chapter: int | None = None,
+                    for_generation: bool = False, request_text: str = "",
+                    *, work: str | None = None, named_soft_cap: int | None = None
+                    ) -> tuple[str, str, dict]:
+    """点名公开档 + 未点名名片。秘密门在拼接阶段。"""
+    from scribe3.iceberg import CARDS_PACK_CAP, named_pack_soft_cap
+
+    def _safe(fn):
+        return fn() or []
+
+    mention = ""
+    if for_generation and chapter is not None:
+        try:
+            mention = _chapter_mention_blob(st.get_chapter(int(chapter)) or {})
+        except Exception:
+            mention = ""
+
+    named_items: list[dict] = []
+    card_by_kind: dict[str, list[str]] = {
+        "character": [], "faction": [], "item": [], "term": [], "world_rule": [],
+    }
+    card_limits = {
+        "character": 14, "faction": 10, "item": 14, "term": 14, "world_rule": 10,
+    }
+    titles = {
+        "character": "〔角色〕",
+        "faction": "〔势力〕",
+        "item": "〔物件〕",
+        "term": "〔术语〕",
+        "world_rule": "〔世界规则〕",
+    }
+
+    def _classify(kind: str, entity, idx: int, named_text: str, card_text: str) -> None:
+        needles = _needles_for(kind, entity)
+        req_hit = _haystack_hit(needles, request_text)
+        foc_hit = False
+        if for_generation and focalizer:
+            foc_hit = any(focalizer == n or n in focalizer for n in needles if n)
+        ch_hit = bool(for_generation and _haystack_hit(needles, mention))
+        if req_hit or foc_hit or ch_hit:
+            named_items.append({
+                "kind": kind,
+                "text": named_text,
+                "label": needles[0] if needles else kind,
+                "pri": _named_priority(kind, req_hit, foc_hit, ch_hit, idx),
+            })
+        elif len(card_by_kind[kind]) < card_limits[kind]:
+            card_by_kind[kind].append(card_text)
+
     chars = _safe(st.characters)
-    if chars:
-        cl = []
-        # 多角色请求也要受预算保护；按存储稳定顺序取前四位。
-        detailed_ids = {
-            str(getattr(c, "id", ""))
-            for c in [c for c in chars if _is_active_character(c)][:4]
-        }
-        for c in chars[:14]:
-            traits = (c.traits or {}) if hasattr(c, 'traits') else {}
-            bs = traits.get('backstory') or ''
-            if bs and not reveal and traits.get('backstory_secret'):
-                bs = ''   # 限知模式:私密前史对帧外隐去(F-3)
-            if str(getattr(c, "id", "")) not in detailed_ids:
-                cl.append(f"- {c.name}:{bs[:48]}" if bs else f"- {c.name}")
-                continue
-            fields = [
-                ("别名", _as_text(traits.get("aliases"))),
-                ("外观习惯", _as_text(traits.get("appearance"))),
-                ("性格细节", _as_text(traits.get("personality_detail"))),
-                ("性格标签", _as_text(traits.get("personality_tags"))),
-                ("表层目标", _as_text(traits.get("surface_goal"))),
-                ("深层需要", _as_text(traits.get("deep_need"))),
-                ("恐惧", _as_text(traits.get("fear"))),
-                ("内在冲突", _as_text(traits.get("internal_conflict"))),
-                ("能力", _as_text(traits.get("abilities"))),
-                ("弱点", _as_text(traits.get("weaknesses"))),
-                ("叙事重要性", _as_text(traits.get("importance"))),
-                ("首次登场", _as_text(traits.get("first_appearance"))),
-            ]
-            profile = "；".join(f"{label}:{value}" for label, value in fields if value)
-            if bs:
-                profile = f"前史:{bs[:96]}" + (f"；{profile}" if profile else "")
-            cl.append(f"- {c.name}" + (f"（{profile}）" if profile else ""))
-        parts.append("〔角色〕\n" + "\n".join(cl))
-    facs = _safe(st.list_factions) if hasattr(st, 'list_factions') else []
+    for idx, c in enumerate(chars):
+        _classify(
+            "character", c, idx,
+            _character_named_line(c, reveal=reveal),
+            _card_line(getattr(c, "name", "") or "", _field_text(
+                ((c.traits or {}) if hasattr(c, "traits") else {}).get("importance")
+            )),
+        )
+
+    facs = _safe(st.list_factions) if hasattr(st, "list_factions") else []
     if facs:
         eff_chapter = chapter if chapter is not None else 1
-        known_ids = _faction_known_fact_ids(st, focalizer, eff_chapter)
-        try:
-            from scribe3.context_assembler import _secret_fact_ids
-            secret_ids = _secret_fact_ids(st)
-        except Exception:
-            raise   # U-011 fail-loud: ⚠撤销批次1的fail-open:secret判据失败必须抛,不退空集
-        fact_index = _faction_bridge_fact_index(st, eff_chapter)
-        facs_blocks = [_faction_prompt_block(st, f, chapter=eff_chapter, known_ids=known_ids,
-                                             secret_ids=secret_ids, fact_index=fact_index,
-                                             for_generation=for_generation)
-                      for f in facs[:10]]
-        facs_blocks = [b for b in facs_blocks if b]
-        if facs_blocks:
-            parts.append("〔势力〕\n" + "\n".join(f"- {b}" for b in facs_blocks))
-    items = _safe(st.list_items) if hasattr(st, 'list_items') else []
-    if items:
-        parts.append("〔物件〕" + "；".join(f"{i.get('name')}" for i in items[:14]))
-    terms = _safe(st.list_terms) if hasattr(st, 'list_terms') else []
-    if terms:
-        parts.append("〔术语〕" + "；".join(f"{t.get('name')}:{(t.get('definition') or '')[:16]}" for t in terms[:14]))
-    rules = _safe(st.list_world_rules) if hasattr(st, 'list_world_rules') else []
-    if rules:
-        parts.append("〔世界规则〕" + "；".join(f"{r.get('name')}（代价:{(r.get('cost') or '—')[:14]}）" for r in rules[:10]))
-    motifs = _safe(st.list_motifs) if hasattr(st, 'list_motifs') else []
+        known_ids = _codex_known_ids(st, focalizer, eff_chapter)
+        from scribe3.context_assembler import _secret_fact_ids
+        secret_ids = _secret_fact_ids(st)
+        fact_index = _codex_bridge_index(st, eff_chapter)
+        for idx, f in enumerate(facs):
+            named_txt = _faction_prompt_block(
+                st, f, chapter=eff_chapter, known_ids=known_ids,
+                secret_ids=secret_ids, fact_index=fact_index,
+                for_generation=for_generation,
+            )
+            if named_txt:
+                named_txt = _clip_named("faction", f"- {named_txt}")
+            _classify(
+                "faction", f, idx, named_txt,
+                _card_line(str((f or {}).get("name") or ""), str((f or {}).get("status") or "")),
+            )
+
+    items = _safe(st.list_items) if hasattr(st, "list_items") else []
+    for idx, it in enumerate(items):
+        _classify("item", it, idx, _item_named_line(it), _card_line(str((it or {}).get("name") or "")))
+
+    terms = _safe(st.list_terms) if hasattr(st, "list_terms") else []
+    for idx, t in enumerate(terms):
+        _classify("term", t, idx, _term_named_line(t), _card_line(str((t or {}).get("name") or "")))
+
+    rules = _safe(st.list_world_rules) if hasattr(st, "list_world_rules") else []
+    for idx, r in enumerate(rules):
+        cat = str((r or {}).get("category") or "")
+        _classify(
+            "world_rule", r, idx, _rule_named_line(r),
+            _card_line(str((r or {}).get("name") or ""), cat),
+        )
+
+    cap = int(named_soft_cap) if named_soft_cap is not None else named_pack_soft_cap(work=work)
+    named_items.sort(key=lambda x: x["pri"])
+    kept_named: list[dict] = []
+    used = 0
+    for item in named_items:
+        piece = item.get("text") or ""
+        if not piece:
+            continue
+        if kept_named and used + len(piece) + 1 > cap:
+            continue
+        kept_named.append(item)
+        used += len(piece) + 1
+
+    named_by_kind: dict[str, list[str]] = {k: [] for k in titles}
+    for item in kept_named:
+        named_by_kind[item["kind"]].append(item["text"])
+
+    named_parts = [
+        _join_kind_section(titles[k], named_by_kind[k])
+        for k in ("character", "faction", "item", "term", "world_rule")
+    ]
+    named_parts = [p for p in named_parts if p]
+
+    motifs = _safe(st.list_motifs) if hasattr(st, "list_motifs") else []
+    motif_block = ""
     if motifs:
         if for_generation:
-            # 写作真源:motif_craft heat 调度(must_echo/avoid_overuse),与 brief 同源
             from scribe3.motif_craft import motif_schedule_directives, generation_motif_block
             next_ch = int(chapter) if chapter is not None else 1
             tmap = st.motif_touch_map() if hasattr(st, "motif_touch_map") else {}
             d = motif_schedule_directives(motifs, tmap, next_ch)
-            block = generation_motif_block(d)
-            if block:
-                parts.append(block)
-            else:
+            motif_block = generation_motif_block(d) or ""
+            if not motif_block:
                 names = [m.get("name") for m in motifs[:5] if m.get("name")]
                 if names:
-                    parts.append("〔母题·可主动编织〕" + "；".join(names))
+                    motif_block = "〔母题·可主动编织〕" + "；".join(names)
         else:
             names = [m.get("name") for m in motifs[:10] if m.get("name")]
             if names:
-                parts.append("〔母题〕" + "；".join(names))
-    return "\n".join(parts)
+                motif_block = "〔母题〕" + "；".join(names)
+    if motif_block:
+        named_parts.append(motif_block)
+
+    banner = "【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】"
+    named_body = "\n".join(named_parts)
+    named_text = f"{banner}\n{named_body}" if named_body else ""
+
+    card_parts = [
+        _join_kind_section(titles[k], card_by_kind[k])
+        for k in ("character", "faction", "item", "term", "world_rule")
+    ]
+    card_parts = [p for p in card_parts if p]
+    cards_text = "\n".join(card_parts)
+    if len(cards_text) > CARDS_PACK_CAP:
+        cards_text = cards_text[: max(0, CARDS_PACK_CAP - 1)] + "…"
+    if cards_text and not named_text:
+        named_text = banner
+        # 只有名片时仍保留圣经标题，避免旧测/身份块丢锚
+        cards_text = f"{banner}\n{cards_text}"
+        named_text = ""
+
+    stats = {
+        "codex_named_chars": len(named_text),
+        "codex_cards_chars": len(cards_text),
+        "codex_entities_full": [f"{i['kind']}:{i['label']}" for i in kept_named],
+        "codex_entities_card": [
+            f"{k}:{ln}" for k, lines in card_by_kind.items() for ln in lines
+        ],
+    }
+    return named_text, cards_text, stats
+
+
+def _codex_block(st, reveal: bool = True, focalizer: str = "", chapter: int | None = None,
+                 for_generation: bool = False, request_text: str = "",
+                 *, work: str | None = None) -> str:
+    """兼容旧调用：点名档 + 名片拼成一段。写/讨论生产入口请用 ``_codex_segments``。"""
+    named, cards, _stats = _codex_segments(
+        st, reveal=reveal, focalizer=focalizer, chapter=chapter,
+        for_generation=for_generation, request_text=request_text, work=work,
+    )
+    return "\n".join(p for p in (named, cards) if p)
 
 
 def _editor_system(st, focalizer: str = "", chapter: int = None,
-                   for_generation: bool = False) -> str:
+                   for_generation: bool = False, request_text: str = "") -> str:
     """主编对话的系统提示:注入本书北极星 + 角色 + 已确立设定。
 
     focalizer 非空(限知章):设定块只注入焦点者帧内可见事实,secret 明文屏蔽;
@@ -370,7 +598,7 @@ def _editor_system(st, focalizer: str = "", chapter: int = None,
         f"情感弧:{intent['emotional_arc'] or '—'};绝不背叛的红线:{red_inline}\n"
         f"{constraint}"
         f"【主要角色】{ctx_chars}\n{set_label}\n{ctx_set}\n\n"
-        f"【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n{_codex_block(st, reveal=not focalizer, focalizer=focalizer, chapter=chapter, for_generation=for_generation) or '(尚无设定)'}\n\n"
+        f"{_codex_block(st, reveal=not focalizer, focalizer=focalizer, chapter=chapter, for_generation=for_generation, request_text=request_text) or '【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n(尚无设定)'}\n\n"
         "要求:用简体中文,像真正的资深文学编辑那样具体、犀利、可操作;紧扣上面的世界观与北极星,"
         "不空泛、不正确的废话;给剧情/人物建议时给出 2-3 个选项与各自代价;护住限知叙事(别让角色知道其知识帧外的私密)。"
     ) + rem + mat_hint + _author_prefs_block_safe()

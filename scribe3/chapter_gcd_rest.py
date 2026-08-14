@@ -12,7 +12,8 @@ GCD_FIELD_KEYS = frozenset({
     "goal", "conflict", "disaster", "turn", "reaction", "dilemma",
     "decision", "cost", "hook", "text", "done", "beat_type",
 })
-BEAT_TEXT_MAX = 280
+# 闸外入口只许改 GCD 短字段；text 锁定，避免把场面纸截成口号。
+GCD_MUTABLE_KEYS = frozenset(GCD_FIELD_KEYS - {"text"})
 GCD_FIELD_MAX = 200
 
 
@@ -45,16 +46,10 @@ def validate_gcd_beats_patch(
         if not isinstance(n, (dict, str)):
             return False, f"beat_{i}_type"
         if isinstance(n, str):
-            if len(n) > BEAT_TEXT_MAX:
-                return False, f"beat_{i}_text_too_long"
-            continue
-        # dict beat: only GCD-ish keys
+            return False, f"beat_{i}_text_locked"
         extra = set(n.keys()) - GCD_FIELD_KEYS - {"id", "uid"}
         if extra:
             return False, f"beat_{i}_unknown_keys:{sorted(extra)[:4]}"
-        t = str(n.get("text") or "")
-        if len(t) > BEAT_TEXT_MAX:
-            return False, f"beat_{i}_text_too_long"
         for k in GCD_FIELD_KEYS:
             if k in ("text", "done", "beat_type"):
                 continue
@@ -67,6 +62,24 @@ def validate_gcd_beats_patch(
 def normalize_beats_for_store(new_beats: Any) -> list:
     """浅拷贝 list，供 update_chapter_meta。"""
     return _as_beat_list(new_beats)
+
+
+def merge_gcd_beats_keep_text(old_beats: Any, new_beats: Any) -> list:
+    """只合并 GCD 短字段；旧 text 一律保留。"""
+    out: list = []
+    for o, n in zip(_as_beat_list(old_beats), _as_beat_list(new_beats)):
+        base = dict(o) if isinstance(o, dict) else {"text": o}
+        if not isinstance(n, dict):
+            out.append(base)
+            continue
+        merged = dict(base)
+        for k, v in n.items():
+            if k in GCD_MUTABLE_KEYS or k in ("id", "uid"):
+                merged[k] = v
+        if "text" in base:
+            merged["text"] = base.get("text")
+        out.append(merged)
+    return out
 
 
 def is_emergency_bypass_chapter_path(path: str) -> bool:
@@ -104,16 +117,11 @@ def apply_gcd_beats_patch(
     old_beats: Any,
     new_beats: Any,
 ) -> tuple[bool, str, list | None]:
-    """shipped 闸外写的核心：校验 + 规范化。返回 (ok, reason, normalized_or_None)。"""
-    # O15：结构校验（与 MCP 共用 beats_schema）
-    try:
-        from scribe3.beats_schema import validate_beats_payload
-        struct_ok, struct_reason, _ = validate_beats_payload(new_beats)
-        if not struct_ok:
-            return False, struct_reason, None
-    except Exception:
-        pass
+    """shipped 闸外写的核心：校验 + 规范化。返回 (ok, reason, normalized_or_None)。
+
+    不走 beats_schema 的 2000 字 text 帽：本入口不改 text，旧场面纸再厚也放行。
+    """
     ok, reason = validate_gcd_beats_patch(old_beats, new_beats)
     if not ok:
         return False, reason, None
-    return True, "", normalize_beats_for_store(new_beats)
+    return True, "", merge_gcd_beats_keep_text(old_beats, new_beats)

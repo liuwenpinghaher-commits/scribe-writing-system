@@ -66,7 +66,9 @@ WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_kno
                 "s3_reorder_chapters", "s3_delete_volume",
                 "s3_add_motif", "s3_patch_motif", "s3_patch_promise",
                 # 设定库生命周期(archive/delete,与 objects/* 同口径)
-                "s3_delete_codex"}
+                "s3_delete_codex",
+                "s3_generate_codex",
+                }
 
 
 

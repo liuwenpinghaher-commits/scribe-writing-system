@@ -44,14 +44,13 @@
 
 | 块 | 状态 | 说明 |
 |----|------|------|
-| 闸 persist + `/chat/write` 409 | **已交代码** | `persist_fields_blocked`、`evaluate_iceberg`；产品通道挡薄稿 |
-| StageSpec + `thicken_*` + 必须 LLM | **已交代码，未部署** | `stage_generate.py`；G1–G5；禁 skip 薄拍、禁切句充数 |
-| `s3_generate_stage` / `s3_save_chapter_draft` | **已交代码，未部署** | 独立 LLM 入口 |
-| 注入吃满（I1–I3） | **代码已改，未部署** | final 也吃满；`clip_for`；拍不再 200 |
-| demo 空章走完 ①–⑤ | **未做** | 需 push + 热更 + 真 LLM |
+| 闸 persist + `/chat/write` 409 | **已交且在 origin/main** | `persist_fields_blocked`、`evaluate_iceberg`；产品通道挡薄稿 |
+| StageSpec + `thicken_*` + 必须 LLM | **已交且在 origin/main** | `stage_generate.py`；禁 skip 薄拍、禁切句充数 |
+| `s3_generate_stage` / `s3_save_chapter_draft` | **已交且在 origin/main** | 独立 LLM 入口 |
+| 注入吃满（I1–I3） | **已交且在 origin/main** | final 也吃满；`clip_for`；拍不再 200 |
+| 防洪水 / 设定库生成链 | **工作区已实现，随本提交上 main** | 点名吃满+拆段、`thicken_codex`、设定 persist 闸 |
+| demo 空章走完 ①–⑤ | **未做** | 需热更 + 真 LLM |
 | 飞行记录仪 142 | **不做在本方案** | 见独立设计 |
-
-代码在工作区，**未默认 push**。
 
 ---
 

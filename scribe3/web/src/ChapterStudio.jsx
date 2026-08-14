@@ -17,6 +17,7 @@ import { RichEditor, useUnsavedGuard } from './editor/RichEditor.jsx'
 import { ConfirmDialog } from './ui/Dialog.jsx'
 import { ChapterAuxPanel } from './ChapterAuxPanel'
 import { ChapterMetaPane } from './ChapterMetaPane'
+import { ScenePaper } from './ScenePaper.jsx'
 import { ErrorBoundary } from './ErrorBoundary'
 import { SelectionQuoteActions } from './ui/SelectionQuoteActions.jsx'
 import { openChiefForEmptyField } from './lib/selAction.js'
@@ -77,7 +78,7 @@ function ContractSoftBanner({ work, seq, meta, executionSoft, onGoFix, onDismiss
         {summary || '大纲、节拍、场景真相或写完对照还有缺口'}。
         {hasContractGap ? (
           <>
-            <strong className="text-ink font-medium">不建议开写</strong>
+            <strong className="text-ink font-medium">这场还没定必须发生（不拦先写日子）</strong>
             （本提示不拦聊天；保存正式正文时缺项仍可能被拦住）。
           </>
         ) : (
@@ -366,7 +367,7 @@ function BeatsTab({ seq, work, value, meta, onSaved }) {
     if (saving) return
     setSaving(true)
     try {
-      // 整表回写:保留 id/kind/density/budget/pov/done 等既有键,仅 GCD/text 由本面板改。
+      // 整表回写：只改 GCD 短字段。场面纸 text 由主编写厚，本入口锁定。
       // emergency REST 默认关：PATCH /chapters/{seq} 403；GCD 走闸外 gcd-fields
       await api.patchChapterGcdFields(seq, { beats }, work)
       setDirty(false)
@@ -390,7 +391,7 @@ function BeatsTab({ seq, work, value, meta, onSaved }) {
     <div className={STAGE_WRAP} data-testid="chapter-workbench-shell" data-phase="beats">
       <StageTitle
         title="节拍"
-        subtitle="每拍可补「目标·冲突·转折·代价·钩子」并手改保存；增删条数请让主编审批。"
+        subtitle="每拍可补「目标·冲突·转折·代价·钩子」；场面纸只读，改写请让主编。增删条数须审批。"
         actions={(
           <>
             <Btn
@@ -446,10 +447,11 @@ function BeatsTab({ seq, work, value, meta, onSaved }) {
                   <textarea
                     className="w-full min-h-[2.5rem] resize-y rounded-md border border-line/40 bg-canvas px-2 py-1.5 text-f13 text-ink leading-snug outline-none focus:border-brand/50"
                     value={b.text || ''}
-                    onChange={(e) => updateField(i, 'text', e.target.value)}
-                    placeholder="节拍摘要"
+                    readOnly
+                    placeholder="场面纸（只读 · 让主编写厚）"
                     data-testid={`beat-text-${i}`}
-                    aria-label={`第 ${i + 1} 拍摘要`}
+                    aria-label={`第 ${i + 1} 拍场面纸`}
+                    title="场面纸由主编写厚；这里只改戏核字段"
                   />
                   {showGcd ? (
                     <div
@@ -755,7 +757,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
     }
     if (nextPhase === 'final' && meta && contractNeedsAttention(meta)) {
       const summary = contractSoftSummary(meta)
-      toast(`章前契约未齐：${summary || '有缺口'}。不建议开写；存实质正文仍可能被工艺门拦截。`, {
+      toast(`这场还没定必须发生（不拦先写日子）${summary ? `：${summary}` : ''}`, {
         tone: 'warn',
         action: {
           label: '去补',
@@ -846,7 +848,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
       else setLoading(false)
       setExecutionSoft(null)
     }
-    api.chapter(seq)
+    api.chapter(seq, work, { includeSuggest: true })
       .then((ch) => {
         if (!alive) return
         setMeta((m) => ({
@@ -862,6 +864,9 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
           deductions: ch?.deductions || [],
           involved_characters: ch?.involved_characters || [],
           proseWords: (ch?.prose || '').replace(/\s/g, '').length,
+          seq,
+          narrative_contract: ch?.narrative_contract || {},
+          scene_suggest: ch?.scene_suggest || null,
         }))
       })
       .catch(() => {
@@ -1045,6 +1050,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
       ) : phase === 'final' ? (
         <div className="h-full flex flex-col min-h-0">
           <span className="hidden" aria-hidden data-banner-tick={bannerTick} />
+          <ScenePaper chapter={meta} seq={seq} />
           <ContractSoftBanner
             work={work}
             seq={seq}
@@ -1083,12 +1089,15 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
             // 演绎就地渲染(Task 7):与左栏演绎能力 deduce_view 两入口互斥不冲突,共用 DeduceProvider 选中态。
             <DeduceStage seq={seq} meta={meta} work={work} onSaved={() => setRefresh((r) => r + 1)} />
           ) : phase === 'draft' ? (
+            <>
+            <ScenePaper chapter={meta} seq={seq} />
             <DraftTab seq={seq} work={work} meta={meta} onGoDeduce={() => setPhaseP('deduce')} onAdopt={async (text) => {
               // 采用为正文=把草稿真搬进 chapter.prose(彻查 B-4:旧实现丢弃 text 只切 tab → 正文空/旧)。
               // 保留本章 title/focalizer;落库成功后再切正文 tab,让 WriteLayout 拉到刚搬入的正文。
               await api.saveChapter(seq, text, meta?.title || '', meta?.focalizer || '')
               setPhaseP('final')
             }} />
+            </>
           ) : null}
         </div>
       )}

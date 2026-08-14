@@ -65,6 +65,7 @@ def _store_write_budget_report(report: dict[str, Any] | None) -> None:
 from scribe3.api.services.write_assemble_blocks import (  # noqa: E402
     _faction_prompt_block,
     _codex_block,
+    _codex_segments,
     _editor_system,
     _editor_identity_block,
     _write_protocol_block,
@@ -114,6 +115,7 @@ def _record_write_soft_fail(kind: str) -> None:
 WRITE_ASSEMBLE_REBIND_NAMES: tuple[str, ...] = (
     "_faction_prompt_block",
     "_codex_block",
+    "_codex_segments",
     "_editor_system",
     "_editor_identity_block",
     "_write_protocol_block",

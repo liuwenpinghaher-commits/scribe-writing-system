@@ -47,9 +47,9 @@ export function seedChiefCodexWrite(type, row = {}, hint = '') {
   const fields = registryFields(row)
   const lines = registryKind
     ? [
-      `请根据本书上下文补全/更正设定「${name}」(类型:${registryKind})并提交写入提案供我批准。`,
-      `先用只读工具核实现状，再调用 s3_patch_codex(kind=${JSON.stringify(registryKind)}, name=${JSON.stringify(String(name))}, fields=${JSON.stringify(fields)})。`,
-      '该工具支持该类型的全部注册字段；未获批准不得声称已落库。',
+      `请根据本书上下文补全/更正设定「${name}」(类型:${registryKind})。`,
+      `先 s3_generate_codex(kind=${JSON.stringify(registryKind)}, name=${JSON.stringify(String(name))}, persist=true) 一次待批；或 persist=false 后再 s3_patch_codex。禁止只口头补全、禁止把薄字段预填进 s3_patch_codex。`,
+      '未获批准不得声称已落库。',
     ]
     : type === 'chars'
     ? [
@@ -63,6 +63,16 @@ export function seedChiefCodexWrite(type, row = {}, hint = '') {
       `先只读核实当前库内事实,再调用 ${tool}(目标 id/name=${JSON.stringify(String(idHint))}) 写入。`,
       '未获批准不得声称已落库。',
     ]
+  if (hint) lines.push(String(hint))
+  return focusChiefWithSeed(lines.join('\n'))
+}
+
+/** 写厚本书空壳：批量 persist 直接落库，无需再批 */
+export function seedChiefCodexBatch(hint = '') {
+  const lines = [
+    '请调用 s3_generate_codex_batch(persist=true) 写厚本书 stub/thin 设定。',
+    '过合同即直接落库，无需再批。一条失败继续下一条。禁止 enrich_all，禁止只口头补全。',
+  ]
   if (hint) lines.push(String(hint))
   return focusChiefWithSeed(lines.join('\n'))
 }

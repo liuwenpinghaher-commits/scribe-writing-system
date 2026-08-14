@@ -322,6 +322,10 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
                 k: v for k, v in kw.items()
                 if k not in ("character_id", "oid", "work", "label") and v is not None
             }
+            from scribe3.iceberg import persist_codex_fields_blocked
+            _blk = persist_codex_fields_blocked("character", fields, mode="incremental")
+            if _blk:
+                return {"status": "error", "error": _blk["message"], "code": _blk["code"]}
             if hasattr(st, "patch_character"):
                 ok = st.patch_character(cid, **fields)
                 return {"status": "written" if ok is not False else "error", "ok": ok, "character_id": oid}
@@ -383,6 +387,10 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
                 k: v for k, v in kw.items()
                 if k not in ("oid", "character_id", "name", "label", "work") and v is not None
             }
+            from scribe3.iceberg import persist_codex_fields_blocked
+            _blk = persist_codex_fields_blocked("character", traits, mode="incremental")
+            if _blk:
+                return {"status": "error", "error": _blk["message"], "code": _blk["code"]}
             if hasattr(st, "add_character"):
                 st.add_character(oid, name, **traits)
                 return {"status": "written", "oid": oid, "name": name, "fields": list(traits.keys())}
@@ -469,6 +477,17 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
             name = (kw.get("name") or "").strip()
             if not name or not hasattr(st, "add_world_rule"):
                 return {"status": "error", "error": "no name or add_world_rule"}
+            from scribe3.iceberg import persist_codex_fields_blocked
+            _blk = persist_codex_fields_blocked(
+                "world_rule",
+                {k: v for k, v in kw.items()
+                 if v is not None and k in (
+                     "cost", "source", "limitations", "exceptions", "capabilities",
+                 )},
+                mode="incremental",
+            )
+            if _blk:
+                return {"status": "error", "error": _blk["message"], "code": _blk["code"]}
             st.add_world_rule(
                 name=name,
                 category=kw.get("category") or "民俗",
@@ -487,6 +506,15 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
             name = (kw.get("name") or "").strip()
             if not name or not hasattr(st, "add_faction"):
                 return {"status": "error", "error": "no name or add_faction"}
+            from scribe3.iceberg import persist_codex_fields_blocked
+            _blk = persist_codex_fields_blocked(
+                "faction",
+                {k: v for k, v in kw.items()
+                 if v is not None and k not in ("name", "work", "label")},
+                mode="incremental",
+            )
+            if _blk:
+                return {"status": "error", "error": _blk["message"], "code": _blk["code"]}
             st.add_faction(
                 name,
                 ideology=kw.get("ideology"),
@@ -503,6 +531,17 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
             name = (kw.get("name") or "").strip()
             if not name or not hasattr(st, "add_item"):
                 return {"status": "error", "error": "no name or add_item"}
+            from scribe3.iceberg import persist_codex_fields_blocked
+            _blk = persist_codex_fields_blocked(
+                "item",
+                {k: v for k, v in kw.items()
+                 if v is not None and k in (
+                     "description", "current_owner", "special_properties",
+                 )},
+                mode="incremental",
+            )
+            if _blk:
+                return {"status": "error", "error": _blk["message"], "code": _blk["code"]}
             st.add_item(
                 name=name,
                 category=kw.get("category"),
@@ -518,6 +557,13 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
             name = (kw.get("name") or "").strip()
             if not name or not hasattr(st, "add_term"):
                 return {"status": "error", "error": "no name or add_term"}
+            from scribe3.iceberg import persist_codex_fields_blocked
+            _blk = persist_codex_fields_blocked(
+                "term", {"definition": kw.get("definition")} if kw.get("definition") else {},
+                mode="incremental",
+            )
+            if _blk:
+                return {"status": "error", "error": _blk["message"], "code": _blk["code"]}
             st.add_term(
                 name=name,
                 category=kw.get("category"),
@@ -531,6 +577,15 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
             name = (kw.get("name") or "").strip()
             if not name or not hasattr(st, "add_motif"):
                 return {"status": "error", "error": "no name or add_motif"}
+            from scribe3.iceberg import persist_codex_fields_blocked
+            _blk = persist_codex_fields_blocked(
+                "motif",
+                {k: v for k, v in kw.items()
+                 if v and k in ("theme", "echoes", "echo_terms", "unfolding")},
+                mode="incremental",
+            )
+            if _blk:
+                return {"status": "error", "error": _blk["message"], "code": _blk["code"]}
             # 同名幂等：已存在则跳过新建，避免重复批准草案叠行
             try:
                 for m in (st.list_motifs() or []):

@@ -38,6 +38,14 @@ except Exception:
     pass  # core may be partially init during first import cycle
 
 
+def _codex_l1_http(kind: str, submitted: dict | None) -> None:
+    """REST emergency 写口与 MCP 同 L1：薄字段 422，空/缺评则放行。"""
+    from scribe3.iceberg import persist_codex_fields_blocked
+    hit = persist_codex_fields_blocked(kind, submitted or {}, mode="incremental")
+    if hit:
+        raise HTTPException(status_code=422, detail=hit)
+
+
 def facts(
     chapter: int = Query(ge=1),
     work: str = "main",
@@ -118,6 +126,7 @@ def get_fact_knowers(
 def add_char(c: CharIn, work: str = "main"):
     # 掩码写哨兵:backstory 收到掩码占位符 → 视为未提供(不落库为字面掩码值)。
     backstory = None if c.backstory == _SECRET_MASK else c.backstory
+    _codex_l1_http("character", {"backstory": backstory} if backstory else {})
     _store_for(work).add_entity(Entity(
         f"role:{c.name}", "character", c.name,
         traits={"backstory": backstory, "backstory_secret": c.backstory_secret,
@@ -152,8 +161,10 @@ def get_char(local: str, work: str = "main", reveal_secret: bool = False):
         "fear": r.get("fear"),
         "archived": bool(r.get("archived")),
     }
+    from scribe3.iceberg import attach_codex_ready
+    ready_src = dict(d)
     d = _mask_field(d, "backstory", "backstory_secret", reveal_secret)
-    return d
+    return attach_codex_ready("character", d, evaluate_from=ready_src)
 
 def edit_char(local: str, c: CharIn, work: str = "main"):
     st = _store_for(work)
@@ -167,7 +178,12 @@ def edit_char(local: str, c: CharIn, work: str = "main"):
               "surface_goal": c.surface_goal, "deep_need": c.deep_need,
               "internal_conflict": c.internal_conflict, "fear": c.fear,
               "first_appearance": c.first_appearance}
-    st.update_record(f"role:{local}", {k: v for k, v in fields.items() if v is not None})
+    written = {k: v for k, v in fields.items() if v is not None}
+    from scribe3.iceberg import persist_codex_fields_blocked
+    _blk = persist_codex_fields_blocked("character", written, mode="incremental")
+    if _blk:
+        raise HTTPException(status_code=422, detail=_blk)
+    st.update_record(f"role:{local}", written)
     return {"ok": True}
 
 def del_char(local: str, confirm_impact_token: str | None = None, work: str = "main"):
@@ -239,12 +255,18 @@ def get_rule(name: str, work: str = "main"):
     row = _store_for(work).get_world_rule(name)
     if not row:
         raise HTTPException(status_code=404, detail=f"world_rule '{name}' 不存在")
-    return row
+    from scribe3.iceberg import attach_codex_ready
+    return attach_codex_ready("world_rule", dict(row))
 
 def add_rule(r: RuleIn, work: str = "main"):
     if r.scope not in _WORLD_RULE_SCOPES:
         raise HTTPException(status_code=422,
                             detail=f"非法 scope='{r.scope}'(合法: {sorted(_WORLD_RULE_SCOPES)})")
+    _codex_l1_http("world_rule", {k: v for k, v in (
+        ("cost", r.cost), ("source", r.source),
+        ("limitations", r.limitations), ("exceptions", r.exceptions),
+        ("capabilities", r.capabilities),
+    ) if v is not None})
     _store_for(work).add_world_rule(r.name, r.category, r.source, r.capabilities, r.cost,
                                      r.limitations, r.exceptions, r.scope,
                                      r.established_chapter, r.note)
@@ -264,7 +286,8 @@ def get_faction_ep(name: str, work: str = "main", reveal_secret: bool = False):
         out = _mask_field(out, k, codex_secret_flag_key(k), reveal_secret)
     if "name" not in out:
         out["name"] = name
-    return out
+    from scribe3.iceberg import attach_codex_ready
+    return attach_codex_ready("faction", out, evaluate_from=dict(row))
 
 def list_factions(work: str = "main", reveal_secret: bool = False):
     rows = _store_for(work).list_factions()
@@ -314,6 +337,7 @@ def add_faction_ep(fc: FactionIn, work: str = "main"):
     if violations:
         raise HTTPException(status_code=422,
                             detail=f"势力字段非法: {'; '.join(violations)}")
+    _codex_l1_http("faction", {k: v for k, v in sent.items() if v not in (None, "", [], {})})
 
     st = _store_for(work)
     try:
@@ -375,7 +399,8 @@ def get_item_endpoint(name: str, work: str = "main"):
     row = _store_for(work).get_item(name)
     if not row:
         raise HTTPException(status_code=404, detail=f"item '{name}' 不存在")
-    return row
+    from scribe3.iceberg import attach_codex_ready
+    return attach_codex_ready("item", dict(row))
 
 def add_item_endpoint(req: dict, work: str = "main"):
     """物品 upsert:PATCH/merge 语义(端点层,参照 /factions)。
@@ -392,6 +417,9 @@ def add_item_endpoint(req: dict, work: str = "main"):
         # 客户端提交了该字段 → 用提交值;否则保留旧值,再退默认。
         return req[k] if k in req else old.get(k, default)
 
+    _codex_l1_http("item", {k: req[k] for k in (
+        "description", "current_owner", "special_properties",
+    ) if k in req})
     st.add_item(name,
                 category=pick("category", None),
                 description=pick("description", None),
@@ -429,10 +457,12 @@ def get_term_endpoint(name: str, work: str = "main"):
     row = _store_for(work).get_term(name)
     if not row:
         raise HTTPException(status_code=404, detail=f"term '{name}' 不存在")
-    return row
+    from scribe3.iceberg import attach_codex_ready
+    return attach_codex_ready("term", dict(row))
 
 def add_term_endpoint(req: dict, work: str = "main"):
     st = _store_for(work)
+    _codex_l1_http("term", {"definition": req["definition"]} if req.get("definition") else {})
     st.add_term(req.get("name",""), category=req.get("category"),
                 definition=req.get("definition"), aliases=req.get("aliases"),
                 first_mention_chapter=req.get("first_mention_chapter"))

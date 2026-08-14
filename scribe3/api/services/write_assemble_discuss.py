@@ -75,6 +75,15 @@ def assemble_discussion_system(
         env_text = render_envelope_text(envelope)
         if env_text:
             parts.append(env_text)
+        from scribe3.api.services.write_assemble_blocks import _codex_segments
+        named, cards, _st = _codex_segments(
+            st, reveal=True, focalizer="", chapter=chapter,
+            for_generation=False, request_text=user_msg or "", work=work,
+        )
+        if named:
+            parts.append(named)
+        if cards:
+            parts.append(cards)
         # pulse / directive 作为可审计补充段
         extra_bits = []
         if (pulse_text or "").strip():

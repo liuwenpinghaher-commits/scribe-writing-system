@@ -140,16 +140,16 @@ WIDE_FUEL_CAP_CAUSAL = 4_000
 # 数字越大越先丢；T0/GEN_SEGMENT_PROTECTED 不进 victim 或极低优先级
 L2_DROP_TIER: dict[str, tuple[str, ...]] = {
     # SL2：storyline_polish 进 T3（与 material_recall/reference_craft 同档，先可裁）
-    "T3": ("material_recall", "discourse_soft", "story_move", "storyline_polish", "reference_craft", "seed_words", "author_prefs"),
+    "T3": ("codex_cards", "material_recall", "discourse_soft", "story_move", "storyline_polish", "reference_craft", "seed_words", "author_prefs"),
     "T2": ("craft", "phase_role", "avoid", "volume_intro", "request_constraint"),
-    "T1": ("codex", "purpose", "pressure_drive"),
+    "T1": ("purpose", "pressure_drive"),
     # 故事燃料：T3→T2→T1 之后才裁；段内先丢 recall，最后丢 ember
     "T1_fuel": ("story_recall", "story_causal", "story_ember"),
 }
 # 生成段保护集（outline 等）：超 cap 时后于 T3→T2→T1 才考虑半裁
 GEN_SEGMENT_PROTECTED: frozenset[str] = frozenset({
     "outline", "brief_must", "voice_anchor",
-    "draft_full", "deduction_final",
+    "draft_full", "deduction_final", "codex_named",
 })
 
 
@@ -220,6 +220,7 @@ def enforce_total_prompt_budget(
         "total_budget": cap,
         "enabled": 0 < cap < 900_000,
         "dropped": [],
+        "dropped_ops": [],
         "before_est": before,
     }
     if not report["enabled"]:
@@ -271,13 +272,28 @@ def enforce_total_prompt_budget(
                 if name in GEN_SEGMENT_PROTECTED:
                     unsqueezable.add(name)
                     continue
+                report["dropped_ops"].append({
+                    "name": name, "op": "total_drop",
+                    "text_before": text, "text_after": "",
+                    "chars_before": len(text), "chars_after": 0,
+                })
                 segs.pop(vi)
                 continue
             segs[vi]["text"] = new
             tag = "keep_beats" if name == "outline" else "total_half"
             report["dropped"].append(f"{name}:{tag}")
+            report["dropped_ops"].append({
+                "name": name, "op": tag,
+                "text_before": text, "text_after": new,
+                "chars_before": len(text), "chars_after": len(new),
+            })
         else:
             report["dropped"].append(f"{name}:total_drop")
+            report["dropped_ops"].append({
+                "name": name, "op": "total_drop",
+                "text_before": text, "text_after": "",
+                "chars_before": len(text), "chars_after": 0,
+            })
             segs.pop(vi)
 
     after = _total()
@@ -464,7 +480,8 @@ GENERATION_SEGMENT_LAYERS: dict[str, str] = {
     "drama_contract": "redline",
     "drama_vacuum": "redline",
     "envelope": "envelope",
-    "codex": "supplemental",
+    "codex_named": "supplemental",
+    "codex_cards": "supplemental",
     "seed_words": "supplemental",
     "craft": "supplemental",
     "phase_role": "supplemental",
@@ -603,11 +620,10 @@ def join_generation_segments(
     return joined, rep
 
 
-def get_codex_inject_cap() -> int:
-    raw = (os.environ.get("SCRIBE3_CODEX_INJECT_CAP") or "").strip()
-    if raw.isdigit():
-        return max(500, int(raw))
-    return DEFAULT_CODEX_INJECT_CAP
+def get_codex_inject_cap(work: str | None = None) -> int:
+    """点名包软顶。必须带 work 才能分档；无 work 走 resolve_write_caps 的窄档。"""
+    from scribe3.iceberg import named_pack_soft_cap
+    return named_pack_soft_cap(work=work)
 
 
 def _wide_switch() -> str:
@@ -807,7 +823,7 @@ def physical_order_markers() -> tuple[str, ...]:
         "event_drive",
         "drama_contract",
         "envelope",
-        "codex",
+        "codex_named",
         "final_reminder",
     )
 
@@ -821,11 +837,18 @@ def assert_physical_order_indices(indices: dict[str, int]) -> None:
     hook = indices.get("event_drive_hook")
     dr = indices.get("drama_contract")
     env = indices.get("envelope")
-    cx = indices.get("codex")
+    cx = indices.get("codex_named")
+    if cx is None:
+        cx = indices.get("codex")
     fr = indices.get("final_reminder")
     drive_slot = ed if ed is not None else hook
     if None in (drive_slot, dr, env, cx, fr):
-        missing = [k for k in ("event_drive", "drama_contract", "envelope", "codex", "final_reminder") if indices.get(k) is None]
+        missing = [
+            k for k in (
+                "event_drive", "drama_contract", "envelope", "codex_named", "final_reminder",
+            )
+            if indices.get(k) is None and not (k == "codex_named" and indices.get("codex") is not None)
+        ]
         if not (ed is None and hook is not None):
             raise AssertionError(f"missing order markers: {missing}")
     nc = indices.get("narrative_contract")
@@ -838,7 +861,7 @@ def assert_physical_order_indices(indices: dict[str, int]) -> None:
     if not (drive_slot < dr < env < cx < fr):
         raise AssertionError(
             f"bad physical order: drive/hook={drive_slot} drama={dr} "
-            f"envelope={env} codex={cx} final_reminder={fr}"
+            f"envelope={env} codex_named={cx} final_reminder={fr}"
         )
 
 
@@ -871,7 +894,7 @@ def _half_cut_segment(name: str, text: str) -> str:
     s = str(text or "")
     if not s:
         return s
-    if name in ("draft_full", "deduction_final"):
+    if name in ("draft_full", "deduction_final", "codex_named"):
         return s
     if name != "outline":
         return s[: max(1, len(s) // 2)] + "…"
@@ -947,6 +970,7 @@ def apply_l2_trim(
         )
 
     dropped: list[str] = []
+    dropped_ops: list[dict[str, Any]] = []
     soft_exceeded = _l2_total() > soft
 
     def _victim_idx() -> int | None:
@@ -991,13 +1015,28 @@ def apply_l2_trim(
                 if name in GEN_SEGMENT_PROTECTED:
                     unsqueezable.add(name)
                     continue
+                dropped_ops.append({
+                    "name": name, "op": "drop",
+                    "text_before": text, "text_after": "",
+                    "chars_before": len(text), "chars_after": 0,
+                })
                 segs.pop(vi)
                 continue
             segs[vi]["text"] = new
             tag = "keep_beats" if name == "outline" else "tail_half"
             dropped.append(f"{name}:{tag}")
+            dropped_ops.append({
+                "name": name, "op": tag,
+                "text_before": text, "text_after": new,
+                "chars_before": len(text), "chars_after": len(new),
+            })
         else:
             dropped.append(f"{name}:drop")
+            dropped_ops.append({
+                "name": name, "op": "drop",
+                "text_before": text, "text_after": "",
+                "chars_before": len(text), "chars_after": 0,
+            })
             segs.pop(vi)
 
     # total prompt hard
@@ -1013,6 +1052,11 @@ def apply_l2_trim(
             dropped.append(f"{name}:prompt_hard_keep")
             break
         dropped.append(f"{name}:prompt_hard_drop")
+        dropped_ops.append({
+            "name": name, "op": "prompt_hard_drop",
+            "text_before": str(segs[vi].get("text") or ""), "text_after": "",
+            "chars_before": len(str(segs[vi].get("text") or "")), "chars_after": 0,
+        })
         segs.pop(vi)
 
     joined = "".join(str(s.get("text") or "") for s in segs)
@@ -1026,6 +1070,7 @@ def apply_l2_trim(
         "prompt_hard": ph,
         "soft_exceeded": soft_exceeded,
         "dropped": dropped,
+        "dropped_ops": dropped_ops,
         "segment_names": [s.get("name") for s in segs],
         "segments": segs,  # 供 join 继续 O1 全域硬顶（副本列表）
         "envelope_v2": envelope_v2_enabled(),
@@ -1071,7 +1116,7 @@ def generation_physical_order_names(*, v2: bool = True) -> list[str]:
         base.append("outline")
     base.append("envelope")
     if v2:
-        base.append("codex")
+        base.append("codex_named")
     mid = [
         "seed_words",
         "craft",

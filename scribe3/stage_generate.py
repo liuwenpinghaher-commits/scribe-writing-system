@@ -131,8 +131,8 @@ def stage_spec(phase: str | None) -> dict[str, Any]:
             "persist_field": "prose",
             "max_tokens": STAGE_MAX_TOKENS["final"],
             "short_kernel": (
-                "【正文合同】冰山齐才开写。水面可见字 ≥5000。"
-                "只吃冰山尖，禁止复读万字排演。落库 s3_save_chapter。"
+                "【正文合同】冰山齐才开写。材料全文在提示词里；读者正文另写，"
+                "勿复读排演，守限知。水面可见字 ≥5000。落库 s3_save_chapter。"
             ),
             "ask": _FINAL_ASK,
         }
@@ -444,8 +444,8 @@ _DRAFT_ASK = (
 )
 
 _FINAL_ASK = (
-    "写读者正文。只吃大纲尖、每拍场面、焦点者限知角、排演骨架。"
-    "禁止复读排演句。水面可见字 ≥5000。只输出正文。"
+    "写读者正文。大纲/节拍/演绎/排演全文都在材料里；读者正文必须另写，"
+    "禁止复读排演句，守限知横幅。水面可见字 ≥5000。只输出正文。"
 )
 
 
@@ -457,6 +457,7 @@ def build_stage_prompt(
     extra: str = "",
     strict: bool = False,
     previous: str = "",
+    bible: str = "",
 ) -> str:
     spec = stage_spec(stage)
     ask = str(spec.get("ask") or "")
@@ -470,9 +471,33 @@ def build_stage_prompt(
         bits.append(ctx)
     if extra:
         bits.append(extra.strip())
+    if (bible or "").strip():
+        bits.append(str(bible).strip())
     if previous:
         bits.append("上次输出过短或结构不够，不要复述口号，按合同重写：\n" + previous[:800])
     return "\n\n".join(bits)
+
+
+def _bible_for_thicken(st, work, ch, extra: str, focalizer: str, seq) -> str:
+    """有 store 才挂点名圣经；无 st 返回空串（单测字节兼容）。"""
+    if st is None:
+        return ""
+    names: list[str] = []
+    for x in list((ch or {}).get("involved_characters") or []):
+        if isinstance(x, dict):
+            names.append(str(x.get("name") or x.get("id") or ""))
+        else:
+            names.append(str(x or ""))
+    request_text = " ".join(p for p in (extra or "", *names) if p)
+    from scribe3.api.services.write_assemble_blocks import _codex_segments
+    from scribe3.iceberg import named_pack_soft_cap
+    named, cards, _stats = _codex_segments(
+        st, reveal=True, focalizer=focalizer or "",
+        chapter=seq, for_generation=True,
+        request_text=request_text, work=work,
+        named_soft_cap=named_pack_soft_cap(work=work),
+    )
+    return "\n".join(p for p in (named, cards) if p)
 
 
 def _call_llm(llm_fn: LlmFn | None, prompt: str, max_tokens: int) -> str:
@@ -497,6 +522,7 @@ def thicken_outline(
     persist_fn: PersistFn | None = None,
     seq: int | None = None,
     extra: str = "",
+    st=None, work=None, focalizer: str = "",
 ) -> dict[str, Any]:
     if iceberg_ok_for(ch, "synopsis"):
         return {
@@ -504,13 +530,14 @@ def thicken_outline(
             "source": "existing",
             "synopsis": (ch or {}).get("synopsis"),
         }
-    prompt = build_stage_prompt("outline", ch, seq=seq, extra=extra)
+    bible = _bible_for_thicken(st, work, ch, extra, focalizer, seq)
+    prompt = build_stage_prompt("outline", ch, seq=seq, extra=extra, bible=bible)
     raw = _call_llm(llm_fn, prompt, STAGE_MAX_TOKENS["outline"])
     parsed = parse_outline_payload(raw)
     if not parsed["ok"]:
         raw = _call_llm(
             llm_fn,
-            build_stage_prompt("outline", ch, seq=seq, extra=extra, strict=True, previous=raw),
+            build_stage_prompt("outline", ch, seq=seq, extra=extra, strict=True, previous=raw, bible=bible),
             STAGE_MAX_TOKENS["outline"],
         )
         parsed = parse_outline_payload(raw)
@@ -540,6 +567,7 @@ def thicken_beats(
     persist_fn: PersistFn | None = None,
     seq: int | None = None,
     extra: str = "",
+    st=None, work=None, focalizer: str = "",
 ) -> dict[str, Any]:
     ready = stage_ready(ch, "beats")
     if not ready["ok"]:
@@ -550,13 +578,14 @@ def thicken_beats(
             "source": "existing",
             "beats": (ch or {}).get("beats"),
         }
-    prompt = build_stage_prompt("beats", ch, seq=seq, extra=extra)
+    bible = _bible_for_thicken(st, work, ch, extra, focalizer, seq)
+    prompt = build_stage_prompt("beats", ch, seq=seq, extra=extra, bible=bible)
     raw = _call_llm(llm_fn, prompt, STAGE_MAX_TOKENS["beats"])
     parsed = parse_beats_payload(raw)
     if not parsed["ok"]:
         raw = _call_llm(
             llm_fn,
-            build_stage_prompt("beats", ch, seq=seq, extra=extra, strict=True, previous=raw),
+            build_stage_prompt("beats", ch, seq=seq, extra=extra, strict=True, previous=raw, bible=bible),
             STAGE_MAX_TOKENS["beats"],
         )
         parsed = parse_beats_payload(raw)
@@ -587,6 +616,7 @@ def thicken_deduce(
     persist_fn: PersistFn | None = None,
     seq: int | None = None,
     extra: str = "",
+    st=None, work=None, focalizer: str = "",
 ) -> dict[str, Any]:
     ready = stage_ready(ch, "deduce")
     if not ready["ok"]:
@@ -598,13 +628,14 @@ def thicken_deduce(
             "deductions": (ch or {}).get("deductions"),
         }
     involved = list((ch or {}).get("involved_characters") or [])
-    prompt = build_stage_prompt("deduce", ch, seq=seq, extra=extra)
+    bible = _bible_for_thicken(st, work, ch, extra, focalizer, seq)
+    prompt = build_stage_prompt("deduce", ch, seq=seq, extra=extra, bible=bible)
     raw = _call_llm(llm_fn, prompt, STAGE_MAX_TOKENS["deduce"])
     parsed = parse_deduce_payload(raw, involved=involved)
     if not parsed["ok"]:
         raw = _call_llm(
             llm_fn,
-            build_stage_prompt("deduce", ch, seq=seq, extra=extra, strict=True, previous=raw),
+            build_stage_prompt("deduce", ch, seq=seq, extra=extra, strict=True, previous=raw, bible=bible),
             STAGE_MAX_TOKENS["deduce"],
         )
         parsed = parse_deduce_payload(raw, involved=involved)
@@ -636,6 +667,7 @@ def thicken_draft(
     persist_fn: PersistFn | None = None,
     seq: int | None = None,
     extra: str = "",
+    st=None, work=None, focalizer: str = "",
 ) -> dict[str, Any]:
     ready = stage_ready(ch, "draft")
     if not ready["ok"]:
@@ -646,13 +678,14 @@ def thicken_draft(
             "source": "existing",
             "draft": (ch or {}).get("draft") or (ch or {}).get("draft_prose"),
         }
-    prompt = build_stage_prompt("draft", ch, seq=seq, extra=extra)
+    bible = _bible_for_thicken(st, work, ch, extra, focalizer, seq)
+    prompt = build_stage_prompt("draft", ch, seq=seq, extra=extra, bible=bible)
     raw = _call_llm(llm_fn, prompt, STAGE_MAX_TOKENS["draft"])
     parsed = parse_draft_payload(raw)
     if not parsed["ok"]:
         raw = _call_llm(
             llm_fn,
-            build_stage_prompt("draft", ch, seq=seq, extra=extra, strict=True, previous=raw),
+            build_stage_prompt("draft", ch, seq=seq, extra=extra, strict=True, previous=raw, bible=bible),
             STAGE_MAX_TOKENS["draft"],
         )
         parsed = parse_draft_payload(raw)
@@ -679,15 +712,19 @@ def thicken_stage(
     persist_fn: PersistFn | None = None,
     seq: int | None = None,
     extra: str = "",
+    st=None, work=None, focalizer: str = "",
 ) -> dict[str, Any]:
-    st = normalize_stage(stage)
+    kind = normalize_stage(stage)
     fns = {
         "outline": thicken_outline,
         "beats": thicken_beats,
         "deduce": thicken_deduce,
         "draft": thicken_draft,
     }
-    fn = fns.get(st)
+    fn = fns.get(kind)
     if fn is None:
         return {"ok": False, "code": "unknown_stage", "message": f"无独立生成链: {stage}"}
-    return fn(ch, llm_fn=llm_fn, persist_fn=persist_fn, seq=seq, extra=extra)
+    return fn(
+        ch, llm_fn=llm_fn, persist_fn=persist_fn, seq=seq, extra=extra,
+        st=st, work=work, focalizer=focalizer,
+    )

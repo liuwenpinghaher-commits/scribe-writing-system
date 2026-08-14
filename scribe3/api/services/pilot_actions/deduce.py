@@ -12,6 +12,57 @@ def build_actions(work: str) -> dict:
         g[name] = getattr(pr, name)
     import json, os, logging  # noqa: F401 — used by stage bodies
 
+    def _merge_keep_author_deductions(existing, incoming):
+        from scribe3.deduce_helpers import normalize_role_id
+        by = {}
+        order = []
+        for d in list(existing or []):
+            if not isinstance(d, dict):
+                continue
+            key = normalize_role_id(
+                d.get("character_id") or d.get("character") or d.get("role")
+            )
+            if not key:
+                continue
+            if key not in by:
+                order.append(key)
+            by[key] = d
+        for d in list(incoming or []):
+            if not isinstance(d, dict):
+                continue
+            key = normalize_role_id(
+                d.get("character_id") or d.get("character") or d.get("role")
+            )
+            if not key:
+                continue
+            old = by.get(key)
+            if old and str(old.get("prose") or "").strip():
+                continue
+            if key not in by:
+                order.append(key)
+            by[key] = d
+        return [by[k] for k in order]
+
+    def _persist_deductions_gated(st, seq, fields, *, keep_truth=True):
+        from scribe3.iceberg import persist_fields_blocked
+        cur = st.get_chapter(seq) or {}
+        out = {}
+        if fields.get("scene_truth") and not (
+            keep_truth and str(cur.get("scene_truth") or "").strip()
+        ):
+            out["scene_truth"] = fields["scene_truth"]
+        if "deductions" in fields:
+            merged = _merge_keep_author_deductions(
+                cur.get("deductions"), fields.get("deductions"),
+            )
+            blocked = persist_fields_blocked({"deductions": merged})
+            if blocked:
+                return blocked
+            out["deductions"] = merged
+        if out:
+            st.update_chapter_meta(seq, out)
+        return None
+
     def deduce(st, seq):
         from scribe3.deduce_helpers import (
             infer_involved_candidates,
@@ -22,6 +73,13 @@ def build_actions(work: str) -> dict:
             pilot_deduce_observation,
             stamp_deduction,
             truth_revision,
+        )
+        from scribe3.iceberg import persist_fields_blocked
+        from scribe3.stage_generate import (
+            STAGE_MAX_TOKENS,
+            iceberg_ok_for,
+            stage_ready,
+            thicken_deduce,
         )
         ch = st.get_chapter(seq) or {}
         have_truth = bool((ch.get("scene_truth") or "").strip())
@@ -34,8 +92,75 @@ def build_actions(work: str) -> dict:
                 (b.get("text") if isinstance(b, dict) else str(b)) or "" for b in ch.get("beats") or [])
             inferred_involved = infer_involved_candidates(text, st.characters(), limit=4)
             involved = list(inferred_involved)
-        # R1-2:真相已有则复用;投影按 normalize 后 character_id merge 只补缺失(有 prose 的不覆盖)。
-        # 禁止「有真相 + 有任意 deductions」整步 skip——否则 1/3 投影时永远补不齐。
+        if iceberg_ok_for(ch, "deduction") and have_truth and not missing_roles(involved, ch.get("deductions")):
+            return pilot_deduce_observation(
+                skipped="演绎已达覆盖地板,按既有推进(不覆盖)",
+                made=0, missing=[], stale=[],
+                truth_revision=truth_revision(ch),
+                scene_truth_chars=len(str(ch.get("scene_truth") or "")),
+                deductions_count=len(ch.get("deductions") or []),
+                inferred_involved=inferred_involved,
+                involved_written=involved_written,
+            )
+
+        ch_work = dict(ch)
+        if inferred_involved:
+            ch_work["involved_characters"] = list(inferred_involved)
+        ready = stage_ready(ch_work, "deduce")
+        if ready.get("ok"):
+            def llm_fn(prompt, max_tokens=STAGE_MAX_TOKENS["deduce"]):
+                return _pilot_llm_gen(
+                    st, work, seq, "deduce", prompt, max_tokens=max_tokens,
+                )
+
+            thick = thicken_deduce(
+                ch_work,
+                llm_fn=llm_fn,
+                persist_fn=None,
+                seq=seq,
+                extra="",
+                st=st, work=work, focalizer="",
+            )
+            if thick.get("skipped"):
+                return thick
+            if thick.get("ok"):
+                blocked = _persist_deductions_gated(
+                    st, seq,
+                    {k: thick[k] for k in ("deductions", "scene_truth") if k in thick},
+                )
+                if blocked:
+                    return pilot_deduce_observation(
+                        park=blocked.get("message") or "演绎合计未达 5000，禁止把口号投影当已齐",
+                        made=0, missing=missing_roles(involved, ch.get("deductions")),
+                        stale=[], truth_revision=truth_revision(ch),
+                        scene_truth_chars=len(str(ch.get("scene_truth") or "")),
+                        deductions_count=len(ch.get("deductions") or []),
+                        inferred_involved=inferred_involved,
+                        involved_written=involved_written,
+                    )
+                final_ch = st.get_chapter(seq) or ch
+                return pilot_deduce_observation(
+                    made=len(thick.get("deductions") or []),
+                    missing=missing_roles(involved, final_ch.get("deductions")),
+                    stale=[],
+                    truth_revision=truth_revision(final_ch),
+                    scene_truth_chars=len(str(final_ch.get("scene_truth") or "")),
+                    deductions_count=len(final_ch.get("deductions") or []),
+                    inferred_involved=inferred_involved,
+                    involved_written=involved_written,
+                )
+            if thick.get("code") != "stage_not_ready":
+                return pilot_deduce_observation(
+                    park=thick.get("message") or "演绎 LLM 未达覆盖地板",
+                    made=0, missing=missing_roles(involved, ch.get("deductions")),
+                    stale=[], truth_revision=truth_revision(ch),
+                    scene_truth_chars=len(str(ch.get("scene_truth") or "")),
+                    deductions_count=len(ch.get("deductions") or []),
+                    inferred_involved=inferred_involved,
+                    involved_written=involved_written,
+                )
+
+        # 上一层未齐时仍可补缺失投影，但落库必须过 persist 闸。
         if have_truth:
             truth = (ch.get("scene_truth") or "").strip()
         else:
@@ -53,7 +178,6 @@ def build_actions(work: str) -> dict:
                 logging.getLogger("scribe3").warning(
                     "scene_truth LLM fail work=%s seq=%s: %s", work, seq, e)
                 truth = ""
-            # 真相必须 LLM 产出；禁止把大纲复制成真相
             if truth.strip():
                 gr_t = _grounding_review(syn0, truth, mode="beats", st=st, work=work, chapter=seq)
                 if not gr_t.get("ok"):
@@ -74,7 +198,6 @@ def build_actions(work: str) -> dict:
                 )
             st.update_chapter_meta(seq, {"scene_truth": truth})
             ch = st.get_chapter(seq) or ch
-        # 刷新 ch 以拿最新 deductions / rev
         ch = st.get_chapter(seq) or ch
         rev = truth_revision(ch)
         existing = {}
@@ -86,17 +209,11 @@ def build_actions(work: str) -> dict:
                 existing[key] = d
         deds = list(ch.get("deductions") or [])
         made = 0
-        from scribe3.iceberg import cn_len
-        from scribe3.stage_generate import iceberg_ok_for
-        _ded_floor_ok = iceberg_ok_for(ch, "deduction")
 
         for cid in involved:
             key = normalize_role_id(cid)
             if key in existing:
-                old_n = cn_len((existing[key] or {}).get("prose"))
-                if _ded_floor_ok or old_n >= 400:
-                    continue   # 已厚或作者手编够用——不覆盖
-                # 薄投影且全章未达 5000：必须再走 LLM 加厚
+                continue
             name = key.split(":", 1)[-1] if key else str(cid).split(":")[-1]
             prose = ""
             try:
@@ -118,7 +235,6 @@ def build_actions(work: str) -> dict:
                 truth, prose, mode="deduction", st=st, work=work, chapter=seq,
             ) if (prose or "").strip() else {"ok": False, "reason": "empty_or_llm_fail"}
             if not review.get("ok"):
-                # 只允许再调一次 LLM；禁止摘录/空白五栏充数
                 try:
                     prose = _pilot_llm_gen(
                         st, work, seq, "deduce",
@@ -159,9 +275,18 @@ def build_actions(work: str) -> dict:
             made += 1
             existing[key] = stamped
         if made:
+            blocked = persist_fields_blocked({"deductions": deds})
+            if blocked:
+                return pilot_deduce_observation(
+                    park=blocked.get("message") or "演绎合计未达 5000，禁止把口号投影当已齐",
+                    made=0, missing=missing_roles(involved, ch.get("deductions")),
+                    stale=[], truth_revision=rev, scene_truth_chars=len(truth),
+                    deductions_count=len(ch.get("deductions") or []),
+                    inferred_involved=inferred_involved,
+                    involved_written=involved_written,
+                )
             st.update_chapter_meta(seq, {"deductions": deds})
             ch = st.get_chapter(seq) or ch
-        # 全部已有 prose 且真相已有 → 结构化 skip(仍报告 stale)
         miss = missing_roles(involved, ch.get("deductions"))
         stale = [
             normalize_role_id(d.get("character_id"))
@@ -172,8 +297,18 @@ def build_actions(work: str) -> dict:
         final_ch = st.get_chapter(seq) or ch
         n_deds = len(final_ch.get("deductions") or [])
         if not made and have_truth and not miss:
+            if iceberg_ok_for(final_ch, "deduction"):
+                return pilot_deduce_observation(
+                    skipped="演绎已达覆盖地板,按既有推进(不覆盖)",
+                    made=0, missing=miss, stale=stale,
+                    truth_revision=truth_revision(final_ch),
+                    scene_truth_chars=len(truth),
+                    deductions_count=n_deds,
+                    inferred_involved=inferred_involved,
+                    involved_written=involved_written,
+                )
             return pilot_deduce_observation(
-                skipped="演绎已达覆盖地板,按既有推进(不覆盖)",
+                park="演绎合计未达 5000，禁止把口号投影当已齐",
                 made=0, missing=miss, stale=stale,
                 truth_revision=truth_revision(final_ch),
                 scene_truth_chars=len(truth),

@@ -505,7 +505,7 @@ def patch_chapter(seq: int, req: ChapterMetaReq, work: str = "main"):
 
 
 def patch_chapter_gcd_fields(seq: int, req: GcdFieldsReq, work: str = "main"):
-    """novel-first / O14：作者微调节拍 GCD/text，不开放 synopsis/volume 等 meta。
+    """novel-first / O14：作者微调节拍 GCD 短字段；text 锁定，不开放 synopsis/volume。
 
     路径：
     - ``PATCH /chapters/{seq}/gcd-fields``

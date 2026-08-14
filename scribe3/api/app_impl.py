@@ -1127,9 +1127,6 @@ def _import_job_save(job_id: str, job: dict) -> None:
 
 
 
-_FACTION_PROMPT_CHAR_CAP = 400   # 单势力注入上限(字),超出截断(spec §4 长度预算)
-
-
 def _faction_known_fact_ids(st, focalizer: str, chapter: int) -> set:
     """focalizer 在 chapter 时刻的知情投影(knowledge.project_frame)里的 fact id 集合。
 

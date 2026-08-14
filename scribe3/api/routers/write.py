@@ -123,6 +123,7 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
     out = thicken_stage(
         stage, ch, llm_fn=llm_fn, persist_fn=persist_fn,
         seq=seq, extra=req.extra or "",
+        st=st, work=work, focalizer="",
     )
     if out.get("code") == "stage_not_ready":
         raise HTTPException(status_code=409, detail=stage_not_ready_http(out))
@@ -134,6 +135,72 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
             "need": out.get("need"),
         })
     return out
+
+
+class GenerateCodexReq(BaseModel):
+    kind: str
+    name: str
+    extra: str = ""
+    force: bool = False
+    include_secret: bool = False
+
+
+def generate_codex(req: GenerateCodexReq, work: str = "main"):
+    """设定写厚：只生成不落库。拒绝 include_secret。"""
+    from fastapi import HTTPException
+    if req.include_secret:
+        raise HTTPException(status_code=400, detail={
+            "code": "include_secret_forbidden",
+            "message": "REST 禁止 include_secret",
+        })
+    from scribe3.codex_generate import thicken_codex
+    st = _store_for(work)
+    row = {"name": req.name}
+
+    def llm_fn(prompt, max_tokens=4096):
+        return _pilot_llm_gen(st, work, 1, req.kind, prompt, max_tokens=max_tokens)
+
+    out = thicken_codex(
+        req.kind, row, llm_fn=llm_fn, extra=req.extra or "",
+        force=req.force, include_secret=False, st=st, work=work, name=req.name,
+    )
+    if out.get("code") == "llm_thin":
+        raise HTTPException(status_code=422, detail=out)
+    if out.get("code") in ("unknown_kind", "kind_not_implemented"):
+        raise HTTPException(status_code=422, detail=out)
+    out.pop("secret_fields", None)
+    out.pop("chief_only_fields", None)
+    return out
+
+
+class GenerateCodexBatchReq(BaseModel):
+    kinds: list[str] | None = None
+    extra: str = ""
+    force: bool = False
+    offset: int = 0
+    max_items: int = 50
+    include_secret: bool = False
+
+
+def generate_codex_batch(req: GenerateCodexBatchReq, work: str = "main"):
+    """批量写厚预览：永不落库。"""
+    from fastapi import HTTPException
+    if req.include_secret:
+        raise HTTPException(status_code=400, detail={
+            "code": "include_secret_forbidden",
+            "message": "REST 禁止 include_secret",
+        })
+    from scribe3.codex_generate import thicken_codex_batch
+    st = _store_for(work)
+
+    def llm_fn(prompt, max_tokens=4096):
+        return _pilot_llm_gen(st, work, 1, "codex-batch", prompt, max_tokens=max_tokens)
+
+    return thicken_codex_batch(
+        st, llm_fn=llm_fn, persist=False, kinds=req.kinds, force=req.force,
+        extra=req.extra or "", include_secret=False,
+        offset=req.offset, max_items=req.max_items, work=work,
+    )
 
 
 def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
@@ -1478,5 +1545,17 @@ def _bind_and_register() -> None:
     setattr(core, 'generate_stage', _re)
     g['generate_stage'] = _re
     router.add_api_route('/generate-stage', _re, methods=['POST'], name='generate_stage')
+
+    for _name, _path in (
+        ("generate_codex", "/generate-codex"),
+        ("generate_codex_batch", "/generate-codex-batch"),
+    ):
+        _fn = g[_name]
+        _re = types.FunctionType(_fn.__code__, core.__dict__, _name, _fn.__defaults__, _fn.__closure__)
+        if _fn.__annotations__:
+            _re.__annotations__ = dict(_fn.__annotations__)
+        setattr(core, _name, _re)
+        g[_name] = _re
+        router.add_api_route(_path, _re, methods=['POST'], name=_name)
 
 _bind_and_register()

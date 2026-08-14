@@ -145,7 +145,7 @@ def test_join_generation_segments_physical_order_v2():
     # 故意乱序 push，join 必须重排
     pieces = [
         {"name": "final_reminder", "layer": "redline", "text": "【最终提醒】限知"},
-        {"name": "codex", "layer": "supplemental", "text": "设定圣经X"},
+        {"name": "codex_named", "layer": "supplemental", "text": "设定圣经X"},
         {"name": "envelope", "layer": "envelope", "text": "ENV块"},
         {"name": "drama_contract", "layer": "redline", "text": "【戏剧合同】GCD"},
         {"name": "event_drive", "layer": "redline", "text": "【事件驱动】"},
@@ -155,7 +155,7 @@ def test_join_generation_segments_physical_order_v2():
     joined, rep = join_generation_segments(pieces, v2=True)
     idx = rep.get("order_indices") or {}
     # 至少核心五标记
-    for k in ("event_drive", "drama_contract", "envelope", "codex", "final_reminder"):
+    for k in ("event_drive", "drama_contract", "envelope", "codex_named", "final_reminder"):
         assert k in idx, f"missing {k} in {idx}"
     assert_physical_order_indices(idx)
     # 文本相对序
@@ -178,7 +178,7 @@ def test_apply_l2_trim_drops_material_keeps_final_reminder():
         {"name": "event_drive", "layer": "redline", "text": "【事件驱动】" * 20},
         {"name": "drama_contract", "layer": "redline", "text": "【戏剧合同】" * 20},
         {"name": "envelope", "layer": "envelope", "text": "ENV" * 500},
-        {"name": "codex", "layer": "supplemental", "text": "设定圣经" + big},
+        {"name": "codex_named", "layer": "supplemental", "text": "设定圣经" + big},
         {"name": "material_recall", "layer": "supplemental", "text": "素材" + big},
         {"name": "outline", "layer": "supplemental", "text": "大纲" * 200},
         {"name": "final_reminder", "layer": "redline", "text": "【最终提醒】务必遵守限知。"},
@@ -201,7 +201,10 @@ def test_apply_l2_trim_drops_material_keeps_final_reminder():
 
 def test_write_assemble_calls_join_ssot():
     """write_assemble 必须接线 join_generation_segments，而非平行序。"""
-    src = open("scribe3/api/services/write_assemble.py", encoding="utf-8").read()
+    src = (
+        open("scribe3/api/services/write_assemble.py", encoding="utf-8").read()
+        + open("scribe3/api/services/write_assemble_v1.py", encoding="utf-8").read()
+    )
     assert "join_generation_segments" in src
     assert "get_last_write_budget_report" in src
     assert "record_write_soft_fail" in src
@@ -216,7 +219,7 @@ def test_budget_report_module_export():
         {"name": "event_drive", "text": "E"},
         {"name": "drama_contract", "text": "D"},
         {"name": "envelope", "text": "N"},
-        {"name": "codex", "text": "C"},
+        {"name": "codex_named", "text": "C"},
         {"name": "final_reminder", "text": "F"},
     ]
     _, rep = join_generation_segments(pieces, v2=True)
@@ -306,6 +309,7 @@ def test_plan_overlay_and_mcp_exclude_save():
 
 def test_gcd_beats_patch_validation():
     from scribe3.chapter_gcd_rest import (
+        apply_gcd_beats_patch,
         is_gcd_beats_only_body,
         validate_gcd_beats_patch,
     )
@@ -327,7 +331,11 @@ def test_gcd_beats_patch_validation():
     long = [dict(x) for x in new_ok]
     long[0]["text"] = "字" * 400
     ok3, r3 = validate_gcd_beats_patch(old, long)
-    assert not ok3 and "text_too_long" in r3
+    assert ok3, r3
+    locked = apply_gcd_beats_patch(old, long)
+    assert locked[0] and locked[2][0]["text"] == "抵达"
+    as_str = validate_gcd_beats_patch(old, ["整拍替换", "验尸", "铜钱"])
+    assert not as_str[0] and "text_locked" in as_str[1]
     assert not is_gcd_beats_only_body({"beats": new_ok, "synopsis": "x"})
 
 
@@ -471,7 +479,7 @@ def test_enforce_total_prompt_budget_keeps_final_reminder():
         {"name": "drama_contract", "layer": "redline", "text": "戏剧"},
         {"name": "envelope", "layer": "envelope", "text": "ENV" * 100},
         {"name": "material_recall", "layer": "supplemental", "text": big},
-        {"name": "codex", "layer": "supplemental", "text": "设定" + big},
+        {"name": "codex_named", "layer": "supplemental", "text": "设定" + big},
         {"name": "final_reminder", "layer": "redline", "text": "【最终提醒】限知"},
     ]
     out, rep = enforce_total_prompt_budget(segs, budget=3000)
@@ -598,7 +606,7 @@ def test_gcd_fields_req_in_models_and_handler_pure():
     old = [{"text": "a", "goal": "g", "conflict": "c"}]
     new = [{"text": "ab", "goal": "g", "conflict": "c"}]
     ok, reason, norm = apply_gcd_beats_patch(old, new)
-    assert ok and norm and norm[0]["text"] == "ab"
+    assert ok and norm and norm[0]["text"] == "a"
     bad_ok, bad_r, bad_n = apply_gcd_beats_patch(
         old, [{"text": "only"}, {"text": "extra"}],
     )
@@ -631,12 +639,11 @@ def test_patch_chapter_gcd_fields_handler_with_stub_store():
         {"text": "b2", "goal": "g2", "conflict": "c2"},
     ]
     ok, reason, norm = apply_gcd_beats_patch(old, new)
-    assert ok and norm[0]["text"] == "a2"
-    # simulate store write
+    assert ok and norm[0]["text"] == "a"
     store = {"beats": old}
     if ok:
         store["beats"] = norm
-    assert store["beats"][1]["text"] == "b2"
+    assert store["beats"][1]["text"] == "b"
 
 
 

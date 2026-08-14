@@ -60,6 +60,7 @@ def build_actions(work: str) -> dict:
                 persist_fn=lambda fields: st.save_chapter_draft(seq, fields.get("draft") or ""),
                 seq=seq,
                 extra=steer,
+                st=st, work=work, focalizer="",
             )
             if not rehearsed.get("ok") and not rehearsed.get("skipped"):
                 return {

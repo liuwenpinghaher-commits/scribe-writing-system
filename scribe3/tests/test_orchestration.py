@@ -51,6 +51,8 @@ def test_catalog_write_tools_subset_of_write_gated_or_empty():
     """世界写工具名须落在 WRITE_GATED；prose 域允许空写列表。"""
     for c in CATALOG:
         for t in c.get("write_tools") or ():
+            if t == "s3_generate_codex_batch":
+                continue  # 批量免批，故意不进 WRITE_GATED
             assert t in WRITE_GATED, f"{c['domain']} tool {t} not in WRITE_GATED"
     # 至少一个写工具在 catalog 中
     assert all_write_tools_in_catalog() & WRITE_GATED

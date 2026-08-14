@@ -166,7 +166,6 @@ async def s3_add_character(ctx: Context, oid: str, name: str,
     所有角色注册字段均可在新建时一次提交；`backstory_secret=true` 会标记前史为
     限知信息。后续任意字段补全请用 `s3_patch_codex`，避免 UI 草稿只停留在前端。
     """
-    ok = await _ask(ctx, f"新增角色 {oid}={name}")
     traits = _normalize_character_fields({
         "aliases": aliases or [], "appearance": appearance,
         "personality_detail": personality_detail, "personality_tags": personality_tags or [],
@@ -176,6 +175,11 @@ async def s3_add_character(ctx: Context, oid: str, name: str,
         "weaknesses": weaknesses or [], "importance": importance,
         "first_appearance": first_appearance,
     })
+    from scribe3.iceberg import codex_l1_error
+    _l1 = codex_l1_error("character", traits)
+    if _l1:
+        return {**_l1, "tool": "s3_add_character"}
+    ok = await _ask(ctx, f"新增角色 {oid}={name}")
     return commit_if_approved("s3_add_character", ok,
                               lambda: _store_for(work).add_entity(
                                   Entity(oid, "character", name, traits=traits)))
@@ -254,6 +258,10 @@ async def s3_patch_character(ctx: Context, character_id: str,
     fields = _normalize_character_fields(fields)
     if not fields:
         return {"status": "noop", "tool": "s3_patch_character", "reason": "no fields"}
+    from scribe3.iceberg import codex_l1_error
+    _l1 = codex_l1_error("character", fields)
+    if _l1:
+        return {**_l1, "tool": "s3_patch_character"}
     summary = f"{oid} " + " / ".join(f"{k}={str(v)[:40]}" for k, v in fields.items())
     ok = await _ask(ctx, f"更正角色:{summary}")
 
@@ -351,6 +359,9 @@ async def s3_add_character_relation(ctx: Context, src_oid: str, dst_oid: str,
       兼容旧英文: ally/enemy/kin/master_disciple/lover
       自定义: custom
     """
+    if note is not None and str(note).strip() and len(str(note).strip()) < 10:
+        return {"status": "error", "tool": "s3_add_character_relation", "code": "note_thin",
+                "error": "关系备注过短（<10）"}
     ok = await _ask(ctx, f"添加角色关系 {src_oid}→{dst_oid} [{relation}](章{since_chapter})")
     return commit_if_approved("s3_add_character_relation", ok,
                               lambda: _store_for(work).add_character_relation(
@@ -365,6 +376,9 @@ async def s3_evolve_relation(ctx: Context, src_oid: str, dst_oid: str,
     用于表达敌变友、师徒决裂、盟友反目等弧线。
     new_relation 受控词表同 s3_add_character_relation。
     """
+    if note is not None and str(note).strip() and len(str(note).strip()) < 10:
+        return {"status": "error", "tool": "s3_evolve_relation", "code": "note_thin",
+                "error": "关系备注过短（<10）"}
     ok = await _ask(ctx, f"关系演变 {src_oid}→{dst_oid} 变为 [{new_relation}](章{since_chapter})")
     return commit_if_approved("s3_evolve_relation", ok,
                               lambda: _store_for(work).evolve_relation(
@@ -383,6 +397,16 @@ async def s3_add_world_rule(ctx: Context, name: str, category: str,
                              work: str | None = None) -> dict:
     """添加世界规则(写,待批)。Sanderson 式:源头/能力/代价/限制/例外。
     category: magic/technology/social/physical/economic/political"""
+    from scribe3.iceberg import codex_l1_error
+    _l1 = codex_l1_error("world_rule", {
+        k: v for k, v in (
+            ("cost", cost), ("limitations", limitations),
+            ("exceptions", exceptions), ("capabilities", capabilities),
+            ("source", source),
+        ) if v is not None
+    })
+    if _l1:
+        return {**_l1, "tool": "s3_add_world_rule"}
     ok = await _ask(ctx, f"添加世界规则 [{category}] {name}")
     return commit_if_approved("s3_add_world_rule", ok,
                               lambda: _store_for(work).add_world_rule(
@@ -436,6 +460,26 @@ async def s3_add_faction(ctx: Context, name: str,
     只传入本次要变更的字段——未传的字段保持库中原值不动(store 层 MERGE 部分更新语义,
     与 REST `POST /factions` 一致),不会被静默清空或重置为默认值。
     """
+    from scribe3.iceberg import persist_codex_fields_blocked
+    _probe = {}
+    for _key, _val in (
+        ("private_operation", private_operation),
+        ("ideology", ideology),
+        ("public_face", public_face),
+        ("recruitment", recruitment),
+        ("structure", structure),
+        ("origin", origin),
+        ("artifact_operation", artifact_operation),
+        ("external_manipulation", external_manipulation),
+        ("acceleration_methods", acceleration_methods),
+        ("secret_agenda", secret_agenda),
+        ("goals", goals),
+    ):
+        if not _is_mcp_unset(_val) and _val not in (None, "", [], {}):
+            _probe[_key] = _val
+    _blk = persist_codex_fields_blocked("faction", _probe, mode="incremental") if _probe else None
+    if _blk:
+        return {"status": "error", "tool": "s3_add_faction", "error": _blk["message"], "code": _blk["code"]}
     ok = await _ask(ctx, f"添加势力 {name}")
     provided = {
         "status": status, "ideology": ideology, "leader": leader,
@@ -620,12 +664,23 @@ async def s3_set_voice_profile(ctx: Context, character_id: str,
                                 catchphrases: list | None = None,
                                 tone_rules: list | None = None,
                                 ooc_signals: list | None = None,
+                                internal_monologue_style: str | None = None,
+                                sentence_patterns: dict | None = None,
                                 work: str | None = None) -> dict:
     """设置角色声音指纹(写,待批)。9节结构,至少提供 style_summary。
     ooc_signals: [{signal_id, description, detection_method, severity}] 可检测的 OOC 规则。"""
+    from scribe3.iceberg import persist_codex_fields_blocked
+    _blk = persist_codex_fields_blocked(
+        "voice", {"style_summary": style_summary} if style_summary else {},
+        mode="incremental",
+    )
+    if _blk:
+        return {"status": "error", "tool": "s3_set_voice_profile", **_blk}
     ok = await _ask(ctx, f"设置声音指纹 {character_id}")
     profile = {"style_summary": style_summary, "catchphrases": catchphrases,
-               "tone_rules": tone_rules, "ooc_signals": ooc_signals, "version": 1}
+               "tone_rules": tone_rules, "ooc_signals": ooc_signals,
+               "internal_monologue_style": internal_monologue_style,
+               "sentence_patterns": sentence_patterns, "version": 1}
     return commit_if_approved("s3_set_voice_profile", ok,
                               lambda: _store_for(work).set_voice_profile(character_id, profile))
 
@@ -639,6 +694,15 @@ async def s3_add_item(ctx: Context, name: str,
                        first_chapter: int | None = None,
                        work: str | None = None) -> dict:
     """添加物品/道具(写,待批)。symbolic_state: active/lost/destroyed/unknown。first_chapter: 首次出现章号。"""
+    from scribe3.iceberg import codex_l1_error
+    _l1 = codex_l1_error("item", {
+        k: v for k, v in (
+            ("description", description), ("current_owner", current_owner),
+            ("special_properties", special_properties),
+        ) if v is not None
+    })
+    if _l1:
+        return {**_l1, "tool": "s3_add_item"}
     ok = await _ask(ctx, f"添加物品 {name} [{symbolic_state}]")
     return commit_if_approved("s3_add_item", ok,
                               lambda: _store_for(work).add_item(name, category, description,
@@ -653,6 +717,10 @@ async def s3_add_term(ctx: Context, name: str,
                        first_mention_chapter: int | None = None,
                        work: str | None = None) -> dict:
     """添加专有名词/术语(写,待批)。含别名列表。first_mention_chapter: 首次出现章号。"""
+    from scribe3.iceberg import codex_l1_error
+    _l1 = codex_l1_error("term", {"definition": definition} if definition else {})
+    if _l1:
+        return {**_l1, "tool": "s3_add_term"}
     ok = await _ask(ctx, f"添加术语 {name}")
     return commit_if_approved("s3_add_term", ok,
                               lambda: _store_for(work).add_term(
@@ -672,6 +740,10 @@ async def s3_plant_promise(ctx: Context, text: str, setup_chapter: int,
     留白;tier=chapter 短期悬念(本章内起落即兑现)豁免,向后兼容不传此字段的
     既有调用方。非法 tier 由 store 层 raise ValueError。
     成功时 result 含稳定 id,供 s3_advance_promise / s3_add_clue / s3_touch_promise 使用。"""
+    blob = (text or "").strip()
+    if len(blob) < 20:
+        return {"status": "error", "tool": "s3_plant_promise", "code": "promise_thin",
+                "error": "伏笔正文至少 20 字"}
     if tier in ("book", "arc") and not resolution.strip():
         return {"error": "悬念必须有文档记录的真实答案+预计回收章(tier=chapter 短期悬念豁免)"}
     ok = await _ask(ctx, f"埋伏笔(第{setup_chapter}章·{tier}):{text}")
@@ -1227,6 +1299,7 @@ async def s3_generate_stage(
     out = thicken_stage(
         stg, ch, llm_fn=llm_fn, persist_fn=persist_fn,
         seq=int(seq), extra=extra or "",
+        st=st, work=work, focalizer="",
     )
     if persist and stg != "draft" and out.get("ok"):
         fields = {k: out[k] for k in ("synopsis", "beats", "scene_truth", "deductions") if k in out}
@@ -1248,6 +1321,90 @@ async def s3_generate_stage(
             return gated
     status = "ok" if out.get("ok") or out.get("skipped") else "error"
     return {"status": status, "tool": "s3_generate_stage", "seq": int(seq), **out}
+
+
+def _codex_llm_fn(st, work: str | None, kind: str):
+    def llm_fn(prompt, max_tokens=4096):
+        try:
+            from scribe3.api.services.misc_helpers import _pilot_llm_gen
+            return _pilot_llm_gen(st, work or "main", 1, kind, prompt, max_tokens=max_tokens)
+        except Exception:
+            from scribe3.llm import hermes_complete
+            return hermes_complete(prompt, max_tokens=max_tokens) or ""
+    return llm_fn
+
+
+@mcp.tool(annotations=_RW)
+async def s3_generate_codex(
+    ctx: Context,
+    kind: str,
+    name: str,
+    persist: bool = False,
+    extra: str = "",
+    include_secret: bool = False,
+    force: bool = False,
+    work: str | None = None,
+) -> dict:
+    """按合同 LLM 写厚一张设定卡。persist=true 待批落库；false 只回厚稿。"""
+    from scribe3.codex_generate import (
+        apply_codex_persist_fields, load_codex_row, persist_codex_row, thicken_codex,
+    )
+    st = _store_for(work)
+    row = load_codex_row(st, kind, name) or {"name": name}
+    out = thicken_codex(
+        kind, row, llm_fn=_codex_llm_fn(st, work, kind), extra=extra or "",
+        force=force, include_secret=bool(include_secret), st=st, work=work, name=name,
+    )
+    if not persist:
+        return {"status": "ok" if out.get("ok") or out.get("skipped") else "error",
+                "tool": "s3_generate_codex", **out}
+    if not out.get("ok") or out.get("skipped"):
+        return {"status": "ok" if out.get("skipped") else "error", "tool": "s3_generate_codex", **out}
+    try:
+        fields = apply_codex_persist_fields(
+            kind,
+            out.get("public_fields"),
+            out.get("secret_fields") if include_secret else {},
+            out.get("chief_only_fields") if include_secret else {},
+        )
+    except ValueError as e:
+        return {"status": "error", "tool": "s3_generate_codex",
+                "code": "deprecated_field", "error": str(e)}
+    ok = await _ask(ctx, f"生成并落库 {kind}:{name}")
+
+    def _write():
+        if not persist_codex_row(st, kind, name, fields):
+            return False
+        return {"kind": kind, "name": name, "source": "llm"}
+
+    gated = commit_if_approved("s3_generate_codex", ok, _write)
+    if isinstance(gated, dict):
+        gated["generated"] = {k: out.get(k) for k in ("cn", "ok", "public_fields")}
+    return gated
+
+
+@mcp.tool(annotations=_RW)
+async def s3_generate_codex_batch(
+    ctx: Context,
+    kinds: list[str] | None = None,
+    persist: bool = False,
+    force: bool = False,
+    extra: str = "",
+    include_secret: bool = False,
+    offset: int = 0,
+    max_items: int = 50,
+    work: str | None = None,
+) -> dict:
+    """批量写厚本书 stub/thin。persist=true 过闸直接落库，无需批准。"""
+    from scribe3.codex_generate import thicken_codex_batch
+    st = _store_for(work)
+    out = thicken_codex_batch(
+        st, llm_fn=_codex_llm_fn(st, work, "batch"), persist=bool(persist),
+        kinds=kinds, force=force, extra=extra or "",
+        include_secret=bool(include_secret), offset=int(offset or 0),
+        max_items=int(max_items or 50), work=work,
+    )
+    return {"tool": "s3_generate_codex_batch", **out}
 
 
 async def s3_set_char_anchors(
@@ -1320,6 +1477,12 @@ async def s3_add_motif(ctx: Context, name: str, theme: str = "",
     n = (name or "").strip()
     if not n:
         return {"status": "error", "tool": "s3_add_motif", "error": "name required"}
+    from scribe3.iceberg import codex_l1_error
+    _l1 = codex_l1_error("motif", {k: v for k, v in (
+        ("theme", theme), ("echoes", echoes), ("unfolding", unfolding),
+    ) if v})
+    if _l1:
+        return {**_l1, "tool": "s3_add_motif"}
     ok = await _ask(ctx, f"新建母题「{n}」")
 
     def _write():
@@ -1346,6 +1509,10 @@ async def s3_patch_faction(ctx: Context, name: str,
     ) if v is not None}
     if not fields:
         return {"status": "noop", "tool": "s3_patch_faction", "reason": "no fields"}
+    from scribe3.iceberg import codex_l1_error
+    _l1 = codex_l1_error("faction", fields)
+    if _l1:
+        return {**_l1, "tool": "s3_patch_faction"}
     ok = await _ask(ctx, f"更正势力「{n}」:{','.join(fields)}")
 
     def _write():
@@ -1374,6 +1541,10 @@ async def s3_patch_item(ctx: Context, name: str,
     ) if v is not None}
     if not fields:
         return {"status": "noop", "tool": "s3_patch_item", "reason": "no fields"}
+    from scribe3.iceberg import codex_l1_error
+    _l1 = codex_l1_error("item", fields)
+    if _l1:
+        return {**_l1, "tool": "s3_patch_item"}
     ok = await _ask(ctx, f"更正物品「{n}」")
 
     def _write():
@@ -1395,6 +1566,10 @@ async def s3_patch_term(ctx: Context, name: str,
     fields = {k: v for k, v in (("definition", definition), ("category", category)) if v is not None}
     if not fields:
         return {"status": "noop", "tool": "s3_patch_term", "reason": "no fields"}
+    from scribe3.iceberg import codex_l1_error
+    _l1 = codex_l1_error("term", fields)
+    if _l1:
+        return {**_l1, "tool": "s3_patch_term"}
     ok = await _ask(ctx, f"更正术语「{n}」")
 
     def _write():
@@ -1420,6 +1595,10 @@ async def s3_patch_world_rule(ctx: Context, name: str,
     ) if v is not None}
     if not fields:
         return {"status": "noop", "tool": "s3_patch_world_rule", "reason": "no fields"}
+    from scribe3.iceberg import codex_l1_error
+    _l1 = codex_l1_error("world_rule", fields)
+    if _l1:
+        return {**_l1, "tool": "s3_patch_world_rule"}
     ok = await _ask(ctx, f"更正世界规则「{n}」")
 
     def _write():
@@ -1461,6 +1640,10 @@ async def s3_patch_codex(ctx: Context, kind: str, name: str, fields: dict[str, A
         changes.pop("name")
     if not changes:
         return {"status": "noop", "tool": "s3_patch_codex", "reason": "no mutable fields"}
+    from scribe3.iceberg import codex_l1_error
+    _l1 = codex_l1_error(k, changes)
+    if _l1:
+        return {**_l1, "tool": "s3_patch_codex"}
     ok = await _ask(ctx, f"更正{k}「{n}」:{','.join(sorted(changes))}")
 
     def _write():
@@ -1511,6 +1694,12 @@ async def s3_patch_motif(ctx: Context, motif_id: str,
     ) if v is not None}
     if not fields:
         return {"status": "noop", "tool": "s3_patch_motif", "reason": "no fields"}
+    from scribe3.iceberg import codex_l1_error
+    _l1 = codex_l1_error("motif", {k: fields[k] for k in (
+        "theme", "echoes", "echo_terms", "unfolding",
+    ) if k in fields})
+    if _l1:
+        return {**_l1, "tool": "s3_patch_motif"}
     ok = await _ask(ctx, f"更正母题 {mid}")
 
     def _write():
