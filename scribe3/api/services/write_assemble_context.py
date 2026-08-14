@@ -132,7 +132,7 @@ def _voice_anchor_block(st, focalizer: str = "") -> str:
 
 
 _VOLUME_INTRO_BUDGET = 400  # 卷纲摘要注入字符上限
-_OUTLINE_INJECT_BUDGET = 1200  # 大纲/节拍各栏上限（与 app_impl._OUTLINE_BUDGET 同量级）
+_OUTLINE_INJECT_BUDGET = 800  # 大纲栏；节拍按段另裁，避免三拍挤进 1200 被削成口号
 
 
 def _clip_chars(text: str, n: int) -> str:
@@ -195,10 +195,13 @@ def _outline_block(
     if synopsis:
         parts.append("〔大纲〕" + _clip_chars(synopsis, _budget))
     if beat_texts:
-        parts.append("〔节拍〕" + _clip_chars(
-            " ".join(f"{i}.{t}" for i, t in enumerate(beat_texts, 1)),
-            _budget,
-        ))
+        # 每段节拍单独保留场面纸（约 500–700），禁止三拍拼成一句再 clip 光
+        beat_cap = 700
+        numbered = " ".join(
+            f"{i}.{_clip_chars(t, beat_cap)}"
+            for i, t in enumerate(beat_texts, 1)
+        )
+        parts.append("〔节拍〕" + numbered)
         if has_beat_budget:
             parts.append(
                 "写作要求:严格按各情节点字数预算分配笔墨,"

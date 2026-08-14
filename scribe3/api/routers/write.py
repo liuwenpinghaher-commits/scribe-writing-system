@@ -41,8 +41,33 @@ except Exception:
     pass  # core may be partially init during first import cycle
 
 
+def _reject_thin_iceberg(st, chapter: int, phase: str, *, write_intent: bool, skip: bool) -> None:
+    """draft/final 动稿前：冰山未厚则 409。不挡 outline/beats/deduce，不挡讨论。"""
+    if skip or not write_intent:
+        return
+    try:
+        from scribe3.iceberg import (
+            evaluate_iceberg, iceberg_enabled, iceberg_http_detail,
+            should_block_prose_write,
+        )
+    except Exception:
+        return
+    if not iceberg_enabled():
+        return
+    if not should_block_prose_write(phase, write_intent=write_intent):
+        return
+    try:
+        ch = st.get_chapter(int(chapter)) if hasattr(st, "get_chapter") else None
+    except Exception:
+        ch = None
+    report = evaluate_iceberg(ch or {}, for_phase=phase or "draft")
+    if not report.get("ok"):
+        raise HTTPException(status_code=409, detail=iceberg_http_detail(report))
+
+
 def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
-               work: str = "main", short_mode: bool = False):
+               work: str = "main", short_mode: bool = False,
+               skip_iceberg: bool = False):
     """对话驱动写作(SSE):主编自判讨论 vs 动稿;动稿用 ⟦PROPOSAL⟧ 围栏回传新散文。
     事件:delta(对话,进右轨)/ tool(工具调用)/ proposal(草稿,进中区)/ done。
     P0门对抗审查 P2-1:改调 _assemble_write_instructions 单源——此前 GET 自带一套
@@ -55,6 +80,7 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
     # （_is_write_intent=False）才保留 work 作用域工具，多书约束仍由提示层强制。
     _write_intent = _is_write_intent(msg)
     _wt = _work_has_tools(work) and _write_phase_allows_tools(phase) and not _write_intent
+    _reject_thin_iceberg(st, chapter, phase, write_intent=_write_intent, skip=bool(skip_iceberg))
     outcome_binding = _WriteOutcomeBinding(st)
     from scribe3.pipeline_trace_hooks import open_write_chain, write_chain_guard
     open_write_chain(
@@ -113,6 +139,11 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
     # 纯散文输出，不能夹带尚未执行的工具调用或进入无界的代理式联查。
     _write_intent = _is_write_intent(req.msg)
     _wt = _work_has_tools(work) and _write_phase_allows_tools(req.phase) and not _write_intent
+    _reject_thin_iceberg(
+        st, int(req.chapter or 1), req.phase or "draft",
+        write_intent=_write_intent,
+        skip=bool(getattr(req, "skip_iceberg", False) or getattr(req, "danger_draft", False)),
+    )
     # 统一内核把 envelope 安全块清单回填这里，随 assistant 落 trace.context；
     # 编译失败会在开流前直接上抛，不存在 flag 关闭或旧链回退形成的空 trace。
     _envelope_trace = outcome_binding.manifest_trace

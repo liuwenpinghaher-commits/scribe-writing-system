@@ -78,6 +78,11 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
     from scribe3.loop import run_chapter_loop
     from scribe3.pipeline_journal import PipelineJournal
     st = _store_for(work)
+    from scribe3.api.routers.write import _reject_thin_iceberg
+    _reject_thin_iceberg(
+        st, int(req.chapter or 1), req.phase or "draft",
+        write_intent=True, skip=bool(getattr(req, "skip_iceberg", False)),
+    )
     # P0门审查 P1-3 / S-3:同章 loop 互斥（进程内 set 或 DB inflight）
     _acquire_op_mutex(
         work, req.chapter, "loop",

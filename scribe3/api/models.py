@@ -308,6 +308,8 @@ class ChatWriteReq(BaseModel):
     images: list[ImageModel] = []
     seed_words: list[str] = []   # 浸泡产出的情绪种子词(由前端可选传入),注入写作 prompt
     phase: str = ""              # 阶段角色(Phase0-BE2):plan|draft|final;空=现状不变
+    skip_iceberg: bool = False   # 旁路冰山前置（会写成口号戏）；outline/beats/deduce 不需要
+    danger_draft: bool = False
     short_mode: bool = False     # 方案B任务16:短篇模式——跳过 build_craft_block 的
                                   # ENGINES["restraint"](留白/克制)注入
     # Task 4:上下文绑定字段一律 optional——契约不硬断存量调用方(1270 项测试/旧前端/

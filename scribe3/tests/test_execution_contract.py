@@ -210,7 +210,7 @@ def test_assemble_draft_length_steer_flags_off():
         author_steer="",
     )
     assert "执行合同" not in s
-    assert "4800" in s  # base steer still present
+    assert "5000" in s  # 水面下限，不是评分
 
 
 def test_real_draft_loop_first_write_calls_loop_chapter(monkeypatch):

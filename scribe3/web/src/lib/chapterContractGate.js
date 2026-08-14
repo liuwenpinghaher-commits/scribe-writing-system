@@ -10,6 +10,11 @@ import { softGateIssues, softGateSummary } from './deduceGate.js'
 
 /** GATE-B normal：非空 beat text 最少条数 */
 export const MIN_BEAT_TEXTS = 3
+/** 冰山地板：水下质量（覆盖），不是 GATE-B、不是文学分 */
+export const ICEBERG_SYNOPSIS = 500
+export const ICEBERG_BEAT_EACH = 500
+export const ICEBERG_BEAT_SUM = 2000
+export const ICEBERG_DEDUCTION = 5000
 /**
  * 可写 hard 下限（与 craft-loop / verify_craft_compliance gate_b cn_len≥80 对齐）。
  * 去空白后短于该值 → error（未达可写），不再仅 warn。
@@ -111,14 +116,14 @@ export function evaluateChapterContract(ch) {
   if (!synopsis) {
     issues.push({
       id: 'missingSynopsis',
-      level: 'error',
-      message: '本章大纲还是空的',
+      level: 'info',
+      message: '材料还可再写：本章大纲还是空的',
     })
   } else if (synN < MIN_WRITABLE_CHARS) {
     issues.push({
       id: 'shortSynopsis',
-      level: 'error',
-      message: `大纲未达可写（${synN} 字，需要 ≥${MIN_WRITABLE_CHARS}，含起因·转折·结果更稳）`,
+      level: 'info',
+      message: `材料还可再写：大纲 ${synN} 字（不挡先写日子）`,
     })
   } else if (synN < SHORT_HINT_CHARS) {
     issues.push({
@@ -131,22 +136,22 @@ export function evaluateChapterContract(ch) {
   if (beatCount < MIN_BEAT_TEXTS) {
     issues.push({
       id: 'missingBeats',
-      level: 'error',
-      message: `节拍不足（${beatCount}/${MIN_BEAT_TEXTS} 条非空）`,
+      level: 'info',
+      message: `材料还可再写：节拍 ${beatCount}/${MIN_BEAT_TEXTS} 条`,
     })
   }
 
   if (!truth) {
     issues.push({
       id: 'missingSceneTruth',
-      level: 'error',
-      message: '场景真相还是空的（本章客观事实）',
+      level: 'info',
+      message: '材料还可再写：场景真相还是空的',
     })
   } else if (truthN < MIN_WRITABLE_CHARS) {
     issues.push({
       id: 'shortSceneTruth',
-      level: 'error',
-      message: `场景真相未达可写（${truthN} 字，需要 ≥${MIN_WRITABLE_CHARS}）`,
+      level: 'info',
+      message: `材料还可再写：场景真相 ${truthN} 字`,
     })
   } else if (truthN < SHORT_HINT_CHARS) {
     issues.push({
@@ -162,6 +167,28 @@ export function evaluateChapterContract(ch) {
       id: 'missingOutlineStakes',
       level: 'warn',
       message: '这是高压章，大纲里最好写清「谁会付出什么代价」',
+    })
+  }
+
+  const beatLens = (meta.beats || []).map((b) => {
+    const t = typeof b === 'string' ? b : (b && b.text) || ''
+    return cnLen(t)
+  }).filter((n) => n > 0)
+  const beatSum = beatLens.reduce((a, b) => a + b, 0)
+  let dedSum = 0
+  for (const d of meta.deductions || []) {
+    dedSum += cnLen(typeof d === 'string' ? d : (d && (d.prose || d.text)) || '')
+  }
+  const icebergThin = synN < ICEBERG_SYNOPSIS
+    || beatLens.length < MIN_BEAT_TEXTS
+    || beatLens.some((n) => n < ICEBERG_BEAT_EACH)
+    || beatSum < ICEBERG_BEAT_SUM
+    || dedSum < ICEBERG_DEDUCTION
+  if (icebergThin && (synN > 0 || beatLens.length > 0)) {
+    issues.push({
+      id: 'icebergThin',
+      level: 'warn',
+      message: `冰山未厚（大纲 ${synN}/${ICEBERG_SYNOPSIS}，节拍合计 ${beatSum}/${ICEBERG_BEAT_SUM}，演绎 ${dedSum}/${ICEBERG_DEDUCTION}）。现在开写会变成口号戏。`,
     })
   }
 

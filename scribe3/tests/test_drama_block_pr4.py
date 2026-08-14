@@ -112,17 +112,10 @@ def test_render_brief_drama_contract_on_top():
 
 def test_length_steer_soft_strings_present():
     """文档化 length_steer 必含 soft 句；CRAFT_NOVEL 强化句单独可拼。"""
-    soft = (
-        "宁短勿巷志凑字；密拍预算优先于凑满 4800；欠戏禁止用气味/街景注水。"
-        "限知与硬红线优先于戏剧合同与字数目标。"
-    )
+    from scribe3.execution_contract import BASE_LENGTH_STEER
+    assert "5000" in BASE_LENGTH_STEER
+    assert "宁短勿巷志" not in BASE_LENGTH_STEER
+    assert "冰山" in BASE_LENGTH_STEER or "水面" in BASE_LENGTH_STEER
     novel = "优先冲突与行动推进，禁止风景巡礼式注水；戏剧合同优先于字数目标。"
-    base = (
-        "本章交完整文学正文：可见汉字目标约 4800–5500 字（去空白后），"
-        "连续场景与对话，气味/触感锚，禁止公式注水尾（条N存档/换位完成/观察条/勒紧半指）。"
-        "用 ⟦PROPOSAL scope=chapter⟧ 围栏交整章。"
-        + soft
-    )
-    assert "宁短勿巷志" in base
-    assert "限知与硬红线优先" in base
+    assert "风景巡礼" in (BASE_LENGTH_STEER + novel)
     assert "风景巡礼" in (base + novel)
