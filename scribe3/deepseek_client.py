@@ -333,8 +333,10 @@ class DeepSeekClient:
             "messages": messages,
             "stream": False,
         }
-        if max_tokens is not None:
-            body["max_tokens"] = max_tokens
+        from scribe3.llm_visible import with_thinking_headroom
+        send_max = with_thinking_headroom(max_tokens, thinking=thinking)
+        if send_max is not None:
+            body["max_tokens"] = send_max
         if temperature is not None:
             body["temperature"] = temperature
         if thinking is not None:
@@ -565,8 +567,10 @@ class DeepSeekClient:
             "stream": True,
             "stream_options": {"include_usage": True},
         }
-        if max_tokens is not None:
-            body["max_tokens"] = max_tokens
+        from scribe3.llm_visible import with_thinking_headroom
+        send_max = with_thinking_headroom(max_tokens, thinking=thinking)
+        if send_max is not None:
+            body["max_tokens"] = send_max
         if thinking is not None:
             body["thinking"] = {"type": thinking}
         headers = self._headers(api_key)

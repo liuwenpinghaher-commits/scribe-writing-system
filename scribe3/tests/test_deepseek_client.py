@@ -212,7 +212,7 @@ def test_complete_forwards_supported_optional_parameters():
         "model": "deepseek-reasoner",
         "messages": [{"role": "user", "content": "hello"}],
         "stream": False,
-        "max_tokens": 321,
+        "max_tokens": 321 + 4096,
         "temperature": 0.4,
         "thinking": {"type": "enabled"},
     }
@@ -625,7 +625,7 @@ def test_stream_forwards_max_tokens_to_official_request():
             [{"role": "user", "content": "写"}], max_tokens=777,
         ))
 
-    assert observed["max_tokens"] == 777
+    assert observed["max_tokens"] == 777 + 4096
 
 
 def test_stream_omits_tokenplan_thinking_by_default_for_visible_prose_deltas():

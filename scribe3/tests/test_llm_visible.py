@@ -2,11 +2,21 @@
 from __future__ import annotations
 
 from scribe3.llm_visible import (
+    PROVIDER_MAX_TOKENS_HARD,
     VisibleStreamFilter,
     strip_thinking_markup,
     visible_message_text,
     visible_usage,
+    with_thinking_headroom,
 )
+
+
+def test_thinking_headroom_leaves_official_budget():
+    assert with_thinking_headroom(16384) == PROVIDER_MAX_TOKENS_HARD
+    assert with_thinking_headroom(8192) == 16384
+    assert with_thinking_headroom(777) == 777 + 4096
+    assert with_thinking_headroom(123, thinking="disabled") == 123
+    assert with_thinking_headroom(None) is None
 
 
 def test_strip_think_block_keeps_official_prose():

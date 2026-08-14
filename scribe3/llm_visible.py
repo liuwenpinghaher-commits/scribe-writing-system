@@ -24,6 +24,30 @@ REASONING_KEYS = (
 )
 _REASONING_USAGE_KEYS = ("reasoning_tokens", "thoughts_tokens")
 
+# 正式输出额度之外再留思考。关 thinking 不加。供应商硬顶 32k。
+THINKING_HEADROOM_MIN = 4096
+PROVIDER_MAX_TOKENS_HARD = 32_768
+
+
+def with_thinking_headroom(
+    max_tokens: int | None,
+    *,
+    thinking: str | None = None,
+) -> int | None:
+    """调用方传入的是正式输出预算；思考开着时加上至少 4k、至多再加一倍。"""
+    if max_tokens is None:
+        return None
+    try:
+        n = int(max_tokens)
+    except (TypeError, ValueError):
+        return max_tokens
+    if n <= 0:
+        return n
+    if str(thinking or "").strip().lower() == "disabled":
+        return n
+    extra = max(n, THINKING_HEADROOM_MIN)
+    return min(PROVIDER_MAX_TOKENS_HARD, n + extra)
+
 
 def strip_thinking_markup(text: str | None) -> str:
     """去掉正文里夹带的 think 标签块；未闭合的尾巴也丢。"""

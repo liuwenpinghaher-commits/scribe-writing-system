@@ -21,7 +21,7 @@ from scribe3.iceberg import (
     evaluate_iceberg,
 )
 
-# 分阶段生成上限（完整合同走该阶段自己的请求，不灌进 final）
+# 分阶段「正式输出」预算。思考开着时 DeepSeekClient 再加 headroom，见 with_thinking_headroom。
 STAGE_MAX_TOKENS: dict[str, int] = {
     "outline": 2048,
     "plan": 2048,
