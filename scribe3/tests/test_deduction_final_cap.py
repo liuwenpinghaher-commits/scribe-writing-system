@@ -197,6 +197,8 @@ def test_rebound_globals_without_cap_name_still_clips():
 def test_write_assemble_rebind_whitelist_includes_focal_cap():
     from scribe3.api.services.write_assemble import WRITE_ASSEMBLE_REBIND_NAMES
     assert "FOCAL_DEDUCTION_PROSE_CAP" in WRITE_ASSEMBLE_REBIND_NAMES
+    assert "_character_named_line" in WRITE_ASSEMBLE_REBIND_NAMES
+    assert "_clip_named" in WRITE_ASSEMBLE_REBIND_NAMES
 
 
 def test_budget_report_length_equals_joined_and_under_cap():

@@ -1784,8 +1784,9 @@ def _rebind_services() -> None:
     # 补 rebound 漏掉的模块私有助手：保持原函数 __globals__，避免
     # FunctionType 改写后找不到同模块邻居（如 _load_reveal_secret_ids）。
     from scribe3.api.services import write_assemble_context as _wac
+    from scribe3.api.services import write_assemble_blocks as _wab
     from scribe3.api.services import prompt_blocks as _pb2
-    for _mod in (_wac, _pb2):
+    for _mod in (_wac, _wab, _pb2):
         for _name in dir(_mod):
             if not _name.startswith("_") or _name.startswith("__"):
                 continue
