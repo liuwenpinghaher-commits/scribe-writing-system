@@ -1,7 +1,9 @@
 """冰山前置：写厚水下质量，正文只露出水面。
 
 字数在这里 = 「这块材料够不够撑一场戏」，不是文学分、不是宣称。
-不进 GATE-B / 不进 may_claim_*。存短草稿合法；进 draft/final 正文才验。
+不进 GATE-B 的 80 字「可开写」口径，不进 may_claim_*。
+空字段 = 还没写，允许。一旦写入大纲/节拍/演绎，必须达到覆盖地板——
+80 字口号不能落库，否则系统会把它当成「已经有大纲」。
 """
 from __future__ import annotations
 
@@ -136,6 +138,49 @@ def should_block_prose_write(phase: str | None, *, write_intent: bool) -> bool:
     if p in _THICKEN_PHASES:
         return False
     return p in _PROSE_PHASES
+
+
+def persist_fields_blocked(fields: dict | None) -> dict[str, Any] | None:
+    """写入大纲/节拍/演绎时的硬闸。None=放行。
+
+    空串/空列表 = 尚未写厚，允许。非空但低于地板 = 挡，禁止口号落成「已有大纲」。
+    """
+    if not iceberg_enabled() or not isinstance(fields, dict):
+        return None
+    missing: list[dict[str, Any]] = []
+    if "synopsis" in fields:
+        raw = fields.get("synopsis")
+        if raw is not None and str(raw).strip():
+            n = cn_len(str(raw))
+            if n < SYNOPSIS_FLOOR:
+                missing.append({"id": "synopsis", "got": n, "need": SYNOPSIS_FLOOR})
+    if "beats" in fields and fields.get("beats") is not None:
+        fake = {"beats": fields.get("beats")}
+        lens = _beat_lens(fake)
+        if lens:
+            thin = [i + 1 for i, n in enumerate(lens) if n < BEAT_EACH_FLOOR]
+            if thin:
+                missing.append({
+                    "id": "beat_each", "got": lens, "need": BEAT_EACH_FLOOR, "thin": thin,
+                })
+            bsum = sum(lens)
+            if bsum < BEAT_SUM_FLOOR:
+                missing.append({"id": "beat_sum", "got": bsum, "need": BEAT_SUM_FLOOR})
+            if len(lens) < 3:
+                missing.append({"id": "beat_count", "got": len(lens), "need": 3})
+    if "deductions" in fields and fields.get("deductions") is not None:
+        dsum = _deduction_sum({"deductions": fields.get("deductions")})
+        if dsum > 0 and dsum < DEDUCTION_FLOOR:
+            missing.append({"id": "deduction", "got": dsum, "need": DEDUCTION_FLOOR})
+    if not missing:
+        return None
+    bits = [f"{m['id']} {m['got']}<{m['need']}" for m in missing]
+    return {
+        "code": "iceberg_thin_persist",
+        "message": "不能把薄材料存成大纲/节拍/演绎：" + "；".join(bits),
+        "missing": missing,
+        "role": "iceberg_substrate",
+    }
 
 
 def iceberg_http_detail(report: dict[str, Any]) -> dict[str, Any]:

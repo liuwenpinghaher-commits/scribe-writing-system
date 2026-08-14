@@ -26,7 +26,8 @@
 
 | 动作 | 闸 |
 |------|----|
-| 存短大纲/三句拍 | **不挡**（GATE-B 仍 80） |
+| 存空大纲（还没写） | **不挡** |
+| 把 80 字口号存成大纲/薄节拍/薄演绎 | **挡**（`iceberg_thin_persist`，MCP plan / REST patch / orch apply） |
 | 讨论、phase=outline/beats/deduce | **不挡**（正在堆冰山） |
 | `/chat/write` 动稿且 phase=draft/final | **409 iceberg_thin** |
 | `danger_draft` / `skip_iceberg` | 旁路（会写成口号戏，诚实） |

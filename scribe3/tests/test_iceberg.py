@@ -70,6 +70,28 @@ def test_final_requires_draft_mass():
     assert r2["ok"] is True
 
 
+def test_persist_rejects_slogan_synopsis_but_allows_empty():
+    from scribe3.iceberg import persist_fields_blocked
+    assert persist_fields_blocked({"title": "第六章"}) is None
+    assert persist_fields_blocked({"synopsis": ""}) is None
+    assert persist_fields_blocked({"synopsis": None}) is None
+    hit = persist_fields_blocked({
+        "synopsis": "灯火门清册官入镇要封炉核册，沈拾灯把缺页灯册贴在腕上。",
+    })
+    assert hit is not None
+    assert hit["code"] == "iceberg_thin_persist"
+    assert "synopsis" in hit["message"]
+    slogan_beats = persist_fields_blocked({
+        "beats": [
+            {"text": "清册官在炉前摊开灯册要封炉。"},
+            {"text": "阿绣把三户假账麻纸藏进木匣夹层。"},
+            {"text": "霍三刀巷口按鞘观望不肯进场。"},
+        ],
+    })
+    assert slogan_beats is not None
+    assert any(m["id"] == "beat_each" for m in slogan_beats["missing"])
+
+
 def test_thicken_phases_are_not_blocked():
     assert should_block_prose_write("outline", write_intent=True) is False
     assert should_block_prose_write("beats", write_intent=True) is False
@@ -100,6 +122,7 @@ if __name__ == "__main__":
     test_slogan_scaffold_is_not_iceberg()
     test_thick_substrate_passes_draft_iceberg()
     test_final_requires_draft_mass()
+    test_persist_rejects_slogan_synopsis_but_allows_empty()
     test_thicken_phases_are_not_blocked()
     test_outline_inject_keeps_each_beat()
     print("PASS test_iceberg")

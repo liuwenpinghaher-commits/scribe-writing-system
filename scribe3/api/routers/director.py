@@ -341,6 +341,15 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
             seq = int(kw.get("seq") or kw.get("chapter") or 1)
             fields = {k: v for k, v in kw.items()
                       if k not in ("seq", "chapter", "work") and v is not None}
+            from scribe3.iceberg import persist_fields_blocked
+            _blocked = persist_fields_blocked(fields)
+            if _blocked:
+                return {
+                    "status": "error",
+                    "error": _blocked["message"],
+                    "code": _blocked["code"],
+                    "iceberg": _blocked,
+                }
             if hasattr(st, "update_chapter_meta") and fields:
                 ok = st.update_chapter_meta(seq, fields)
                 return {"status": "written" if ok else "error", "seq": seq, "fields": list(fields)}

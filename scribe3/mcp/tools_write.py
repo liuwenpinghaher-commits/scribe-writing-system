@@ -1136,6 +1136,16 @@ async def s3_patch_chapter_plan(
             }
     if not fields:
         return {"status": "noop", "tool": "s3_patch_chapter_plan", "reason": "no fields"}
+    from scribe3.iceberg import persist_fields_blocked
+    _blocked = persist_fields_blocked(fields)
+    if _blocked:
+        return {
+            "status": "error",
+            "tool": "s3_patch_chapter_plan",
+            "error": _blocked["message"],
+            "code": _blocked["code"],
+            "iceberg": _blocked,
+        }
     ok = await _ask(ctx, f"改第{seq}章 plan {list(fields.keys())}")
 
     def _write():

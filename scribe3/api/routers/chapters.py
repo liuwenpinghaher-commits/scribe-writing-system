@@ -443,6 +443,10 @@ def patch_chapter(seq: int, req: ChapterMetaReq, work: str = "main"):
     R2.5: 目标 volume 不存在→422。
     """
     fields = req.model_dump(exclude_unset=True)
+    from scribe3.iceberg import persist_fields_blocked
+    _blocked = persist_fields_blocked(fields)
+    if _blocked:
+        raise HTTPException(status_code=422, detail=_blocked)
     # 北极星任务6:目的合同登记校验——strict 解析(P1-5:非法条目 422 指明第几条,
     # 绝不静默丢弃后整体覆盖=静默数据销毁)+ 条数量控 + 认知类写前预演
     # (不可实现 → 422 带原因;预演降级放行时响应带旗,P2-2)。
