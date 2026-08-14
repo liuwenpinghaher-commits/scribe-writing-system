@@ -49,7 +49,7 @@
 | `s3_generate_stage` / `s3_save_chapter_draft` | **已交且在 origin/main** | 独立 LLM 入口 |
 | 注入吃满（I1–I3） | **已交且在 origin/main** | final 也吃满；`clip_for`；拍不再 200 |
 | 防洪水 / 设定库生成链 | **工作区已实现，随本提交上 main** | 点名吃满+拆段、`thicken_codex`、设定 persist 闸 |
-| demo 空章走完 ①–⑤ | **未做** | 需热更 + 真 LLM |
+| demo 空章走完 ①–⑤ | **已做** | `book_79c0d45e` 第11章「G6空章链」：纲 1368 / 拍 1234+1242+807 / 演 6848 / 排演 11124 / 水面 5449；`evaluate_iceberg(final)` ok |
 | 飞行记录仪 142 | **不做在本方案** | 见独立设计 |
 
 ---
