@@ -65,6 +65,77 @@ def _reject_thin_iceberg(st, chapter: int, phase: str, *, write_intent: bool, sk
         raise HTTPException(status_code=409, detail=iceberg_http_detail(report))
 
 
+def _reject_stage_not_ready(st, chapter: int, phase: str, *, skip: bool) -> None:
+    """生成下一阶段前：上一层未齐则 409。加厚本阶段（outline 薄稿）不挡。"""
+    if skip:
+        return
+    try:
+        from scribe3.iceberg import iceberg_enabled
+        from scribe3.stage_generate import normalize_stage, stage_not_ready_http, stage_ready
+    except Exception:
+        return
+    if not iceberg_enabled():
+        return
+    stg = normalize_stage(phase)
+    if stg in ("", "outline"):
+        return
+    try:
+        ch = st.get_chapter(int(chapter)) if hasattr(st, "get_chapter") else None
+    except Exception:
+        ch = None
+    report = stage_ready(ch or {}, stg)
+    if not report.get("ok"):
+        raise HTTPException(status_code=409, detail=stage_not_ready_http(report))
+
+
+class GenerateStageReq(BaseModel):
+    seq: int
+    stage: Literal["outline", "beats", "deduce", "draft"]
+    persist: bool = False
+    extra: str = ""
+
+
+def generate_stage(req: GenerateStageReq, work: str = "main"):
+    """独立 LLM 生成链：outline/beats/deduce/draft。禁止模板/切句回退。"""
+    from scribe3.stage_generate import (
+        STAGE_MAX_TOKENS,
+        normalize_stage,
+        stage_not_ready_http,
+        thicken_stage,
+    )
+    st = _store_for(work)
+    seq = int(req.seq)
+    stage = normalize_stage(req.stage)
+    ch = st.get_chapter(seq) or {}
+    _reject_stage_not_ready(st, seq, stage, skip=False)
+
+    def llm_fn(prompt, max_tokens=STAGE_MAX_TOKENS.get(stage, 4096)):
+        return _pilot_llm_gen(st, work, seq, stage, prompt, max_tokens=max_tokens)
+
+    persist_fn = None
+    if req.persist:
+        def persist_fn(fields: dict) -> None:
+            if "draft" in fields:
+                st.save_chapter_draft(seq, fields.get("draft") or "")
+            else:
+                st.update_chapter_meta(seq, fields)
+
+    out = thicken_stage(
+        stage, ch, llm_fn=llm_fn, persist_fn=persist_fn,
+        seq=seq, extra=req.extra or "",
+    )
+    if out.get("code") == "stage_not_ready":
+        raise HTTPException(status_code=409, detail=stage_not_ready_http(out))
+    if out.get("ok") is False and out.get("code") == "llm_thin":
+        raise HTTPException(status_code=422, detail={
+            "code": "llm_thin",
+            "message": out.get("message"),
+            "got": out.get("got"),
+            "need": out.get("need"),
+        })
+    return out
+
+
 def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
                work: str = "main", short_mode: bool = False,
                skip_iceberg: bool = False):
@@ -81,6 +152,7 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
     _write_intent = _is_write_intent(msg)
     _wt = _work_has_tools(work) and _write_phase_allows_tools(phase) and not _write_intent
     _reject_thin_iceberg(st, chapter, phase, write_intent=_write_intent, skip=bool(skip_iceberg))
+    _reject_stage_not_ready(st, chapter, phase, skip=bool(skip_iceberg))
     outcome_binding = _WriteOutcomeBinding(st)
     from scribe3.pipeline_trace_hooks import open_write_chain, write_chain_guard
     open_write_chain(
@@ -92,9 +164,11 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
             st, chapter=chapter, focalizer=focalizer, phase=phase,
             seed_words=[], short_mode=short_mode, with_tools=_wt, work=work,
             envelope_trace=outcome_binding.manifest_trace, request_text=msg)
+    from scribe3.stage_generate import stage_max_tokens
     return sse_response(
         _stream_write(msg, instructions, expect_proposal=_write_intent,
-                      with_tools=_wt, on_terminal=outcome_binding.persist),
+                      with_tools=_wt, on_terminal=outcome_binding.persist,
+                      max_tokens=stage_max_tokens(phase)),
     )
 
 def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundTasks,
@@ -139,11 +213,13 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
     # 纯散文输出，不能夹带尚未执行的工具调用或进入无界的代理式联查。
     _write_intent = _is_write_intent(req.msg)
     _wt = _work_has_tools(work) and _write_phase_allows_tools(req.phase) and not _write_intent
+    _skip_ice = bool(getattr(req, "skip_iceberg", False) or getattr(req, "danger_draft", False))
     _reject_thin_iceberg(
         st, int(req.chapter or 1), req.phase or "draft",
         write_intent=_write_intent,
-        skip=bool(getattr(req, "skip_iceberg", False) or getattr(req, "danger_draft", False)),
+        skip=_skip_ice,
     )
+    _reject_stage_not_ready(st, int(req.chapter or 1), req.phase or "draft", skip=_skip_ice)
     # 统一内核把 envelope 安全块清单回填这里，随 assistant 落 trace.context；
     # 编译失败会在开流前直接上抛，不存在 flag 关闭或旧链回退形成的空 trace。
     _envelope_trace = outcome_binding.manifest_trace
@@ -205,11 +281,13 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
         _capture_turn_memory(st, work=work, thread_id=(req.thread_id or f"write:{work}"),
                              turn_id=turn_id, text=user_text, chapter=req.chapter)
 
+    from scribe3.stage_generate import stage_max_tokens
     return sse_response(
         _stream_write(message, instructions, expect_proposal=_write_intent,
                       with_tools=_wt,
                       on_terminal=outcome_binding.persist,
-                      on_complete=_persist_assistant),
+                      on_complete=_persist_assistant,
+                      max_tokens=stage_max_tokens(req.phase)),
     )
 
 def qc(seq: int, work: str = "main"):
@@ -1318,6 +1396,9 @@ def _bind_and_register() -> None:
     # （2026-08-08 产品验收：POST /chat/write → sse_response is not defined）。
     from scribe3.api.sse import sse_response as _sse_response
     core.sse_response = _sse_response
+    core.GenerateStageReq = GenerateStageReq
+    core._reject_stage_not_ready = _reject_stage_not_ready
+    core._reject_thin_iceberg = _reject_thin_iceberg
     g = globals()
     _fn = g['chat_write']
     _re = types.FunctionType(_fn.__code__, core.__dict__, 'chat_write', _fn.__defaults__, _fn.__closure__)
@@ -1389,5 +1470,13 @@ def _bind_and_register() -> None:
     setattr(core, 'checkpoint', _re)
     g['checkpoint'] = _re
     router.add_api_route('/checkpoint', _re, methods=['POST'], name='checkpoint')
+
+    _fn = g['generate_stage']
+    _re = types.FunctionType(_fn.__code__, core.__dict__, 'generate_stage', _fn.__defaults__, _fn.__closure__)
+    if _fn.__annotations__:
+        _re.__annotations__ = dict(_fn.__annotations__)
+    setattr(core, 'generate_stage', _re)
+    g['generate_stage'] = _re
+    router.add_api_route('/generate-stage', _re, methods=['POST'], name='generate_stage')
 
 _bind_and_register()

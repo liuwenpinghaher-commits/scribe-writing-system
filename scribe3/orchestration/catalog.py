@@ -277,7 +277,7 @@ CATALOG: list[dict[str, Any]] = [
             "写大纲", "起草大纲", "更新大纲", "补大纲", "填大纲",
         ),
         "read_tools": ("s3_get_chapter", "s3_get_intent", "s3_list_promises"),
-        "write_tools": ("s3_patch_chapter_meta", "s3_patch_chapter_plan"),
+        "write_tools": ("s3_patch_chapter_meta", "s3_patch_chapter_plan", "s3_generate_stage"),
         "required_outcome": "write_proposal",
         "ui": {"entry": "manuscript", "phase": "outline", "node": {"type": "chapter"},
                "right_tab": "chief", "layout_mode": "collaboration", "panel": "outline"},
@@ -285,8 +285,9 @@ CATALOG: list[dict[str, Any]] = [
         "phase_hint": "outline",
         "context_pack": ("synopsis", "intent_snip", "open_promises", "volume_intro"),
         "instruction_duty": (
-            "域纪律(章大纲):用 s3_patch_chapter_plan 写 synopsis；"
-            "高压建议 stakes 标签；禁止 s3_save_chapter 完成本任务。"
+            "域纪律(章大纲):必须用 LLM 写因果大纲 ≥500 字；"
+            "可用 s3_generate_stage(stage=outline) 或 s3_patch_chapter_plan 写 synopsis；"
+            "禁止口号；禁止 s3_save_chapter 完成本任务。"
         ),
     },
     {
@@ -301,7 +302,7 @@ CATALOG: list[dict[str, Any]] = [
             "写节拍", "更新节拍", "展开节拍", "补节拍", "章节拍",
         ),
         "read_tools": ("s3_get_chapter",),
-        "write_tools": ("s3_patch_chapter_plan",),
+        "write_tools": ("s3_patch_chapter_plan", "s3_generate_stage"),
         "required_outcome": "write_proposal",
         "ui": {"entry": "manuscript", "phase": "beats", "node": {"type": "chapter"},
                "right_tab": "chief", "layout_mode": "collaboration", "panel": "beats"},
@@ -309,8 +310,9 @@ CATALOG: list[dict[str, Any]] = [
         "phase_hint": "beats",
         "context_pack": ("beats", "synopsis_snip", "drama_contract"),
         "instruction_duty": (
-            "域纪律(章节拍):用 s3_patch_chapter_plan 写 beats 结构；"
-            "建议≥3条非空；禁止 s3_save_chapter 完成本任务；≠经验复盘六格。"
+            "域纪律(章节拍):必须用 LLM 写场面纸，每拍≥500、合计≥2000；"
+            "可用 s3_generate_stage(stage=beats) 或 s3_patch_chapter_plan 写 beats；"
+            "禁止大纲切句充数；禁止 s3_save_chapter 完成本任务。"
         ),
     },
     {
@@ -325,7 +327,7 @@ CATALOG: list[dict[str, Any]] = [
             "写场景真相", "补场景真相", "更新演绎", "场景真相",
         ),
         "read_tools": ("s3_get_chapter", "s3_project_frame", "s3_find_leaks"),
-        "write_tools": ("s3_patch_chapter_plan", "s3_patch_chapter_meta"),
+        "write_tools": ("s3_patch_chapter_plan", "s3_patch_chapter_meta", "s3_generate_stage"),
         "required_outcome": "write_proposal",
         "ui": {"entry": "manuscript", "phase": "deduce", "node": {"type": "chapter"},
                "right_tab": "chief", "layout_mode": "collaboration", "panel": "deduce"},
@@ -333,8 +335,9 @@ CATALOG: list[dict[str, Any]] = [
         "phase_hint": "deduce",
         "context_pack": ("scene_truth", "involved", "project_frame"),
         "instruction_duty": (
-            "域纪律(章演绎):用 s3_patch_chapter_plan 写 scene_truth/演绎；"
-            "勿用 s3_add_fact 当场景真相；禁止 s3_save_chapter 完成本任务。"
+            "域纪律(章演绎):必须用 LLM 写 scene_truth+五层投影合计≥5000；"
+            "可用 s3_generate_stage(stage=deduce) 或 s3_patch_chapter_plan；"
+            "勿用 s3_add_fact 当场景真相；禁止摘录占位；禁止 s3_save_chapter 完成本任务。"
         ),
     },
     # —— 辅助只读（派生面 · LLM 不写 SSOT）——

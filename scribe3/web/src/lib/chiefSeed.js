@@ -158,21 +158,28 @@ export function scaffoldToolContract(scope) {
     return {
       tool: 's3_patch_chapter_plan',
       field: 'synopsis',
-      gateHint: '大纲/节拍是材料参考，不是完成。可先写日子。',
+      gateHint: '必须用 LLM 写因果大纲 ≥500 字（日子/必须发生/因→果/不能说/章末未决）。禁止口号。也可用 s3_generate_stage(stage=outline)。',
     }
   }
   if (s === 'beats' || s === '节拍') {
     return {
       tool: 's3_patch_chapter_plan',
       field: 'beats',
-      gateHint: '节拍是材料参考，不是完成。结构增删优先本工具。',
+      gateHint: '必须用 LLM 写场面纸：每拍 ≥500、合计 ≥2000。禁止大纲切句。也可用 s3_generate_stage(stage=beats)。',
     }
   }
   if (s === 'deduce' || s === 'scene_truth' || s === '演绎') {
     return {
       tool: 's3_patch_chapter_plan',
       field: 'scene_truth',
-      gateHint: '场景真相是材料参考。勿与 s3_add_fact 世界命题混淆。',
+      gateHint: '必须用 LLM 写场景真相+五层投影合计 ≥5000。禁止摘录占位。也可用 s3_generate_stage(stage=deduce)。',
+    }
+  }
+  if (s === 'draft' || s === '排演' || s === '草稿') {
+    return {
+      tool: 's3_save_chapter_draft',
+      field: 'draft',
+      gateHint: '排演 ≥10000 字，只落 chapter.draft，禁止写入 prose。也可用 s3_generate_stage(stage=draft)。',
     }
   }
   if (s === 'chapter-meta' || s === 'chapter_meta' || s === '章信息') {
@@ -243,9 +250,9 @@ export function seedChapterOutline(seq, synopsis = '', extraHint = '') {
     'outline',
     `第 ${n} 章大纲`,
     [
-      `使用工具 s3_patch_chapter_plan(seq=${n}, field=synopsis) 提交写入提案。`,
+      `使用工具 s3_patch_chapter_plan(seq=${n}, field=synopsis) 提交写入提案；或先 s3_generate_stage(stage=outline) 让 LLM 写厚再批。`,
       SCAFFOLD_FORBID_SAVE,
-      '大纲是材料参考，不是完成。',
+      '大纲必须 LLM 生成 ≥500 字（日子/必须发生/因→果/不能说/章末未决），禁止口号。',
       body,
     ].join('\n'),
   )
@@ -267,9 +274,9 @@ export function seedChapterBeats(seq, beats = [], extraHint = '') {
     'beats',
     `第 ${n} 章节拍`,
     [
-      `使用工具 s3_patch_chapter_plan(seq=${n}, field=beats) 提交写入提案。`,
+      `使用工具 s3_patch_chapter_plan(seq=${n}, field=beats) 提交写入提案；或先 s3_generate_stage(stage=beats) 让 LLM 写厚再批。`,
       SCAFFOLD_FORBID_SAVE,
-      '节拍是材料参考，不是完成。',
+      '每拍场面纸 ≥500 字、合计 ≥2000，必须 LLM 生成，禁止大纲切句充数。',
       body,
     ].join('\n'),
   )
@@ -304,9 +311,9 @@ export function seedChapterDeduce(seq, sceneTruth = '', extraHint = '') {
     'deduce',
     `第 ${n} 章演绎/场景真相`,
     [
-      `使用工具 s3_patch_chapter_plan(seq=${n}, field=scene_truth) 提交写入提案；演绎字段也可同工具。`,
+      `使用工具 s3_patch_chapter_plan(seq=${n}, field=scene_truth) 提交写入提案；演绎字段也可同工具；或先 s3_generate_stage(stage=deduce)。`,
       SCAFFOLD_FORBID_SAVE,
-      '场景真相是材料参考。勿用 s3_add_fact 当场景真相。',
+      '限知投影合计 ≥5000 字，必须 LLM 生成。勿用 s3_add_fact 当场景真相。禁止摘录占位。',
       body,
     ].join('\n'),
   )

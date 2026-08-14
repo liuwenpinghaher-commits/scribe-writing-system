@@ -51,6 +51,7 @@ DEDUCE_ALLOWED_TOOLS = frozenset({
     "s3_list_world_rules",
     "s3_list_promises",
     "s3_patch_chapter_plan",
+    "s3_generate_stage",
 })
 
 DEDUCE_PREVIEW_ALLOWED_TOOLS = DEDUCE_ALLOWED_TOOLS - {"s3_patch_chapter_plan"}
@@ -64,6 +65,7 @@ PLAN_SCAFFOLD_ALLOWED_TOOLS = frozenset({
     "s3_list_volumes",
     "s3_patch_chapter_plan",
     "s3_patch_chapter_meta",
+    "s3_generate_stage",
 })
 
 # 明确禁止出现在脚手架 allowlist
@@ -133,7 +135,9 @@ _POLICIES = {
             "s3_list_entity_relations",
             "s3_list_world_rules",
             "s3_save_chapter",
+            "s3_save_chapter_draft",
             "s3_patch_chapter_plan",
+            "s3_generate_stage",
         }),
         max_tool_calls=20,
         required_tools=frozenset(),
@@ -151,7 +155,9 @@ _POLICIES = {
             "s3_list_entity_relations",
             "s3_list_world_rules",
             "s3_save_chapter",
+            "s3_save_chapter_draft",
             "s3_patch_chapter_plan",
+            "s3_generate_stage",
         }),
         max_tool_calls=20,
         required_tools=frozenset(),

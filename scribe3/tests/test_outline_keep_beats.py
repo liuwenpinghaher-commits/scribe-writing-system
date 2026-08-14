@@ -23,14 +23,14 @@ def test_hard_budget():
 
 
 def test_half_cut_keeps_beats_drops_synopsis():
-    raw = _outline_text()
+    raw = _outline_text(syn_n=2000)
     cut = _half_cut_segment("outline", raw)
     assert len(cut) <= len(raw) // 2 + 8
     assert "〔节拍〕" in cut
     assert "抵达义庄" in cut
     assert "写作要求" in cut
-    assert cut.count("甲") < 800
-    assert "大纲已裁" in cut or "〔大纲〕" not in cut or cut.count("甲") < 200
+    assert cut.count("甲") < 2000
+    assert "大纲已裁" in cut or "〔大纲〕" not in cut or cut.count("甲") < 400
 
 
 def test_half_cut_other_name_still_tail():
@@ -40,7 +40,7 @@ def test_half_cut_other_name_still_tail():
 
 
 def test_l2_trim_keeps_beats_when_outline_is_victim():
-    raw = _outline_text()
+    raw = _outline_text(syn_n=2000)
     segs = [
         {"name": "prefix", "layer": "redline", "text": "P"},
         {"name": "outline", "layer": "supplemental", "text": raw},
@@ -52,7 +52,7 @@ def test_l2_trim_keeps_beats_when_outline_is_victim():
     assert "outline" in dropped
     assert "抵达义庄" in joined
     assert "〔节拍〕" in joined
-    assert joined.count("甲") < 800
+    assert joined.count("甲") < 2000
 
 
 def test_outline_block_no_fake_budget_command():
@@ -75,11 +75,20 @@ def test_outline_block_no_fake_budget_command():
     assert "字数预算" not in plain
     assert "按节拍轻重分配笔墨" in plain
     funded = _outline_block(St(), 2, mode="write")
-    assert "字数预算" in funded
+    assert "抵达义庄" in funded
+    assert "密≥250" not in funded
+    assert "字数预算" not in funded
+
+
+def test_short_outline_is_not_half_cut():
+    raw = _outline_text(syn_n=500, beat_n=500)
+    cut = _half_cut_segment("outline", raw)
+    assert cut == raw
+    assert cut.count("甲") == 500
 
 
 def test_total_budget_keep_beats():
-    raw = _outline_text()
+    raw = _outline_text(syn_n=2000)
     segs = [{"name": "outline", "layer": "supplemental", "text": raw}]
     out, rep = enforce_total_prompt_budget(segs, budget=400)
     assert "抵达义庄" in (out[0].get("text") if out else "")

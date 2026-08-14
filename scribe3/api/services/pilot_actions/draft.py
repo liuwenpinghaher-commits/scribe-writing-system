@@ -37,6 +37,36 @@ def build_actions(work: str) -> dict:
         except Exception as e:
             logging.getLogger("scribe3").warning(
                 "draft_loop ensure_narrative_drive fail-soft: %s", e)
+        from scribe3.stage_generate import (
+            STAGE_MAX_TOKENS,
+            iceberg_ok_for,
+            stage_ready,
+            thicken_draft,
+        )
+        ready = stage_ready(ch, "draft")
+        if not ready.get("ok"):
+            return {
+                "pilot_park": ready.get("message") or "排演前一阶段未齐",
+                **ready,
+            }
+        if not iceberg_ok_for(ch, "draft"):
+            def _draft_llm(prompt, max_tokens=STAGE_MAX_TOKENS["draft"]):
+                return _pilot_llm_gen(
+                    st, work, seq, "draft", prompt, max_tokens=max_tokens,
+                )
+            rehearsed = thicken_draft(
+                ch,
+                llm_fn=_draft_llm,
+                persist_fn=lambda fields: st.save_chapter_draft(seq, fields.get("draft") or ""),
+                seq=seq,
+                extra=steer,
+            )
+            if not rehearsed.get("ok") and not rehearsed.get("skipped"):
+                return {
+                    "pilot_park": rehearsed.get("message") or "排演 LLM 未达覆盖地板",
+                    **rehearsed,
+                }
+            ch = st.get_chapter(seq) or ch
         prose_now = (ch.get("prose") or "").strip()
         # PR-4：有 GCD 戏剧合同时，禁止「仅因字数不足」清稿（宁短勿巷志）
         _has_drama = False

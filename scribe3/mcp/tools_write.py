@@ -1169,6 +1169,87 @@ async def s3_patch_chapter_plan(
     return commit_if_approved("s3_patch_chapter_plan", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
+async def s3_save_chapter_draft(
+    seq: int, draft: str, work: str | None = None,
+) -> dict:
+    """落/覆盖某章排演稿 chapter.draft（≠ prose）。非空必须 ≥10000 覆盖地板。不经 elicitation。"""
+    from scribe3.iceberg import DRAFT_FLOOR, cn_len
+    n = cn_len(draft)
+    if (draft or "").strip() and n < DRAFT_FLOOR:
+        return {
+            "status": "error",
+            "tool": "s3_save_chapter_draft",
+            "code": "iceberg_thin_persist",
+            "error": f"排演稿 {n}<{DRAFT_FLOOR}，禁止把短稿存进 chapter.draft",
+        }
+    st = _store_for(work)
+    st.save_chapter_draft(int(seq), draft or "")
+    return {"status": "ok", "tool": "s3_save_chapter_draft", "seq": int(seq), "cn": n}
+
+
+@mcp.tool(annotations=_RW)
+async def s3_generate_stage(
+    ctx: Context,
+    seq: int,
+    stage: str,
+    persist: bool = False,
+    extra: str = "",
+    work: str | None = None,
+) -> dict:
+    """独立 LLM 生成链：outline / beats / deduce / draft。禁止模板、切句、摘录占位。
+
+    persist=false 只返回厚稿；persist=true 时 outline/beats/deduce 待批落 plan，
+    draft 走 save_chapter_draft。"""
+    from scribe3.stage_generate import (
+        STAGE_MAX_TOKENS,
+        normalize_stage,
+        thicken_stage,
+    )
+    stg = normalize_stage(stage)
+    if stg not in ("outline", "beats", "deduce", "draft"):
+        return {"status": "error", "tool": "s3_generate_stage", "error": f"未知阶段 {stage}"}
+    st = _store_for(work)
+    ch = st.get_chapter(int(seq)) or {}
+
+    def llm_fn(prompt, max_tokens=STAGE_MAX_TOKENS.get(stg, 4096)):
+        try:
+            from scribe3.api.services.misc_helpers import _pilot_llm_gen
+            return _pilot_llm_gen(st, work or "main", int(seq), stg, prompt, max_tokens=max_tokens)
+        except Exception:
+            from scribe3.llm import hermes_complete
+            return hermes_complete(prompt, max_tokens=max_tokens) or ""
+
+    persist_fn = None
+    if persist and stg == "draft":
+        def persist_fn(fields: dict) -> None:
+            st.save_chapter_draft(int(seq), fields.get("draft") or "")
+    out = thicken_stage(
+        stg, ch, llm_fn=llm_fn, persist_fn=persist_fn,
+        seq=int(seq), extra=extra or "",
+    )
+    if persist and stg != "draft" and out.get("ok"):
+        fields = {k: out[k] for k in ("synopsis", "beats", "scene_truth", "deductions") if k in out}
+        if fields:
+            from scribe3.iceberg import persist_fields_blocked
+            blocked = persist_fields_blocked(fields)
+            if blocked:
+                return {"status": "error", "tool": "s3_generate_stage", **blocked, "generated": out}
+            ok = await _ask(ctx, f"LLM 生成第{seq}章 {stg} 并落库 {list(fields)}")
+
+            def _write():
+                if not st.update_chapter_meta(int(seq), fields):
+                    return False
+                return {"seq": int(seq), "stage": stg, "fields": list(fields), "source": "llm"}
+
+            gated = commit_if_approved("s3_generate_stage", ok, _write)
+            if isinstance(gated, dict):
+                gated["generated"] = {k: out.get(k) for k in ("cn", "source", "ok")}
+            return gated
+    status = "ok" if out.get("ok") or out.get("skipped") else "error"
+    return {"status": status, "tool": "s3_generate_stage", "seq": int(seq), **out}
+
+
 async def s3_set_char_anchors(
     ctx: Context, character_id: str,
     want: str | None = None,

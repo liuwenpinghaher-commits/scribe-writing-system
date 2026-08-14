@@ -105,12 +105,11 @@ def build_actions(work: str) -> dict:
             return {"ok": None, "note": f"pdc_bootstrap_error:{e}"}
 
     def expand_beats(st, seq):
-        """展开节拍：v2 GCD 行协议（旗控）+ 全字段接地 + synopsis fallback 旗 + beats_meta。
+        """展开节拍：LLM 场面纸（每拍≥500）+ 接地；薄拍不 skip；禁止切句充数。
 
-        - ``SCRIBE3_BEATS_V2``（默认开）：生成 goal/conflict/turn/cost/hook/text
-        - 接地候选 = 全 GCD 字段拼接（非仅 text）
-        - 接地失败：``SCRIBE3_BEATS_SYNOPSIS_FALLBACK``（默认开）→ 大纲切句；
-          否则 park，不写 beats
+        - 仅当 iceberg 节拍地板已齐才 skip
+        - 生成走 ``thicken_beats``（必须 LLM）
+        - 接地失败：再 LLM 一次，仍失败 park，**不**写大纲切句
         - ``validate_drama_beats`` → ``beats_meta.drama_validation``（含 ``gaps``）
         - ``SCRIBE3_DRAMA_GATE=1``（默认关）：高压章且 ok=False → ``pilot_park``
           ``drama_incomplete`` advisory（可补字段继续；**不**擦 beats）
@@ -130,8 +129,9 @@ def build_actions(work: str) -> dict:
             _nd_drive = None
 
         ch = st.get_chapter(seq) or {}
-        if ch.get("beats"):
-            out = {"skipped": "节拍已有内容,按既有推进(不覆盖)"}
+        from scribe3.stage_generate import iceberg_ok_for
+        if iceberg_ok_for(ch, "beats"):
+            out = {"skipped": "节拍已达覆盖地板,按既有推进(不覆盖)"}
             if _nd_drive is not None:
                 out["narrative_drive"] = _nd_drive
             # 可选 GATE：默认关；仅作者显式开时高压 invalid 才 park
@@ -147,17 +147,6 @@ def build_actions(work: str) -> dict:
                 import logging as _sf_logging
                 soft_fail('beats_soft_1', _sf_e, logger='scribe3', level=_sf_logging.DEBUG)
             return out
-
-        try:
-            from scribe3.novel_quality_flags import (
-                beats_synopsis_fallback_enabled,
-                beats_v2_enabled,
-            )
-            use_v2 = bool(beats_v2_enabled())
-            use_synopsis_fb = bool(beats_synopsis_fallback_enabled())
-        except Exception:
-            use_v2 = True
-            use_synopsis_fb = True
 
         synopsis = (ch.get("synopsis") or "").strip()
         try:
@@ -176,65 +165,32 @@ def build_actions(work: str) -> dict:
         if steer:
             source += "\n\n作者意图:\n" + steer
 
-        def _v2_prompt(*, strict: bool = False) -> str:
-            base = (
-                f"据本章大纲展开戏剧节拍（beats.v2）：输出 4–7 行，每行严格用管道分隔，"
-                f"字段顺序固定为：\n"
-                f"KIND|目标|冲突|结果|代价|钩子|摘要|密度|预算\n"
-                f"KIND 仅用 scene 或 bridge；目标=POV场景级欲望；冲突=阻力；"
-                f"结果=转折/灾难；代价=不可逆或损失；钩子=读者悬念（可空）；"
-                f"摘要=一句叙事；密度=密或疏；预算=整数可空。\n"
-                f"最后可另起一行：CHAPTER_HOOK|章末钩子全文\n"
-                f"禁止散文段落；禁止新增大纲没有的人物/物件/规则/不可逆设定。\n"
-                f"只输出上述行，不要 Markdown。\n大纲:\n{synopsis}"
-            )
-            if strict:
-                base = (
-                    "【重试·严格】必须逐行 KIND|目标|冲突|结果|代价|钩子|摘要|密度|预算，"
-                    "禁止散文段落与编号说明。\n"
-                ) + base
-            return base
+        from scribe3.stage_generate import STAGE_MAX_TOKENS, thicken_beats
 
-        def _v1_prompt() -> str:
-            return (
-                f"据本章大纲展开节拍:4-7条,每条一行一个动作/转折,"
-                f"不写成正文。只输出节拍行,每行一条。"
-                f"禁止新增大纲没有的人物/物件/规则。\n大纲:{synopsis}"
+        def llm_fn(prompt, max_tokens=STAGE_MAX_TOKENS["beats"]):
+            return _pilot_llm_gen(
+                st, work, seq, "beats", prompt, max_tokens=max_tokens,
             )
 
-        def _gen_and_parse(*, strict: bool = False) -> tuple[list[dict], str, str]:
-            """返回 (beats, chapter_hook, schema_tag) schema_tag ∈ v2|v1。"""
-            # 显式经模块取名：_pilot_executor rebind 后嵌套函数 globals=app_impl，
-            # 直接写 parse_beats_v2_output 会 NameError。
-            import scribe3.api.services.pilot_runtime as _pr
-            if use_v2:
-                raw = _pilot_llm_gen(st, work, seq, "plan", _v2_prompt(strict=strict))
-                beats, hook = _pr.parse_beats_v2_output(raw)
-                # 若无任何 GCD 字段，视为 parse 弱失败 → 可被重试；仍保留 text 行
-                has_gcd = any(
-                    str(b.get("goal") or b.get("conflict") or b.get("turn") or "").strip()
-                    for b in beats if isinstance(b, dict)
-                )
-                if beats and has_gcd:
-                    return beats, hook, "v2"
-                if beats and not has_gcd:
-                    # 模型回落成纯文本行
-                    return beats, hook, "v1"
-                return [], "", "v2"
-            raw = _pilot_llm_gen(st, work, seq, "plan", _v1_prompt())
-            return _pr.parse_beats_v1_lines(raw), "", "v1"
-
-        beats, chapter_hook, schema_tag = _gen_and_parse(strict=False)
-        if not beats:
-            # parse 失败 → 严格重试 1 次
-            beats, chapter_hook, schema_tag = _gen_and_parse(strict=True)
-
-        if not beats:
+        thick = thicken_beats(
+            ch,
+            llm_fn=llm_fn,
+            persist_fn=None,
+            seq=seq,
+            extra=("作者意图:\n" + steer) if steer else "",
+        )
+        if thick.get("skipped"):
+            return thick
+        if not thick.get("ok"):
             return {
-                "pilot_park": "节拍解析失败:模型未产出可用节拍行，请修订后再推进",
-                "grounding": {"ok": False, "issues": [{"claim": "", "reason": "parse_empty", "evidence": ""}]},
-                "candidate_beats": [],
+                "pilot_park": thick.get("message") or "节拍 LLM 未达覆盖地板",
+                "grounding": {"ok": False, "issues": [{"claim": "", "reason": "llm_thin", "evidence": ""}]},
+                "candidate_beats": (thick.get("parsed") or {}).get("beats") or [],
+                **{k: v for k, v in thick.items() if k != "parsed"},
             }
+        beats = list(thick.get("beats") or [])
+        chapter_hook = ""
+        schema_tag = "llm_scene"
 
         import scribe3.api.services.pilot_runtime as _pr
         candidate = _pr.grounding_candidate_from_beats(beats)
@@ -243,70 +199,39 @@ def build_actions(work: str) -> dict:
             st=st, work=work, chapter=seq,
         )
         if not review.get("ok"):
-            # ground 失败 → 重生+重审 1 次
-            beats2, hook2, schema2 = _gen_and_parse(strict=True)
-            if beats2:
-                cand2 = _pr.grounding_candidate_from_beats(beats2)
+            # 接地失败只允许再走一次 LLM，禁止大纲切句充数
+            thick2 = thicken_beats(
+                ch,
+                llm_fn=llm_fn,
+                persist_fn=None,
+                seq=seq,
+                extra="【重试】禁止新增大纲没有的人物/物件/规则。只写场面纸。",
+            )
+            if thick2.get("ok") and thick2.get("beats"):
+                cand2 = _pr.grounding_candidate_from_beats(thick2["beats"])
                 review2 = _grounding_review(
                     source, cand2, mode="beats",
                     st=st, work=work, chapter=seq,
                 )
                 if review2.get("ok"):
-                    beats, chapter_hook, schema_tag, review = beats2, hook2, schema2, review2
+                    beats, review = list(thick2["beats"]), review2
                 else:
                     review = review2
-                    beats, chapter_hook, schema_tag = beats2, hook2, schema2
+                    beats = list(thick2["beats"])
 
         if not review.get("ok"):
-            log = logging.getLogger("scribe3")
-            if use_synopsis_fb:
-                fb = _pr._beats_from_synopsis_segments(synopsis)
-                if len(fb) >= 2:
-                    bmeta = _pr._compose_beats_meta(
-                        fb,
-                        schema="v1",
-                        beats_source="synopsis_segments",
-                        chapter_hook="",
-                        synopsis=synopsis,
-                        chapter_pressure=chapter_pressure,
-                        role=role,
-                    )
-                    # 先落库再门检：advisory drama gate **不**擦 beats
-                    st.update_chapter_meta(seq, {"beats": fb, "beats_meta": bmeta})
-                    log.info(
-                        "expand_beats synopsis-segment fallback work=%s seq=%s n=%s "
-                        "beats_source=synopsis_segments drama_ok=%s",
-                        work, seq, len(fb),
-                        (bmeta.get("drama_validation") or {}).get("ok"),
-                    )
-                    out_fb = {
-                        "beats": fb,
-                        "beats_meta": bmeta,
-                        "grounding": {"ok": True, "fallback": "synopsis_segments"},
-                        "llm_rejected": review,
-                        "pdc": {"ok": None, "note": "pdc_missing_after_fallback"},
-                    }
-                    dpark = _pr._drama_gate_park_if_needed(bmeta)
-                    if dpark:
-                        log.info(
-                            "expand_beats drama_gate park(fallback) work=%s seq=%s",
-                            work, seq,
-                        )
-                        return {**out_fb, **dpark}
-                    return out_fb
             return {
-                "pilot_park": "事实对齐失败:节拍含无来源主张，请修订后再推进",
+                "pilot_park": "事实对齐失败:节拍含无来源主张，请修订后再推进（不切句充数）",
                 "grounding": review,
                 "candidate_beats": beats,
             }
 
         # 接地通过：写 beats + beats_meta；可选 DRAMA_GATE advisory park
-        if schema_tag == "v2":
-            beats_source = "llm_v2"
-            schema = "v2"
-        else:
-            beats_source = "llm_v1"
-            schema = "v1"
+        beats_source = "llm"
+        schema = "v2" if any(
+            str(b.get("goal") or b.get("conflict") or "").strip()
+            for b in beats if isinstance(b, dict)
+        ) else "v1"
         if chapter_hook and beats and not str(beats[-1].get("hook") or "").strip():
             beats[-1]["hook"] = chapter_hook
 

@@ -209,10 +209,10 @@ REGISTRY: tuple[Setting, ...] = (
             "开=仅 text 节拍 drama_weak 警告且 ok 弱通过（代码默认，配合 DRAMA_GATE 时不因 v1 硬 park）；"
             "关=v1 高压可进 errors。质量模式关。",
             danger=False),
-    Setting("SCRIBE3_BEATS_SYNOPSIS_FALLBACK", "flags", "bool", True, "hot",
-            "节拍大纲切句充数",
-            "开=接地失败用 synopsis 切句充数并标 beats_source=synopsis_segments(代码默认兼容)；"
-            "关=接地失败 park 且不写 beats（质量模式推荐关）。",
+    Setting("SCRIBE3_BEATS_SYNOPSIS_FALLBACK", "flags", "bool", False, "hot",
+            "节拍大纲切句充数（已废）",
+            "历史旗。expand_beats 已禁止切句充数，接地失败一律 park 再走 LLM。"
+            "开也不再生效。",
             danger=True),
     Setting("SCRIBE3_CRAFT_NOVEL", "flags", "bool", True, "hot",
             "小说优先 craft 包",

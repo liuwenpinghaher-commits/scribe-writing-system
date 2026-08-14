@@ -267,12 +267,12 @@ function selContext(sel, phase, deduceName) {
     if (phase === 'outline') return {
       label: `第 ${seq} 章 · 大纲`,
       prefix: `【正在写第 ${seq} 章的大纲(synopsis)。请基于已有设定/伏笔/弧光,帮作者把这章大纲讨论清楚】\n`,
-      suggests: [`帮我把第 ${seq} 章大纲展开成 3-5 句`, `这章大纲和已埋的伏笔/弧光对得上吗?`],
+      suggests: [`用 LLM 把第 ${seq} 章大纲写成 ≥500 字因果大纲（日子/必须发生/不能说）`, `这章大纲和已埋的伏笔/弧光对得上吗?`],
     }
     if (phase === 'beats') return {
       label: `第 ${seq} 章 · 节拍`,
       prefix: `【正在拆第 ${seq} 章的节拍(beats)。请据本章大纲帮作者把这章拆成有序小节点】\n`,
-      suggests: [`据大纲把第 ${seq} 章拆成有序节拍`, `现在的节拍节奏有什么问题?`],
+      suggests: [`用 LLM 把第 ${seq} 章拆成每拍 ≥500 字的场面纸，合计 ≥2000`, `现在的节拍节奏有什么问题?`],
     }
     if (phase === 'deduce') return {
       label: `第 ${seq} 章 · 演绎 · ${deduceName || '场景真相'}`,
@@ -283,13 +283,18 @@ function selContext(sel, phase, deduceName) {
     }
     if (phase === 'draft') return {
       label: `第 ${seq} 章 · 草稿`,
-      prefix: `【正在起第 ${seq} 章的草稿。请据本章大纲/节拍与限知帧,帮作者把草稿往下推】\n`,
-      suggests: [`据大纲和节拍给第 ${seq} 章草稿开个头`, `这段草稿哪里可以更冷/更志怪?`],
+      prefix: `【正在过第 ${seq} 章的日子。先问这场必须发生哪一下、留下哪一痕；再谈字句。定场面先 s3_suggest_scene_contract 看 briefing / 上章未决，不要把建议四格原样当合同。】\n`,
+      suggests: [`这场要发生哪一下？`, `改完世上留下什么收不回的痕迹？`],
+    }
+    if (phase === 'final') return {
+      label: `第 ${seq} 章 · 稿纸`,
+      prefix: `【正在过第 ${seq} 章的日子。先问这场必须发生哪一下、留下哪一痕；再谈字句。定场面先 s3_suggest_scene_contract 看 briefing / 上章未决，不要把建议四格原样当合同。】\n`,
+      suggests: [`这场要发生哪一下？`, `改完世上留下什么收不回的痕迹？`],
     }
     return {
       label: `第 ${seq} 章`,
-      prefix: `【当前选中:第 ${seq} 章】\n`,
-      suggests: [`第 ${seq} 章该怎么展开?`, `第 ${seq} 章的伏笔/节奏有什么风险?`],
+      prefix: `【正在过第 ${seq} 章的日子。先问这场必须发生哪一下、留下哪一痕；再谈字句。定场面先 s3_suggest_scene_contract 看 briefing / 上章未决。】\n`,
+      suggests: [`这场要发生哪一下？`, `改完世上留下什么收不回的痕迹？`],
     }
   }
   const kindName = {
@@ -451,10 +456,8 @@ function selSeq(sel) {
   return null
 }
 
-// 前置阶段(块二)→ 走 /chat/write 的 phase 映射:后端 _phase_role_block 只认 plan|draft|final,
-// 大纲/节拍属规划期→'plan';演绎传真实 phase(后端注入场景真相块,投影同源派生的
-// 物理保证,断头修复#5);草稿→'draft'。
-const WRITE_PHASE = { outline: 'plan', beats: 'plan', deduce: 'deduce', draft: 'draft' }
+// 前置阶段各自独立 phase，走独立 LLM 生成合同（勿把大纲/节拍都折成 plan）。
+const WRITE_PHASE = { outline: 'outline', beats: 'beats', deduce: 'deduce', draft: 'draft', final: 'final' }
 
 function DiscussionDock({ sel, phase, ctxSeq }) {
   const seq = useMemo(() => selSeq(sel), [sel])

@@ -77,7 +77,7 @@ def test_hard_budget_constant_unchanged():
     assert NOVEL_PROMPT_HARD == 48000
     assert "deduction_final" in L0_NEVER_CUT
     assert DEFAULT_CODEX_INJECT_CAP == 4500
-    assert FOCAL_DEDUCTION_PROSE_CAP == 1800
+    assert FOCAL_DEDUCTION_PROSE_CAP == 4000
 
 
 def test_empty_chapter_returns_no_segments():
@@ -97,28 +97,23 @@ def test_draft_keeps_header_truth_and_focal_layers():
     assert "deduction" in kinds
 
 
-def test_nonfocal_unaware_not_in_joined():
+def test_nonfocal_full_layers_are_injected():
     text, segs = _joined(_Store(_default_chapter()))
-    assert NONFOCAL_UNAWARE not in text
-    nonfocal = "".join(t for _sid, kind, t in segs if "·限知边界" in t)
-    assert "### 没察觉的" not in nonfocal
-    assert NONFOCAL_UNAWARE not in nonfocal
-    assert "冷锅婆·限知边界" in text
-    assert "勿写其不知之事" in text
-    assert "冷锅婆·限知投影" not in text
+    assert NONFOCAL_UNAWARE in text
+    assert "冷锅婆·限知投影" in text
+    assert any("冷锅婆" in t for _sid, kind, t in segs)
 
 
 def test_focalizer_name_without_role_prefix_still_hits():
     text, _ = _joined(_Store(_default_chapter()), focalizer="灰七")
     assert FOCAL_UNAWARE in text
-    assert NONFOCAL_UNAWARE not in text
+    assert NONFOCAL_UNAWARE in text
 
 
-def test_no_focalizer_strips_every_unaware_layer():
+def test_no_focalizer_still_injects_full_layers():
     text, _ = _joined(_Store(_default_chapter()), focalizer="")
-    assert FOCAL_UNAWARE not in text
-    assert NONFOCAL_UNAWARE not in text
-    assert "限知边界" in text
+    assert FOCAL_UNAWARE in text
+    assert NONFOCAL_UNAWARE in text
 
 
 def test_stale_hint_without_old_body():
@@ -132,15 +127,14 @@ def test_stale_hint_without_old_body():
     assert any(k == "deduction_stale" for _, k, _ in segs)
 
 
-def test_focal_prose_capped_at_1800():
-    huge = "焦" * 4000
+def test_focal_prose_capped_at_inject_cap():
+    huge = "焦" * 5000
     ch = _default_chapter()
     ch["deductions"][0]["prose"] = huge
     text, segs = _joined(_Store(ch))
     assert huge not in text
     assert ("焦" * FOCAL_DEDUCTION_PROSE_CAP) in text
-    focal = next(t for _sid, kind, t in segs if "·限知投影〕" in t)
-    assert focal.endswith("焦" * FOCAL_DEDUCTION_PROSE_CAP)
+    focal = next(t for _sid, kind, t in segs if "灰七·限知投影" in t)
     assert focal.count("焦") == FOCAL_DEDUCTION_PROSE_CAP
 
 
@@ -160,10 +154,10 @@ def test_pack_cap_drops_nonfocal_then_excerpts_truth():
         }
         for i in range(8)
     ]
+    from scribe3.iceberg import DEDUCTION_PACK_CAP
     text, _ = _joined(_Store(_default_chapter(truth=long_truth, extra=extras)))
-    assert len(text) <= DEFAULT_CODEX_INJECT_CAP
-    assert NONFOCAL_UNAWARE not in text
-    assert all(f"UNAWARE_EXTRA_{i}_不该进" not in text for i in range(8))
+    assert len(text) <= DEDUCTION_PACK_CAP + 80
+    assert "本章演绎" in text
     assert "本章演绎" in text
     assert text.startswith("\n\n## 本章演绎") or "本章演绎" in text
 

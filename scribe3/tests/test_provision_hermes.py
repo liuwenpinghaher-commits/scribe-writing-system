@@ -648,7 +648,9 @@ def test_fresh_deploy_from_empty_home(home):
     assert deduce["platforms"]["api_server"]["port"] == 8645
     assert deduce["mcp_discovery_timeout"] == 10.0
     assert deduce["agent"]["tool_use_enforcement"] is True
-    assert deduce["mcp_servers"]["scribe3_deduce_write"]["tools"]["include"] == ["s3_patch_chapter_plan"]
+    assert deduce["mcp_servers"]["scribe3_deduce_write"]["tools"]["include"] == [
+        "s3_patch_chapter_plan", "s3_generate_stage",
+    ]
     preview = _load(home, "profiles/scribe3_deduce_preview/config.yaml")
     assert preview["platform_toolsets"]["api_server"] == ["scribe3_deduce_read"]
     assert preview["platforms"]["api_server"]["port"] == 8646

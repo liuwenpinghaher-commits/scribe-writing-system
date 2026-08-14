@@ -185,8 +185,8 @@ def drama_gate_compat_enabled() -> bool:
 
 
 def beats_synopsis_fallback_enabled() -> bool:
-    """接地失败时 synopsis 切句充数。代码默认 True（兼容）。"""
-    return _bool(FLAG_BEATS_SYNOPSIS_FALLBACK)
+    """已废：接地失败不得切句充数。恒 False（保留读点以免旧测试 import 炸）。"""
+    return False
 
 
 def craft_novel_enabled() -> bool:

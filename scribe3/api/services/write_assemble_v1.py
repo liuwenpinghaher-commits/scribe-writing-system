@@ -672,6 +672,29 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _ol_raw,
         )
         _push("outline", "supplemental", _ol)
+        # 排演全文：draft/final 都吃满；纪律是另写，不是截前 2400
+        try:
+            _ph = (phase or "").strip().lower()
+            if _ph in ("draft", "final", "write", "prose"):
+                from scribe3.stage_generate import draft_full_block
+                _ch_for_draft = st.get_chapter(chapter) or {}
+                _draw = ""
+                for _dk in ("draft", "draft_prose", "rehearsal"):
+                    _dv = _ch_for_draft.get(_dk)
+                    if isinstance(_dv, str) and _dv.strip():
+                        _draw = _dv
+                        break
+                _dt = draft_full_block(_draw)
+                if _dt:
+                    _push(
+                        "draft_full",
+                        "supplemental",
+                        _domain_input(f"chapter:{chapter}:draft-full", "draft_full", _dt),
+                    )
+        except Exception as _sf_e:
+            from scribe3.soft_fail import soft_fail
+            import logging as _sf_logging
+            soft_fail('write_assemble_draft_full', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         # 当前卷 intro 摘要(flag 默开;空 intro/无卷 → 空串) · WS-1 C.1 compact
         _vol_intro = _volume_intro_block(st, chapter, focalizer=focalizer or "")
         try:

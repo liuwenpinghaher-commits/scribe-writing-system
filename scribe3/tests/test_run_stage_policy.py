@@ -19,6 +19,7 @@ def test_deduce_scope_uses_dedicated_profile_and_exact_allowlist():
         "s3_list_world_rules",
         "s3_list_promises",
         "s3_patch_chapter_plan",
+        "s3_generate_stage",
     })
     assert policy.max_tool_calls == 12
 

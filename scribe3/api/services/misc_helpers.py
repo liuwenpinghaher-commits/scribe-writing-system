@@ -242,24 +242,25 @@ def _focalizer_sincerity_block() -> str:
 def _phase_role_block(phase: str) -> str:
     """阶段角色提示块:按写作阶段微调主编侧重（主要服务 chat_write assemble）。
 
-    phase 空 → 返回空串。outline 与 plan 同句映射；beats/deduce 各 ≤3 句。
+    phase 空 → 返回空串。outline 与 plan 同句映射。覆盖地板写进合同，禁止「建议≥3 条」。
     world_write Hermes 主路径**不依赖**本函数（用 resolve instruction_suffix）。
     """
     p = (phase or "").strip().lower()
-    # outline ↔ plan：前端 WRITE_PHASE 常把 outline 映射为 plan
+    # outline ↔ plan：前端偶发仍把 outline 映射为 plan
     if p == "outline":
         p = "plan"
     roles = {
-        "plan": "## 阶段角色(规划期/大纲)\n你此刻是规划者:重事件因果与结构骨架——先把这章要发生什么、"
-                "推动哪条线、落哪些伏笔/弧光说清,暂不雕字句。大纲用 s3_patch_chapter_plan 写 synopsis。",
-        "beats": "## 阶段角色(节拍)\n你此刻落戏剧合同:用 s3_patch_chapter_plan 写 beats；"
-                 "优先冲突与对立；建议≥3条非空；≠经验复盘六格。",
-        "deduce": "## 阶段角色(演绎)\n你此刻管认知:用 s3_patch_chapter_plan 写 scene_truth/限知投影；"
+        "plan": "## 阶段角色(规划期/大纲)\n你此刻必须用 LLM 写出因果大纲：日子、必须发生、因→果、"
+                "不能说、章末未决；去掉空白 ≥500 字。禁止一句口号。用 s3_patch_chapter_plan 写 synopsis。",
+        "beats": "## 阶段角色(节拍)\n你此刻必须用 LLM 写场面纸：≥3 拍，每拍 ≥500 字（进场/事件/翻转/出场/水下），"
+                "合计 ≥2000。GCD 短字段不能代替 text。用 s3_patch_chapter_plan 写 beats。禁止大纲切句充数。",
+        "deduce": "## 阶段角色(演绎)\n你此刻必须用 LLM 写 scene_truth + 每人五层限知投影，合计 ≥5000 字。"
+                  "禁止摘录占位、禁止空白五栏。用 s3_patch_chapter_plan 写 scene_truth/deductions；"
                   "勿把场景真相写成 s3_add_fact 世界命题。",
-        "draft": "## 阶段角色(草稿期)\n你此刻是写手:重限知帧——严格贴焦点者所知所感铺陈,"
-                 "先把场景与节拍落成连贯草稿,允许糙,但不得越界写焦点者不知之事。",
-        "final": "## 阶段角色(正文期)\n你此刻是编审:重 QC——逐句收紧文风、清复读与 AI 腔、"
-                 "查情感直说与限知泄露,把草稿打磨成定稿。",
+        "draft": "## 阶段角色(排演)\n你此刻走场面排演：糙可改，≥10000 字，只落 chapter.draft"
+                 "（s3_save_chapter_draft），禁止写入 prose，禁止越界写焦点者不知之事。",
+        "final": "## 阶段角色(正文期)\n你此刻写读者正文：冰山齐才开写，水面 ≥5000。"
+                 "只吃冰山尖与排演骨架，禁止复读万字排演。用 s3_save_chapter 落 prose。",
     }
     block = roles.get(p)
     return f"\n\n{block}" if block else ""

@@ -179,55 +179,35 @@ def _outline_block(
         raise   # U-011: fail-loud(_outline_block 大纲/节拍)
     synopsis = (ch.get("synopsis") or "").strip()
     beat_texts = []
-    has_beat_budget = False
     for b in ch.get("beats") or []:
         if isinstance(b, dict):
             t = (b.get("text") or "").strip()
-            if b.get("budget") not in (None, "", 0) or str(b.get("density") or "").strip():
-                has_beat_budget = True
         else:
             t = str(b or "").strip()
         if t:
             beat_texts.append(t)
     if not synopsis and not beat_texts:
         return ""
+    from scribe3.iceberg import clip_for
     parts = ["## 本章大纲/节拍(据此展开正文,勿另起炉灶)"]
     if synopsis:
-        parts.append("〔大纲〕" + _clip_chars(synopsis, _budget))
+        parts.append("〔大纲〕" + clip_for("synopsis", synopsis))
     if beat_texts:
-        # 每段节拍单独保留场面纸（约 500–700），禁止三拍拼成一句再 clip 光
-        beat_cap = 700
-        numbered = " ".join(
-            f"{i}.{_clip_chars(t, beat_cap)}"
+        numbered = "\n".join(
+            f"{i}.{clip_for('beat', t)}"
             for i, t in enumerate(beat_texts, 1)
         )
-        parts.append("〔节拍〕" + numbered)
-        if has_beat_budget:
-            parts.append(
-                "写作要求:严格按各情节点字数预算分配笔墨,"
-                "预算内欠账的密点优先补足,不得均匀注水。"
-            )
-        else:
-            parts.append("写作要求:按节拍轻重分配笔墨,不得均匀注水。")
+        parts.append("〔节拍〕\n" + numbered)
+        parts.append("写作要求:按节拍轻重分配笔墨,不得均匀注水。")
     if focalizer:
         parts.append("(以上为作者视角大纲,写限知视角时只呈现焦点者可感知的部分;"
                      "帧外私密留作伏笔,不得由焦点者知晓或道破。)")
     plan_mode = (mode or "write").strip().lower() == "plan"
     if plan_mode:
         parts.append(
-            "情节点字数预算契约:生成/调整节拍时,每个情节点须标注「密度:密|疏」与"
-            "「字数预算:N字」(密≥250字,慢镜头爽点400-600字,疏≈40字过场);"
-            "全部情节点预算求和必须落在[章目标字数, ×1.1]区间;"
-            "节拍列表末尾输出一行「预算合计:X字」。"
-        )
-        # 方案B任务11:章节定位六型 + 卷级张弛基线
-        parts.append(
             "章节定位标注:生成/调整大纲或节拍时,每章须标注「压力级:1-5」与"
-            "「chapter_role:高压|推进|修炼|关系回收|低压|信息整理」;"
-            "低压/关系回收章允许无显性爽点,但须保留追读拉力(未解悬念或未了结的关系张力仍须推进);"
-            "均衡基线非硬配额,严肃志怪基调整体取克制档,但同一 chapter_role 不得连排超过 2-3 章。"
+            "「chapter_role:高压|推进|修炼|关系回收|低压|信息整理」。"
         )
-        # 方案B任务13b:反转标注规范
         parts.append(
             "反转标注规范:若本章含反转,节拍须标注「reversal_type:七类之一(身份反转/"
             "动机反转/因果反转/立场反转/信息差反转/时间线反转/道德反转)」+「setup_clues」"
@@ -358,7 +338,7 @@ def _drama_block(st, chapter: int, focalizer: str = "") -> str:
         return ""
 
 
-FOCAL_DEDUCTION_PROSE_CAP = 1800  # 焦点者五层单条字帽（整包另有 DEFAULT_CODEX_INJECT_CAP）
+FOCAL_DEDUCTION_PROSE_CAP = 4000  # 单人五层上限（final 也吃满；不再 1800 尖端）
 
 
 def _deduction_item_is_focal(item: dict, focalizer: str) -> bool:
@@ -449,10 +429,10 @@ def _deduction_context_segments(
     """把场景真相、每条限知投影与固定协议分开，供 Manifest 逐源追溯。
 
     stale 投影默认**不注入全文**（只标过期提示），避免草稿采信旧限知。
-    焦点者 fresh 保留五层（单条 ≤ FOCAL_DEDUCTION_PROSE_CAP）；其余 fresh 只给
-    一行可见/已做边界，禁止其「没察觉的」。整包对齐 DEFAULT_CODEX_INJECT_CAP。
+    每人 fresh 五层全文（单条 ≤ FOCAL_DEDUCTION_PROSE_CAP）。draft/final 同档吃满。
+    整包帽 DEDUCTION_PACK_CAP（≥5000 地板）。
     """
-    from scribe3.context_budget import DEFAULT_CODEX_INJECT_CAP
+    from scribe3.iceberg import DEDUCTION_PACK_CAP, clip_for
     from scribe3.deduce_helpers import inject_deduction_items
 
     ch = st.get_chapter(seq) or {}
@@ -492,21 +472,14 @@ def _deduction_context_segments(
         prose = (item.get("prose") or "").strip()
         if not prose:
             continue
-        if _deduction_item_is_focal(item, focalizer):
-            clipped = _clip_chars(prose, _focal_cap)
-            parts.append({
-                "source_id": f"chapter:{seq}:deduction:{ordinal:04d}:{identity}",
-                "source_kind": "deduction",
-                "role": "focal",
-                "text": f"\n〔{name}·限知投影〕{clipped}",
-            })
-        else:
-            parts.append({
-                "source_id": f"chapter:{seq}:deduction:{ordinal:04d}:{identity}",
-                "source_kind": "deduction",
-                "role": "nonfocal",
-                "text": _nonfocal_boundary_line(str(name), prose),
-            })
+        clipped = clip_for("deduction", prose)
+        role = "focal" if _deduction_item_is_focal(item, focalizer) else "nonfocal"
+        parts.append({
+            "source_id": f"chapter:{seq}:deduction:{ordinal:04d}:{identity}",
+            "source_kind": "deduction",
+            "role": role,
+            "text": f"\n〔{name}·限知投影〕{clipped}",
+        })
     parts.append({
         "source_id": "protocol:scribe3-deduction-context:v1:footer",
         "source_kind": "deduction_protocol",
@@ -516,7 +489,7 @@ def _deduction_context_segments(
             "过期投影仅提示勿采信;不写角色不知道的私密。"
         ),
     })
-    _apply_deduction_pack_cap(parts, DEFAULT_CODEX_INJECT_CAP)
+    _apply_deduction_pack_cap(parts, DEDUCTION_PACK_CAP)
     return [
         (str(p["source_id"]), str(p["source_kind"]), str(p.get("text") or ""))
         for p in parts

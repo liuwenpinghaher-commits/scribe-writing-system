@@ -83,6 +83,11 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
         st, int(req.chapter or 1), req.phase or "draft",
         write_intent=True, skip=bool(getattr(req, "skip_iceberg", False)),
     )
+    from scribe3.api.routers.write import _reject_stage_not_ready
+    _reject_stage_not_ready(
+        st, int(req.chapter or 1), req.phase or "draft",
+        skip=bool(getattr(req, "skip_iceberg", False)),
+    )
     # P0门审查 P1-3 / S-3:同章 loop 互斥（进程内 set 或 DB inflight）
     _acquire_op_mutex(
         work, req.chapter, "loop",
@@ -115,10 +120,11 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
                 extra_instructions=constraints, request_text=msg)
             # 整章 loop/pilot 默认拉高生成上限：None 时常被网关截成 ~1.5k 字短稿，
             # 无法支撑连载验收「约 5k×10」真路径；8192 与 Hermes 长文档常见帽一致。
+            from scribe3.stage_generate import stage_max_tokens
             text, proposals = _collect_write(
                 msg, instructions, with_tools=with_tools,
                 on_terminal=outcome_binding.persist,
-                max_tokens=8192,
+                max_tokens=stage_max_tokens(req.phase),
             )
         # P0门审查 P1-7:只认 scope=chapter 围栏(scene/selection 片段不能当整章);
         # 无合格围栏时兜底散文必须过长度门——否则一段短聊天语可能四判据全绿直通

@@ -42,28 +42,31 @@ def build_actions(work: str) -> dict:
             syn0 = (ch.get("synopsis") or "").strip()
             truth = ""
             try:
-                truth = _pilot_llm_gen(st, work, seq, "deduce",
-                                       f"写第{seq}章这一场的「场景真相」:全知冷叙,客观上真正发生了什么。"
-                                       f"只能使用大纲已有信息,禁止新增人物/物件/规则。"
-                                       f"只输出真相正文。\n大纲:{syn0}")
+                truth = _pilot_llm_gen(
+                    st, work, seq, "deduce",
+                    f"写第{seq}章这一场的「场景真相」:全知冷叙,客观上真正发生了什么。"
+                    f"只能使用大纲已有信息,禁止新增人物/物件/规则。"
+                    f"只输出真相正文。\n大纲:{syn0}",
+                    max_tokens=2048,
+                )
             except Exception as e:
                 logging.getLogger("scribe3").warning(
                     "scene_truth LLM fail work=%s seq=%s: %s", work, seq, e)
                 truth = ""
-            # 真相须钉回大纲；LLM 失败或未过接地 → 用大纲作真相（零幻觉）
+            # 真相必须 LLM 产出；禁止把大纲复制成真相
             if truth.strip():
                 gr_t = _grounding_review(syn0, truth, mode="beats", st=st, work=work, chapter=seq)
-                if not gr_t.get("ok") and syn0:
-                    logging.getLogger("scribe3").info(
-                        "scene_truth fall back to synopsis work=%s seq=%s", work, seq)
-                    truth = syn0
-            elif syn0:
-                logging.getLogger("scribe3").info(
-                    "scene_truth LLM empty/fail → synopsis work=%s seq=%s", work, seq)
-                truth = syn0
+                if not gr_t.get("ok"):
+                    return pilot_deduce_observation(
+                        park="场景真相 LLM 未过接地，禁止用大纲充数",
+                        made=0, missing=[], stale=[], truth_revision=0,
+                        scene_truth_chars=0, deductions_count=0,
+                        inferred_involved=inferred_involved,
+                        involved_written=involved_written,
+                    )
             else:
                 return pilot_deduce_observation(
-                    park="场景真相生成失败且无大纲可回退",
+                    park="场景真相 LLM 未产出，禁止用大纲回退",
                     made=0, missing=[], stale=[], truth_revision=0,
                     scene_truth_chars=0, deductions_count=0,
                     inferred_involved=inferred_involved,
@@ -83,15 +86,17 @@ def build_actions(work: str) -> dict:
                 existing[key] = d
         deds = list(ch.get("deductions") or [])
         made = 0
-        try:
-            from scribe3.api.services.prompt_blocks import _verbatim_deduction_fallback
-        except Exception:
-            _verbatim_deduction_fallback = None
+        from scribe3.iceberg import cn_len
+        from scribe3.stage_generate import iceberg_ok_for
+        _ded_floor_ok = iceberg_ok_for(ch, "deduction")
 
         for cid in involved:
             key = normalize_role_id(cid)
             if key in existing:
-                continue   # 该角色投影已有(可能作者手编)——不覆盖
+                old_n = cn_len((existing[key] or {}).get("prose"))
+                if _ded_floor_ok or old_n >= 400:
+                    continue   # 已厚或作者手编够用——不覆盖
+                # 薄投影且全章未达 5000：必须再走 LLM 加厚
             name = key.split(":", 1)[-1] if key else str(cid).split(":")[-1]
             prose = ""
             try:
@@ -100,8 +105,11 @@ def build_actions(work: str) -> dict:
                     f"以「{name}」截至第{seq}章的限知,写该角色这一场的限知投影,分五个小标题:"
                     f"看到/听到、知道、以为(误读)、做了/说了、没察觉的;每个小标题用 ### 起行。"
                     f"只含该角色所知所感。严格遵循角色档案已有的称谓和代词;档案未给出时只用角色姓名,不能臆造性别。"
-                    f"不得新增场景真相中不存在的人物、物件、动作、时间、物理现象或人物前史;信息不足时明确留白。"
-                    f"能逐字摘录场景真相的句子优先。", focalizer=key or str(cid))
+                    f"不得新增场景真相中不存在的人物、物件、动作、时间、物理现象或人物前史。"
+                    f"禁止摘录充数、禁止「未能确认」占位。本篇须写厚（建议 ≥800 字）。",
+                    focalizer=key or str(cid),
+                    max_tokens=4096,
+                )
             except Exception as e:
                 logging.getLogger("scribe3").warning(
                     "deduction LLM fail work=%s seq=%s role=%s: %s", work, seq, name, e)
@@ -110,43 +118,46 @@ def build_actions(work: str) -> dict:
                 truth, prose, mode="deduction", st=st, work=work, chapter=seq,
             ) if (prose or "").strip() else {"ok": False, "reason": "empty_or_llm_fail"}
             if not review.get("ok"):
-                # 产品最优：可逐字追溯的投影兜底（与 grounded-fallback 同源），禁止编造
-                fb = _verbatim_deduction_fallback(truth, key or str(cid)) if _verbatim_deduction_fallback else ""
-                if fb and fb.strip():
-                    prose = fb.strip()
-                    review = _grounding_review(
-                        truth, prose, mode="deduction", st=st, work=work, chapter=seq,
+                # 只允许再调一次 LLM；禁止摘录/空白五栏充数
+                try:
+                    prose = _pilot_llm_gen(
+                        st, work, seq, "deduce",
+                        f"【重试】以「{name}」限知重写五层投影，必须依据场景真相，禁止编造。"
+                        f"每个小标题用 ### 起行。只输出投影。",
+                        focalizer=key or str(cid),
                     )
-                    logging.getLogger("scribe3").info(
-                        "deduction verbatim fallback work=%s seq=%s role=%s ok=%s",
-                        work, seq, name, review.get("ok"))
+                except Exception:
+                    prose = ""
+                review = _grounding_review(
+                    truth, prose, mode="deduction", st=st, work=work, chapter=seq,
+                ) if (prose or "").strip() else {"ok": False, "reason": "llm_retry_empty"}
                 if not review.get("ok"):
-                    # 仍失败：用「未能确认」五栏占位（仅当角色名出现在真相中），否则 park
-                    blank = "未能从场景真相确认。"
-                    if name and name in (truth or ""):
-                        from scribe3.deduce_helpers import DEDUCTION_HEADINGS
-                        prose = "\n\n".join(
-                            f"### {h}\n{blank}" for h in DEDUCTION_HEADINGS)
-                        review = {"ok": True, "fallback": "blank_five_panels"}
-                        logging.getLogger("scribe3").info(
-                            "deduction blank panels work=%s seq=%s role=%s", work, seq, name)
-                    else:
-                        obs = pilot_deduce_observation(
-                            park=f"事实对齐失败:{name}的限知投影含无来源主张，请修订后再推进",
-                            made=made, missing=missing_roles(involved, deds),
-                            stale=[], truth_revision=rev, scene_truth_chars=len(truth),
-                            deductions_count=len(deds),
-                            inferred_involved=inferred_involved,
-                            involved_written=involved_written,
-                        )
-                        return {**obs, "grounding": review, "character_id": key or str(cid),
-                                "candidate": prose}
-            deds.append(stamp_deduction(
+                    obs = pilot_deduce_observation(
+                        park=f"事实对齐失败:{name}的限知投影含无来源主张，禁止摘录/空白占位",
+                        made=made, missing=missing_roles(involved, deds),
+                        stale=[], truth_revision=rev, scene_truth_chars=len(truth),
+                        deductions_count=len(deds),
+                        inferred_involved=inferred_involved,
+                        involved_written=involved_written,
+                    )
+                    return {**obs, "grounding": review, "character_id": key or str(cid),
+                            "candidate": prose}
+            stamped = stamp_deduction(
                 {"character_id": key or str(cid), "character_name": name, "prose": prose},
                 rev,
-            ))
+            )
+            replaced = False
+            for i, old in enumerate(deds):
+                if isinstance(old, dict) and normalize_role_id(
+                    old.get("character_id") or old.get("character") or old.get("role")
+                ) == key:
+                    deds[i] = stamped
+                    replaced = True
+                    break
+            if not replaced:
+                deds.append(stamped)
             made += 1
-            existing[key] = deds[-1]
+            existing[key] = stamped
         if made:
             st.update_chapter_meta(seq, {"deductions": deds})
             ch = st.get_chapter(seq) or ch
@@ -162,7 +173,7 @@ def build_actions(work: str) -> dict:
         n_deds = len(final_ch.get("deductions") or [])
         if not made and have_truth and not miss:
             return pilot_deduce_observation(
-                skipped="演绎已有内容,按既有推进(不覆盖)",
+                skipped="演绎已达覆盖地板,按既有推进(不覆盖)",
                 made=0, missing=miss, stale=stale,
                 truth_revision=truth_revision(final_ch),
                 scene_truth_chars=len(truth),

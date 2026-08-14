@@ -100,6 +100,8 @@ scribe3_write:
       - s3_add_chapter
       - s3_patch_chapter_meta
       - s3_patch_chapter_plan
+      - s3_generate_stage
+      - s3_save_chapter_draft
       - s3_set_char_anchors
       - s3_reorder_chapters
       - s3_delete_volume
@@ -133,6 +135,7 @@ scribe3_deduce_write:
   tools:
     include:
       - s3_patch_chapter_plan
+      - s3_generate_stage
     prompts: false
     resources: false
 # 大纲/节拍 plan profile：物理工具面（include 即能力边界；无 save/ingest）
@@ -157,6 +160,7 @@ scribe3_plan_write:
     include:
       - s3_patch_chapter_plan
       - s3_patch_chapter_meta
+      - s3_generate_stage
     prompts: false
     resources: false
 
@@ -182,6 +186,8 @@ scribe3_draft_write:
   tools:
     include:
       - s3_save_chapter
+      - s3_save_chapter_draft
       - s3_patch_chapter_plan
+      - s3_generate_stage
     prompts: false
     resources: false

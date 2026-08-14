@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-MANUSCRIPT_SAVE = frozenset({"s3_save_chapter"})
+MANUSCRIPT_SAVE = frozenset({"s3_save_chapter", "s3_save_chapter_draft"})
 INGEST = frozenset({"s3_ingest_chapter"})
 UNGATED_WRITE_ALLOWLIST = frozenset()
 

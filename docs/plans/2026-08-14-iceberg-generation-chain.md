@@ -1,14 +1,13 @@
 # 冰山生成链：阶段方法论 + 写厚器 + 落库 + 尖端注入
 
-> **本文是「完善生成链」SSOT。**  
-> 闸（薄了不让存、薄了不让开写）见 [`2026-08-14-iceberg-substrate.md`](./2026-08-14-iceberg-substrate.md)。  
-> 闸已经有了；**链还没有。** 本文补的是：每个阶段**怎么生成**、生成物长什么样、怎么验收、怎么进下一阶段、正文怎么只吃冰山尖。
+> **已并入** [`2026-08-14-iceberg-complete.md`](./2026-08-14-iceberg-complete.md)。本文只作考古；冲突以完整方案为准。  
+> 闸见原 [`iceberg-substrate`](./2026-08-14-iceberg-substrate.md)；注入对齐见原 [`iceberg-inject-align`](./2026-08-14-iceberg-inject-align.md)。
 
 | 项 | 值 |
 |----|----|
 | **日期** | 2026-08-14 |
 | **产品** | 铜炉 / tonglu · `scribe3/` |
-| **状态** | Draft（方案；待按 PR 落地） |
+| **状态** | G1–G5 已落地（2026-08-14）；G6 demo 真链冒烟待部署后做 |
 | **取代** | 不取代 R8 W10 的「draft/final 不灌写法圣经」；**扩写并替换**现网 `stage_craft_prompt.py` 三句口号 |
 | **不改** | 宣称公式、`GATE_SAVE_MODE`、GATE-B 的 80 字「有没有字」口径（空壳仍可当草稿占位；**非空必须够厚**） |
 | **验证** | 只冒烟已部署 demo；禁止 Grok 机 `npm ci` / 本机 Surreal |

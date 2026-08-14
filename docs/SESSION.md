@@ -62,6 +62,18 @@
 
 ## 当前状态
 
+### 冰山完整方案（2026-08-14）
+
+> **短名：`iceberg`** · **SSOT** [`docs/plans/2026-08-14-iceberg-complete.md`](./plans/2026-08-14-iceberg-complete.md)  
+> 合并：闸 / 生成链（必须 LLM）/ 注入对齐。旧三文降为考古。  
+> 未并入：142 飞行记录仪、book79 N1–N5（另案）。
+
+- **回答**：原先**没有**独立 outline/beats/deduce/draft skill。SPA 只是同一 `/chat/write` 换 phase；唯一较独立的是 pilot `expand_beats`，还带切句充数。
+- **已落地 G1–G5**：`scribe3/stage_generate.py` StageSpec；`thicken_*` 必须 `llm_fn`；薄稿不 skip；禁大纲切句 / 摘录占位 / 空白五栏；`POST /generate-stage`；`s3_generate_stage` + `s3_save_chapter_draft`；分阶 `max_tokens`；`stage_ready` 409。
+- **注入**：final **也吃满**演绎/排演（用户裁断）。`clip_for` 刚过闸不裁；拍不再 200；draft_full 登记并 L2 保护。
+- **未做**：提交 / 部署 / G6 空章真链。未 push。
+- **轻测**：stage_generate + iceberg + inject + outline L2 + deduction_final **41 passed**。
+
 ### 故事招式库 + 38 融合（2026-08-13）
 
 > **短名：`move-library` / `38 融合`** · 设计 [`docs/plans/2026-08-13-oh-story-38-fusion.md`](./plans/2026-08-13-oh-story-38-fusion.md) · [`docs/plans/2026-08-13-move-library-design.md`](./plans/2026-08-13-move-library-design.md)

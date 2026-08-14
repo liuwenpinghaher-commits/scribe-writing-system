@@ -19,6 +19,17 @@ DEDUCTION_FLOOR = 5000
 DRAFT_FLOOR = 10000
 PROSE_SURFACE = 5000  # 水面：正文要有足够面积让冰山露出来
 
+# 注入帽：刚过闸必须全给；只砍「写超了很多」的尾巴。final 与 thicken 同档。
+INJECT_CAP = {
+    "synopsis": 2500,
+    "beat": 1200,
+    "scene_truth": 2500,
+    "deduction": 4000,
+    "draft": 12000,
+}
+DEDUCTION_PACK_CAP = 6000
+NEAR_FLOOR_RATIO = 1.2
+
 _WS = re.compile(r"\s+")
 
 # 这些阶段是在写厚冰山，不得用冰山闸卡住
@@ -30,6 +41,35 @@ _PROSE_PHASES = frozenset({"", "draft", "final", "write", "prose"})
 
 def cn_len(text: str | None) -> int:
     return len(_WS.sub("", text or ""))
+
+
+def _floor_for(field: str) -> int:
+    return {
+        "synopsis": SYNOPSIS_FLOOR,
+        "beat": BEAT_EACH_FLOOR,
+        "scene_truth": 0,
+        "deduction": 0,
+        "draft": DRAFT_FLOOR,
+    }.get(field, 0)
+
+
+def clip_for(field: str, text: str | None) -> str:
+    """唯一冰山裁切：近地板不裁；否则裁到 INJECT_CAP 且不低于地板。"""
+    raw = text or ""
+    if not raw:
+        return ""
+    n = cn_len(raw)
+    floor = _floor_for(field)
+    cap = int(INJECT_CAP.get(field) or 0)
+    if floor and n <= int(floor * NEAR_FLOOR_RATIO):
+        return raw
+    if not cap or n <= cap:
+        return raw
+    # 按字符裁到 cap，尽量不拆到地板以下
+    keep = max(cap, floor)
+    if len(raw) <= keep:
+        return raw
+    return raw[:keep]
 
 
 def iceberg_enabled() -> bool:

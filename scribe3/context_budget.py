@@ -149,6 +149,7 @@ L2_DROP_TIER: dict[str, tuple[str, ...]] = {
 # 生成段保护集（outline 等）：超 cap 时后于 T3→T2→T1 才考虑半裁
 GEN_SEGMENT_PROTECTED: frozenset[str] = frozenset({
     "outline", "brief_must", "voice_anchor",
+    "draft_full", "deduction_final",
 })
 
 
@@ -254,14 +255,25 @@ def enforce_total_prompt_budget(
             return best_i
         return protected_i
 
+    unsqueezable: set[str] = set()
     while _total() > cap:
         vi = _victim_idx()
         if vi is None:
             break
         name = str(segs[vi].get("name") or "?")
+        if name in unsqueezable:
+            break
         text = segs[vi].get("text") or ""
         if len(text) > 200:
-            segs[vi]["text"] = _half_cut_segment(name, text)
+            new = _half_cut_segment(name, text)
+            if new == text or len(new) >= len(text):
+                report["dropped"].append(f"{name}:no_shrink")
+                if name in GEN_SEGMENT_PROTECTED:
+                    unsqueezable.add(name)
+                    continue
+                segs.pop(vi)
+                continue
+            segs[vi]["text"] = new
             tag = "keep_beats" if name == "outline" else "total_half"
             report["dropped"].append(f"{name}:{tag}")
         else:
@@ -468,6 +480,7 @@ GENERATION_SEGMENT_LAYERS: dict[str, str] = {
     "voice_anchor": "supplemental",
     "reference_craft": "supplemental",
     "deduction_final": "redline",
+    "draft_full": "supplemental",
     "material_recall": "supplemental",
     "final_reminder": "redline",
     "scene_truth_proj": "redline",
@@ -854,14 +867,20 @@ def _split_outline_for_half_cut(text: str) -> tuple[str, str, str, str]:
 
 
 def _half_cut_segment(name: str, text: str) -> str:
-    """半裁。outline 保拍砍纲；其它段保持尾半裁。"""
+    """半裁。短大纲（≤800）不砍纲；长大纲才保拍砍纲。演绎/排演不半裁。"""
     s = str(text or "")
     if not s:
         return s
+    if name in ("draft_full", "deduction_final"):
+        return s
     if name != "outline":
         return s[: max(1, len(s) // 2)] + "…"
-    target = max(1, len(s) // 2)
     header, syn, beat, tail = _split_outline_for_half_cut(s)
+    syn_body = syn.replace("〔大纲〕", "")
+    from scribe3.iceberg import cn_len
+    if cn_len(syn_body) <= 800:
+        return s
+    target = max(1, len(s) // 2)
     if not beat:
         return s[:target] + "…"
     placeholder = "〔大纲〕大纲已裁，以节拍为准。"
@@ -955,15 +974,26 @@ def apply_l2_trim(
         return protected_i
 
     # hard: while L2 > cap
+    unsqueezable: set[str] = set()
     while _l2_total() > cap:
         vi = _victim_idx()
         if vi is None:
             break
         name = str(segs[vi].get("name") or "?")
+        if name in unsqueezable:
+            break
         text = segs[vi].get("text") or ""
-        # 尝试半裁；过短则整段丢弃。outline 保拍砍纲。
+        # 尝试半裁；过短则整段丢弃。短大纲/draft_full 可能拒绝缩小。
         if len(text) > 200:
-            segs[vi]["text"] = _half_cut_segment(name, text)
+            new = _half_cut_segment(name, text)
+            if new == text or len(new) >= len(text):
+                dropped.append(f"{name}:no_shrink")
+                if name in GEN_SEGMENT_PROTECTED:
+                    unsqueezable.add(name)
+                    continue
+                segs.pop(vi)
+                continue
+            segs[vi]["text"] = new
             tag = "keep_beats" if name == "outline" else "tail_half"
             dropped.append(f"{name}:{tag}")
         else:
@@ -979,6 +1009,9 @@ def apply_l2_trim(
         if vi is None:
             break
         name = str(segs[vi].get("name") or "?")
+        if name in GEN_SEGMENT_PROTECTED:
+            dropped.append(f"{name}:prompt_hard_keep")
+            break
         dropped.append(f"{name}:prompt_hard_drop")
         segs.pop(vi)
 
@@ -1056,6 +1089,7 @@ def generation_physical_order_names(*, v2: bool = True) -> list[str]:
         "pressure_drive",
         "author_prefs",
         "voice_anchor",
+        "draft_full",
         "reference_craft",
         "storyline_polish",  # SL2 · 紧邻 reference_craft 后
         "discourse_soft",  # W2 · KD-D28 紧邻 storyline_polish 后

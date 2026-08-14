@@ -61,7 +61,8 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                   # 台账 U-003 的洞本身)。全仓两个调用点(GET /chat/write、POST
                   # /chat/write)都不传自定义 label,恒用此默认值;门禁见
                   # tests/test_reveal_isolation.py。
-                  mcp_server_label: str | None = None):
+                  mcp_server_label: str | None = None,
+                  max_tokens: int | None = None):
     if mcp_server_label is None:
         from scribe3.api import app_impl as _core
         mcp_server_label = _core.SCRIBE3_READ_MCP_LABEL
@@ -216,8 +217,10 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 prop["prose"] = []
 
     try:
-        for ev in _response_events_iter(fn, message, instructions, with_tools=with_tools, store=True,
-                                        server_label=mcp_server_label):
+        _stream_kwargs = dict(with_tools=with_tools, store=True, server_label=mcp_server_label)
+        if max_tokens is not None:
+            _stream_kwargs["max_tokens"] = max_tokens
+        for ev in _response_events_iter(fn, message, instructions, **_stream_kwargs):
             if terminal_seen:
                 # 第一个 provider 终态是不可变事实；继续排空迭代器，但忽略迟到事件。
                 continue
