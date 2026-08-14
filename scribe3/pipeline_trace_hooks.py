@@ -15,6 +15,7 @@ from scribe3.pipeline_trace import (
     digest_text,
     l2_events_from_dropped,
     pipeline_trace_enabled,
+    prepare_emit_body,
     resolve_assemble_request_id,
 )
 from scribe3.pipeline_trace_catalog import lookup
@@ -143,11 +144,19 @@ def note_push(name: str, text: str | None, *, skip: str | None = None, attempted
         attempted_names={name} if attempted else set(),
     )
     meta = lookup(key)
+    body, full_n, trunc = prepare_emit_body(text, name=name)
     fields = {
         "actual": actual,
         "actual_reason": reason,
         "status": actual,
-        "output": {"shape": "block", "chars": chars, "digest": digest_text(text)},
+        "output": {
+            "shape": "block",
+            "chars": chars,
+            "digest": digest_text(text),
+            "body": body,
+            "truncated": trunc,
+            "chars_full": full_n,
+        },
         "compute": {"fn": meta.compute_fn},
     }
     facts = getattr(buf, "_facts", None)
@@ -168,6 +177,8 @@ def note_push(name: str, text: str | None, *, skip: str | None = None, attempted
                 sid, "emit.shape",
                 shape="block", chars=int(chars),
                 status=str(actual or "ok"),
+                body=text or "",
+                name=str(name or ""),
             )
     except Exception:
         pass
@@ -322,6 +333,30 @@ def end_tool(st: Any, span_id: str, *, ok: bool = True, err: str | None = None) 
         "actual": "present" if ok else "failed",
         "error": ({"summary": (err or "")[:240]} if err else None),
     })
+
+
+def note_llm_output(text: str | None) -> None:
+    """模型产出正文进 llm.generate 的 emit.shape（帽内全文，不是只记 hash）。"""
+    buf = _buf()
+    if buf is None:
+        return
+    sid = buf.span_id_for("llm.generate")
+    if not sid:
+        sid = buf.start_span("llm.generate")
+    raw = text or ""
+    body, full, trunc = prepare_emit_body(raw, name="llm_output")
+    try:
+        buf.append_log(
+            sid, "emit.shape",
+            shape="prose", chars=len(raw),
+            body=raw, name="llm_output", status="ok",
+        )
+        buf.apply_fields(sid, output={
+            "shape": "prose", "chars": len(raw),
+            "body": body, "truncated": trunc, "chars_full": full,
+        })
+    except Exception:
+        pass
 
 
 def finish_ok(st: Any, manifest_trace: dict | None, *, outcome=None) -> None:

@@ -317,6 +317,16 @@ export function RunLogsPage({ defaultWork = '' }) {
                     <li key={lg.log_id || `${lg.step_key}-${lg.seq}`} className="px-2 py-1.5 border-t border-line text-f12" data-testid="run-log-line">
                       <div className="text-faint">[{lg.step_title || lg.step_key}] {lg.code}</div>
                       <div>{lg.message || '—'}</div>
+                      {(lg.body || (lg.attrs && lg.attrs.body)) ? (
+                        <pre className="mt-1 whitespace-pre-wrap break-words text-f12 bg-soft/50 rounded px-2 py-1.5 max-h-56 overflow-auto" data-testid="run-log-body">
+                          {lg.body || lg.attrs.body}
+                          {(lg.truncated || (lg.attrs && lg.attrs.truncated)) ? (
+                            <span className="text-faint">
+                              {`\n…已截断，全文 ${lg.chars_full || (lg.attrs && lg.attrs.chars_full) || '—'} 字`}
+                            </span>
+                          ) : null}
+                        </pre>
+                      ) : null}
                     </li>
                   ))}
                   {logs.length === 0 && (
@@ -366,6 +376,11 @@ export function RunLogsPage({ defaultWork = '' }) {
                         {pick.input?.chars_in != null ? ` · ${pick.input.chars_in} 字` : ''}</div>
                       <div>计算 {(pick.compute && pick.compute.fn) || '—'}</div>
                       <div>产出 {(pick.output && pick.output.shape) || 'block'} · {pick.output?.chars ?? 0} 字</div>
+                      {pick.output && pick.output.body ? (
+                        <pre className="whitespace-pre-wrap break-words bg-soft/50 rounded px-2 py-1.5 max-h-48 overflow-auto" data-testid="run-logs-output-body">
+                          {pick.output.body}
+                        </pre>
+                      ) : null}
                       <div>耗时 {fmtMs(pick.timing?.duration_ms)}</div>
                       <div>关联 父={pick.parent_span_id || '无'} · 层 {pick.layer}{pick.tier ? ` / ${pick.tier}` : ''}</div>
                       {Array.isArray(pick.events) && pick.events.length > 0 && (

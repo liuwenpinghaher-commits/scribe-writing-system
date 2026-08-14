@@ -120,6 +120,14 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
         trace["output_hash"] = hashlib.sha256(
             "".join(raw_delta_acc).encode("utf-8")
         ).hexdigest()
+        try:
+            from scribe3.pipeline_trace_hooks import note_llm_output
+            _out = "".join(prop.get("prose") or [])
+            if not _out.strip():
+                _out = "".join(delta_acc)
+            note_llm_output(_out)
+        except Exception:
+            logging.getLogger("scribe3").warning("note_llm_output fail-soft", exc_info=True)
         txt = "".join(delta_acc).strip()
         if prop_marks:
             txt = (txt + "\n" if txt else "") + " ".join(prop_marks)
@@ -900,6 +908,15 @@ def _collect_write(message, instructions: str, with_tools: bool = True,
     trace["output_hash"] = hashlib.sha256(
         "".join(raw_delta_acc).encode("utf-8")
     ).hexdigest()
+    try:
+        from scribe3.pipeline_trace_hooks import note_llm_output
+        _out = ""
+        for p in proposals:
+            if isinstance(p, dict) and p.get("prose"):
+                _out += str(p.get("prose") or "")
+        note_llm_output(_out)
+    except Exception:
+        logging.getLogger("scribe3").warning("note_llm_output collect fail-soft", exc_info=True)
     if on_terminal is not None:
         on_terminal(trace)
     if stream_error is not None:

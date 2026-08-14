@@ -592,7 +592,7 @@ _MSG = {
     "keep.item": "保留 {name}",
     "drop.item": "{op} {name}",
     "skip.reason": "整步跳过：{reason}",
-    "emit.shape": "产出 {shape} {chars} 字",
+    "emit.shape": "产出 {shape} {chars} 字{preview}",
     "assoc.produce": "产出可供下游消费",
     "assoc.consume": "消费 {from_step_key}",
     "error.raised": "失败 {class}",
@@ -626,6 +626,31 @@ def pred_value_from_named(fn_value, *, chars_in: int | None = None) -> bool:
     return bool(fn_value)
 
 
+LOG_BODY_CAP = 4096
+_LEAK_LINE = re.compile(
+    r"严禁在正文出现以下破绽词[^。]*。|破绽词含：[^。]*。",
+    re.S,
+)
+
+
+def prepare_emit_body(text: str | None, *, name: str = "") -> tuple[str, int, bool]:
+    """逐步日志可存的产出正文。返回 (body, chars_full, truncated)。
+
+    不用键名 text（全局 FORBIDDEN_KEYS）。secret_guard / 破绽词表打码。
+    """
+    raw = text or ""
+    full = len(raw)
+    nm = (name or "").lower()
+    if "secret_guard" in nm or "破绽词" in raw or "leak_markers" in raw:
+        raw = _LEAK_LINE.sub("破绽词：〔已打码〕", raw)
+        for bad in ("铜签", "锁眼", "拨锁", "填炉底"):
+            if bad in raw and "工艺密" in raw:
+                raw = raw.replace(bad, "〔密〕")
+    if len(raw) > LOG_BODY_CAP:
+        return raw[:LOG_BODY_CAP], full, True
+    return raw, full, False
+
+
 def render_log(code: str, kw: dict, *, trace_id: str, span_id: str,
                work: str, chapter: int, kind: str) -> tuple[dict | None, dict | None]:
     raw_code = str(code or "").strip()
@@ -656,6 +681,14 @@ def render_log(code: str, kw: dict, *, trace_id: str, span_id: str,
             attrs["chars"] = int(kw.get("chars") or 0)
         except (TypeError, ValueError):
             attrs["chars"] = 0
+        name = str(kw.get("name") or "")
+        if kw.get("body") is not None:
+            body, full, trunc = prepare_emit_body(str(kw.get("body") or ""), name=name)
+            attrs["body"] = body
+            attrs["chars_full"] = full if full else attrs["chars"]
+            attrs["truncated"] = bool(trunc)
+            if attrs["chars"] == 0 and full:
+                attrs["chars"] = full
         if kw.get("outcome_id"):
             attrs["outcome_id"] = _enum(kw.get("outcome_id"), 64)
         if kw.get("status"):
@@ -665,6 +698,8 @@ def render_log(code: str, kw: dict, *, trace_id: str, span_id: str,
                 attrs["hit_count"] = int(kw["hit_count"])
             except (TypeError, ValueError):
                 pass
+        if name:
+            attrs["name"] = _enum(name, 32)
     elif raw_code == "skip.reason":
         attrs["reason"] = _enum(kw.get("reason"), 32)
     elif raw_code == "error.raised":
@@ -732,6 +767,10 @@ def render_log(code: str, kw: dict, *, trace_id: str, span_id: str,
         "used": attrs.get("used", ""),
         "flag": attrs.get("flag", ""),
         "missing": ",".join(attrs.get("missing") or []),
+        "preview": (
+            ("：" + str(attrs.get("body") or "").replace("\n", " ")[:80])
+            if attrs.get("body") else ""
+        ),
     }
     msg = _MSG.get(raw_code, "日志")
     try:
@@ -807,6 +846,10 @@ def public_log(rec: dict | None) -> dict | None:
         "empty": attrs.get("empty"),
         "value": attrs.get("value"),
         "from_span_id": attrs.get("from_span_id"),
+        "body": attrs.get("body"),
+        "chars": attrs.get("chars"),
+        "chars_full": attrs.get("chars_full"),
+        "truncated": attrs.get("truncated"),
         "trace_id": rec.get("trace_id"),
         "span_id": rec.get("span_id"),
         "chapter": rec.get("chapter"),
