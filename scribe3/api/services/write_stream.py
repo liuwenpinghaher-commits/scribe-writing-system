@@ -18,6 +18,11 @@ from functools import wraps
 from typing import Any, Optional
 
 
+def _visible_usage(usage):
+    from scribe3.llm_visible import visible_usage
+    return visible_usage(usage) if isinstance(usage, dict) else usage
+
+
 # Note: function bodies resolve free names via rebound globals on app_impl.
 def _work_has_tools(work: str) -> bool:
     """当前请求是否可挂 s3_ MCP 工具。
@@ -183,7 +188,7 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
         if not isinstance(usage, dict):
             usage = response.get("usage")
         if isinstance(usage, dict):
-            trace["usage"] = usage
+            trace["usage"] = _visible_usage(usage)
         provider = provider_trace_for_persistence(event)
         if not with_tools and provider:
             trace["provider"].update(provider)
@@ -247,9 +252,13 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 continue
             app_ev = adapter.adapt(ev)
             if app_ev["kind"] == "text.delta":
+                from scribe3.llm_visible import strip_thinking_markup
                 raw_delta = app_ev.get("delta", "")
                 if not isinstance(raw_delta, str):
                     raw_delta = str(raw_delta)
+                raw_delta = strip_thinking_markup(raw_delta)
+                if not raw_delta:
+                    continue
                 raw_delta_acc.append(raw_delta)
                 yield from drain(parser.feed(raw_delta))
             elif app_ev["kind"] == "tool.started":
@@ -311,7 +320,7 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 if isinstance(app_ev.get("response_id"), str) and app_ev["response_id"]:
                     trace["response_id"] = app_ev["response_id"]
                 if isinstance(app_ev.get("usage"), dict):
-                    trace["usage"] = app_ev["usage"]
+                    trace["usage"] = _visible_usage(app_ev["usage"])
                 response = ev.get("response") if isinstance(ev, dict) else None
                 if isinstance(response, dict) and isinstance(response.get("model"), str):
                     trace["model"] = response["model"]
@@ -323,7 +332,7 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 trace["error"] = app_ev.get("error")
                 response = ev.get("response") if isinstance(ev, dict) else None
                 if isinstance(response, dict):
-                    trace["usage"] = response.get("usage")
+                    trace["usage"] = _visible_usage(response.get("usage"))
                     if isinstance(response.get("model"), str):
                         trace["model"] = response["model"]
         yield from drain(parser.flush())
@@ -383,7 +392,7 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
             trace["response_id"] = response_id
         usage = getattr(e, "usage", None)
         if isinstance(usage, dict):
-            trace["usage"] = usage
+            trace["usage"] = _visible_usage(usage)
         if isinstance(getattr(e, "model", None), str):
             trace["model"] = e.model
         identity = getattr(e, "identity", None)
@@ -810,7 +819,7 @@ def _collect_write(message, instructions: str, with_tools: bool = True,
         if not isinstance(usage, dict):
             usage = response.get("usage")
         if isinstance(usage, dict):
-            trace["usage"] = usage
+            trace["usage"] = _visible_usage(usage)
         if not with_tools and isinstance(ev.get("trace"), dict):
             for key in ("provider", "api_base", "model", "transport", "official"):
                 value = ev["trace"].get(key)
@@ -867,9 +876,13 @@ def _collect_write(message, instructions: str, with_tools: bool = True,
                 continue
             app_ev = adapter.adapt(ev)
             if app_ev["kind"] == "text.delta":
+                from scribe3.llm_visible import strip_thinking_markup
                 raw_delta = app_ev.get("delta", "")
                 if not isinstance(raw_delta, str):
                     raw_delta = str(raw_delta)
+                raw_delta = strip_thinking_markup(raw_delta)
+                if not raw_delta:
+                    continue
                 raw_delta_acc.append(raw_delta)
                 drain(parser.feed(raw_delta))
             elif app_ev["kind"] == "run.failed":
@@ -893,7 +906,7 @@ def _collect_write(message, instructions: str, with_tools: bool = True,
                 trace["response_id"] = response_id
             usage = getattr(error, "usage", None)
             if isinstance(usage, dict):
-                trace["usage"] = usage
+                trace["usage"] = _visible_usage(usage)
             if isinstance(getattr(error, "model", None), str):
                 trace["model"] = error.model
             identity = getattr(error, "identity", None)

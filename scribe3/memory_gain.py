@@ -217,7 +217,8 @@ def score_prose_heuristic_v2(prose: str, syn: str = "", *, label: str = "X") -> 
     import re
 
     def cn_len(s: str) -> int:
-        return len(re.sub(r"\s+", "", s or ""))
+        from scribe3.llm_visible import strip_thinking_markup
+        return len(re.sub(r"\s+", "", strip_thinking_markup(s or "")))
 
     n = cn_len(prose)
     anchors = {

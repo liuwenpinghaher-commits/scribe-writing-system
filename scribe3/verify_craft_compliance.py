@@ -147,7 +147,8 @@ def _strip(s: Any) -> str:
 
 def cn_len(s: Any) -> int:
     """craft-loop / gate_b 共用：去掉全部空白后的字符数。"""
-    return len(re.sub(r"\s+", "", _strip(s)))
+    from scribe3.llm_visible import strip_thinking_markup
+    return len(re.sub(r"\s+", "", strip_thinking_markup(_strip(s))))
 
 
 def _finalize(gate: Literal["A", "B", "C", "D"], st, seq: int | None,

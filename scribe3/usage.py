@@ -91,6 +91,8 @@ def record_provider_usage(
     usage: dict | None = None,
 ) -> bool:
     """记录一次逻辑官方供应商调用；SQLite 故障返回 False，不阻断调用方。"""
+    from scribe3.llm_visible import visible_usage
+    usage = visible_usage(usage if isinstance(usage, dict) else usage)
     now = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     day = now[:10]
     values = (

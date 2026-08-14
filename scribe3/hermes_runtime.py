@@ -498,10 +498,16 @@ class HermesEventAdapter:
 
     def adapt(self, event: dict[str, Any]) -> dict[str, Any]:
         source_type = event.get("type") or event.get("event") or ""
+        if source_type in {
+            "response.reasoning.delta", "response.thinking.delta",
+            "response.reasoning_summary.delta",
+        }:
+            return {"kind": "ignored", "source_type": source_type}
         if source_type in {"response.output_text.delta", "message.delta"}:
+            from scribe3.llm_visible import strip_thinking_markup
             return {
                 "kind": "text.delta",
-                "delta": event.get("delta", ""),
+                "delta": strip_thinking_markup(str(event.get("delta") or event.get("text") or "")),
                 "source_type": source_type,
             }
         if source_type in {"tool.start", "tool.started"}:

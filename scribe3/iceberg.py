@@ -51,7 +51,8 @@ _PROSE_PHASES = frozenset({"", "draft", "final", "write", "prose"})
 
 
 def cn_len(text: str | None) -> int:
-    return len(_WS.sub("", text or ""))
+    from scribe3.llm_visible import strip_thinking_markup
+    return len(_WS.sub("", strip_thinking_markup(text or "")))
 
 
 def _floor_for(field: str) -> int:

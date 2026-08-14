@@ -1765,7 +1765,7 @@ def _rebind_services() -> None:
                 ),
             )
         )),
-        (_svc_write_stream, ['_work_has_tools', '_write_phase_allows_tools', '_WRITE_VERB_RE', '_is_write_intent', '_stream_write', '_write_snapshot', '_get_write_retriever', '_build_write_retrieval_query', '_write_context_binding', '_save_write_memory_trace', '_save_context_turn_bind', '_save_write_context_outcome', '_WriteOutcomeBinding', '_collect_write']),
+        (_svc_write_stream, ['_visible_usage', '_work_has_tools', '_write_phase_allows_tools', '_WRITE_VERB_RE', '_is_write_intent', '_stream_write', '_write_snapshot', '_get_write_retriever', '_build_write_retrieval_query', '_write_context_binding', '_save_write_memory_trace', '_save_context_turn_bind', '_save_write_context_outcome', '_WriteOutcomeBinding', '_collect_write']),
     ):
         for name in names:
             fn = getattr(mod, name)

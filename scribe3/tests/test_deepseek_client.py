@@ -435,6 +435,38 @@ def test_decoding_error_is_sanitized_without_retry(operation):
     ],
     ids=["empty-choices", "empty-content", "blank-content"],
 )
+def test_complete_keeps_only_official_content_and_usage():
+    def handler(_request):
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-think-1",
+                "model": "qwen3.8-max-preview",
+                "choices": [{
+                    "message": {
+                        "content": "<think>盘动机</think>沈拾灯按册。",
+                        "reasoning_content": "不该出现的推理",
+                    },
+                    "finish_reason": "stop",
+                }],
+                "usage": {
+                    "prompt_tokens": 8,
+                    "completion_tokens": 50,
+                    "total_tokens": 58,
+                    "completion_tokens_details": {"reasoning_tokens": 40},
+                },
+            },
+        )
+
+    with _client(handler) as transport:
+        result = deepseek.DeepSeekClient(client=transport).complete(
+            [{"role": "user", "content": "写"}]
+        )
+    assert result.content == "沈拾灯按册。"
+    assert result.usage["completion_tokens"] == 10
+    assert result.usage["total_tokens"] == 18
+
+
 def test_invalid_completion_shape_fails_loud(payload):
     def handler(_request):
         return httpx.Response(200, json=payload)

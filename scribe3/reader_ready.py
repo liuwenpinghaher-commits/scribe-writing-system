@@ -20,7 +20,8 @@ def _flag(name: str, default: str = "1") -> bool:
 
 
 def cn_len(s: str) -> int:
-    return len(re.sub(r"\s+", "", (s or "").strip()))
+    from scribe3.llm_visible import strip_thinking_markup
+    return len(re.sub(r"\s+", "", strip_thinking_markup(s or "").strip()))
 
 
 def _beat_text(b: Any) -> str:

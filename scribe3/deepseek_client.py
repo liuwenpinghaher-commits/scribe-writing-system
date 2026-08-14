@@ -393,15 +393,16 @@ class DeepSeekClient:
         message = first.get("message")
         if not isinstance(message, Mapping):
             raise self._safe_response_error(identity)
-        content = message.get("content")
-        if not isinstance(content, str) or not content.strip():
+        from scribe3.llm_visible import visible_message_text, visible_usage
+        content = visible_message_text(message)
+        if not content:
             raise self._safe_response_error(identity)
 
         response_model = payload.get("model")
         result_model = response_model if isinstance(response_model, str) and response_model else requested_model
         result_identity = self._identity(result_model)
         usage = payload.get("usage")
-        preserved_usage = dict(usage) if isinstance(usage, Mapping) else {}
+        preserved_usage = visible_usage(dict(usage) if isinstance(usage, Mapping) else {})
         finish_reason = first.get("finish_reason")
         response_id = payload.get("id")
         return CompletionResult(
@@ -579,6 +580,8 @@ class DeepSeekClient:
                 emitted_event = False
                 done = False
                 observed_usage: dict[str, Any] | None = None
+                from scribe3.llm_visible import VisibleStreamFilter, visible_delta_text, visible_usage
+                visible_filter = VisibleStreamFilter()
                 terminal_model = requested_model
                 terminal_identity = identity
                 terminal_response_id: str | None = None
@@ -640,10 +643,11 @@ class DeepSeekClient:
                                         if not isinstance(delta, Mapping):
                                             attempt_failure = self._safe_response_error(identity)
                                             break
-                                        content = delta.get("content")
-                                        if content is not None and not isinstance(content, str):
+                                        raw_content = delta.get("content")
+                                        if raw_content is not None and not isinstance(raw_content, str) and not isinstance(raw_content, list):
                                             attempt_failure = self._safe_response_error(identity)
                                             break
+                                        content = visible_filter.feed(visible_delta_text(delta))
                                         if content:
                                             delta_event = {
                                                 "type": "delta",
@@ -657,7 +661,7 @@ class DeepSeekClient:
                                 usage = payload.get("usage")
                                 if isinstance(usage, Mapping):
                                     recognized = True
-                                    observed_usage = dict(usage)
+                                    observed_usage = visible_usage(dict(usage))
                                     emitted_event = True
                                     yield {
                                         "type": "usage",
@@ -701,6 +705,19 @@ class DeepSeekClient:
                         model=terminal_model,
                     )
                     break
+                leftover = visible_filter.flush()
+                if leftover:
+                    sent_delta = True
+                    emitted_event = True
+                    tail = {
+                        "type": "delta",
+                        "delta": leftover,
+                        "model": terminal_model,
+                        "identity": terminal_identity,
+                    }
+                    if terminal_response_id is not None:
+                        tail["response_id"] = terminal_response_id
+                    yield tail
                 if not sent_delta:
                     final_failure = self._safe_response_error(
                         terminal_identity,

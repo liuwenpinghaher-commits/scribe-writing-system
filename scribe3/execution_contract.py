@@ -27,7 +27,8 @@ _QUOTE_RE = re.compile(r'[「"“]')
 
 
 def cn_len(prose: str | None) -> int:
-    return len(re.sub(r"\s+", "", prose or ""))
+    from scribe3.llm_visible import strip_thinking_markup
+    return len(re.sub(r"\s+", "", strip_thinking_markup(prose or "")))
 
 
 def count_quotes(prose: str | None) -> int:

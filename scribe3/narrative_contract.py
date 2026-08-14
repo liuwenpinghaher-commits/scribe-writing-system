@@ -41,7 +41,8 @@ _DRIVE_TURN_TEMPLATE_RE = re.compile(r"因[「「].{0,40}[」」].*局势被迫�
 
 
 def cn_len(s: str) -> int:
-    return len(re.sub(r"\s+", "", (s or "").strip()))
+    from scribe3.llm_visible import strip_thinking_markup
+    return len(re.sub(r"\s+", "", strip_thinking_markup(s or "").strip()))
 
 
 def cn_strip(s: str) -> str:
