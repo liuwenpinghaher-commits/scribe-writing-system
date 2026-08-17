@@ -452,6 +452,12 @@ def test_place_rules():
         place={"name": "华山北峰伪真空口", "delta": 2},
     )
     assert "place_travel_unsaid" not in r.errors, r.errors
+    r = evaluate_chapter_design(
+        _wb_spine(setting="伪真空口外缘向华山北峰折返的崖道上", bite="金縢箱缝还在渗"),
+        beats, known_line_ids=_KNOWN_WB, book=book,
+        place={"name": "伪真空口外缘崖道", "delta": 1},
+    )
+    assert "place_travel_unsaid" not in r.errors, r.errors
     assert same_landmark("华山北峰", "华山北峰伪真空口")
     assert same_landmark("华山北峰灯亭", "华山北峰")
     assert not same_landmark("华山北峰", "华山西峰")
@@ -682,6 +688,15 @@ def test_cast_paren_and_item_tail_not_invented():
     )
     assert not invented_cast_names(
         "焦点=沈拾灯；见证=金縢之箱、第九盏灯、场核碎片。", book,
+    )
+    book2 = _wb(
+        item_names=frozenset({"九鼎", "场核碎片"}),
+        character_names=frozenset({"柳岸青"}),
+        focus_names=("柳岸青",),
+    )
+    assert not invented_cast_names(
+        "焦点=柳岸青；对手=九鼎（悬于伪真空口上方的物件/机制）；见证=场核碎片（随行归位）。",
+        book2,
     )
     r = evaluate_chapter_design(
         _wb_spine(cast="焦点=沈拾灯；对手/见证=金縢之箱（在伪真空口内侧浮定）。"),

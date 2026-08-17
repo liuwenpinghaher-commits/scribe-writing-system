@@ -282,7 +282,7 @@ _TOPIC_STOP = frozenset({
     "挂上", "一句", "本章", "推进", "门外", "门里", "一分",
 })
 _PLACE_SUFFIX = ("伪真空口", "灯亭", "裂口", "边缘")
-_TRAVEL_MARK = ("到", "下山", "搬", "运", "换域", "抬往", "送至")
+_TRAVEL_MARK = ("到", "下山", "搬", "运", "换域", "抬往", "送至", "离开", "折返", "走回", "赶回", "步行")
 _QTY_PREFIX = ("两个", "一名", "几个", "一位", "两名", "三名")
 _MECH_TAIL = frozenset("箱锁核缝灯门库峰亭口锚")
 _WIN_SKIP = frozenset("的了在是年月日后前与和把被将从到无")
@@ -401,14 +401,15 @@ def choice_is_mirror(ab: tuple[str, str] | None) -> bool:
 
 
 def _split_cast_chunks(cast_text: str) -> list[str]:
-    parts = re.split(r"[、，,；;/]+", slot_text(cast_text))
+    # 先去掉括号说明，再切；禁止按 / 切，避免「物件/机制」把「机制）」切成人名。
+    text = _CAST_PAREN.sub("", slot_text(cast_text))
+    parts = re.split(r"[、，,；;]+", text)
     out: list[str] = []
     for raw in parts:
         p = raw.strip()
         if not p:
             continue
         p = re.sub(r"^(焦点|对手|见证)\s*[=：:]*\s*", "", p).strip()
-        p = _CAST_PAREN.sub("", p)
         p = _CAST_TAIL.sub("", p).strip()
         if p:
             out.append(p)
