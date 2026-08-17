@@ -532,12 +532,16 @@ def invented_cast_names(cast_text: str, book: DesignBook | None) -> list[str]:
 
 
 def _distinctive_overlap(blob: str, duty_text: str, book: DesignBook | None) -> bool:
-    """两段话是否在说同一件有内容的事。只共「按回/自己」这种虚词不算。"""
+    """两段话是否在说同一件有内容的事。只共「按回/自己」这种虚词不算。
+
+    不用书名专名优先：四十二度、箱壁裂纹这种账，本来就不在专名词表里。
+    """
+    del book
     if not cn_strip(duty_text):
         return True
     if not cn_strip(blob):
         return False
-    shared = topic_grams(blob, book) & topic_grams(duty_text, book)
+    shared = (_char_ngrams(blob, 2) - _TOPIC_STOP) & (_char_ngrams(duty_text, 2) - _TOPIC_STOP)
     return bool(shared - _DUTY_WEAK_GRAMS)
 
 

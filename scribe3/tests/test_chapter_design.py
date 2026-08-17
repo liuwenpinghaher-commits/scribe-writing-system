@@ -784,6 +784,28 @@ def test_duty_event_and_bill_and_who():
     assert "who_unmet" in r.errors
 
 
+def test_duty_bill_body_heat_not_world_word():
+    os.environ["SCRIBE3_CHAPTER_DESIGN"] = "on"
+    os.environ["SCRIBE3_DESIGN_BOOK"] = "on"
+    book = _wb(
+        duty_event="去医院降温，还是连夜去找金縢",
+        duty_bill="四十二度退不下去，箱子开始裂",
+        must_happen="去医院降温，还是连夜去找金縢",
+    )
+    r = evaluate_chapter_design(
+        _wb_spine(
+            goal="去医院降温，还是连夜去找金縢",
+            choice="去医院降温 vs 连夜去找金縢",
+            decision="他进医院降温",
+            cost="四十二度退不下去，金縢箱壁开始裂",
+            lines=[{"kind": "promise", "id": "box-line", "delta": "箱锁开了一缝，账还没人认"}],
+        ),
+        _wb_beats("去医院降温 vs 连夜去找金縢"),
+        known_line_ids=_KNOWN_WB, book=book,
+    )
+    assert "bill_unmet" not in r.errors, r.errors
+
+
 def test_must_happen_binds_same_topic_line():
     os.environ["SCRIBE3_CHAPTER_DESIGN"] = "on"
     os.environ["SCRIBE3_DESIGN_BOOK"] = "on"
