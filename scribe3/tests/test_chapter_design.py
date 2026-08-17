@@ -753,3 +753,30 @@ def test_must_happen_both_sides():
         known_line_ids=_KNOWN_WB, book=book,
     )
     assert "goal_off_must" not in r.errors, r.errors
+
+
+def test_must_happen_binds_same_topic_line():
+    os.environ["SCRIBE3_CHAPTER_DESIGN"] = "on"
+    os.environ["SCRIBE3_DESIGN_BOOK"] = "on"
+    book = _wb(must_happen="去医院降温 vs 连夜找金縢")
+    gold_choice = "去医院降温 vs 连夜找金縢"
+    r = evaluate_chapter_design(
+        _wb_spine(
+            goal="柳岸青要在去医院降温和连夜找金縢之间选一条",
+            choice=gold_choice,
+            decision="他连夜找金縢",
+            lines=[{"kind": "promise", "id": "box-line", "delta": "箱锁开了一缝，账还没人认"}],
+        ),
+        _wb_beats(gold_choice), known_line_ids=_KNOWN_WB, book=book,
+    )
+    assert "line_wrong_bind" not in r.errors, r.errors
+    r = evaluate_chapter_design(
+        _wb_spine(
+            goal="柳岸青要在去医院降温和连夜找金縢之间选一条",
+            choice=gold_choice,
+            decision="他连夜找金縢",
+            lines=[{"kind": "promise", "id": "ptr-line", "delta": "成核点开始复制他的指针态"}],
+        ),
+        _wb_beats(gold_choice), known_line_ids=_KNOWN_WB, book=book,
+    )
+    assert "line_wrong_bind" in r.errors

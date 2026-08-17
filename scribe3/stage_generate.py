@@ -1027,6 +1027,14 @@ def _book_card_block(st, ch: Mapping[str, Any] | None, *, extra: str = "") -> st
         bits.append("上章地点：" + book.prev_place_name)
     if book.must_happen:
         bits.append("本章必须发生：" + book.must_happen)
+        from scribe3.clue_density import topics_overlap
+        same = [
+            f"{ln.kind}:{ln.id} {ln.text}".strip()
+            for ln in book.bindable_lines
+            if topics_overlap(book.must_happen, ln.text, book)
+        ]
+        if same:
+            bits.append("与必须发生同题的线（必须绑其中一条）：\n" + "\n".join(same[:6]))
     return "\n".join(bits)
 
 

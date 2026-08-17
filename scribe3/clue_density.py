@@ -537,6 +537,9 @@ def line_wrong_bind(spine: dict | None, book: DesignBook, bound: list[dict]) -> 
     def hits_any(probe: str, texts: list[str]) -> bool:
         return any(topics_overlap(probe, t, book) for t in texts)
 
+    must = str(book.must_happen or "").strip()
+    if must:
+        return hits_any(must, unbound_texts) and not hits_any(must, bound_texts)
     if title.strip() and hits_any(title, unbound_texts) and not hits_any(title, bound_texts):
         return True
     title_hits_any_line = hits_any(title, [ln.text for ln in book.bindable_lines])
