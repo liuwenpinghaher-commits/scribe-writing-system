@@ -698,6 +698,10 @@ def test_cast_paren_and_item_tail_not_invented():
         "焦点=柳岸青；对手=九鼎（悬于伪真空口上方的物件/机制）；见证=场核碎片（随行归位）。",
         book2,
     )
+    assert not invented_cast_names(
+        "焦点=柳岸青；对手/见证=九鼎与金縢之箱并置于伪真空口上方；无新造人名。",
+        book2,
+    )
     r = evaluate_chapter_design(
         _wb_spine(cast="焦点=沈拾灯；对手/见证=金縢之箱（在伪真空口内侧浮定）。"),
         _wb_beats(), known_line_ids=_KNOWN_WB, book=book,

@@ -276,6 +276,7 @@ _FOCUS_RE = re.compile(r"焦点[:：\s]*([\u4e00-\u9fff]{2,4})")
 _MUST_RE = re.compile(r"本章发生[:：]\s*(.+)")
 _CAST_PAREN = re.compile(r"[（(][^）)]*[）)]")
 _CAST_TAIL = re.compile(r"[。．.！!？?：:]+$")
+_CAST_META = re.compile(r"无新造|禁止新造|无对手|无见证|^无$")
 _TOPIC_STOP = frozenset({
     "开始", "复制", "他的", "未开", "谁先", "这个", "那个",
     "没有", "一个", "他们", "她们", "自己", "还是", "不是",
@@ -411,6 +412,8 @@ def _split_cast_chunks(cast_text: str) -> list[str]:
             continue
         p = re.sub(r"^(焦点|对手|见证)\s*[=：:]*\s*", "", p).strip()
         p = _CAST_TAIL.sub("", p).strip()
+        if _CAST_META.search(p):
+            continue
         if p:
             out.append(p)
     return out
