@@ -458,6 +458,13 @@ def test_place_rules():
         place={"name": "伪真空口外缘崖道", "delta": 1},
     )
     assert "place_travel_unsaid" not in r.errors, r.errors
+    r = evaluate_chapter_design(
+        _wb_spine(setting="沿栈道折返并进入景区医疗站", bite="金縢箱缝还在渗"),
+        beats, known_line_ids=_KNOWN_WB,
+        book=_wb(seq=2, prev_place_name="伪真空口", prev_hook="金縢账还没人认"),
+        place={"name": "华山北峰", "delta": 0},
+    )
+    assert "place_name_mismatch" not in r.errors, r.errors
     assert same_landmark("华山北峰", "华山北峰伪真空口")
     assert same_landmark("华山北峰灯亭", "华山北峰")
     assert not same_landmark("华山北峰", "华山西峰")

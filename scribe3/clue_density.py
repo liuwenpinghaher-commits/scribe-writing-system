@@ -582,16 +582,16 @@ def evaluate_design_continuity(
         except (TypeError, ValueError):
             pdelta = -1
         prev = book.prev_place_name
-        if pdelta == 0 and prev and not same_landmark(pname, prev):
+        travel_blob = " ".join((
+            slot_text(src.get("setting")),
+            pname,
+            book.prev_setting,
+        ))
+        traveled = any(m in travel_blob for m in _TRAVEL_MARK)
+        if pdelta == 0 and prev and not same_landmark(pname, prev) and not traveled:
             errs.append("place_name_mismatch")
-        if pdelta >= 1:
-            travel_blob = " ".join((
-                slot_text(src.get("setting")),
-                pname,
-                book.prev_setting,
-            ))
-            if not any(m in travel_blob for m in _TRAVEL_MARK):
-                errs.append("place_travel_unsaid")
+        if pdelta >= 1 and not traveled:
+            errs.append("place_travel_unsaid")
     if clock is not None and place is not None:
         try:
             cdelta = int(clock.get("delta") if clock.get("delta") is not None else -1)
