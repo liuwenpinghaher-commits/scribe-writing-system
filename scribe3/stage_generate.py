@@ -112,15 +112,13 @@ def stage_is_planning_paper(phase: str | None) -> bool:
 
 def planning_system_prompt() -> str:
     return (
-        "你在写章设计，不是读者正文。"
-        "只输出标签行。禁止对白、街景、气味、烟巷凑段。"
-        "禁止写锁眼、匙孔、门芯。"
-        "在场只能用设定库已有人名；库空则对手/见证必须是已有物件/地点/机制，禁止新造人名。"
-        "第1章「咬上章」= 本章开始前的状态，禁止假装有上一章。"
-        "动哪条线：从可绑定列表里选本章正在办的那条；delta 必须是一句本章实际推进，禁止只抄 id。"
-        "seq>1：上章钩必须成为本章咬上章。"
-        "地点：换了必须报换域并写怎么到的；没换必须沿用上章地名。"
-        "硬卡若有「本章必须发生」，本章要和选择必须兑现那一组，禁止另编一场不相干的戏。"
+        "你在写这一章怎么发生，不是读者正文。"
+        "先看硬卡上的本章责任：该在的人必须各做各的事；只办那一件事；世界收的账必须是那一笔。"
+        "第1章写章开始前的状态，不要假装有上一章。"
+        "后面的章接住上一章没做完的事。"
+        "换了地方，让人看得出他怎么到的。"
+        "不要编户口里没有的人。"
+        "只输出标签行。"
     )
 
 
@@ -278,7 +276,7 @@ def _missing_bucket(mid: str) -> str:
             "cast_invented", "place_name_mismatch", "place_travel_unsaid",
             "clock_jump_unsaid", "bite_false_prev", "bite_off_hook",
             "line_delta_empty", "line_off_topic", "line_wrong_bind",
-            "choice_mirror", "goal_off_must", "design_book_missing",
+            "choice_mirror", "who_unmet", "event_unmet", "bill_unmet", "design_book_missing",
         ) or mid.startswith("beat_") or mid.startswith("place_") or mid.startswith("line_") or mid.startswith("bite_")
     ):
         return "design"
@@ -367,7 +365,7 @@ def iceberg_ok_for(
                 "cast_invented", "place_name_mismatch", "place_travel_unsaid",
                 "clock_jump_unsaid", "bite_false_prev", "bite_off_hook",
                 "line_delta_empty", "line_off_topic", "line_wrong_bind",
-                "choice_mirror", "goal_off_must", "design_book_missing",
+                "choice_mirror", "who_unmet", "event_unmet", "bill_unmet", "design_book_missing",
             )
             for m in miss
         ):
@@ -907,7 +905,7 @@ def _open_lines_block(st) -> str:
 
 
 def load_design_book(st, seq: int | None, ch: Mapping[str, Any] | None, extra: str = "") -> "DesignBook":
-    from scribe3.clue_density import BindableLine, DesignBook, extract_focus_names, extract_must_happen
+    from scribe3.clue_density import BindableLine, DesignBook, extract_focus_names, extract_duty
     from scribe3.fate_dearer import load_place
     from scribe3.narrative_drive import resolve_prev_end_hook
 
@@ -983,6 +981,7 @@ def load_design_book(st, seq: int | None, ch: Mapping[str, Any] | None, extra: s
             prev_setting = str((psp or {}).get("setting") or "")
         except Exception:
             pass
+    who, event, bill = extract_duty(extra, src)
     return DesignBook(
         seq=nseq,
         title=str(src.get("title") or ""),
@@ -995,7 +994,10 @@ def load_design_book(st, seq: int | None, ch: Mapping[str, Any] | None, extra: s
         prev_place_name=prev_place,
         prev_hook=prev_hook,
         prev_setting=prev_setting,
-        must_happen=extract_must_happen(extra, src),
+        must_happen=event,
+        duty_who=who,
+        duty_event=event,
+        duty_bill=bill,
     )
 
 
@@ -1025,16 +1027,24 @@ def _book_card_block(st, ch: Mapping[str, Any] | None, *, extra: str = "") -> st
         bits.append("上章钩：" + book.prev_hook)
     if book.prev_place_name:
         bits.append("上章地点：" + book.prev_place_name)
-    if book.must_happen:
-        bits.append("本章必须发生：" + book.must_happen)
+    if book.duty_who or book.duty_event or book.duty_bill:
+        bits.append("本章责任：")
+        if book.duty_who:
+            bits.append("谁：" + book.duty_who)
+        if book.duty_event:
+            bits.append("事：" + book.duty_event)
+        if book.duty_bill:
+            bits.append("账：" + book.duty_bill)
         from scribe3.clue_density import topics_overlap
-        same = [
-            f"{ln.kind}:{ln.id} {ln.text}".strip()
-            for ln in book.bindable_lines
-            if topics_overlap(book.must_happen, ln.text, book)
-        ]
-        if same:
-            bits.append("与必须发生同题的线（必须绑其中一条）：\n" + "\n".join(same[:6]))
+        probe = book.duty_event or book.duty_bill
+        if probe:
+            same = [
+                f"{ln.kind}:{ln.id} {ln.text}".strip()
+                for ln in book.bindable_lines
+                if topics_overlap(probe, ln.text, book)
+            ]
+            if same:
+                bits.append("这件事正在办的线：\n" + "\n".join(same[:6]))
     return "\n".join(bits)
 
 
@@ -1199,96 +1209,81 @@ def _world_contract_block(st, ch=None) -> str:
 
 
 _OUTLINE_ASK = (
-    "写本章章纲，不是场面预演，不是读者正文。每条一句，禁止对白、禁止气味/街景/微动作凑句。\n"
-    "用下列标签，缺一不可（时空/在场/咬上章可短）：\n"
+    "写这一章怎么发生。不是读者正文，不是填表。\n"
+    "硬卡若有本章责任：该在的人必须各做各的事；只办那一件事；代价必须是那一笔账。\n"
+    "第1章写章前状态。后面的章接住上一章没做完的事。换了地方，让人看得出他怎么到的。\n"
+    "不要编户口里没有的人。\n"
     "\n"
-    "时空：何时何地，一句\n"
-    "在场：焦点 / 对手 / 见证\n"
-    "咬上章：接哪一口余烬\n"
-    "本章要：可核对的动作目标；必须点名至少一个世界机制词（大遮蔽/成核点/指针态/场核/金縢），禁止只写看清/涌出/箱子\n"
-    "挡：谁或什么使目标变贵\n"
+    "下面标签是给机器读稿用的，不是写好的标准。用这些标签交卷：\n"
+    "时空：何时何地\n"
+    "在场：谁在做事（该在的人不能只站着）\n"
+    "咬上章：接住的那件没做完的事\n"
+    "本章要：责任里那一件事怎么动手\n"
+    "挡：谁或什么使它变贵\n"
     "触发：打破平衡的一下\n"
-    "升级：原策略失败或新信息\n"
-    "选择：必须写成「A vs B」，两边都有损失\n"
+    "升级：原办法失败或新信息\n"
+    "选择：他面对的两难，两边都有损失；能拆开最好\n"
     "决断：他选了哪边\n"
-    "代价：世界因此怎么变；必须点名至少一个世界机制词\n"
+    "代价：世界因此怎么变，必须是责任里那一笔账\n"
     "信息差：谁新知道 / 仍不知\n"
-    "动哪条线：1–2 条，必须写成 promise:<已有id> 或 storyline:<已有id> 加短句；禁止无 id\n"
-    "钩：未完成动作\n"
+    "动哪条线：正在办的那条的编号，后面跟一句本章推进\n"
+    "钩：还没做完的动作\n"
     "禁令：本章不能说出口的（可写「无」）\n"
-    "时长：beat / scene / day / stretch / leap（缺一不可）\n"
-    "增量：0 钟没走 / 1 走了一档 / 2 跳切。delta=0 全章只许一次；第三次冻钟须写冻钟理由。\n"
-    "地点：短名（侧门旧库 / 华山北峰 / 金縢密室）\n"
-    "地点增量：0 同室  1 同区  2 换域。delta=0 只许一章；第三次须写留驻理由。\n"
-    "世界事实：一句可核对的世界变化（大遮蔽从双向隐形变为单向可见 / 成核点开始复制他的指针态）。"
-    "禁止只写「更险 / 再撕一线 / 真真空泡」这种形容词循环。\n"
-    "挡槽须写功能差：对手本分不能只是按住另一物件。\n"
-    "\n"
-    "禁止「全文≥N字」。禁止完成灯、口号当全文。只输出上述标签行。"
-    "禁止命令「必须有一句母亲咳 / 原样复述三拍 / 必须以时空：开头」。"
+    "时长：这一场有多长\n"
+    "增量：钟走了没有\n"
+    "地点：还在哪\n"
+    "地点增量：换没换地方\n"
+    "世界事实：世界因此可核对的变化\n"
+    "只输出上述标签行。"
 )
 
 _DESIGN_ASK = (
-    "写本章设计，不是场面预演，不是读者正文。分两块输出，缺一不可。\n"
-    "必须先写【章】全部标签，再写【拍】；拍头必须是单独一行「## 拍1」「## 拍2」「## 拍3」。\n"
-    "选拍：2\n"
+    "写这一章怎么发生，并拆成几场上台的压力。不是读者正文，不是填表。\n"
+    "硬卡若有本章责任：该在的人必须各做各的事；只办那一件事；代价必须是那一笔账。\n"
+    "第1章写章前状态。后面的章接住上一章没做完的事。换了地方，让人看得出他怎么到的。\n"
+    "不要编户口里没有的人。\n"
+    "先写【章】，再写【拍】。拍头单独一行「## 拍1」「## 拍2」「## 拍3」。\n"
     "\n"
-    "【章】用下列标签，每条一句，禁止对白、禁止气味/街景/微动作凑句：\n"
-    "时空：何时何地，一句\n"
-    "在场：焦点=已有人名或主编点名的焦点；对手/见证=已有人名，库空则写物件/地点/机制；禁止新造三字人名\n"
-    "咬上章：第1章写章前状态，禁止「接上章/上一口/余烬」。第2章起必须咬上章钩里的核心物\n"
-    "本章要：可核对的动作目标；硬卡有「本章必须发生」时必须兑现那一组，禁止另编一场不相干的戏；必须点名至少一个世界机制词（大遮蔽/成核点/指针态/场核/金縢），禁止只写看清/涌出/箱子\n"
-    "挡：谁或什么使目标变贵\n"
+    "【章】标签是给机器读稿用的：\n"
+    "时空：何时何地\n"
+    "在场：谁在做事\n"
+    "咬上章：接住的那件没做完的事\n"
+    "本章要：责任里那一件事怎么动手\n"
+    "挡：谁或什么使它变贵\n"
     "触发：打破平衡的一下\n"
-    "升级：原策略失败或新信息\n"
-    "选择：写成「A vs B」（分隔符必须是 vs 或 /），两边都有损失；一句说清即可。硬卡有「本章必须发生」时选择必须就是那一组。禁止只换左右的镜像后果\n"
-    "决断：他选了哪边；一句说清\n"
-    "代价：世界因此怎么变；必须点名至少一个世界机制词；一句说清\n"
+    "升级：原办法失败或新信息\n"
+    "选择：他面对的两难，两边都有损失；能拆开最好\n"
+    "决断：他选了哪边\n"
+    "代价：世界因此怎么变，必须是责任里那一笔账\n"
     "信息差：谁新知道 / 仍不知\n"
-    "动哪条线：抄本章正在办的那条的 id，后面跟一句本章实际推进\n"
-    "钩：未完成动作\n"
+    "动哪条线：正在办的那条的编号，后面跟一句本章推进\n"
+    "钩：还没做完的动作\n"
     "禁令：本章不能说出口的（可写「无」）\n"
-    "时长：beat / scene / day / stretch / leap（缺一不可）\n"
-    "增量：0 钟没走 / 1 走了一档 / 2 跳切。delta=0 全章只许一次；第三次冻钟须写冻钟理由。"
-    "增量：2 且地点没换，必须写留驻或跳切理由。时长 day 不是跳了三天。\n"
-    "地点：沿用上章地名；换域须写怎么到的\n"
-    "地点增量：0 同室  1 同区  2 换域。换了必须报换域并写怎么到的。\n"
-    "世界事实：一句可核对的世界变化。"
-    "禁止只写「更险 / 再撕一线 / 真真空泡」这种形容词循环。\n"
-    "挡槽须写功能差：对手本分不能只是按住另一物件。\n"
-    "【章】每槽一句完整话，把该写的写清；不限字数。禁止用烟/巷/气味凑成一段。口号不算。\n"
+    "时长：这一场有多长\n"
+    "增量：钟走了没有\n"
+    "地点：还在哪\n"
+    "地点增量：换没换地方\n"
+    "世界事实：世界因此可核对的变化\n"
     "\n"
-    "【拍】把上面这一章拆成 ≥3 拍场面台阶。每拍必须用这个形状：\n"
+    "【拍】至少三场上台的压力，每场都推进那一件事。带选择的那场把账付清。\n"
     "## 拍1\n要：\n挡：\n变：\n付：\n选：无\n水下：\n"
-    "## 拍2\n要：\n挡：\n变：\n付：\n选：与【章】选择同一组 A vs B（可略写，不得另造）\n水下：\n"
+    "## 拍2\n要：\n挡：\n变：\n付：\n选：与【章】里同一道两难\n水下：\n"
     "## 拍3\n要：\n挡：\n变：\n付：\n选：无\n水下：\n"
-    "默认拍2必须演出【章】里那个 A vs B。可另写一行「选拍：N」改指定；省略或非法 N 当作没写，回退拍2。\n"
-    "指定拍必须带选，禁止另造第二道选择。其余拍的选写「无」或留空。\n"
-    "每拍要/挡/变/付/选各写一句完整话，不限字数。禁止进场空气段。\n"
-    "每拍要/挡/变/付是章的展开，必须是本章新动作。\n"
-    "禁止进场空气段。禁止每拍重写烟/锅/巷。禁止拍里写锁眼/匙孔/门芯。\n"
-    "决断与代价里的动词必须落在带选那一拍的要/挡/变/付里。GCD 短句是主合同。\n"
-    "\n"
-    "禁止「全文≥N字」。禁止完成灯、口号当全文。只输出上述标签行。"
-    "禁止命令「必须有一句… / 原样复述 / 必须以时空：开头」。"
+    "默认第二场演出那道两难。其余场的选写「无」。\n"
+    "只输出上述标签行。"
 )
 
 _BEATS_ASK = (
-    "把本章拆成 ≥3 拍场面台阶（不是逛场路线）。每拍只写：\n"
-    "要：本拍目标\n"
-    "挡：冲突\n"
-    "变：新信息或策略失败\n"
-    "付：结果/把柄\n"
-    "选：二选一（A vs B）。全章至少一拍必须有选（能拆 A/B）。其余拍写「无」或留空——"
-    "解析归一为未选，不算已有选择\n"
-    "水下：一句作者知、正文不写\n"
-    "\n"
-    "台阶必须兑现本章【必须落地】里的选择/决断/代价。"
-    "禁止把上章任一带 GCD 换词搬来。本章决断的稀有词必须落在带「选」的那一拍。"
-    "每拍要/挡/变/付必须是本章新动作。\n"
-    "禁止进场空气段。禁止每拍重写烟/锅/巷。\n"
-    "GCD 短句是主合同，不要另写千字场面。禁止「每拍≥500」。\n"
-    "只输出各拍标签行。"
+    "把这一章拆成至少三场上台的压力。每场都要推进责任里那一件事。"
+    "带选择的那场把账付清。不要逛场，不要把上一章再演一遍。\n"
+    "每场用这些标签交卷：\n"
+    "要：这一场要办成什么\n"
+    "挡：谁或什么使它变贵\n"
+    "变：新信息或原办法失败\n"
+    "付：这一场付出去的东西\n"
+    "选：若是做决定的那场，写出那道两难；其余写「无」\n"
+    "水下：作者知道、正文不写的一句\n"
+    "只输出各场标签行。"
 )
 
 _DEDUCE_ASK = (
@@ -1362,8 +1357,12 @@ def _design_fail_hint(parsed: Mapping[str, Any] | None, dens) -> str:
             bits.append("推进必须在说这条线本身，不要挂错线")
         elif e == "choice_mirror":
             bits.append("选择两边不能只是左右互换，后果必须不同")
-        elif e == "goal_off_must":
-            bits.append("本章要和选择必须兑现硬卡「本章必须发生」的两边，不要另编一场戏")
+        elif e == "who_unmet":
+            bits.append("责任里点名的人必须在场并做事，不能只站着")
+        elif e == "event_unmet":
+            bits.append("本章要办的是责任里那一件事，不要另编一场")
+        elif e == "bill_unmet":
+            bits.append("代价必须是责任里那一笔账")
         elif e.startswith("beat_gcd") or e.startswith("beat_slots"):
             bits.append(f"{e}：这一格写空了或没写出动作/变化")
         elif e == "spine_goal_thin":
@@ -1439,12 +1438,8 @@ def build_stage_prompt(
             bits.insert(0, card)
         if not (retry_hint and "只补没过" in retry_hint):
             bits.insert(0, (
-                "【写清】每槽一句完整话，把该写的写清，不限字数。"
-                "禁止用烟/巷/气味凑段。禁止口号。"
-                "本章要、代价必须能核对：有动作，或点名世界机制。"
-                "拍2的选必须对上【章】里那个 A vs B。"
-                "必须有：时长、增量、地点、地点增量、世界事实（一句可核对的变化）。"
-                "禁止锁眼、匙孔、门芯。禁止只写「B——」。"
+                "先写这场戏：该在的人做事，只办责任里那一件，账按责任来付。"
+                "标签是给机器读的。"
             ))
             if retry_hint:
                 bits.insert(0, retry_hint)
@@ -2066,8 +2061,13 @@ def thicken_chapter_design(
     meta["schema_design"] = "chapter_design.v1"
     if parsed.get("designated_beat"):
         meta["designated_beat"] = parsed["designated_beat"]
-    if book and getattr(book, "must_happen", ""):
-        meta["must_happen"] = book.must_happen
+    if book and (getattr(book, "duty_event", "") or getattr(book, "must_happen", "") or getattr(book, "duty_who", "") or getattr(book, "duty_bill", "")):
+        meta["duty"] = {
+            "who": getattr(book, "duty_who", "") or "",
+            "event": getattr(book, "duty_event", "") or getattr(book, "must_happen", "") or "",
+            "bill": getattr(book, "duty_bill", "") or "",
+        }
+        meta["must_happen"] = meta["duty"]["event"]
     fields["beats_meta"] = meta
     try:
         from scribe3.world_surface import coerce_world_claim, groups_from_spine, merge_world_claim

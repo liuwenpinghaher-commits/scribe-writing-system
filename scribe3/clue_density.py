@@ -270,10 +270,20 @@ class DesignBook:
     prev_hook: str = ""
     prev_setting: str = ""
     must_happen: str = ""
+    duty_who: str = ""
+    duty_event: str = ""
+    duty_bill: str = ""
 
 
 _FOCUS_RE = re.compile(r"焦点[:：\s]*([\u4e00-\u9fff]{2,4})")
 _MUST_RE = re.compile(r"本章发生[:：]\s*(.+)")
+_DUTY_WHO_RE = re.compile(r"(?:^|\n)\s*谁[:：]\s*(.+)")
+_DUTY_EVENT_RE = re.compile(r"(?:^|\n)\s*事[:：]\s*(.+)")
+_DUTY_BILL_RE = re.compile(r"(?:^|\n)\s*账[:：]\s*(.+)")
+_DUTY_WEAK_GRAMS = frozenset({
+    "按回", "自己", "还是", "出去", "回来", "必须", "选择", "本章",
+    "发生", "责任", "打开", "或者", "还是", "一个", "这个",
+})
 _CAST_PAREN = re.compile(r"[（(][^）)]*[）)]")
 _CAST_TAIL = re.compile(r"[。．.！!？?：:]+$")
 _CAST_META = re.compile(r"无新造|禁止新造|无对手|无见证|^无$")
@@ -306,13 +316,15 @@ _ALLOW_BY_ERR = {
     "choice_mirror": frozenset({"choice"}),
     "spine_choice": frozenset({"choice"}),
     "choice_not_staged": frozenset({"choice"}),
-    "goal_off_must": frozenset({"goal", "choice", "decision"}),
+    "who_unmet": frozenset({"cast", "obstacle", "goal"}),
+    "event_unmet": frozenset({"goal", "choice", "decision"}),
+    "bill_unmet": frozenset({"cost"}),
 }
 DESIGN_BOOK_ERR_IDS = frozenset({
     "cast_invented", "place_name_mismatch", "place_travel_unsaid",
     "clock_jump_unsaid", "bite_false_prev", "bite_off_hook",
     "line_delta_empty", "line_off_topic", "line_wrong_bind", "choice_mirror",
-    "goal_off_must", "design_book_missing",
+    "who_unmet", "event_unmet", "bill_unmet", "design_book_missing",
 })
 
 
@@ -329,19 +341,38 @@ def extract_focus_names(extra: str, ch: Any = None) -> tuple[str, ...]:
 
 
 def extract_must_happen(extra: str = "", ch: Any = None) -> str:
-    """本章必须发生：章上 beats_meta.must_happen，或 extra「本章发生：…」。空则不考。"""
+    """兼容旧字段。新检查走 extract_duty 的「事」。"""
+    return extract_duty(extra, ch)[1]
+
+
+def extract_duty(extra: str = "", ch: Any = None) -> tuple[str, str, str]:
+    """本章责任：谁 / 事 / 账。章上 beats_meta.duty 优先，其次旧 must_happen，再次 extra。"""
+    who = event = bill = ""
     if isinstance(ch, dict):
-        raw = ch.get("must_happen")
-        if str(raw or "").strip():
-            return str(raw).strip()
+        raw = ch.get("duty") if isinstance(ch.get("duty"), dict) else {}
         meta = ch.get("beats_meta") if isinstance(ch.get("beats_meta"), dict) else {}
-        hit = str((meta or {}).get("must_happen") or "").strip()
-        if hit:
-            return hit
-    m = _MUST_RE.search(extra or "")
-    if m:
-        return str(m.group(1) or "").strip()
-    return ""
+        d = raw or (meta.get("duty") if isinstance(meta.get("duty"), dict) else {})
+        who = str((d or {}).get("who") or "").strip()
+        event = str((d or {}).get("event") or "").strip()
+        bill = str((d or {}).get("bill") or "").strip()
+        if not event:
+            event = str(ch.get("must_happen") or "").strip()
+        if not event:
+            event = str((meta or {}).get("must_happen") or "").strip()
+    blob = extra or ""
+    if not who:
+        m = _DUTY_WHO_RE.search(blob)
+        if m:
+            who = str(m.group(1) or "").strip()
+    if not event:
+        m = _DUTY_EVENT_RE.search(blob) or _MUST_RE.search(blob)
+        if m:
+            event = str(m.group(1) or "").strip()
+    if not bill:
+        m = _DUTY_BILL_RE.search(blob)
+        if m:
+            bill = str(m.group(1) or "").strip()
+    return who, event, bill
 
 
 def _book_proper_grams(book: DesignBook | None, extra_text: str = "") -> set[str]:
@@ -500,12 +531,50 @@ def invented_cast_names(cast_text: str, book: DesignBook | None) -> list[str]:
     return invented
 
 
-def must_unmet(spine: dict | None, book: DesignBook | None) -> bool:
-    """有「必须发生」时，本章要/选择/决断必须兑现那一组两边。空则不考。"""
+def _distinctive_overlap(blob: str, duty_text: str, book: DesignBook | None) -> bool:
+    """两段话是否在说同一件有内容的事。只共「按回/自己」这种虚词不算。"""
+    if not cn_strip(duty_text):
+        return True
+    if not cn_strip(blob):
+        return False
+    shared = topic_grams(blob, book) & topic_grams(duty_text, book)
+    return bool(shared - _DUTY_WEAK_GRAMS)
+
+
+def duty_actor_names(who: str, book: DesignBook | None) -> list[str]:
+    if not who or book is None:
+        return []
+    allow = set(book.character_names) | set(book.focus_names)
+    return [n for n in sorted(allow) if n and n in who]
+
+
+def who_unmet(spine: dict | None, beats: list | None, book: DesignBook | None) -> bool:
+    """责任里点名的人，必须在场并做事。空则不考。"""
     if book is None:
         return False
-    must = str(book.must_happen or "").strip()
-    if not must:
+    names = duty_actor_names(book.duty_who, book)
+    if not names:
+        return False
+    src = coerce_spine(spine)
+    bits = [
+        slot_text(src.get("cast")),
+        slot_text(src.get("goal")),
+        slot_text(src.get("obstacle")),
+        slot_text(src.get("decision")),
+    ]
+    for b in beats or []:
+        if isinstance(b, dict):
+            bits.extend(slot_text(b.get(k)) for k in ("goal", "conflict", "turn", "cost"))
+    blob = " ".join(bits)
+    return any(n not in blob for n in names)
+
+
+def event_unmet(spine: dict | None, book: DesignBook | None) -> bool:
+    """本章要/选择/决断必须在办责任里那一件事。空则不考。"""
+    if book is None:
+        return False
+    event = str(book.duty_event or book.must_happen or "").strip()
+    if not event:
         return False
     src = coerce_spine(spine)
     blob = " ".join((
@@ -513,12 +582,23 @@ def must_unmet(spine: dict | None, book: DesignBook | None) -> bool:
         slot_text(src.get("choice")),
         slot_text(src.get("decision")),
     ))
-    ab = parse_choice_ab(must)
-    if ab:
-        return not (
-            topics_overlap(blob, ab[0], book) and topics_overlap(blob, ab[1], book)
-        )
-    return not topics_overlap(blob, must, book)
+    return not _distinctive_overlap(blob, event, book)
+
+
+def bill_unmet(spine: dict | None, book: DesignBook | None) -> bool:
+    """代价必须是责任里那一笔账。空则不考。"""
+    if book is None:
+        return False
+    bill = str(book.duty_bill or "").strip()
+    if not bill:
+        return False
+    src = coerce_spine(spine)
+    return not _distinctive_overlap(slot_text(src.get("cost")), bill, book)
+
+
+def must_unmet(spine: dict | None, book: DesignBook | None) -> bool:
+    """旧名：事没发生。"""
+    return event_unmet(spine, book)
 
 
 def line_wrong_bind(spine: dict | None, book: DesignBook, bound: list[dict]) -> bool:
@@ -537,7 +617,7 @@ def line_wrong_bind(spine: dict | None, book: DesignBook, bound: list[dict]) -> 
     def hits_any(probe: str, texts: list[str]) -> bool:
         return any(topics_overlap(probe, t, book) for t in texts)
 
-    must = str(book.must_happen or "").strip()
+    must = str(book.duty_event or book.must_happen or "").strip()
     if must:
         return hits_any(must, unbound_texts) and not hits_any(must, bound_texts)
     if title.strip() and hits_any(title, unbound_texts) and not hits_any(title, bound_texts):
@@ -585,15 +665,19 @@ def evaluate_design_continuity(
         except (TypeError, ValueError):
             pdelta = -1
         prev = book.prev_place_name
-        travel_blob = " ".join((
-            slot_text(src.get("setting")),
-            pname,
-            book.prev_setting,
-        ))
-        traveled = any(m in travel_blob for m in _TRAVEL_MARK)
-        if pdelta == 0 and prev and not same_landmark(pname, prev) and not traveled:
-            errs.append("place_name_mismatch")
-        if pdelta >= 1 and not traveled:
+        setting = slot_text(src.get("setting"))
+        moved = bool(prev) and not same_landmark(pname, prev)
+        if moved:
+            marks = [place_core(pname), cn_strip(pname)]
+            for suf in _PLACE_SUFFIX:
+                if cn_strip(pname).endswith(suf):
+                    marks.append(suf)
+            seen = any(m and cn_len(m) >= 2 and m in setting for m in marks)
+            if not setting:
+                errs.append("place_name_mismatch" if pdelta == 0 else "place_travel_unsaid")
+            elif not seen:
+                errs.append("place_travel_unsaid")
+        elif pdelta >= 1 and not setting:
             errs.append("place_travel_unsaid")
     if clock is not None and place is not None:
         try:
@@ -632,8 +716,12 @@ def evaluate_design_continuity(
     ab = parse_choice_ab(src.get("choice"))
     if choice_is_mirror(ab):
         errs.append("choice_mirror")
-    if must_unmet(src, book):
-        errs.append("goal_off_must")
+    if who_unmet(src, None, book):
+        errs.append("who_unmet")
+    if event_unmet(src, book):
+        errs.append("event_unmet")
+    if bill_unmet(src, book):
+        errs.append("bill_unmet")
     return errs
 
 
@@ -708,9 +796,9 @@ def evaluate_spine(
     if not project_four_ok(src):
         errs.append("spine_slots:four")
     if design:
-        if slot_text(src.get("goal")) and not _has_content_payload(src.get("goal")):
+        if slot_text(src.get("goal")) and not is_atom_field(src.get("goal")):
             errs.append("spine_goal_thin")
-        if slot_text(src.get("cost")) and not _has_content_payload(src.get("cost")):
+        if slot_text(src.get("cost")) and not is_atom_field(src.get("cost")):
             errs.append("spine_cost_thin")
     else:
         if len(atoms) < WORKING_MIN_ATOMS:

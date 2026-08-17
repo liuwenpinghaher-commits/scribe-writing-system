@@ -195,42 +195,45 @@ def _split_bags(kind: str, fields: dict) -> tuple[dict, dict, dict]:
 def spec_ask(kind: str) -> str:
     if kind == "term":
         return (
-            "【术语合同】只输出 JSON 或带小标题正文。definition 必须含四格："
-            "是什么、不是什么、本书用法、边界。去空白合计 ≥1200 字。禁止一句词典、禁止 16 字。"
+            "写这个词在这本书里怎么收账。不是词典。"
+            "说清：它是什么、它不是什么、它怎样让人变贵、它的边界。"
+            "用小标题或 JSON 交卷，好让机器读懂。"
         )
     if kind == "character":
         return (
-            "【角色合同】只输出 JSON。必须含 personality_detail≥200、surface_goal/deep_need/"
-            "fear/internal_conflict 各≥80、abilities 与 weaknesses 各至少一项。"
-            "公开包合计≥1200。秘密前史若有则另标 backstory_secret。禁止只回名字。"
+            "写这个人在这本书里的责任。不是填表。"
+            "他要什么、他会让主角付出什么、他怕什么、他不知道什么。"
+            "性格、前史只为说清这四件事。"
+            "用 JSON 交卷。不要只回一个名字。"
         )
     if kind == "faction":
         return (
-            "【势力合同】只输出 JSON。必须含 ideology≥200、public_face≥80、"
-            "structure 或 recruitment≥80、leader、goals（至少一条 target）。"
-            "公开包≥1200。secret_agenda 只放主编袋，不要写进公开字段。"
-            "禁止生成 private_operation。"
+            "写这股势力在这本书里要主角付出什么。不是机构简介。"
+            "他们公开要什么、私下要什么、谁来收账。"
+            "用 JSON 交卷。"
         )
     if kind == "item":
         return (
-            "【物件合同】JSON：description≥400（外观+用途+叙事功能）、current_owner 非空、"
-            "special_properties 至少一项（无超自然则 [\"无\"]）、symbolic_state。"
-            "公开包≥1200。"
+            "写这件东西让谁变贵。不是器物说明书。"
+            "谁拿着、碰它要付什么、它此刻处于什么状态。"
+            "用 JSON 交卷。"
         )
     if kind == "world_rule":
         return (
-            "【世界规则合同】JSON：cost≥80、limitations/exceptions/capabilities 各至少一项"
-            "（真无例外用 [\"无\"]）、scope、source。公开包≥1200。禁止写成免费超能力。"
+            "写这条规矩谁打破谁付钱。不是免费超能力。"
+            "代价是什么、谁例外、它管到哪里。"
+            "用 JSON 交卷。"
         )
     if kind == "motif":
         return (
-            "【母题合同】JSON：theme≥40、echo_terms≥3 个≥2 字词、unfolding≥80。"
-            "禁止写成 1200 字圣经散文。"
+            "写这个母题在书里怎么一次次回来咬人。不是主题作文。"
+            "它回声是什么、它怎样展开。"
+            "用 JSON 交卷。"
         )
     if kind == "voice":
         return (
-            "【声口合同】JSON：style_summary≥80，并至少两项："
-            "catchphrases / tone_rules / internal_monologue_style / sentence_patterns。"
+            "写这个人说话时让人听得出是他。不是形容词堆砌。"
+            "用 JSON 交卷。"
         )
     return ""
 

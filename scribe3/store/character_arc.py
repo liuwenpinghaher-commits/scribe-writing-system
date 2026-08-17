@@ -106,10 +106,10 @@ class CharacterArcMixin:
         char_issues = []
         for c in chars:
             issues = []
-            if not c.traits.get("backstory"):
-                issues.append("缺前史/背景")
-            if not c.traits.get("personality_tags"):
-                issues.append("缺性格标签")
+            if not (c.traits.get("surface_goal") or c.traits.get("deep_need")):
+                issues.append("缺他要什么")
+            if not (c.traits.get("internal_conflict") or c.traits.get("fear")):
+                issues.append("缺他让人付出什么")
             if issues:
                 char_issues.append({"name": c.name, "issues": issues})
 

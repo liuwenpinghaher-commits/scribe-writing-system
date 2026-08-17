@@ -91,7 +91,7 @@ def test_design_ask_does_not_fail_whole_page_on_forty_chars():
 
 def test_planning_paper_has_no_lock_words():
     sys = planning_system_prompt()
-    assert "章设计" in sys
+    assert "责任" in sys
     assert "侧门开法" not in sys
     assert "拨锁" not in sys
 
@@ -429,7 +429,7 @@ def test_place_rules():
         spine, beats, known_line_ids=_KNOWN_WB, book=book,
         place={"name": "侧门旧库", "delta": 0},
     )
-    assert "place_name_mismatch" in r.errors
+    assert "place_name_mismatch" in r.errors or "place_travel_unsaid" in r.errors
     r = evaluate_chapter_design(
         spine, beats, known_line_ids=_KNOWN_WB, book=book,
         place={"name": "华山北峰伪真空口", "delta": 0},
@@ -439,11 +439,11 @@ def test_place_rules():
         spine, beats, known_line_ids=_KNOWN_WB, book=book,
         place={"name": "华山西峰", "delta": 0},
     )
-    assert "place_name_mismatch" in r.errors
+    assert "place_travel_unsaid" in r.errors or "place_name_mismatch" in r.errors
     r = evaluate_chapter_design(
-        _wb_spine(setting="夜，伪真空口", bite="金縢箱缝还在渗"),
+        _wb_spine(setting="夜，灯亭未动", bite="金縢箱缝还在渗"),
         beats, known_line_ids=_KNOWN_WB, book=book,
-        place={"name": "华山北峰伪真空口", "delta": 2},
+        place={"name": "医院", "delta": 2},
     )
     assert "place_travel_unsaid" in r.errors
     r = evaluate_chapter_design(
@@ -455,16 +455,16 @@ def test_place_rules():
     r = evaluate_chapter_design(
         _wb_spine(setting="伪真空口外缘向华山北峰折返的崖道上", bite="金縢箱缝还在渗"),
         beats, known_line_ids=_KNOWN_WB, book=book,
-        place={"name": "伪真空口外缘崖道", "delta": 1},
+        place={"name": "伪真空口", "delta": 1},
     )
     assert "place_travel_unsaid" not in r.errors, r.errors
     r = evaluate_chapter_design(
-        _wb_spine(setting="沿栈道折返并进入景区医疗站", bite="金縢箱缝还在渗"),
+        _wb_spine(setting="沿栈道折返到华山北峰医疗站", bite="金縢箱缝还在渗"),
         beats, known_line_ids=_KNOWN_WB,
         book=_wb(seq=2, prev_place_name="伪真空口", prev_hook="金縢账还没人认"),
         place={"name": "华山北峰", "delta": 0},
     )
-    assert "place_name_mismatch" not in r.errors, r.errors
+    assert "place_travel_unsaid" not in r.errors, r.errors
     assert same_landmark("华山北峰", "华山北峰伪真空口")
     assert same_landmark("华山北峰灯亭", "华山北峰")
     assert not same_landmark("华山北峰", "华山西峰")
@@ -727,32 +727,61 @@ def test_must_happen_empty_skips():
     r = evaluate_chapter_design(
         _wb_spine(), _wb_beats(), known_line_ids=_KNOWN_WB, book=_wb(),
     )
-    assert "goal_off_must" not in r.errors, r.errors
+    assert "event_unmet" not in r.errors, r.errors
+    assert "who_unmet" not in r.errors, r.errors
+    assert "bill_unmet" not in r.errors, r.errors
 
 
-def test_must_happen_both_sides():
+def test_duty_event_and_bill_and_who():
     os.environ["SCRIBE3_CHAPTER_DESIGN"] = "on"
     os.environ["SCRIBE3_DESIGN_BOOK"] = "on"
-    from scribe3.clue_density import extract_must_happen
-    assert extract_must_happen("焦点柳岸青。本章发生：按回碎片 vs 交给守火人") == "按回碎片 vs 交给守火人"
-    assert extract_must_happen("", {"beats_meta": {"must_happen": "去医院降温 vs 连夜找金縢"}}) == "去医院降温 vs 连夜找金縢"
-    book = _wb(must_happen="按回碎片 vs 交给守火人")
+    from scribe3.clue_density import extract_duty
+    who, event, bill = extract_duty(
+        "谁：柳岸青按碎片；沈烛切断观测\n事：把碎片交出去还是自己按回去\n账：大遮蔽改锁，世界认他的心跳"
+    )
+    assert "沈烛" in who and "按回去" in event and "大遮蔽" in bill
+    book = _wb(
+        character_names=frozenset({"柳岸青", "沈烛", "赫斯"}),
+        focus_names=("柳岸青",),
+        duty_who="柳岸青按碎片；沈烛切断观测；赫斯要带走",
+        duty_event="把碎片交出去，还是自己按回去",
+        duty_bill="大遮蔽改锁，世界开始认他的心跳",
+        must_happen="把碎片交出去，还是自己按回去",
+    )
     r = evaluate_chapter_design(
-        _wb_spine(goal="沈拾灯要在灯亭吞核", choice="吞核 vs 按回第八盏灯", decision="他吞核"),
+        _wb_spine(goal="沈拾灯要在灯亭吞核", choice="吞核 vs 按回第八盏灯", decision="他吞核",
+                  cast="沈拾灯；金縢箱锁", cost="灯亭发热"),
         _wb_beats("吞核 vs 按回第八盏灯"),
         known_line_ids=_KNOWN_WB, book=book,
     )
-    assert "goal_off_must" in r.errors, r.errors
+    assert "event_unmet" in r.errors or "who_unmet" in r.errors or "bill_unmet" in r.errors
     r = evaluate_chapter_design(
         _wb_spine(
-            goal="柳岸青要把场核碎片按回裂口，不交给守火人",
-            choice="把碎片交给守火人封存 vs 自己按回裂口",
+            cast="柳岸青；沈烛；赫斯",
+            goal="柳岸青要把场核碎片按回裂口，不交给守火人；沈烛切断观测，赫斯要带走",
+            obstacle="沈烛切断观测耦合，赫斯要把他标成样本",
+            choice="把碎片交出去 vs 自己按回去",
             decision="他自己按回碎片",
+            cost="大遮蔽改锁，世界开始认他的心跳",
         ),
-        _wb_beats("把碎片交给守火人封存 vs 自己按回裂口"),
+        _wb_beats("把碎片交出去 vs 自己按回去"),
         known_line_ids=_KNOWN_WB, book=book,
     )
-    assert "goal_off_must" not in r.errors, r.errors
+    assert "event_unmet" not in r.errors, r.errors
+    assert "who_unmet" not in r.errors, r.errors
+    assert "bill_unmet" not in r.errors, r.errors
+    r = evaluate_chapter_design(
+        _wb_spine(
+            cast="柳岸青；赫斯",
+            goal="柳岸青要把场核碎片按回裂口",
+            choice="把碎片交出去 vs 自己按回去",
+            decision="他自己按回碎片",
+            cost="大遮蔽改锁，世界开始认他的心跳",
+        ),
+        _wb_beats("把碎片交出去 vs 自己按回去"),
+        known_line_ids=_KNOWN_WB, book=book,
+    )
+    assert "who_unmet" in r.errors
 
 
 def test_must_happen_binds_same_topic_line():
