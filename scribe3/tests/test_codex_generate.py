@@ -4,8 +4,10 @@ from __future__ import annotations
 from scribe3.codex_generate import (
     apply_codex_persist_fields,
     build_codex_prompt,
+    first_codex_slot,
     list_codex_thicken_targets,
     load_codex_row,
+    merge_codex_slot,
     parse_codex_payload,
     persist_codex_row,
     thicken_codex,
@@ -40,6 +42,59 @@ def test_thicken_term_thin_then_fail():
     out = thicken_codex("term", {"name": "炉令"}, llm_fn=lambda *a, **k: "短")
     assert out["ok"] is False
     assert out["code"] == "llm_thin"
+
+
+def _fat_char_json(*, goal: str) -> str:
+    import json
+    return json.dumps({
+        "personality_detail": "冷" * 400,
+        "surface_goal": goal,
+        "deep_need": "他要确认母亲还在自己的时间线上。" + ("需" * 160),
+        "fear": "怕被标成样本后永远单向可见。" + ("惧" * 160),
+        "internal_conflict": "救世界和救母亲不能同时成立。" + ("冲" * 160),
+        "appearance": "青" * 80,
+        "backstory": "史" * 240,
+        "abilities": ["按回场核"],
+        "weaknesses": ["体温会被世界认走"],
+    }, ensure_ascii=False)
+
+
+def test_thicken_character_only_rewrites_want():
+    prompts: list[str] = []
+    n = {"i": 0}
+    pinned = "冷" * 400
+
+    def llm(prompt, max_tokens=4096):
+        prompts.append(prompt)
+        n["i"] += 1
+        if "只改这一条" in prompt:
+            assert "一个字都不要动" in prompt
+            assert "禁止短稿" not in prompt
+            assert "覆盖地板" not in prompt
+            return '{"surface_goal": "柳岸青要把场核碎片按回裂口，不交给守火人，世界开始认他的心跳。' + ("责" * 80) + '"}'
+        return _fat_char_json(goal="要活")
+
+    out = thicken_codex("character", {"name": "柳岸青"}, llm_fn=llm)
+    assert any("只改这一条" in p for p in prompts)
+    if out.get("ok"):
+        fields = out.get("public_fields") or {}
+        assert fields.get("personality_detail") == pinned
+        assert "按回" in str(fields.get("surface_goal") or "")
+
+
+def test_merge_codex_slot_keeps_other_fields():
+    base = {"personality_detail": "钉住", "surface_goal": "旧", "fear": "旧怕"}
+    got = merge_codex_slot(
+        "character", base, {"surface_goal": "新要", "fear": "不该动"}, "surface_goal",
+    )
+    assert got["surface_goal"] == "新要"
+    assert got["personality_detail"] == "钉住"
+    assert got["fear"] == "旧怕"
+    assert first_codex_slot(
+        "character",
+        [{"id": "pack"}, {"id": "surface_goal"}, {"id": "fear"}],
+        base,
+    ) == "surface_goal"
 
 
 def test_batch_not_in_write_gated():

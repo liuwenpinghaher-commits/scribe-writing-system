@@ -647,18 +647,18 @@ def merge_chapter_design(
     beats: list[dict[str, Any]] = []
     for b in base_beats or []:
         beats.append(dict(b) if isinstance(b, dict) else {"text": b})
+    # 点名格子时只盖章纲；节拍另走 _merge_beats_by_head，免得洗掉已钉的场。
+    if allow_keys is not None:
+        return spine, beats
     beat_fields = ("goal", "conflict", "turn", "choice", "cost", "underwater")
     for i, pb in enumerate(patch_beats or []):
         if not isinstance(pb, dict):
             continue
         if i >= len(beats):
-            if allow_keys is None:
-                beats.append(dict(pb))
+            beats.append(dict(pb))
             continue
         merged = dict(beats[i])
         for k in beat_fields:
-            if allow_keys is not None and k not in allow_keys:
-                continue
             if slot_text(pb.get(k)):
                 merged[k] = pb[k]
         merged["text"] = assemble_beat_text(merged)
@@ -692,6 +692,46 @@ def merge_clock_place_patch(
         if _ok(f"place.{k}"):
             place[k] = v
     return clock, place
+
+
+def _beat_heads(text: str) -> list[int]:
+    out: list[int] = []
+    for n in _BEAT_HEAD.findall(text or ""):
+        try:
+            out.append(int(n))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _merge_beats_by_head(
+    base_beats: list | None,
+    patch_beats: list | None,
+    raw: str,
+) -> list[dict[str, Any]]:
+    """只盖补丁里写明的那一拍。模型写「拍2」就盖第 2 场，不冲第 1 场。"""
+    from scribe3.chapter_spine import assemble_beat_text, slot_text
+
+    beats: list[dict[str, Any]] = []
+    for b in base_beats or []:
+        beats.append(dict(b) if isinstance(b, dict) else {"text": b})
+    heads = _beat_heads(raw)
+    beat_fields = ("goal", "conflict", "turn", "choice", "cost", "underwater")
+    for i, pb in enumerate(patch_beats or []):
+        if not isinstance(pb, dict):
+            continue
+        idx = heads[i] - 1 if i < len(heads) else i
+        if idx < 0:
+            continue
+        while idx >= len(beats):
+            beats.append({"id": f"b{len(beats) + 1}"})
+        merged = dict(beats[idx])
+        for k in beat_fields:
+            if slot_text(pb.get(k)):
+                merged[k] = pb[k]
+        merged["text"] = assemble_beat_text(merged)
+        beats[idx] = merged
+    return beats
 
 
 def _design_keep_block(spine: Mapping[str, Any] | None, beats: list | None) -> str:
@@ -1378,6 +1418,108 @@ def _design_fail_hint(parsed: Mapping[str, Any] | None, dens) -> str:
     return "；".join(bits) if bits else "每槽一句把该写的写清；拍2选对上章选择；禁锁眼"
 
 
+def _slot_play_reason(slot: str, book, dens) -> str:
+    """只说这场戏这一格该承担什么。禁止词表。"""
+    who = str(getattr(book, "duty_who", "") or "") if book else ""
+    event = str(getattr(book, "duty_event", "") or getattr(book, "must_happen", "") or "") if book else ""
+    bill = str(getattr(book, "duty_bill", "") or "") if book else ""
+    hook = str(getattr(book, "prev_hook", "") or "") if book else ""
+    if slot == "who":
+        if who:
+            return f"这一章该做事的是：{who}。你现在没让他们在场做事。"
+        return "该在的人必须各做各的事，不能只站着，也不能编户口里没有的人。"
+    if slot == "event":
+        if event:
+            return f"这一章要办的是：{event}。你现在写的是另一件事，或选择没在场上发生。"
+        return "本章要、选择、决断必须是同一件正在发生的事。"
+    if slot == "bill":
+        if bill:
+            return f"这一章的账是：{bill}。你现在写的代价是另一笔账。"
+        return "代价必须是这一章让世界变贵的那一笔，不是另一场戏的结果。"
+    if slot == "bite":
+        if hook:
+            return f"上一章没做完的是：{hook}。咬上章要接住这件事，不是另起一句。"
+        return "第1章写章前状态；后面的章接住上一章没做完的事。"
+    if slot == "place":
+        return "换了地方，让人看得出他怎么到的；没换就还在上一个地。"
+    if slot == "line":
+        return "动哪条线必须是本章正在办的那条，并写清本章推进了什么。"
+    if slot == "beat":
+        if event:
+            return f"这几场上台的压力都要推进：{event}。做决定的那场要把账付清。"
+        return "每场都要推进这一章那一件事。做决定的那场把账付清。"
+    return "只改不像这场戏的那一格。"
+
+
+def _slot_edit_hint(slot: str, spine, beats, book, dens) -> str:
+    from scribe3.design_attempt import SLOT_OUT_LINES
+    keep = _design_keep_block(spine, beats)
+    title = {
+        "who": "在场和挡", "event": "本章要、选择、决断", "bill": "代价",
+        "bite": "咬上章", "place": "时空和地点", "line": "动哪条线",
+        "beat": "没演出的那一场",
+    }.get(slot, slot)
+    reason = _slot_play_reason(slot, book, dens)
+    out_lines = SLOT_OUT_LINES.get(slot, "")
+    return (
+        "【只改这一格】别的格子已经钉住，一个字都不要动。\n"
+        + (keep + "\n" if keep else "")
+        + f"只改「{title}」。\n"
+        + reason + "\n"
+        f"只输出这些行：\n{out_lines}\n"
+    )
+
+
+def _apply_slot_patch(slot: str, parsed: dict, patch: dict, raw: str) -> dict[str, Any]:
+    """只把被点名的那一格盖上工作稿。别的格子保持原样。"""
+    from scribe3.chapter_spine import assemble_synopsis_from_spine
+    from scribe3.design_attempt import slot_allow_keys
+    from scribe3.fate_dearer import parse_clock_place_labels
+
+    allow = slot_allow_keys(slot)
+    if slot == "beat":
+        spine = dict(parsed.get("chapter_spine") or {})
+        beats = _merge_beats_by_head(parsed.get("beats"), (patch or {}).get("beats"), raw)
+    else:
+        spine, beats = merge_chapter_design(
+            parsed.get("chapter_spine"), parsed.get("beats"),
+            (patch or {}).get("chapter_spine"), [],
+            allow_keys=allow,
+        )
+    clock = dict(parsed.get("clock") or {})
+    place = dict(parsed.get("place") or {})
+    if slot == "place":
+        pc, pp = parse_clock_place_labels(raw or "")
+        if not pc and isinstance((patch or {}).get("clock"), dict):
+            pc = (patch or {}).get("clock") or {}
+        if not pp and isinstance((patch or {}).get("place"), dict):
+            pp = (patch or {}).get("place") or {}
+        clock, place = merge_clock_place_patch(clock, place, pc, pp, allow_keys=None)
+    return {
+        **parsed,
+        "ok": True,
+        "code": "",
+        "chapter_spine": spine,
+        "beats": beats,
+        "clock": clock,
+        "place": place,
+        "synopsis": assemble_synopsis_from_spine(spine),
+        "source": (patch or {}).get("source") or parsed.get("source") or "llm",
+    }
+
+
+def _blocked_error_ids(blocked: Mapping[str, Any] | None) -> list[str]:
+    from scribe3.design_attempt import error_ids
+
+    if not isinstance(blocked, dict):
+        return []
+    out = error_ids(blocked.get("missing"))
+    fate = blocked.get("fate")
+    if isinstance(fate, dict):
+        out.extend(error_ids(fate.get("errors")))
+    return out
+
+
 def build_stage_prompt(
     stage: str,
     ch: Mapping[str, Any] | None,
@@ -1427,8 +1569,11 @@ def build_stage_prompt(
     if seq and not src.get("seq"):
         src["seq"] = seq
     planning = stg in ("outline", "design")
-    if planning:
-        if retry_hint and "只补没过" in retry_hint:
+    slot_only = bool(
+        retry_hint and ("只改这一格" in retry_hint or "只补没过" in retry_hint)
+    )
+    if planning or (slot_only and stg == "beats"):
+        if slot_only:
             bits = [retry_hint]
         lines = _open_lines_block(st)
         if lines:
@@ -1436,7 +1581,7 @@ def build_stage_prompt(
         card = _book_card_block(st, src, extra=extra)
         if card:
             bits.insert(0, card)
-        if not (retry_hint and "只补没过" in retry_hint):
+        if not slot_only:
             bits.insert(0, (
                 "先写这场戏：该在的人做事，只办责任里那一件，账按责任来付。"
                 "标签是给机器读的。"
@@ -1693,13 +1838,16 @@ def thicken_outline(
             "beats_meta": (ch or {}).get("beats_meta"),
             "contract_backfill": bool(extra.get("narrative_contract")),
         }, ch, st=st, seq=seq, kind="outline", persist=False)
-    from scribe3.chapter_spine import known_line_ids_from_store
+    from scribe3.chapter_spine import known_line_ids_from_store, parse_spine_labels
+    from scribe3.clue_density import clue_density_mode, evaluate_spine
+    from scribe3.design_attempt import first_open_slot, slot_allow_keys
     known = known_line_ids_from_store(st) if st is not None else None
     bible = _bible_for_thicken(st, work, ch, extra, focalizer, seq)
+    book = load_design_book(st, seq, ch if isinstance(ch, dict) else {}, extra=extra) if st is not None else None
     prompt = build_stage_prompt("outline", ch, seq=seq, extra=extra, bible=bible, st=st)
     raw = _call_llm(llm_fn, prompt, STAGE_MAX_TOKENS["outline"])
     parsed = parse_outline_payload(raw, known_line_ids=known)
-    if not parsed["ok"]:
+    if parsed.get("source") != "llm_13slot":
         raw = _call_llm(
             llm_fn,
             build_stage_prompt(
@@ -1709,7 +1857,7 @@ def thicken_outline(
             STAGE_MAX_TOKENS["outline"],
         )
         parsed = parse_outline_payload(raw, known_line_ids=known)
-    if not parsed["ok"]:
+    if parsed.get("source") != "llm_13slot":
         return _attach_fate({
             "ok": False,
             "code": "llm_thin",
@@ -1719,6 +1867,59 @@ def thicken_outline(
             "message": "情节薄：缺选择/代价/动线等原子，禁止口号/烟锅巷落库",
             "parsed": parsed,
             "chapter_spine": parsed.get("chapter_spine"),
+        }, ch, st=st, seq=seq, kind="outline", persist=False)
+    if clue_density_mode() != "on" and not parsed.get("ok"):
+        return _attach_fate({
+            "ok": False,
+            "code": "llm_thin",
+            "source": parsed.get("source") or "llm",
+            "got": parsed["cn"],
+            "need": "clue_density",
+            "message": "情节薄：缺选择/代价/动线等原子，禁止口号/烟锅巷落库",
+            "parsed": parsed,
+            "chapter_spine": parsed.get("chapter_spine"),
+        }, ch, st=st, seq=seq, kind="outline", persist=False)
+    spine = dict(parsed.get("chapter_spine") or {})
+    dens = evaluate_spine(spine, known_line_ids=known)
+    if clue_density_mode() == "on":
+        for _rnd in range(4):
+            if dens.ok:
+                break
+            slot = first_open_slot(list(dens.errors or []), struct_ok=True)
+            if not slot:
+                break
+            hint = _slot_edit_hint(slot, spine, [], book, dens)
+            raw2 = _call_llm(
+                llm_fn,
+                build_stage_prompt(
+                    "outline", ch, seq=seq, extra=extra, bible=bible, st=st,
+                    retry_hint=hint,
+                ),
+                STAGE_MAX_TOKENS["outline"],
+            )
+            patch_spine = parse_spine_labels(raw2)
+            spine, _ = merge_chapter_design(
+                spine, [], patch_spine, [], allow_keys=slot_allow_keys(slot),
+            )
+            dens = evaluate_spine(spine, known_line_ids=known)
+            raw = raw2
+    parsed = dict(parsed)
+    parsed["chapter_spine"] = spine
+    parsed["ok"] = bool(dens.ok) if clue_density_mode() == "on" else bool(parsed.get("ok"))
+    parsed["density"] = dens.as_dict()
+    parsed["source"] = "llm_13slot"
+    if clue_density_mode() == "on" and not dens.ok:
+        return _attach_fate({
+            "ok": False,
+            "code": "llm_thin",
+            "source": "llm_13slot",
+            "got": parsed.get("cn"),
+            "need": "clue_density",
+            "message": "这份大纲还没过：没过的那一格改完仍不像这场戏",
+            "parsed": parsed,
+            "chapter_spine": spine,
+            "density": dens.as_dict(),
+            "missing": dens.as_missing(),
         }, ch, st=st, seq=seq, kind="outline", persist=False)
     fields: dict[str, Any] = {"chapter_spine": parsed["chapter_spine"]}
     existing_syn = str((ch or {}).get("synopsis") or "").strip()
@@ -1797,12 +1998,14 @@ def thicken_beats(
             "contract_backfill": bool(extra.get("narrative_contract")),
         }, ch, st=st, seq=seq, kind="beats", persist=False)
     from scribe3.chapter_spine import is_v1
+    from scribe3.clue_density import clue_density_mode, evaluate_beats
     spine = (ch or {}).get("chapter_spine") if is_v1((ch or {}).get("chapter_spine")) else None
     bible = _bible_for_thicken(st, work, ch, extra, focalizer, seq)
+    book = load_design_book(st, seq, ch if isinstance(ch, dict) else {}, extra=extra) if st is not None else None
     prompt = build_stage_prompt("beats", ch, seq=seq, extra=extra, bible=bible, st=st)
     raw = _call_llm(llm_fn, prompt, STAGE_MAX_TOKENS["beats"])
     parsed = parse_beats_payload(raw, spine=spine)
-    if not parsed["ok"]:
+    if len(parsed.get("beats") or []) < 3:
         raw = _call_llm(
             llm_fn,
             build_stage_prompt(
@@ -1812,7 +2015,7 @@ def thicken_beats(
             STAGE_MAX_TOKENS["beats"],
         )
         parsed = parse_beats_payload(raw, spine=spine)
-    if not parsed["ok"]:
+    if len(parsed.get("beats") or []) < 3:
         return {
             "ok": False,
             "code": "llm_thin",
@@ -1822,6 +2025,42 @@ def thicken_beats(
             "need": "clue_density",
             "message": "情节薄：节拍缺要/挡/变/付或全章无 A vs B 选择，禁止切句充数",
             "parsed": parsed,
+        }
+    beats = list(parsed.get("beats") or [])
+    dens = evaluate_beats(beats, spine=spine)
+    if clue_density_mode() == "on":
+        for _rnd in range(4):
+            if dens.ok:
+                break
+            hint = _slot_edit_hint("beat", spine, beats, book, dens)
+            raw2 = _call_llm(
+                llm_fn,
+                build_stage_prompt(
+                    "beats", ch, seq=seq, extra=extra, bible=bible, st=st,
+                    retry_hint=hint,
+                ),
+                STAGE_MAX_TOKENS["beats"],
+            )
+            patch = parse_beats_payload(raw2, spine=spine)
+            beats = _merge_beats_by_head(beats, patch.get("beats"), raw2)
+            dens = evaluate_beats(beats, spine=spine)
+            raw = raw2
+    parsed = dict(parsed)
+    parsed["beats"] = beats
+    parsed["ok"] = bool(dens.ok) if clue_density_mode() == "on" else bool(parsed.get("ok"))
+    parsed["density"] = dens.as_dict()
+    parsed["cn"] = sum(cn_len((b or {}).get("text")) for b in beats if isinstance(b, dict))
+    if clue_density_mode() == "on" and not dens.ok:
+        return {
+            "ok": False,
+            "code": "llm_thin",
+            "source": parsed.get("source") or "llm",
+            "got": parsed.get("cn"),
+            "need": "clue_density",
+            "message": "这几场还没过：没演出的那一场改完仍不像这场戏",
+            "parsed": parsed,
+            "density": dens.as_dict(),
+            "missing": dens.as_missing(),
         }
     fields = {"beats": parsed["beats"]}
     blocked = _blocked_or_none(
@@ -1944,7 +2183,10 @@ def thicken_chapter_design(
         }, ch, st=st, seq=seq, kind="design", persist=False)
     from scribe3.chapter_spine import assemble_synopsis_from_spine, known_line_ids_from_store
     from scribe3.clue_density import evaluate_chapter_design
-    from scribe3.design_attempt import first_passed, record_attempt, slim_attempts
+    from scribe3.design_attempt import (
+        first_open_slot, record_attempt, slim_attempts,
+    )
+    from scribe3.fate_dearer import parse_clock_place_labels
     known = known_line_ids_from_store(st) if st is not None else None
     book = load_design_book(st, seq, ch if isinstance(ch, dict) else {}, extra=extra) if st is not None else None
 
@@ -1956,62 +2198,64 @@ def thicken_chapter_design(
         raw_text = _call_llm(llm_fn, prompt, STAGE_MAX_TOKENS["design"])
         return raw_text, parse_chapter_design_payload(raw_text, known_line_ids=known)
 
-    attempts: list[dict[str, Any]] = []
-    raw = ""
-    parsed: dict[str, Any] = {}
-    dens = None
-    last_hint = ""
-    for rnd in range(3):
-        hint = ""
-        if rnd and last_hint:
-            hint = (
-                "上一整份没过：" + last_hint + "。"
-                "不要只补一格，整份重写。责任还是硬卡上那一场戏。"
-            )
-        raw, parsed = _run(retry_hint=hint)
-        clock = dict(parsed.get("clock") or {})
-        place = dict(parsed.get("place") or {})
-        dens = evaluate_chapter_design(
-            parsed.get("chapter_spine"), parsed.get("beats"),
+    def _eval(p: dict[str, Any]):
+        if not p.get("ok"):
+            return None
+        return evaluate_chapter_design(
+            p.get("chapter_spine"), p.get("beats"),
             known_line_ids=known,
-            designated_beat=parsed.get("designated_beat"),
-            book=book, clock=clock or None, place=place or None,
-        ) if parsed.get("ok") else None
-        if parsed.get("ok"):
-            parsed["synopsis"] = assemble_synopsis_from_spine(parsed.get("chapter_spine") or {})
-        rec = record_attempt(rnd + 1, parsed, dens, raw=raw)
+            designated_beat=p.get("designated_beat"),
+            book=book,
+            clock=p.get("clock") or None,
+            place=p.get("place") or None,
+        )
+
+    attempts: list[dict[str, Any]] = []
+    raw, parsed = _run()
+    if parsed.get("ok"):
+        parsed["synopsis"] = assemble_synopsis_from_spine(parsed.get("chapter_spine") or {})
+    dens = _eval(parsed)
+    attempts.append(record_attempt(1, parsed, dens, raw=raw))
+    if st is not None and hasattr(st, "save_design_attempt") and seq:
+        try:
+            st.save_design_attempt(int(seq), attempts[-1])
+        except Exception:
+            pass
+
+    for rnd in range(4):
+        if parsed.get("ok") and dens is not None and dens.ok:
+            break
+        if not parsed.get("ok"):
+            raw, parsed = _run("结构还缺：先整份写出【章】和 ## 拍1/拍2/拍3。")
+            if parsed.get("ok"):
+                parsed["synopsis"] = assemble_synopsis_from_spine(parsed.get("chapter_spine") or {})
+            dens = _eval(parsed)
+            attempts.append(record_attempt(len(attempts) + 1, parsed, dens, raw=raw))
+            if st is not None and hasattr(st, "save_design_attempt") and seq:
+                try:
+                    st.save_design_attempt(int(seq), attempts[-1])
+                except Exception:
+                    pass
+            continue
+        slot = first_open_slot(list(getattr(dens, "errors", None) or []), struct_ok=True)
+        if not slot:
+            break
+        hint = _slot_edit_hint(
+            slot, parsed.get("chapter_spine"), parsed.get("beats"), book, dens,
+        )
+        raw2, patch = _run(retry_hint=hint)
+        parsed = _apply_slot_patch(slot, parsed, patch, raw2)
+        dens = _eval(parsed)
+        rec = record_attempt(len(attempts) + 1, parsed, dens, raw=raw2)
+        rec["slot"] = slot
         attempts.append(rec)
         if st is not None and hasattr(st, "save_design_attempt") and seq:
             try:
                 st.save_design_attempt(int(seq), rec)
             except Exception:
                 pass
-        last_hint = _design_fail_hint(parsed, dens)
-        if rec.get("struct_ok") and rec.get("exam_ok"):
-            break
+        raw = raw2
 
-    winner = first_passed(attempts)
-    if winner:
-        parsed = {
-            **parsed,
-            "ok": True,
-            "code": "",
-            "chapter_spine": winner.get("chapter_spine") or {},
-            "beats": winner.get("beats") or [],
-            "designated_beat": winner.get("designated_beat"),
-            "clock": winner.get("clock") or {},
-            "place": winner.get("place") or {},
-            "synopsis": winner.get("synopsis") or "",
-            "source": parsed.get("source") or "llm",
-        }
-        dens = evaluate_chapter_design(
-            parsed.get("chapter_spine"), parsed.get("beats"),
-            known_line_ids=known,
-            designated_beat=parsed.get("designated_beat"),
-            book=book,
-            clock=parsed.get("clock") or None,
-            place=parsed.get("place") or None,
-        )
     best_clock = dict(parsed.get("clock") or {})
     best_place = dict(parsed.get("place") or {})
     if not parsed.get("ok") or dens is None or not dens.ok:
@@ -2084,11 +2328,64 @@ def thicken_chapter_design(
         fields, existing=ch if isinstance(ch, dict) else None, st=st, seq=seq,
         extra=extra, book=book,
     )
+    for _fate_rnd in range(3):
+        if not blocked:
+            break
+        slot = first_open_slot(_blocked_error_ids(blocked), struct_ok=True)
+        if not slot:
+            break
+        hint = _slot_edit_hint(
+            slot, parsed.get("chapter_spine"), parsed.get("beats"), book, dens,
+        )
+        raw2, patch = _run(retry_hint=hint)
+        parsed = _apply_slot_patch(slot, parsed, patch, raw2)
+        dens = _eval(parsed)
+        rec = record_attempt(len(attempts) + 1, parsed, dens, raw=raw2)
+        rec["slot"] = slot
+        attempts.append(rec)
+        if st is not None and hasattr(st, "save_design_attempt") and seq:
+            try:
+                st.save_design_attempt(int(seq), rec)
+            except Exception:
+                pass
+        raw = raw2
+        if not parsed.get("ok") or dens is None or not dens.ok:
+            break
+        fields = {
+            "chapter_spine": parsed["chapter_spine"],
+            "beats": parsed["beats"],
+        }
+        if parsed.get("synopsis"):
+            fields["synopsis"] = parsed["synopsis"]
+        clock, place = dict(parsed.get("clock") or {}), dict(parsed.get("place") or {})
+        wf = parse_world_fact_label(raw)
+        meta = merge_clock_place(ch if isinstance(ch, dict) else {}, clock, place)
+        if wf:
+            meta = merge_world_fact({"beats_meta": meta}, wf)
+        meta = dict(meta or {})
+        meta["schema_design"] = "chapter_design.v1"
+        if parsed.get("designated_beat"):
+            meta["designated_beat"] = parsed["designated_beat"]
+        if book and (getattr(book, "duty_event", "") or getattr(book, "must_happen", "") or getattr(book, "duty_who", "") or getattr(book, "duty_bill", "")):
+            meta["duty"] = {
+                "who": getattr(book, "duty_who", "") or "",
+                "event": getattr(book, "duty_event", "") or getattr(book, "must_happen", "") or "",
+                "bill": getattr(book, "duty_bill", "") or "",
+            }
+            meta["must_happen"] = meta["duty"]["event"]
+        fields["beats_meta"] = meta
+        fields = sync_design_surface(fields, ch if isinstance(ch, dict) else None, store=st)
+        blocked = _blocked_or_none(
+            fields, existing=ch if isinstance(ch, dict) else None, st=st, seq=seq,
+            extra=extra, book=book,
+        )
     if blocked:
         return {
             "ok": False, "code": blocked["code"], "message": blocked["message"],
             "source": "llm", "fate": blocked.get("fate"),
             "missing": blocked.get("missing"),
+            "chapter_spine": parsed.get("chapter_spine"),
+            "beats": parsed.get("beats"),
             "attempts": slim_attempts(attempts),
         }
     from scribe3.narrative_contract import merge_iceberg_contract

@@ -43,6 +43,7 @@ class DesignAttemptsMixin:
             "designated_beat": rec.get("designated_beat"),
             "synopsis": rec.get("synopsis") or "",
             "raw_head": rec.get("raw_head") or "",
+            "slot": rec.get("slot") or "",
         }
         try:
             self._execute_write(

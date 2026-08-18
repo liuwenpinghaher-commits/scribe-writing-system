@@ -10,11 +10,12 @@ from scribe3.clue_density import (
     evaluate_chapter_design,
 )
 from scribe3.iceberg import design_half_block, persist_fields_blocked
-from scribe3.design_attempt import first_passed, record_attempt
+from scribe3.design_attempt import first_open_slot, first_passed, record_attempt
 from scribe3.stage_generate import (
     _DESIGN_ASK,
     _BEATS_ASK,
     _OUTLINE_ASK,
+    _merge_beats_by_head,
     _split_beat_chunks,
     dispatch_design_stage,
     merge_chapter_design,
@@ -95,6 +96,15 @@ def test_planning_paper_has_no_lock_words():
     assert "责任" in sys
     assert "侧门开法" not in sys
     assert "拨锁" not in sys
+
+
+def test_merge_beats_by_head_only_touches_named_beat():
+    base = [dict(b) for b in _GOLD_BEATS]
+    patch = [{"choice": "开门 vs 关门", "goal": "不该盖到拍1"}]
+    got = _merge_beats_by_head(base, patch, "## 拍2\n选：开门 vs 关门\n")
+    assert got[0]["goal"] == base[0]["goal"]
+    assert got[1]["choice"] == "开门 vs 关门"
+    assert got[2]["goal"] == base[2]["goal"]
 
 
 def test_merge_keeps_passed_slots():
@@ -223,19 +233,48 @@ def test_thicken_full_rewrite_not_slot_patch():
     os.environ["SCRIBE3_CHAPTER_DESIGN"] = "on"
     gold = _DRY_OUTLINE + "\n选拍：2\n" + _DRY_BEATS
     thin = gold.replace("选：硬还焦黑暴露 vs 纸角塞回门缝", "选：无")
+    fix = (
+        "## 拍2\n"
+        "要：把焦黑还回侧门\n"
+        "挡：婆子说账勾了门没开\n"
+        "变：门更死咳了一声\n"
+        "付：门没开更险\n"
+        "选：硬还焦黑暴露 vs 纸角塞回门缝\n"
+        "水下：咳像爹\n"
+    )
     prompts: list[str] = []
     n = {"i": 0}
 
     def llm(prompt, max_tokens=4096):
         prompts.append(prompt)
         n["i"] += 1
-        return thin if n["i"] == 1 else gold
+        return thin if n["i"] == 1 else fix
 
     r = thicken_chapter_design({}, llm_fn=llm, persist_fn=lambda f: None, seq=1)
     assert not any("只补没过" in p for p in prompts)
-    assert any("整份重写" in p for p in prompts)
+    assert not any("整份重写" in p for p in prompts)
+    assert any("只改这一格" in p for p in prompts)
+    assert any("一个字都不要动" in p for p in prompts)
+    slot_prompts = [p for p in prompts if "只改这一格" in p]
+    assert slot_prompts
+    assert "硬还焦黑" in slot_prompts[0]
+    assert "只把纸角塞回门缝" in slot_prompts[0]
+    assert "只改「没演出的那一场」" in slot_prompts[0]
     assert len(prompts) >= 2
     assert r.get("attempts")
+    slots = [a.get("slot") for a in (r.get("attempts") or []) if a.get("slot")]
+    assert "beat" in slots
+    spine = r.get("chapter_spine") or {}
+    assert "硬还焦黑" in str(spine.get("choice") or "")
+
+
+def test_first_open_slot_play_order():
+    assert first_open_slot(["bill_unmet"], struct_ok=True) == "bill"
+    assert first_open_slot(["who_unmet", "bill_unmet"], struct_ok=True) == "who"
+    assert first_open_slot(["spine_slots:cost"], struct_ok=True) == "bill"
+    assert first_open_slot(["choice_not_staged"], struct_ok=True) == "beat"
+    assert first_open_slot(["place_frozen"], struct_ok=True) == "place"
+    assert first_open_slot(["spine_slots:goal"], struct_ok=False) is None
 
 
 def test_thicken_chapter_design_does_not_persist_thin():

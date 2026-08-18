@@ -238,6 +238,170 @@ def spec_ask(kind: str) -> str:
     return ""
 
 
+_CHAR_SLOT_LABEL = {
+    "surface_goal": "他要什么",
+    "deep_need": "他要什么",
+    "fear": "他让人付出什么",
+    "internal_conflict": "他让人付出什么",
+    "personality_detail": "性格（只为说清他要什么、他让人付出什么）",
+    "abilities": "他靠什么收账",
+    "weaknesses": "他缺什么会付账",
+    "appearance": "外貌",
+    "backstory": "前史",
+}
+_TERM_PARTS = ("是什么", "不是什么", "本书用法", "边界")
+
+
+def _codex_slot_label(kind: str, slot: str) -> str:
+    if kind == "character":
+        return _CHAR_SLOT_LABEL.get(slot, slot)
+    if kind == "term" and str(slot).startswith("part:"):
+        return str(slot).split(":", 1)[1]
+    if kind == "faction":
+        return {
+            "ideology": "他们私下要什么",
+            "public_face": "他们公开要什么",
+            "structure": "谁来收账",
+            "recruitment": "谁来收账",
+            "leader": "谁来收账",
+            "goals": "他们要主角付出什么",
+        }.get(slot, slot)
+    if kind == "item":
+        return {
+            "description": "这件东西让谁变贵",
+            "current_owner": "谁拿着",
+            "special_properties": "碰它要付什么",
+            "symbolic_state": "它此刻什么状态",
+        }.get(slot, slot)
+    if kind == "world_rule":
+        return {
+            "cost": "谁打破谁付钱",
+            "limitations": "它管到哪里",
+            "exceptions": "谁例外",
+            "capabilities": "它给人什么",
+            "source": "规矩从哪来",
+        }.get(slot, slot)
+    return slot
+
+
+def _codex_slot_reason(kind: str, slot: str, row: Mapping[str, Any] | None) -> str:
+    name = ""
+    if isinstance(row, dict):
+        name = str(row.get("name") or row.get("id") or "")
+    who = name or "这个人"
+    if kind == "character":
+        if slot in ("surface_goal", "deep_need"):
+            return f"{who}要什么还没立住。写他在这本书里非拿到不可的那件事。"
+        if slot in ("fear", "internal_conflict"):
+            return f"{who}让人付出什么还没立住。写他会逼主角丢掉什么。"
+        if slot == "personality_detail":
+            return f"{who}的性格只为说清他要什么、他让人付出什么，不要写成鉴定表。"
+        if slot == "abilities":
+            return f"写清{who}靠什么收账。"
+        if slot == "weaknesses":
+            return f"写清{who}缺什么就会付账。"
+        return f"只改{who}卡上不像的那一条。"
+    if kind == "term":
+        part = slot.split(":", 1)[1] if str(slot).startswith("part:") else slot
+        if part in _TERM_PARTS:
+            return f"这个词的「{part}」还没说清它怎么让人变贵。"
+        return "这个词还没写够让人看见它怎么收账。"
+    if kind == "faction":
+        return "这股势力要主角付出什么还没立住。"
+    if kind == "item":
+        return "这件东西让谁变贵还没立住。"
+    if kind == "world_rule":
+        return "这条规矩谁打破谁付钱还没立住。"
+    return "只改不像的那一条。"
+
+
+def first_codex_slot(kind: str, missing: list | None, fields: Mapping[str, Any] | None) -> str | None:
+    ids: list[str] = []
+    for m in missing or []:
+        mid = m.get("id") if isinstance(m, dict) else str(m)
+        mid = str(mid or "").strip()
+        if mid and mid != "pack":
+            ids.append(mid)
+    if kind == "character":
+        for prefer in (
+            "surface_goal", "deep_need", "fear", "internal_conflict",
+            "personality_detail", "abilities", "weaknesses",
+        ):
+            if prefer in ids:
+                return prefer
+    if kind == "term":
+        for part in _TERM_PARTS:
+            key = f"part:{part}"
+            if key in ids:
+                return key
+    if ids:
+        return ids[0]
+    src = fields if isinstance(fields, dict) else {}
+    if kind == "character":
+        thinnest, n = "", 10 ** 9
+        for key in ("surface_goal", "deep_need", "fear", "internal_conflict", "personality_detail"):
+            got = cn_len(src.get(key))
+            if got < n:
+                thinnest, n = key, got
+        return thinnest or "surface_goal"
+    if kind == "term":
+        return "part:是什么"
+    return None
+
+
+def merge_codex_slot(kind: str, base: dict, patch: dict, slot: str) -> dict[str, Any]:
+    out = dict(base or {})
+    src = patch if isinstance(patch, dict) else {}
+    if kind == "term" and str(slot).startswith("part:"):
+        part = slot.split(":", 1)[1]
+        new = str(src.get(part) or "").strip()
+        dfn = str(src.get("definition") or "")
+        if not new and dfn:
+            m = re.search(
+                rf"{re.escape(part)}\s*[:：]\s*(.+?)(?=(?:是什么|不是什么|本书用法|边界)\s*[:：]|\Z)",
+                dfn,
+                re.S,
+            )
+            if m:
+                new = m.group(1).strip()
+        if new:
+            old = str(out.get("definition") or "")
+            pat = re.compile(
+                rf"{re.escape(part)}\s*[:：].*?(?=(?:是什么|不是什么|本书用法|边界)\s*[:：]|\Z)",
+                re.S,
+            )
+            if pat.search(old):
+                out["definition"] = pat.sub(f"{part}：{new}\n", old).strip()
+            else:
+                out["definition"] = (old + f"\n{part}：{new}").strip()
+        return out
+    key = slot
+    if key in src and src[key] not in (None, "", [], {}):
+        out[key] = src[key]
+    return out
+
+
+def _codex_slot_edit_hint(
+    kind: str,
+    slot: str,
+    row: Mapping[str, Any] | None,
+    working: Mapping[str, Any] | None,
+) -> str:
+    keep = json.dumps(
+        {k: v for k, v in (working or {}).items() if v not in (None, "", [], {})},
+        ensure_ascii=False,
+    )[:2000]
+    label = _codex_slot_label(kind, slot)
+    reason = _codex_slot_reason(kind, slot, row)
+    return (
+        "【只改这一条】别的字段已经钉住，一个字都不要动。\n"
+        f"【已过·原样保留】{keep}\n"
+        f"只改「{label}」。\n"
+        f"{reason}\n"
+        "只输出这一条，不要重写整张卡。\n"
+    )
+
+
 def build_codex_prompt(
     kind: str,
     row: Mapping[str, Any] | None,
@@ -246,7 +410,20 @@ def build_codex_prompt(
     strict: bool = False,
     previous: str = "",
     bible: str = "",
+    retry_hint: str = "",
 ) -> str:
+    if retry_hint and "只改这一条" in retry_hint:
+        bits = [retry_hint]
+        name = ""
+        if isinstance(row, dict):
+            name = str(row.get("name") or row.get("id") or "")
+        if name:
+            bits.append(f"实体名：{name}")
+        if extra:
+            bits.append(extra.strip())
+        if (bible or "").strip():
+            bits.append(str(bible).strip())
+        return "\n\n".join(bits)
     bits = [spec_ask(kind)]
     if strict:
         bits.insert(0, "【重试·必须达到覆盖地板，禁止短稿】")
@@ -455,19 +632,25 @@ def thicken_codex(
     prompt = build_codex_prompt(k, src, extra=extra, bible=bible)
     raw = _call_llm(llm_fn, prompt, MAX_TOKENS[k])
     fields = parse_codex_payload(k, raw)
-    public, secret, only = _split_bags(k, fields)
-    pack_src = dict(public)
-    blocked = persist_codex_fields_blocked(k, pack_src, mode="pack")
-    if blocked:
-        raw = _call_llm(
+    working = dict(fields)
+    public, secret, only = _split_bags(k, working)
+    blocked = persist_codex_fields_blocked(k, dict(public), mode="pack")
+    for _rnd in range(4):
+        if not blocked:
+            break
+        slot = first_codex_slot(k, blocked.get("missing"), public)
+        if not slot:
+            break
+        hint = _codex_slot_edit_hint(k, slot, src, public)
+        raw2 = _call_llm(
             llm_fn,
-            build_codex_prompt(k, src, extra=extra, bible=bible, strict=True, previous=raw),
+            build_codex_prompt(k, src, extra=extra, bible=bible, retry_hint=hint),
             MAX_TOKENS[k],
         )
-        fields = parse_codex_payload(k, raw)
-        public, secret, only = _split_bags(k, fields)
-        pack_src = dict(public)
-        blocked = persist_codex_fields_blocked(k, pack_src, mode="pack")
+        patch = parse_codex_payload(k, raw2)
+        working = merge_codex_slot(k, working, patch, slot)
+        public, secret, only = _split_bags(k, working)
+        blocked = persist_codex_fields_blocked(k, dict(public), mode="pack")
     if blocked:
         return {
             "ok": False, "code": "llm_thin", "kind": k, "name": src.get("name"),
