@@ -496,7 +496,17 @@ def persist_fields_blocked(
         if fate_dearer_mode() != "on":
             return None
         merged = {**(chapter or existing or {}), **(fields or {})}
-        if fields.get("chapter_spine") or "beats_meta" in (fields or {}) or "beats" in (fields or {}):
+        writing_design = (
+            fields.get("chapter_spine") is not None or fields.get("beats") is not None
+        )
+        try:
+            from scribe3.design_play import play_design_ready
+            play_ok = play_design_ready(merged)
+        except Exception:
+            play_ok = False
+        if play_ok and not writing_design:
+            pass
+        elif fields.get("chapter_spine") or "beats_meta" in (fields or {}) or "beats" in (fields or {}):
             if "beats" in (fields or {}):
                 beats_for_contract = fields.get("beats")
             else:
