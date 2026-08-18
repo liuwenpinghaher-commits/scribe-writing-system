@@ -98,7 +98,10 @@ def test_planning_paper_has_no_lock_words():
     assert "拨锁" not in sys
     assert "必须出现" not in _DESIGN_ASK
     assert "还没选" in _DESIGN_ASK
-    assert "不要写成已经选完" in _DESIGN_ASK or "不要写成已经选完的句子" in _DESIGN_ASK
+    assert "不要写成已经选完" in _DESIGN_ASK
+    # 冒号后不得夹说明，否则模型会把说明抄成答案
+    assert "选择：他还没选" not in _DESIGN_ASK
+    assert "选：把【章】" not in _DESIGN_ASK
 
 
 def test_merge_beats_by_head_only_touches_named_beat():
