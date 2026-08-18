@@ -277,6 +277,17 @@ def evaluate_iceberg(
     except Exception:
         fate_rep = {}
 
+    try:
+        from scribe3.design_play import play_design_ready
+        from scribe3.stage_generate import _missing_bucket
+        if play_design_ready(meta):
+            missing = [
+                m for m in missing
+                if _missing_bucket(str(m.get("id") or "")) != "design"
+            ]
+    except Exception:
+        pass
+
     ok = not missing
     bits = []
     for m in missing:

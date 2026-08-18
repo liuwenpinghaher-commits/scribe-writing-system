@@ -366,6 +366,25 @@ def test_thicken_chapter_design_persists_once_on_gold():
     assert persisted.get("beats_meta", {}).get("play")
 
 
+def test_play_design_ready_opens_next_stage():
+    from scribe3.design_play import play_design_ready
+    from scribe3.stage_generate import iceberg_ok_for, stage_ready
+    ch = {
+        "chapter_spine": {
+            "schema": "chapter_spine.v1",
+            "choice": "交核还是自按",
+            "goal": "按回碎片",
+            "cost": "大遮蔽改锁",
+        },
+        "beats": [{"goal": "a"}, {"goal": "b"}, {"goal": "c"}],
+        "beats_meta": {"schema_design": "chapter_design.v1", "play": "交核还是自按，按回碎片，大遮蔽改锁。"},
+    }
+    assert play_design_ready(ch)
+    assert iceberg_ok_for(ch, "design")
+    r = stage_ready(ch, "deduce")
+    assert r.get("ok") is True, r
+
+
 def test_parse_review_only_exact_pass():
     assert parse_review("过")["ok"] is True
     assert parse_review("过\n写得清楚")["ok"] is True

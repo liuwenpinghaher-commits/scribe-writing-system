@@ -272,6 +272,24 @@ def table_ungrounded(play: str, parsed: Mapping[str, Any] | None, book) -> list[
     return hits
 
 
+def play_design_ready(ch: Mapping[str, Any] | None) -> bool:
+    """戏过了、表从这篇戏抄出来了：设计层算齐，下一层不要再考旧表。"""
+    src = ch if isinstance(ch, dict) else {}
+    meta = src.get("beats_meta") if isinstance(src.get("beats_meta"), dict) else {}
+    if str(meta.get("schema_design") or "") != "chapter_design.v1":
+        return False
+    if not str(meta.get("play") or "").strip():
+        return False
+    from scribe3.chapter_spine import is_v1, parse_choice_ab
+    spine = src.get("chapter_spine")
+    if not is_v1(spine):
+        return False
+    if not parse_choice_ab((spine or {}).get("choice")):
+        return False
+    beats = [b for b in (src.get("beats") or []) if b]
+    return len(beats) >= 3
+
+
 def persist_play_design_blocked(
     fields: Mapping[str, Any] | None,
     *,

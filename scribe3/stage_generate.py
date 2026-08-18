@@ -358,6 +358,12 @@ def iceberg_ok_for(
     if chapter_design_mode() == "on" and field in ("synopsis", "spine", "beats", "design"):
         field = "design"
     if field == "design":
+        from scribe3.design_play import play_design_ready
+        if play_design_ready(src):
+            return not scan_persist_fields_for_leaks({
+                "chapter_spine": src.get("chapter_spine"),
+                "beats": src.get("beats"),
+            })
         if any(
             m.startswith("spine_") or m.startswith("beat_")
             or m in (
