@@ -126,7 +126,10 @@ def test_thicken_outline_requires_llm_and_rejects_template():
 
     out = thicken_outline({"synopsis": "短"}, llm_fn=short_llm)
     assert out["ok"] is False
-    assert out.get("code") in ("llm_thin", "design_spine_unparsed", "design_beats_unparsed")
+    assert out.get("code") in (
+        "llm_thin", "design_spine_unparsed", "design_beats_unparsed",
+        "play_rejected", "extract_thin",
+    )
     assert calls["n"] >= 1
 
 
@@ -139,7 +142,14 @@ def test_outline_and_beats_mean_write_chapter():
     persisted = {}
 
     def fat_llm(prompt, max_tokens=4096):
-        return gold
+        if "只判断这场戏像不像" in prompt:
+            return "过"
+        if "已经过审" in prompt or "抽出标签行" in prompt:
+            return gold
+        return (
+            "灰七要在炉冷前把焦黑还回侧门。硬还焦黑暴露埋灰人，还是只把纸角塞回门缝。"
+            "他不进门，把纸角朝门里推回一分。账清了门更死。"
+        )
 
     r = thicken_outline(
         {"synopsis": ""},
@@ -147,10 +157,10 @@ def test_outline_and_beats_mean_write_chapter():
         persist_fn=lambda f: persisted.update(f),
         seq=6,
     )
-    if r.get("ok"):
-        assert "chapter_spine" in persisted
-        assert "beats" in persisted
-        assert iceberg_ok_for(persisted, "design")
+    assert r.get("ok"), r
+    assert "chapter_spine" in persisted
+    assert "beats" in persisted
+    assert iceberg_ok_for(persisted, "design")
 
 
 def test_thicken_beats_no_synopsis_cut():

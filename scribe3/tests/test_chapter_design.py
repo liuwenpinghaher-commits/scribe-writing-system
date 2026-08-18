@@ -11,6 +11,14 @@ from scribe3.clue_density import (
 )
 from scribe3.iceberg import design_half_block, persist_fields_blocked
 from scribe3.design_attempt import first_open_slot, first_passed, record_attempt
+from scribe3.design_play import (
+    build_play_prompt,
+    build_review_prompt,
+    evaluate_play,
+    parse_review,
+    persist_play_design_blocked,
+    table_ungrounded,
+)
 from scribe3.stage_generate import (
     _DESIGN_ASK,
     _BEATS_ASK,
@@ -234,43 +242,77 @@ def test_persist_repair_merged_choice_mismatch():
     assert "choice_not_staged" in ids or "choice_not_staged" in (blk.get("message") or "")
 
 
-def test_thicken_full_rewrite_not_slot_patch():
+def test_thicken_play_then_review_then_extract():
     os.environ["SCRIBE3_CHAPTER_DESIGN"] = "on"
     gold = _DRY_OUTLINE + "\n选拍：2\n" + _DRY_BEATS
-    thin = gold.replace("选：硬还焦黑暴露 vs 纸角塞回门缝", "选：无")
-    fix = (
-        "## 拍2\n"
-        "要：把焦黑还回侧门\n"
-        "挡：婆子说账勾了门没开\n"
-        "变：门更死咳了一声\n"
-        "付：门没开更险\n"
-        "选：硬还焦黑暴露 vs 纸角塞回门缝\n"
-        "水下：咳像爹\n"
+    play = (
+        "灰七要在炉冷前把焦黑还回侧门。冷锅婆挡着，灰狸递假铜。"
+        "他还没选：硬还焦黑暴露埋灰人，还是只把纸角塞回门缝。"
+        "他不进门，把纸角朝门里推回一分。账清了门更死。"
     )
     prompts: list[str] = []
-    n = {"i": 0}
 
     def llm(prompt, max_tokens=4096):
         prompts.append(prompt)
-        n["i"] += 1
-        return thin if n["i"] == 1 else fix
+        if "只判断这场戏像不像" in prompt:
+            return "过"
+        if "已经过审" in prompt or "抽出标签行" in prompt:
+            return gold
+        return play
 
     r = thicken_chapter_design({}, llm_fn=llm, persist_fn=lambda f: None, seq=1)
-    assert not any("只补没过" in p for p in prompts)
-    assert not any("整份重写" in p for p in prompts)
-    assert any("只改这一格" in p for p in prompts)
-    assert any("一个字都不要动" in p for p in prompts)
-    slot_prompts = [p for p in prompts if "只改这一格" in p]
-    assert slot_prompts
-    assert "硬还焦黑" in slot_prompts[0]
-    assert "只把纸角塞回门缝" in slot_prompts[0]
-    assert "只改「没演出的那一场」" in slot_prompts[0]
-    assert len(prompts) >= 2
-    assert r.get("attempts")
-    slots = [a.get("slot") for a in (r.get("attempts") or []) if a.get("slot")]
-    assert "beat" in slots
-    spine = r.get("chapter_spine") or {}
-    assert "硬还焦黑" in str(spine.get("choice") or "")
+    assert r.get("ok"), r
+    assert any("不要输出表格" in p or "不要输出表格、标签、拍头" in p for p in prompts)
+    assert any("只判断这场戏像不像" in p for p in prompts)
+    assert any("已经过审" in p for p in prompts)
+    play_ps = [p for p in prompts if "不要输出表格" in p or "写成一篇短戏" in p]
+    assert play_ps
+    assert "时空：" not in play_ps[0]
+    assert "## 拍1" not in play_ps[0]
+    review_ps = [p for p in prompts if "只判断这场戏像不像" in p]
+    assert "必须出现" not in review_ps[0]
+    assert "选择必须" not in review_ps[0]
+    assert "硬还焦黑" in str((r.get("chapter_spine") or {}).get("choice") or "")
+    assert r.get("play")
+
+
+def test_review_fail_returns_play_not_table():
+    prompts: list[str] = []
+
+    def llm(prompt, max_tokens=4096):
+        prompts.append(prompt)
+        if "只判断这场戏像不像" in prompt:
+            return "不过\n你写成开箱了，这一章是还焦黑。"
+        if "没有过审" in prompt:
+            return "灰七还焦黑，不进门。"
+        return "灰七去开了一只箱子。"
+
+    r = thicken_chapter_design({}, llm_fn=llm, persist_fn=lambda f: None, seq=1)
+    assert r.get("ok") is False
+    assert r.get("code") == "play_rejected"
+    assert r.get("play")
+    assert any("没有过审" in p for p in prompts)
+    assert not any("只改这一格" in p for p in prompts)
+
+
+def test_extract_retry_does_not_rewrite_play():
+    gold = _DRY_OUTLINE + "\n选拍：2\n" + _DRY_BEATS
+    plays = []
+    n = {"i": 0}
+
+    def llm(prompt, max_tokens=4096):
+        if "写成一篇短戏" in prompt or "不要输出表格" in prompt:
+            plays.append(prompt)
+            return "灰七还焦黑。硬还还是塞纸角。他塞了。门更死。"
+        if "只判断这场戏像不像" in prompt:
+            return "过"
+        n["i"] += 1
+        return "一句不够。" if n["i"] == 1 else gold
+
+    r = thicken_chapter_design({}, llm_fn=llm, persist_fn=lambda f: None, seq=1)
+    assert len(plays) == 1
+    assert r.get("ok"), r
+    assert "硬还" in str((r.get("chapter_spine") or {}).get("choice") or "")
 
 
 def test_first_open_slot_play_order():
@@ -305,7 +347,11 @@ def test_thicken_chapter_design_persists_once_on_gold():
     gold = _DRY_OUTLINE + "\n" + _DRY_BEATS
 
     def llm(prompt, max_tokens=4096):
-        return gold
+        if "只判断这场戏像不像" in prompt:
+            return "过"
+        if "已经过审" in prompt or "抽出标签行" in prompt:
+            return gold
+        return "灰七还焦黑。硬还还是塞纸角。他塞纸角。门更死。"
 
     r = thicken_chapter_design(
         {},
@@ -313,13 +359,101 @@ def test_thicken_chapter_design_persists_once_on_gold():
         persist_fn=lambda f: persisted.update(f),
         seq=1,
     )
-    if r.get("ok"):
-        assert "chapter_spine" in persisted
-        assert "beats" in persisted
-        assert (persisted.get("beats_meta") or {}).get("schema_design") == "chapter_design.v1"
-    else:
-        # 命运闸可能拦无钟地；不得半稿
-        assert "chapter_spine" not in persisted or "beats" in persisted
+    assert r.get("ok"), r
+    assert "chapter_spine" in persisted
+    assert "beats" in persisted
+    assert (persisted.get("beats_meta") or {}).get("schema_design") == "chapter_design.v1"
+    assert persisted.get("beats_meta", {}).get("play")
+
+
+def test_parse_review_only_exact_pass():
+    assert parse_review("过")["ok"] is True
+    assert parse_review("过\n写得清楚")["ok"] is True
+    assert parse_review("不过\n你写成开箱了")["ok"] is False
+    assert parse_review("过程写歪了")["ok"] is False
+    assert parse_review("过关了")["ok"] is False
+    assert "开箱" in parse_review("不过\n你写成开箱了")["opinion"]
+
+
+def test_evaluate_play_rejects_wrong_event():
+    book = _wb(
+        duty_who="沈拾灯按回",
+        duty_event="交核还是自按，把场核按回腕里",
+        duty_bill="大遮蔽撕开一档",
+        character_names=frozenset({"沈拾灯"}),
+        seq=1,
+    )
+    bad = evaluate_play("周青臣打开金縢箱子，还是把里面的信读完。", book, seq=1)
+    assert bad["ok"] is False
+    assert "开箱" in bad["opinion"] or "要办的是" in bad["opinion"] or "名单" in bad["opinion"]
+    assert "spine_choice" not in bad["opinion"]
+    assert "必须写成" not in bad["opinion"]
+    good = evaluate_play(
+        "沈拾灯站在灯亭。交核还是自按。他把场核按回腕里。大遮蔽撕开一档。",
+        book, seq=1,
+    )
+    assert good["ok"] is True, good
+
+
+def test_persist_play_skips_old_table_exam():
+    os.environ["SCRIBE3_CHAPTER_DESIGN"] = "on"
+    os.environ["SCRIBE3_CLUE_DENSITY"] = "on"
+    os.environ["SCRIBE3_DESIGN_BOOK"] = "on"
+    book = _wb(
+        duty_who="沈拾灯",
+        duty_event="交核还是自按",
+        duty_bill="大遮蔽撕开",
+        character_names=frozenset({"沈拾灯"}),
+    )
+    spine = _wb_spine(lines=[])  # 旧表考会因线空不过
+    beats = _wb_beats()
+    old = evaluate_chapter_design(spine, beats, book=book)
+    assert not old.ok
+    fields = {
+        "chapter_spine": spine,
+        "beats": beats,
+        "beats_meta": {"play": "沈拾灯交核还是自按，大遮蔽撕开。", "place": {"name": "华山北峰", "delta": 0}},
+    }
+    assert persist_play_design_blocked(fields, book=book, store=None) is None
+
+
+def test_table_ungrounded_invented_cast():
+    book = _wb(character_names=frozenset({"沈拾灯"}))
+    play = "沈拾灯按回场核。交核还是自按。大遮蔽撕开。"
+    parsed = {
+        "ok": True,
+        "chapter_spine": _wb_spine(cast="周青臣；沈拾灯"),
+        "beats": _wb_beats(),
+    }
+    miss = table_ungrounded(play, parsed, book)
+    assert miss
+
+
+def test_resume_does_not_write_new_play():
+    gold = _DRY_OUTLINE + "\n选拍：2\n" + _DRY_BEATS
+    plays = []
+
+    class _St:
+        def list_design_attempts(self, seq, limit=20):
+            return [{
+                "play": "灰七要在炉冷前把焦黑还回侧门。硬还焦黑暴露埋灰人，还是只把纸角塞回门缝。他塞了。账清了门更死。",
+                "review_ok": True,
+            }]
+
+        def save_design_attempt(self, seq, rec):
+            return None
+
+    def llm(prompt, max_tokens=4096):
+        if "写成一篇短戏" in prompt or ("不要输出表格" in prompt and "【戏】" not in prompt):
+            plays.append(prompt)
+            return "不该再写一篇"
+        if "只判断这场戏像不像" in prompt:
+            return "过"
+        return gold
+
+    r = thicken_chapter_design({}, llm_fn=llm, persist_fn=lambda f: None, seq=1, st=_St())
+    assert plays == []
+    assert r.get("ok"), r
 
 
 # ── 接得上这本书 ──────────────────────────────────────────────

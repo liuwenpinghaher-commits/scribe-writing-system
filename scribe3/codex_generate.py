@@ -595,6 +595,194 @@ def _bible_for(st, work, kind: str, row: dict, extra: str, include_secret: bool)
     return "\n".join(p for p in (named, cards) if p)
 
 
+_PORTRAIT_KINDS = frozenset({"character", "faction", "item", "term", "world_rule"})
+
+
+def duty_fields_ready(kind: str, row: Mapping[str, Any] | None) -> bool:
+    src = row if isinstance(row, dict) else {}
+    if kind == "character":
+        want = str(src.get("surface_goal") or src.get("deep_need") or "").strip()
+        pay = str(src.get("fear") or src.get("internal_conflict") or "").strip()
+        return bool(want and pay)
+    if kind == "item":
+        return bool(str(src.get("description") or "").strip() or src.get("special_properties"))
+    if kind == "world_rule":
+        return bool(str(src.get("cost") or "").strip())
+    if kind == "term":
+        return bool(str(src.get("definition") or "").strip())
+    if kind == "faction":
+        return bool(str(src.get("ideology") or "").strip() or src.get("goals"))
+    return False
+
+
+def build_portrait_prompt(kind: str, row: Mapping[str, Any] | None, extra: str = "", bible: str = "") -> str:
+    name = ""
+    if isinstance(row, dict):
+        name = str(row.get("name") or row.get("id") or "")
+    who = name or "这个人"
+    if kind == "character":
+        ask = f"写{who}在这本书里是谁。他要什么，他会让人付出什么。不要填表，不要 JSON。"
+    elif kind == "item":
+        ask = f"写{who}这件东西让谁变贵。不要填表，不要 JSON。"
+    elif kind == "world_rule":
+        ask = f"写{who}这条规矩谁打破谁付钱。不要填表，不要 JSON。"
+    elif kind == "term":
+        ask = f"写{who}这个词在这本书里怎么收账。不要填表，不要 JSON。"
+    else:
+        ask = f"写{who}这股势力要主角付出什么。不要填表，不要 JSON。"
+    bits = [ask, "只输出这篇短文。"]
+    if extra:
+        bits.append(extra.strip())
+    if (bible or "").strip():
+        bits.append(str(bible).strip())
+    return "\n\n".join(bits)
+
+
+def build_portrait_extract_prompt(kind: str, portrait: str) -> str:
+    if kind == "character":
+        need = "他要什么：\n他让人付出什么："
+    elif kind == "item":
+        need = "让谁变贵："
+    elif kind == "world_rule":
+        need = "谁打破谁付钱："
+    elif kind == "term":
+        need = "是什么：\n不是什么：\n本书用法：\n边界："
+    else:
+        need = "他们要主角付出什么："
+    return (
+        "下面这篇短文已经过审。只从这篇里抽出这几行，不要另编。\n"
+        f"{need}\n"
+        "【短文】\n" + (portrait or "").strip() + "\n"
+        "只输出从短文里抄出来的行。"
+    )
+
+
+def _duty_blob(kind: str, fields: Mapping[str, Any] | None) -> str:
+    src = fields if isinstance(fields, dict) else {}
+    if kind == "character":
+        return " ".join(str(src.get(k) or "") for k in (
+            "surface_goal", "deep_need", "fear", "internal_conflict",
+        ))
+    if kind == "item":
+        return str(src.get("description") or "")
+    if kind == "world_rule":
+        return str(src.get("cost") or "")
+    if kind == "term":
+        return str(src.get("definition") or "")
+    if kind == "faction":
+        return str(src.get("ideology") or "")
+    return ""
+
+
+def portrait_grounded(kind: str, fields: Mapping[str, Any] | None, portrait: str) -> bool:
+    from scribe3.clue_density import _distinctive_overlap
+    blob = _duty_blob(kind, fields)
+    if not str(blob or "").strip():
+        return False
+    if not str(portrait or "").strip():
+        return False
+    return _distinctive_overlap(portrait, blob, None)
+
+
+def _apply_portrait_extract(kind: str, working: dict, patch: dict, raw: str) -> dict[str, Any]:
+    out = dict(working or {})
+    src = dict(patch or {})
+    text = raw or ""
+    if kind == "character":
+        want = str(src.get("surface_goal") or src.get("deep_need") or "").strip()
+        pay = str(src.get("fear") or src.get("internal_conflict") or "").strip()
+        if not want:
+            m = re.search(r"他要什么\s*[:：]\s*(.+)", text)
+            if m:
+                want = m.group(1).strip().split("\n", 1)[0]
+        if not pay:
+            m = re.search(r"他让人付出什么\s*[:：]\s*(.+)", text)
+            if m:
+                pay = m.group(1).strip().split("\n", 1)[0]
+        if want:
+            out["surface_goal"] = want
+        if pay:
+            out["fear"] = pay
+        return out
+    if kind == "item":
+        desc = str(src.get("description") or "").strip()
+        if not desc:
+            m = re.search(r"让谁变贵\s*[:：]\s*(.+)", text)
+            if m:
+                desc = m.group(1).strip().split("\n", 1)[0]
+        if desc:
+            out["description"] = desc
+        return out
+    if kind == "world_rule":
+        cost = str(src.get("cost") or "").strip()
+        if not cost:
+            m = re.search(r"谁打破谁付钱\s*[:：]\s*(.+)", text)
+            if m:
+                cost = m.group(1).strip().split("\n", 1)[0]
+        if cost:
+            out["cost"] = cost
+        return out
+    if kind == "term" and src.get("definition"):
+        out["definition"] = src.get("definition")
+        return out
+    if kind == "faction":
+        idea = str(src.get("ideology") or "").strip()
+        if not idea:
+            m = re.search(r"他们要主角付出什么\s*[:：]\s*(.+)", text)
+            if m:
+                idea = m.group(1).strip().split("\n", 1)[0]
+        if idea:
+            out["ideology"] = idea
+    out.update({k: v for k, v in src.items() if v not in (None, "", [], {})})
+    return out
+
+
+def thicken_codex_portrait(
+    kind: str,
+    src: dict[str, Any],
+    *,
+    llm_fn: LlmFn,
+    persist_fn: Callable[[dict], Any] | None,
+    extra: str,
+    include_secret: bool,
+    bible: str,
+) -> dict[str, Any]:
+    portrait = _call_llm(llm_fn, build_portrait_prompt(kind, src, extra=extra, bible=bible), MAX_TOKENS[kind])
+    first = parse_codex_payload(kind, portrait)
+    working = dict(first)
+    if duty_fields_ready(kind, working) and portrait_grounded(kind, working, portrait):
+        pass
+    else:
+        ext = _call_llm(llm_fn, build_portrait_extract_prompt(kind, portrait), 1024)
+        patch = parse_codex_payload(kind, ext)
+        working = _apply_portrait_extract(kind, working, patch, ext)
+        if not duty_fields_ready(kind, working) or not portrait_grounded(kind, working, portrait):
+            return {
+                "ok": False, "code": "llm_thin", "kind": kind, "name": src.get("name"),
+                "message": "短文过了，他要什么 / 他让人付出什么还没从这篇里抽出",
+                "portrait": portrait[:800],
+            }
+    public, secret, only = _split_bags(kind, working)
+    out_fields = dict(public)
+    if include_secret:
+        out_fields.update(secret)
+        out_fields.update(only)
+    if persist_fn:
+        persist_fn(out_fields)
+    return {
+        "ok": True,
+        "kind": kind,
+        "name": src.get("name"),
+        "public_fields": public,
+        "secret_fields": secret if include_secret else {},
+        "chief_only_fields": only if include_secret else {},
+        "cn": cn_len(json.dumps(public, ensure_ascii=False)),
+        "source": "llm",
+        "bible_attached": bool((bible or "").strip()),
+        "portrait": portrait[:800],
+    }
+
+
 def thicken_codex(
     kind: str,
     row: Mapping[str, Any] | None,
@@ -625,6 +813,14 @@ def thicken_codex(
             merged = dict(loaded)
             merged.update({kk: vv for kk, vv in src.items() if vv not in (None, "", [], {})})
             src = merged
+    if k in _PORTRAIT_KINDS:
+        if duty_fields_ready(k, src) and not force:
+            return {"ok": True, "skipped": True, "status": "ready", "kind": k, "name": src.get("name")}
+        bible = _bible_for(st, work, k, src, extra, include_secret)
+        return thicken_codex_portrait(
+            k, src, llm_fn=llm_fn, persist_fn=persist_fn, extra=extra,
+            include_secret=include_secret, bible=bible,
+        )
     ready = evaluate_codex_ready(k, src)
     if ready.get("ok") and not force:
         return {"ok": True, "skipped": True, "status": "ready", "kind": k, "name": src.get("name")}

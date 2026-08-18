@@ -1411,15 +1411,21 @@ async def s3_generate_stage(
                 fields = sync_design_surface(fields, ch, store=st)
             merged = {**(ch or {}), **fields}
             book = load_design_book(st, seq, merged)
-            blocked = persist_fields_blocked(
-                fields,
-                existing=ch,
-                known_line_ids=known_line_ids_from_store(st),
-                fate_ctx=load_fate_context(st, int(seq), merged),
-                chapter=merged,
-                book=book,
-                store=st,
-            )
+            if out.get("play") and stg in ("design", "outline", "beats"):
+                from scribe3.design_play import persist_play_design_blocked
+                blocked = persist_play_design_blocked(
+                    fields, book=book, store=st, existing=ch,
+                )
+            else:
+                blocked = persist_fields_blocked(
+                    fields,
+                    existing=ch,
+                    known_line_ids=known_line_ids_from_store(st),
+                    fate_ctx=load_fate_context(st, int(seq), merged),
+                    chapter=merged,
+                    book=book,
+                    store=st,
+                )
             if blocked:
                 try:
                     _emit_fate_artifacts(stg, out, fields, {**(ch or {}), **fields})

@@ -59,27 +59,25 @@ def _fat_char_json(*, goal: str) -> str:
     }, ensure_ascii=False)
 
 
-def test_thicken_character_only_rewrites_want():
+def test_thicken_character_portrait_then_extract():
     prompts: list[str] = []
-    n = {"i": 0}
-    pinned = "冷" * 400
 
     def llm(prompt, max_tokens=4096):
         prompts.append(prompt)
-        n["i"] += 1
-        if "只改这一条" in prompt:
-            assert "一个字都不要动" in prompt
-            assert "禁止短稿" not in prompt
-            assert "覆盖地板" not in prompt
-            return '{"surface_goal": "柳岸青要把场核碎片按回裂口，不交给守火人，世界开始认他的心跳。' + ("责" * 80) + '"}'
-        return _fat_char_json(goal="要活")
+        if "不要填表" in prompt:
+            return (
+                "柳岸青要把场核碎片按回裂口，不交给守火人。"
+                "他会让世界开始认他的心跳，旁人付出单向可见。"
+            )
+        return "他要什么：把场核碎片按回裂口\n他让人付出什么：世界认走心跳，旁人单向可见"
 
     out = thicken_codex("character", {"name": "柳岸青"}, llm_fn=llm)
-    assert any("只改这一条" in p for p in prompts)
-    if out.get("ok"):
-        fields = out.get("public_fields") or {}
-        assert fields.get("personality_detail") == pinned
-        assert "按回" in str(fields.get("surface_goal") or "")
+    assert any("不要填表" in p for p in prompts)
+    assert any("他要什么" in p for p in prompts)
+    assert out.get("ok"), out
+    fields = out.get("public_fields") or {}
+    assert "按回" in str(fields.get("surface_goal") or "")
+    assert fields.get("fear")
 
 
 def test_merge_codex_slot_keeps_other_fields():

@@ -44,6 +44,8 @@ class DesignAttemptsMixin:
             "synopsis": rec.get("synopsis") or "",
             "raw_head": rec.get("raw_head") or "",
             "slot": rec.get("slot") or "",
+            "play": rec.get("play") or "",
+            "review_ok": bool(rec.get("review_ok")),
         }
         try:
             self._execute_write(
