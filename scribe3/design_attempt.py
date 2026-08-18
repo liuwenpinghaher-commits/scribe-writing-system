@@ -11,6 +11,11 @@ PLAY_SLOTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "spine_goal_thin", "spine_padding", "spine_atoms", "spine_density",
         "goal_off_world", "choice_unperformed",
     )),
+    ("beat", "没演出的那一场", (
+        "beat_count", "beat_choice", "beat_off_spine", "beat_leak",
+        "choice_not_staged", "gesture_echo", "beat_echo_prev",
+        "beat_decision_homeless",
+    )),
     ("bill", "代价", (
         "bill_unmet", "spine_cost_thin", "cost_off_axis", "cost_private_only",
         "cost_same_amplitude", "world_untouched", "world_fact_same",
@@ -23,11 +28,6 @@ PLAY_SLOTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     )),
     ("line", "动哪条线", (
         "line_delta_empty", "line_off_topic", "line_wrong_bind", "lines_unbound",
-    )),
-    ("beat", "没演出的那一场", (
-        "beat_count", "beat_choice", "beat_off_spine", "beat_leak",
-        "choice_not_staged", "gesture_echo", "beat_echo_prev",
-        "beat_decision_homeless",
     )),
 )
 

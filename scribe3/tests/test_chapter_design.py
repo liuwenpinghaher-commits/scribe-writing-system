@@ -92,8 +92,13 @@ def test_design_ask_does_not_fail_whole_page_on_forty_chars():
 def test_planning_paper_has_no_lock_words():
     sys = planning_system_prompt()
     assert "责任" in sys
+    assert "还没选" in sys
+    assert "已经选完" in sys
     assert "侧门开法" not in sys
     assert "拨锁" not in sys
+    assert "必须出现" not in _DESIGN_ASK
+    assert "还没选" in _DESIGN_ASK
+    assert "不要写成已经选完" in _DESIGN_ASK or "不要写成已经选完的句子" in _DESIGN_ASK
 
 
 def test_merge_beats_by_head_only_touches_named_beat():
@@ -270,6 +275,8 @@ def test_first_open_slot_play_order():
     assert first_open_slot(["who_unmet", "bill_unmet"], struct_ok=True) == "who"
     assert first_open_slot(["spine_slots:cost"], struct_ok=True) == "bill"
     assert first_open_slot(["choice_not_staged"], struct_ok=True) == "beat"
+    assert first_open_slot(["choice_not_staged", "lines_unbound"], struct_ok=True) == "beat"
+    assert first_open_slot(["spine_choice", "choice_not_staged"], struct_ok=True) == "event"
     assert first_open_slot(["place_frozen"], struct_ok=True) == "place"
     assert first_open_slot(["spine_slots:goal"], struct_ok=False) is None
 
