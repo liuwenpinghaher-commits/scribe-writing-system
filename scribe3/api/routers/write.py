@@ -238,6 +238,7 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
             "need": out.get("need"),
             "parsed": out.get("parsed"),
             "missing": out.get("missing") or [],
+            "attempts": out.get("attempts"),
         })
     if out.get("ok") is False and out.get("code") in (
         "extra_authors", "extra_gold", "stage_merged", "stage_flag_off",
@@ -258,6 +259,7 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
             "message": out.get("message"),
             "missing": out.get("missing") or [],
             "fate": out.get("fate"),
+            "attempts": out.get("attempts"),
         })
     if out.get("ok") is False:
         raise HTTPException(status_code=422, detail={
