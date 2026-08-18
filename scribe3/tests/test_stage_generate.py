@@ -1,282 +1,130 @@
-"""冰山生成链：StageSpec / 解析 / 必须 LLM / 禁切句回退。禁止 Surreal。"""
+"""五层管线入口：旧阶段 410，落库走真实 store 协议。禁止 Surreal。"""
 from __future__ import annotations
 
-from scribe3.iceberg import DEDUCTION_FLOOR, DRAFT_FLOOR, SYNOPSIS_FLOOR, cn_len
-from scribe3.stage_craft_prompt import stage_craft_block
+from scribe3.playbook.memory_store import TABLES
 from scribe3.stage_generate import (
-    draft_tip,
-    iceberg_ok_for,
-    parse_beats_payload,
-    parse_outline_payload,
-    stage_max_tokens,
+    _as_playbook_store,
+    normalize_stage,
     stage_ready,
-    stage_skips_drama_vacuum,
-    stage_skips_editor_chrome,
     stage_spec,
-    thicken_beats,
-    thicken_draft,
-    thicken_outline,
+    thicken_stage,
 )
 
 
-def _fat(seed: str, n: int) -> str:
-    return seed + ("甲" * n)
+def test_old_stage_names_are_gone():
+    from scribe3.playbook.stages import reject_gone_stage
+    for name in ("outline", "beats", "chapter_design", "plan"):
+        hit = reject_gone_stage(name)
+        assert hit is not None
+        assert hit["http"] == 410
+        assert "duty" in hit["message"]
+    assert normalize_stage("write") == "final"
+    assert reject_gone_stage("design") is None
 
 
-def test_final_kernel_eats_full_materials():
-    spec = stage_spec("final")
-    assert "只吃冰山尖" not in spec["short_kernel"]
-    assert "只吃大纲尖" not in spec["ask"]
-    assert "材料全文" in spec["short_kernel"] or "另写" in spec["short_kernel"]
-    assert "另写" in spec["ask"]
+def test_stage_spec_teaches_five_layers():
+    spec = stage_spec("design")
+    assert spec["short_kernel"] == "duty → design → deduce → draft → final"
+    gone = stage_spec("outline")
+    assert gone.get("gone") is True
 
 
-def test_stage_craft_is_kernel_not_slogan():
-    blk = stage_craft_block("outline")
-    assert "选择" in blk or "13" in blk
-    assert "不要凑字数" not in blk
-    assert "≥500" not in blk
-    assert len(blk) <= 400
-    assert stage_craft_block("final") == ""
-    assert stage_craft_block("draft") == ""
+def test_stage_ready_reads_frozen_row():
+    class St:
+        def get_frozen(self, table, seq):
+            if table == "duty_card" and seq == 2:
+                return {"status": "frozen", "sha": "abc"}
+            return None
+
+    hit = stage_ready({}, "design", store=St(), seq=2)
+    assert hit["ok"] is True
+    miss = stage_ready({}, "design", store=St(), seq=3)
+    assert hit["ok"] is True
+    assert miss["ok"] is False
+    assert miss["code"] == "stage_not_ready"
 
 
-_DRY_OUTLINE = """时空：还账日后第一个下午，巷口到旧库
-在场：灰七；冷锅婆；灰狸
-咬上章：天亮前不能张嘴；掌心焦黑未还
-本章要：灰七要在炉冷前把焦黑还回侧门
-挡：灰狸递假铜挡路；婆子捞锅里账钱
-触发：灰狸把假铜举到灰七眼皮底下
-升级：灰七拨开假铜；婆子说账勾了门没开
-选择：硬还焦黑暴露埋灰人 vs 只把纸角塞回门缝
-决断：灰七不进门，把纸角朝门里推回一分
-代价：账清了门更死；门内咳了一声爹的口气
-信息差：灰狸不知匙；婆子不知撕角
-动哪条线：promise:xiang-debt 香债勾笔；storyline:side-gate 侧门未开
-钩：铜钱缺口硌着肋骨
-禁令：锁眼、真名、灰狸知匙
-"""
+def test_as_playbook_store_keeps_surreal_protocol():
+    class SurrealLike:
+        def get_frozen(self, table, seq):
+            return None
 
-_DRY_BEATS = """## 拍1
-要：把假铜挡在眼皮外
-挡：灰狸递假铜挡路
-变：假铜被拨开落回他自己手里
-付：灰狸受伤账更难看
-选：无
-水下：狸不知撕角
-## 拍2
-要：把焦黑还回侧门
-挡：婆子说账勾了门没开
-变：门更死咳了一声
-付：门没开更险
-选：硬还焦黑暴露 vs 纸角塞回门缝
-水下：咳像爹
-## 拍3
-要：守住撕角不让狸看见
-挡：灰狸跟在柴垛后
-变：纸角朝门里推回一分
-付：门内咳像爹未兑
-选：无
-水下：角还在袖里
-"""
+        def insert(self, table, rec):
+            return rec
+
+        def next_version(self, table, seq):
+            return 1
+
+        def mark_superseded(self, table, seq, version):
+            return None
+
+    st = SurrealLike()
+    assert _as_playbook_store(st) is st
 
 
-def test_parse_outline_floor():
-    thin = parse_outline_payload("清册官入镇封炉。")
-    assert thin["ok"] is False
-    assert thin["cn"] < SYNOPSIS_FLOOR
-    dry = parse_outline_payload(_DRY_OUTLINE)
-    assert dry["ok"] is True, dry.get("density")
-    assert dry["source"] == "llm_13slot"
-    assert dry["chapter_spine"]["goal"]
+def test_thicken_stage_persists_via_store_insert():
+    inserts: list[tuple[str, str]] = []
 
+    class St:
+        def __init__(self):
+            self.rows = {t: [] for t in TABLES}
 
-def test_parse_beats_scene_paper():
-    parsed = parse_beats_payload(_DRY_BEATS)
-    assert parsed["ok"] is True, parsed.get("density")
-    assert len(parsed["beats"]) == 3
-    assert parsed["source"] == "llm_gcd"
-    assert parsed["beats"][1]["choice"]
+        def list_versions(self, table, seq):
+            return [dict(r) for r in self.rows[table] if int(r.get("seq") or 0) == int(seq)]
 
+        def next_version(self, table, seq):
+            vers = [int(r.get("version") or 0) for r in self.list_versions(table, seq)]
+            return (max(vers) + 1) if vers else 1
 
-def test_thicken_without_store_does_not_pretend_bible():
-    seen = []
+        def get_frozen(self, table, seq):
+            for rec in reversed(self.list_versions(table, seq)):
+                if rec.get("status") == "frozen":
+                    return rec
+            return None
 
-    def llm(prompt, max_tokens=2048):
-        seen.append(prompt)
-        return "一句口号大纲。"
+        def get_by_sha(self, table, sha):
+            for rec in self.rows[table]:
+                if rec.get("sha") == sha:
+                    return rec
+            return None
 
-    thicken_outline({"synopsis": "短"}, llm_fn=llm)
-    assert seen
-    assert "本书设定圣经" not in seen[0]
+        def insert(self, table, rec):
+            inserts.append((table, str(rec.get("status") or "")))
+            self.rows[table].append(dict(rec))
+            return rec
 
+        def mark_superseded(self, table, seq, version):
+            for rec in self.rows[table]:
+                if int(rec.get("seq") or 0) == int(seq) and int(rec.get("version") or 0) == int(version):
+                    rec["status"] = "superseded"
 
-def test_thicken_outline_requires_llm_and_rejects_template():
-    try:
-        thicken_outline({"synopsis": ""}, llm_fn=None)
-        raise AssertionError("expected ValueError")
-    except ValueError as e:
-        assert "llm_fn" in str(e)
+        def list_by_play_sha(self, table, play_sha):
+            return []
 
-    calls = {"n": 0}
+        def characters(self):
+            return [{"name": "沈烛若", "id": "role:沈烛若"}]
 
-    def short_llm(prompt, max_tokens=2048):
-        calls["n"] += 1
-        return "一句口号大纲。"
+    def llm(prompt, max_tokens=2048, system="", temperature=0.8):
+        if "立四件事" in prompt or "立\"责任\"" in prompt:
+            import json
+            return json.dumps({
+                "must_happen": "沈烛若把碎片按回胸口",
+                "bill": "四十二度成了他的常态",
+                "who": ["沈烛若"],
+                "forbidden_reveal": ["炉认主"],
+                "line_to_touch": None,
+            }, ensure_ascii=False)
+        if "你是审稿的" in prompt or "五问" in prompt:
+            import json
+            return json.dumps({
+                "answers": [{"q": 1, "evidence": "按回", "answer": "yes", "reason": "过"}],
+                "verdict": "pass",
+                "opinion": "",
+            }, ensure_ascii=False)
+        return "x"
 
-    out = thicken_outline({"synopsis": "短"}, llm_fn=short_llm)
-    assert out["ok"] is False
-    assert out.get("code") in (
-        "llm_thin", "design_spine_unparsed", "design_beats_unparsed",
-        "play_rejected", "extract_thin",
-    )
-    assert calls["n"] >= 1
-
-
-def test_outline_and_beats_mean_write_chapter():
-    from scribe3.stage_generate import normalize_stage
-    assert normalize_stage("outline") == "design"
-    assert normalize_stage("beats") == "design"
-    assert normalize_stage("plan") == "design"
-    gold = _DRY_OUTLINE + "\n选拍：2\n" + _DRY_BEATS
-    persisted = {}
-
-    def fat_llm(prompt, max_tokens=4096):
-        if "只判断这场戏像不像" in prompt:
-            return "过"
-        if "已经过审" in prompt or "抽出标签行" in prompt:
-            return gold
-        return (
-            "灰七要在炉冷前把焦黑还回侧门。硬还焦黑暴露埋灰人，还是只把纸角塞回门缝。"
-            "他不进门，把纸角朝门里推回一分。账清了门更死。"
-        )
-
-    r = thicken_outline(
-        {"synopsis": ""},
-        llm_fn=fat_llm,
-        persist_fn=lambda f: persisted.update(f),
-        seq=6,
-    )
-    assert r.get("ok"), r
-    assert "chapter_spine" in persisted
-    assert "beats" in persisted
-    assert iceberg_ok_for(persisted, "design")
-
-
-def test_thicken_beats_no_synopsis_cut():
-    from scribe3.tests.test_chapter_spine import G1
-    ch = {
-        "chapter_spine": G1,
-        "synopsis": "日子必须发生因果不能说章末。" + ("戊" * 500),
-        "beats": [{"text": "清册官摊册。"}],
-    }
-
-    def slogan_llm(prompt, max_tokens=4096):
-        return "1. 摊册\n2. 藏纸\n3. 观望"
-
-    r = thicken_beats(ch, llm_fn=slogan_llm)
-    assert r["ok"] is False
-
-
-def test_stage_ready_chain():
-    from scribe3.tests.test_chapter_spine import G1
-    empty = {}
-    assert stage_ready(empty, "outline")["ok"] is True
-    assert stage_ready(empty, "beats")["ok"] is True
-    assert stage_ready(empty, "design")["ok"] is True
-    thick_syn = {"chapter_spine": G1, "synopsis": "本章要：灰七还焦黑"}
-    assert stage_ready(thick_syn, "deduce")["ok"] is False
-    assert stage_ready(thick_syn, "draft")["ok"] is False
-
-
-def test_draft_full_keeps_near_floor_and_forbids_reread():
-    body = "排演全文" + ("己" * 4000)
-    tip = draft_tip(body)
-    assert "禁止复读" in tip
-    assert "己" * 4000 in tip
-    assert draft_tip("") == ""
-
-
-def test_thicken_draft_accepts_short_structured():
-    from scribe3.tests.test_chapter_spine import G1
-    from scribe3.tests.test_iceberg import _GCD_BEATS
-    ch = {
-        "chapter_spine": G1,
-        "synopsis": "本章要：灰七还焦黑",
-        "beats": list(_GCD_BEATS),
-        "deductions": [{"prose": _fat("知", 80)}],
-    }
-    saved = {}
-    calls = {"n": 0}
-
-    def short_llm(prompt, max_tokens=16384):
-        calls["n"] += 1
-        assert "还差" not in prompt
-        assert "还差 N 字写新场面" not in prompt
-        return "他按回碎片，门内咳了一声。"
-
-    r = thicken_draft(ch, llm_fn=short_llm, persist_fn=lambda f: saved.update(f))
-    assert r["ok"] is True, r
-    assert calls["n"] == 1
-    assert "draft" in saved
-    assert cn_len(saved["draft"]) < DRAFT_FLOOR
-    assert r.get("fate")
-    assert "mode" in r["fate"]
-
-
-def test_thicken_draft_writes_rehearsal_not_prose():
-    from scribe3.tests.test_chapter_spine import G1
-    from scribe3.tests.test_iceberg import _GCD_BEATS
-    ch = {
-        "chapter_spine": G1,
-        "synopsis": "本章要：灰七还焦黑",
-        "beats": list(_GCD_BEATS),
-        "deductions": [{"prose": _fat("知", DEDUCTION_FLOOR)}],
-    }
-    saved = {}
-
-    def fat_draft(prompt, max_tokens=16384):
-        return "排演走场。" + ("庚" * DRAFT_FLOOR)
-
-    r = thicken_draft(ch, llm_fn=fat_draft, persist_fn=lambda f: saved.update(f))
-    assert r["ok"] is True
-    assert r["source"] == "llm"
-    assert "draft" in saved
-    assert "prose" not in saved
-    assert iceberg_ok_for({**ch, "draft": saved["draft"]}, "draft")
-
-
-def test_stage_skips_editor_chrome_and_vacuum():
-    assert stage_skips_editor_chrome("outline") is True
-    assert stage_skips_editor_chrome("plan") is True
-    assert stage_skips_editor_chrome("beats") is True
-    assert stage_skips_editor_chrome("deduce") is True
-    assert stage_skips_editor_chrome("draft") is True
-    assert stage_skips_editor_chrome("final") is False
-    assert stage_skips_drama_vacuum("outline") is True
-    assert stage_skips_drama_vacuum("deduce") is True
-    assert stage_skips_drama_vacuum("final") is False
-
-
-def test_stage_max_tokens_per_phase():
-    assert stage_max_tokens("outline") == 2048
-    assert stage_max_tokens("beats") == 4096
-    assert stage_max_tokens("deduce") == 8192
-    assert stage_max_tokens("draft") == 16384
-    assert stage_max_tokens("final") == 16384
-    assert stage_max_tokens("plan") == 2048
-    from scribe3.stage_generate import parse_final_payload, thicken_stage
-    fat = parse_final_payload("读者正文。" + ("甲" * 5100))
-    assert fat["ok"] is True
-    short = parse_final_payload("短。")
-    assert short["ok"] is True  # 字数不再作 Ice6 通过条件
-    assert parse_final_payload("")["ok"] is False
-    assert "final" in thicken_stage.__code__.co_consts or True
-
-
-if __name__ == "__main__":
-    for name, fn in list(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            fn()
-            print("OK", name)
-    print("PASS test_stage_generate")
+    st = St()
+    out = thicken_stage("duty", {}, llm_fn=llm, persist_fn=lambda f: None, seq=1, st=st)
+    assert out.get("ok") is True, out
+    assert ("duty_card", "frozen") in inserts
+    assert st.get_frozen("duty_card", 1)

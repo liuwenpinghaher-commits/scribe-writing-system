@@ -581,25 +581,24 @@ def test_s3_save_chapter_craft_gate_blocks_persist(monkeypatch):
     st = ST()
     monkeypatch.setattr(tw, "_store_for", lambda work=None: st)
 
-    def fake_craft(st_, seq, prose, skip=False):
+    def fake_fg(st_, seq, prose, **kw):
         return {
             "allowed": False,
-            "code": "craft_gate_b",
-            "detail": "scaffolding missing",
-            "blocking": ["beat_sheet"],
-            "root_causes": ["no_outline"],
+            "code": "finalize_gate",
+            "detail": "定稿门没过",
+            "blocking": ["x"],
         }
 
     monkeypatch.setattr(
-        "scribe3.verify_craft_compliance.evaluate_save_craft_gate",
-        fake_craft,
+        "scribe3.finalize_gate.check_finalize_for_save",
+        fake_fg,
     )
     out = tw.s3_save_chapter(
-        1, "这是一段用于测试工艺门闩阻断落库的正文内容。" * 15,
+        1, "这是一段用于测试定稿门阻断落库的正文内容。" * 15,
         work="main",
     )
     assert out["status"] == "blocked"
-    assert out["code"] == "craft_gate_b"
+    assert out["code"] == "finalize_gate"
     assert st.saved is False
 
 
@@ -619,10 +618,6 @@ def test_s3_save_chapter_craft_pass_then_finalize_can_block(monkeypatch):
 
     st = ST()
     monkeypatch.setattr(tw, "_store_for", lambda work=None: st)
-    monkeypatch.setattr(
-        "scribe3.verify_craft_compliance.evaluate_save_craft_gate",
-        lambda *a, **k: {"allowed": True, "code": "ok", "reports": {}},
-    )
     monkeypatch.setattr(
         "scribe3.finalize_gate.check_finalize_for_save",
         lambda *a, **k: {

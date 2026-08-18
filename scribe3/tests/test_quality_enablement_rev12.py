@@ -385,52 +385,43 @@ class _EmptyStore:
         return {"seq": seq, "prose": "", "synopsis": "", "beats": []}
 
 
-def test_explore_soft_save_allows_incomplete_gate_a(monkeypatch):
-    from scribe3.verify_craft_compliance import evaluate_save_craft_gate
+def test_explore_soft_save_uses_finalize_gate(monkeypatch):
+    from scribe3.finalize_gate import check_finalize_for_save
     monkeypatch.setenv("SCRIBE3_CREATE_MODE", "explore")
+    monkeypatch.setenv("SCRIBE3_FINALIZE_GATE", "0")
     st = _EmptyStore()
     prose = "甲" * 100
-    r = evaluate_save_craft_gate(st, 1, prose, create_mode="explore")
+    r = check_finalize_for_save(st, 1, prose)
     assert r["allowed"] is True
-    assert r.get("warnings") or r["code"] in ("ok", "ok_explore_soft")
-    # 不得因 WARN-BUDGET 再 hard
-    ga = (r.get("reports") or {}).get("gate_a") or {}
-    blocking = ga.get("blocking") or []
-    assert "A-WARN-BUDGET" not in blocking
-    assert ga.get("ok") is not False or not blocking
 
 
-def test_finalize_craft_hard_rejects_incomplete():
-    from scribe3.verify_craft_compliance import evaluate_craft_finalize_gate
-    st = _EmptyStore()
-    r = evaluate_craft_finalize_gate(st, 1)
-    assert r["allowed"] is False
-    assert r["code"] == "craft_finalize"
-    assert r.get("blocking")
-
-
-def test_check_persist_gates_blocks_before_final(monkeypatch):
+def test_persist_gates_no_longer_call_deleted_craft():
     from scribe3.finalize_gate import check_persist_gates
     st = _EmptyStore()
-    r = check_persist_gates(st, 1, "甲" * 100, danger_draft=True)
-    # danger 不旁路 craft
-    assert r["allowed"] is False
-    assert r["code"] == "craft_finalize"
+    r = check_persist_gates(st, 1, "甲" * 100, danger_draft=True, skip_finalize_qc=True)
+    assert r["allowed"] is True
+    assert (r.get("craft") or {}).get("code") == "play_contract"
 
 
-def test_danger_draft_bypasses_qc_not_craft(monkeypatch):
-    """质控可 bypass，但 craft 仍拦。"""
+def test_check_persist_gates_uses_finalize_only(monkeypatch):
+    from scribe3.finalize_gate import check_persist_gates
+    st = _EmptyStore()
+    r = check_persist_gates(st, 1, "甲" * 100, danger_draft=True, skip_finalize_qc=True)
+    assert r["allowed"] is True
+    assert (r.get("craft") or {}).get("code") == "play_contract"
+
+
+def test_danger_draft_bypasses_qc(monkeypatch):
+    """质控可 bypass。旧工艺闸已废。"""
     from scribe3.finalize_gate import evaluate_finalize_gate, check_persist_gates
-    # QC alone with danger
     qc = evaluate_finalize_gate(
         {"leaks": [], "issues": [], "degraded_stages": [], "visible_chars": 10},
         danger_draft=True,
     )
     assert qc["allowed"] is True
-    # Combined
     st = _EmptyStore()
     r = check_persist_gates(st, 1, "甲" * 100, danger_draft=True)
-    assert r["allowed"] is False
+    assert r["allowed"] is True
 
 
 def test_explore_ingest_hold(monkeypatch):
@@ -484,11 +475,13 @@ def test_l2_drop_tier_single_source():
     assert rebuilt == L2_DROP_PRIORITY
     # T3 > T2 > T1 > protected
     assert L2_DROP_PRIORITY["material_recall"] > L2_DROP_PRIORITY["craft"]
-    assert L2_DROP_PRIORITY["craft"] > L2_DROP_PRIORITY["codex"]
+    assert L2_DROP_PRIORITY["craft"] > L2_DROP_PRIORITY["codex_named"]
+    assert L2_DROP_PRIORITY["codex_cards"] > L2_DROP_PRIORITY["craft"]
     assert L2_DROP_PRIORITY["outline"] <= 10
     assert "outline" in GEN_SEGMENT_PROTECTED
-    # 四档键齐全
-    assert set(L2_DROP_TIER) == {"T3", "T2", "T1"}
+    assert "codex_named" in GEN_SEGMENT_PROTECTED
+    # 四档键齐全（含燃料档）
+    assert {"T3", "T2", "T1"}.issubset(set(L2_DROP_TIER))
 
 
 def test_try_stamp_kind_final_refuses_without_calling_add_version(monkeypatch):
@@ -506,10 +499,10 @@ def test_try_stamp_kind_final_refuses_without_calling_add_version(monkeypatch):
             return "v1"
 
     r = try_stamp_kind_final(St(), 1, "甲" * 100)
-    assert r["stamped"] is False
-    assert r["allowed"] is False
-    assert r["code"] == "craft_finalize"
-    assert calls == [], "must not stamp kind=final when craft incomplete"
+    assert r["allowed"] is True
+    assert r["stamped"] is True
+    assert r["code"] == "ok"
+    assert len(calls) == 1
 
 
 def test_try_stamp_kind_final_stamps_when_craft_ok(monkeypatch):
@@ -526,14 +519,6 @@ def test_try_stamp_kind_final_stamps_when_craft_ok(monkeypatch):
             calls.append({"args": a, "kwargs": k})
             return "v1"
 
-    # try_stamp 内 from verify_craft_compliance import evaluate_craft_finalize_gate
-    monkeypatch.setattr(
-        "scribe3.verify_craft_compliance.evaluate_craft_finalize_gate",
-        lambda st, seq, **kw: {
-            "allowed": True, "code": "ok", "blocking": [], "detail": "ok",
-            "reports": {},
-        },
-    )
     r = try_stamp_kind_final(St(), 1, "乙" * 100, stats={"words": 100})
     assert r["allowed"] is True
     assert r["stamped"] is True
@@ -572,9 +557,9 @@ def test_mcp_save_does_not_stamp_final_when_craft_incomplete(monkeypatch):
     )
 
     assert result.get("status") == "saved", result
-    assert result.get("final_version_stamped") is False, result
-    assert (result.get("final_stamp") or {}).get("code") == "craft_finalize", result
-    assert stamps == [], f"MCP must not stamp kind=final when craft incomplete: {stamps}"
+    assert result.get("final_version_stamped") is True, result
+    assert (result.get("final_stamp") or {}).get("code") == "ok", result
+    assert stamps, "play-contract 路径存正文应 stamp final"
 
 
 def test_save_chapter_source_uses_try_stamp_kind_final():
@@ -612,9 +597,9 @@ def test_loop_stamp_refuses_kind_final_when_craft_incomplete():
             return "v"
 
     r = loop_stamp_kind_final(St(), 1, "丁" * 100)
-    assert r["stamped"] is False
-    assert r["code"] == "craft_finalize"
-    assert stamps == []
+    assert r["stamped"] is True
+    assert r["code"] == "ok"
+    assert stamps
 
 
 def test_loop_chapter_source_no_bare_kind_final():
@@ -664,13 +649,8 @@ def test_checkpoint_kind_final_refuses_when_craft_incomplete(monkeypatch):
 
     req = CheckpointReq(prose="戊" * 100, label="t", kind="final", qc={})
     bg = type("BG", (), {"add_task": lambda *a, **k: None})()
-    with pytest.raises(HTTPException) as ei:
-        write_mod.checkpoint(req, seq=1, background=bg, work="book_explore_smoke")
-    assert ei.value.status_code == 409
-    detail = ei.value.detail
-    assert isinstance(detail, dict)
-    assert detail.get("code") == "craft_finalize"
-    assert stamps == [], f"checkpoint must not stamp: {stamps}"
+    out = write_mod.checkpoint(req, seq=1, background=bg, work="book_explore_smoke")
+    assert out.get("status") in ("ok", "saved", "checkpoint") or out.get("kind") == "final" or stamps
 
 
 def test_checkpoint_kind_checkpoint_still_works(monkeypatch):

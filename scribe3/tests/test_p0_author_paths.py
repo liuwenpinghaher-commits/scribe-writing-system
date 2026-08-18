@@ -133,8 +133,7 @@ def test_add_character_mcp_accept_under_emergency_off(store, emergency_off):
 
 
 def test_craft_gate_throw_blocks_save(store, monkeypatch, emergency_off):
-    """evaluate_save_craft_gate raise → 503, no silent write."""
-    monkeypatch.setenv("SCRIBE3_CRAFT_GATE", "1")
+    """check_finalize_for_save raise → 503, no silent write."""
     A.set_store(store)
     store.save_chapter(1, "", title="一")
 
@@ -142,7 +141,7 @@ def test_craft_gate_throw_blocks_save(store, monkeypatch, emergency_off):
         raise RuntimeError("gate exploded")
 
     monkeypatch.setattr(
-        "scribe3.verify_craft_compliance.evaluate_save_craft_gate", _boom)
+        "scribe3.finalize_gate.check_finalize_for_save", _boom)
     client = TestClient(A.app)
     long_prose = "甲乙丙丁" * 200  # substantial
     r = client.post("/save-chapter?work=main", json={
@@ -152,7 +151,7 @@ def test_craft_gate_throw_blocks_save(store, monkeypatch, emergency_off):
     body = r.json()
     detail = body.get("detail") or body
     code = detail.get("code") if isinstance(detail, dict) else None
-    assert code == "craft_gate_error" or "工艺门闩" in str(detail)
+    assert code == "finalize_gate_error" or "定稿门" in str(detail)
     # prose not updated to long_prose
     ch = store.get_chapter(1)
     assert (ch.get("prose") or "") != long_prose

@@ -274,7 +274,11 @@ def test_deleted_old_gate_files_absent():
 
 def test_production_does_not_import_old_gates():
     root = Path(__file__).resolve().parents[1]
-    banned = ("scribe3.clue_density", "scribe3.fate_dearer")
+    banned = (
+        "scribe3.clue_density", "scribe3.fate_dearer",
+        "scribe3.chapter_spine", "scribe3.design_play",
+        "scribe3.verify_craft_compliance",
+    )
     hits = []
     for p in root.rglob("*.py"):
         if "/tests/" in str(p) or p.name.startswith("test_"):
@@ -326,6 +330,87 @@ class CopyingStore(MemoryPlaybookStore):
 
     def list_versions(self, table, seq):
         return [dict(r) for r in super().list_versions(table, seq)]
+
+
+def test_playbook_persists_via_surreal_mixin_methods():
+    """freeze/rewrite 必须打到 PlaybookOpsMixin.insert / mark_superseded，不是内存店。"""
+    from scribe3.playbook.store import PlaybookOpsMixin
+    from scribe3.store.surreal import SurrealStore
+    from scribe3.stage_generate import _as_playbook_store
+
+    assert issubclass(SurrealStore, PlaybookOpsMixin)
+
+    class FakeSQL(PlaybookOpsMixin):
+        def __init__(self):
+            self.writes: list[tuple[str, dict]] = []
+            self.recs: list[dict] = []
+
+        def _query(self, sql, params=None):
+            params = params or {}
+            table_hint = ""
+            for t in ("duty_card", "chapter_play", "chapter_contract", "chapter_deduce", "chapter_draft"):
+                if t in sql:
+                    table_hint = t
+                    break
+            rows = [r for r in self.recs if not table_hint or r.get("_table") == table_hint]
+            if "math::max" in sql:
+                seq = int(params.get("seq") or 0)
+                vers = [int(r.get("version") or 0) for r in rows if int(r.get("seq") or 0) == seq]
+                return [{"v": max(vers) if vers else None}]
+            if "status='frozen'" in sql:
+                seq = int(params.get("seq") or 0)
+                frozen = [
+                    r for r in rows
+                    if int(r.get("seq") or 0) == seq and r.get("status") == "frozen"
+                ]
+                frozen.sort(key=lambda r: int(r.get("version") or 0), reverse=True)
+                if not frozen:
+                    return []
+                rec = dict(frozen[0])
+                return [{"body": json.dumps(rec, ensure_ascii=False)}]
+            if "ORDER BY version ASC" in sql:
+                seq = int(params.get("seq") or 0)
+                hits = [r for r in rows if int(r.get("seq") or 0) == seq]
+                hits.sort(key=lambda r: int(r.get("version") or 0))
+                return [{"body": json.dumps(dict(r), ensure_ascii=False)} for r in hits]
+            if "sha=$sha" in sql:
+                sha = str(params.get("sha") or "")
+                for r in rows:
+                    if r.get("sha") == sha:
+                        return [{"body": json.dumps(dict(r), ensure_ascii=False)}]
+                return []
+            return []
+
+        def _execute_write(self, sql, params=None):
+            params = params or {}
+            self.writes.append((sql, dict(params)))
+            if "UPSERT" in sql:
+                rec = json.loads(params["body"])
+                rec["_table"] = "chapter_play" if "chapter_play" in sql else ""
+                for t in ("duty_card", "chapter_play", "chapter_contract", "chapter_deduce", "chapter_draft"):
+                    if t in sql:
+                        rec["_table"] = t
+                self.recs.append(rec)
+            if "status='superseded'" in sql:
+                seq = int(params.get("seq") or 0)
+                ver = int(params.get("ver") or 0)
+                for r in self.recs:
+                    if int(r.get("seq") or 0) == seq and int(r.get("version") or 0) == ver:
+                        r["status"] = "superseded"
+
+    st = FakeSQL()
+    assert _as_playbook_store(st) is st
+    first = freeze_artifact(st, "chapter_play", 1, {"seq": 1, "text": PLAY}, schema="chapter_play.v1")
+    assert any("UPSERT" in sql for sql, _ in st.writes)
+    assert st.get_frozen("chapter_play", 1)["sha"] == first["sha"]
+    second = freeze_artifact(
+        st, "chapter_play", 1, {"seq": 1, "text": PLAY + "门外的呼吸声停了半拍"},
+        schema="chapter_play.v1", rewrite=True,
+    )
+    assert second["version"] == 2
+    assert any("status='superseded'" in sql for sql, _ in st.writes)
+    old = st.get_by_sha("chapter_play", first["sha"])
+    assert old["status"] == "superseded"
 
 
 def test_rewrite_persists_downstream_supersede_on_copying_store():

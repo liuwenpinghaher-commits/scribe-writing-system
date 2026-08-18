@@ -3,7 +3,6 @@
 promise=被开启、须闭合的张力。埋下(setup)→ 推进(touch/clue)→ 回收(payoff)或弃置(abandoned)。
 """
 from scribe3.health import health_report
-from scribe3.verify_craft_compliance import gate_a
 
 
 def test_plant_and_list(store):
