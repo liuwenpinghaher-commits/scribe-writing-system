@@ -23,27 +23,7 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag("SCRIBE3_SCENE_BUDGET_PROFILE", "", "显式场景 profile 名", "context_budget", "safe"),
     Flag("SCRIBE3_TOTAL_BUDGET", "", "全域 prompt 硬顶（空=PROMPT_HARD）", "context_budget", "caution"),
     Flag("SCRIBE3_INJECTION_REGISTRY", "active", "off|shadow|active 段注册表", "injection_registry", "caution"),
-    Flag(
-        "SCRIBE3_CLUE_DENSITY",
-        "on",
-        "章纲/节拍密度闸 off|shadow|on。off=回到字数闸（短拼装 250–400 会 422）",
-        "iceberg",
-        "caution",
-    ),
-    Flag(
-        "SCRIBE3_FATE_DEARER",
-        "on",
-        "命运/钟/地闸 off|shadow|on。默认 on，按 SCRIBE3_FATE_WAVE 硬闸",
-        "fate_dearer",
-        "caution",
-    ),
-    Flag(
-        "SCRIBE3_FATE_WAVE",
-        "2",
-        "命运闸波次 1|2。默认 2=并入选择/复读/代价幅度/设定库/笔墨",
-        "fate_dearer",
-        "caution",
-    ),
+
     Flag("SCRIBE3_DENSITY_TRACE", "1", "密度观测", "injection_registry", "safe"),
     Flag("SCRIBE3_INJECT_DEDUP", "1", "must-link / inject 指纹去重", "inject_dedup", "safe"),
     Flag("SCRIBE3_CANON_SUPPRESS_HEURISTIC", "1", "正典压制文本弱推断", "memory_retrieval", "safe"),

@@ -372,30 +372,7 @@ REGISTRY: tuple[Setting, ...] = (
     Setting("SCRIBE3_INJECTION_REGISTRY", "flags", "str", "active", "hot",
             "段注册表模式",
             "active=声明序参与 join；shadow=仅观测；0=关。默认 active。O6。"),
-    Setting(
-        "SCRIBE3_CLUE_DENSITY", "flags", "str", "on", "hot",
-        "章纲/节拍线索密度闸",
-        "on=密度硬闸（验选择/代价/线，不验 500 字）。"
-        "shadow=只出报告不 422。"
-        "off=回到 Ice1/Ice2 字数闸——已落库的短拼装大纲（250–400）在 off 下会 422 / 不能 skip。",
-        audience="author",
-    ),
-    Setting(
-        "SCRIBE3_FATE_DEARER", "flags", "str", "on", "hot",
-        "命运/故事钟/地点闸",
-        "on=按 SCRIBE3_FATE_WAVE 硬闸（默认开）。"
-        "shadow=只出报告不 422。"
-        "off=关闭命运报告与硬闸。",
-        audience="author",
-    ),
-    Setting(
-        "SCRIBE3_FATE_WAVE", "flags", "str", "2", "hot",
-        "命运闸波次",
-        "1=卡住/冻钟地/矿/种子/功能/世界事实/本章要与代价点名世界词。"
-        "2=并入选择演出、复读、代价幅度、设定库、笔墨与跨度（默认）。"
-        "仅 FATE_DEARER=on 时硬拦。炉灰记空库不因 world_catalog_empty 422。",
-        audience="author",
-    ),
+
     Setting(
         "SCRIBE3_DESIGN_BOOK", "flags", "str", "on", "hot",
         "章设计接得上这本书",
@@ -407,7 +384,7 @@ REGISTRY: tuple[Setting, ...] = (
         "SCRIBE3_WORLD_SURFACE", "flags", "str", "on", "hot",
         "水面世界命题闸",
         "on=claim_paid 硬闸 + extra_authors + 矿从命题抽。"
-        "off=关闭新 422，短槽 fate 仍按 FATE_DEARER。"
+        "off=关闭新 422。"
         "记录仪进链是 bugfix，不看此旗。",
         audience="author",
     ),

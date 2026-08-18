@@ -539,34 +539,7 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
         raise
     if st is None:
         st = _store_for(work)
-    # 工艺优先:实质正文须过 GATE-A(首篇)/GATE-B;见 verify_craft_compliance.evaluate_save_craft_gate
-    try:
-        cg = {"allowed": True, "blocking": [], "code": "play_contract"}
-        if not cg.get("allowed"):
-            _rc_rows.append({"name": "craft_gate", "expected": True, "actual": "failed", "actual_reason": str(cg.get("code") or "craft_gate")})
-            _rc_emit(False, {"count": len(cg.get("warnings") or []), "kinds": ["craft_gate"]})
-            raise HTTPException(status_code=409, detail={
-                "code": cg.get("code") or "craft_gate",
-                "message": cg.get("detail") or "工艺门闩未通过",
-                "blocking": cg.get("blocking") or [],
-                "root_causes": cg.get("root_causes") or [],
-                "reports": cg.get("reports") or {},
-                "warnings": cg.get("warnings") or [],
-                "create_mode": cg.get("create_mode"),
-            })
-        _rc_rows.append({"name": "craft_gate", "expected": True, "actual": "present", "actual_reason": "allowed"})
-    except HTTPException:
-        raise
-    except Exception as e:
-        # fail-loud:门闩评估抛错不得静默放行实质正文(防门闩故障=无门)
-        import logging
-        logging.getLogger("scribe3").error(
-            "craft gate 评估失败(阻断存稿) work=%s seq=%s: %s", work, req.seq, e,
-            exc_info=True)
-        raise HTTPException(status_code=503, detail={
-            "code": "craft_gate_error",
-            "message": f"工艺门闩评估失败,已阻断存稿: {e}",
-        }) from e
+    # 存正文只走定稿门 check_finalize_for_save（旧 craft GATE-A/B 已废）
     # 门A/KR1:定稿门闩单源 check_finalize_for_save(与 MCP/dedup/polish/终选共用)
     fg_decision = None
     try:
@@ -642,30 +615,7 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
     st.save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
     _rc_rows.append({"name": "persist_chapter", "expected": True, "actual": "present", "actual_reason": "saved"})
     _rc_emit(True)
-    # P2 产品门闩：实质正文落库后跑 C-Det，结果写 craft_compliance（仪表盘可见）
     craft_compliance_out = None
-    try:
-        if len((req.prose or "").strip()) >= 80:
-            from scribe3.verify_craft_compliance import audit_chapter_det
-            rep = audit_chapter_det(
-                st, req.seq, req.prose, focalizer=req.focalizer or None)
-            payload = {
-                "ok": bool(rep.ok),
-                "gate": "C",
-                "detail": "C-Det pass" if rep.ok else "C-Det fail",
-                "root_causes": list(rep.root_causes or []),
-                "fails": [
-                    c.id for c in (rep.checks or [])
-                    if getattr(c, "hard", True) and getattr(c, "verdict", "") == "fail"
-                ][:12],
-            }
-            if hasattr(st, "set_craft_compliance"):
-                st.set_craft_compliance(req.seq, payload)
-            craft_compliance_out = payload
-    except Exception as e:
-        import logging
-        logging.getLogger("scribe3").warning(
-            "P2 C-Det 落库失败(存稿不受影响) work=%s seq=%s: %s", work, req.seq, e)
     # G4：kind=final 须 craft hard（explore soft-save 可落 prose，不可半齐套 stamp final）
     # 单源 try_stamp_kind_final；失败不阻断 draft 存稿，响应带 final_stamp。
     final_stamp = None
@@ -804,11 +754,6 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
         except Exception:
             _beats = None
         _sc_ok = None
-        try:
-            from scribe3.verify_craft_compliance import gate_b
-            _sc_ok = bool(gate_b(st, int(req.seq)).ok)
-        except Exception:
-            pass
         rr = build_reader_ready(
             req.prose or "",
             st=st,

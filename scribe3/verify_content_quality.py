@@ -1,6 +1,6 @@
 """内容质量轨 · 与 craft gates 分离。
 
-闸绿(verify_craft_compliance)只证明工艺卫生；本模块证明「像不像一章能用的稿」。
+存正文走 finalize_gate；本模块证明「像不像一章能用的稿」。
 默认门槛 intentionally 偏严：达不到 → quality_ok=False，不得宣称高质量 PASS。
 """
 from __future__ import annotations

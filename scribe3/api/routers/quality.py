@@ -39,38 +39,15 @@ except Exception:
 
 
 def craft_gates(seq: int | None = Query(default=None, ge=1), work: str = "main"):
-    """工艺优先门闩只读投影(GATE-A / 可选 B+C-Det+D)。
-
-    e2e 与 CLI 同源:scribe3.verify_craft_compliance。
-    seq 省略 → 只跑 GATE-A;给出 seq → 附加该章 B/C/D 与 journey 汇总。
-    """
-    st = _store_for(work)
+    """旧工艺闸已废。存正文走 finalize_gate。"""
     out: dict = {
         "work": work,
         "gate_a": {"ok": True, "retired": True},
         "ok": True,
         "message": "craft 节拍闸已废，改走 play-contract。",
     }
-    return out
-    ga = None
     if seq is not None:
-        gb = gate_b(st, seq)
-        gc = audit_chapter_det(st, seq)
-        gd = gate_d(st, seq)
-        out["gate_b"] = to_jsonable(gb)
-        out["gate_c_det"] = to_jsonable(gc)
-        out["gate_d"] = to_jsonable(gd)
         out["seq"] = seq
-        out["ok"] = ga.ok and gb.ok and gc.ok and gd.ok
-        out["journey"] = journey_pass(
-            gate_a_ok=ga.ok,
-            chapters=[{
-                "seq": seq,
-                "gate_b_ok": gb.ok,
-                "gate_c_ok": gc.ok,
-                "gate_d_ok": gd.ok,
-            }],
-        )
     return out
 
 def quality(work: str = "main"):

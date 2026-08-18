@@ -10,13 +10,13 @@ import { softGateIssues, softGateSummary } from './deduceGate.js'
 
 /** GATE-B normal：非空 beat text 最少条数 */
 export const MIN_BEAT_TEXTS = 3
-/** 冰山地板：水下质量（覆盖），不是 GATE-B、不是文学分 */
-export const ICEBERG_SYNOPSIS = 500
-export const ICEBERG_BEAT_EACH = 500
-export const ICEBERG_BEAT_SUM = 2000
+/** 冰山地板：演绎/排演仍按字数；大纲/节拍改线索密度（不再用 500 吓人）。 */
+export const ICEBERG_SYNOPSIS = 80
+export const ICEBERG_BEAT_EACH = 0
+export const ICEBERG_BEAT_SUM = 0
 export const ICEBERG_DEDUCTION = 5000
 /**
- * 可写 hard 下限（与 craft-loop / verify_craft_compliance gate_b cn_len≥80 对齐）。
+ * 可写 hard 下限（与定稿门字数地板对齐）。
  * 去空白后短于该值 → error（未达可写），不再仅 warn。
  */
 export const MIN_WRITABLE_CHARS = 80
@@ -179,16 +179,16 @@ export function evaluateChapterContract(ch) {
   for (const d of meta.deductions || []) {
     dedSum += cnLen(typeof d === 'string' ? d : (d && (d.prose || d.text)) || '')
   }
-  const icebergThin = synN < ICEBERG_SYNOPSIS
-    || beatLens.length < MIN_BEAT_TEXTS
-    || beatLens.some((n) => n < ICEBERG_BEAT_EACH)
-    || beatSum < ICEBERG_BEAT_SUM
+  const hasSpine = !!(meta.chapter_spine && (meta.chapter_spine.goal || meta.chapter_spine.choice))
+  const icebergThin = (!hasSpine && synN > 0 && synN < MIN_WRITABLE_CHARS)
     || dedSum < ICEBERG_DEDUCTION
-  if (icebergThin && (synN > 0 || beatLens.length > 0)) {
+  if (icebergThin && (synN > 0 || beatLens.length > 0 || hasSpine || dedSum > 0)) {
     issues.push({
       id: 'icebergThin',
       level: 'warn',
-      message: `冰山未厚（大纲 ${synN}/${ICEBERG_SYNOPSIS}，节拍合计 ${beatSum}/${ICEBERG_BEAT_SUM}，演绎 ${dedSum}/${ICEBERG_DEDUCTION}）。现在开写会变成口号戏。`,
+      message: hasSpine
+        ? `演绎尚未齐（${dedSum}/${ICEBERG_DEDUCTION}）。章纲已有短槽，开写前先补限知投影。`
+        : `情节合同未齐（大纲 ${synN} 字，演绎 ${dedSum}/${ICEBERG_DEDUCTION}）。请用 13 短槽补选择/代价/线，不要用烟锅巷凑字。`,
     })
   }
 

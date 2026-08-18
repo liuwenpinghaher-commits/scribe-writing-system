@@ -1280,12 +1280,6 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
         from scribe3.reader_ready import anti_meta_issues_for_post, build_reader_ready
         from scribe3.anti_meta_narration import scan_anti_meta
         _sc_ok = None
-        try:
-            from scribe3.verify_craft_compliance import gate_b
-            _gb = gate_b(st, int(seq))
-            _sc_ok = bool(_gb.ok)
-        except Exception:
-            _sc_ok = None
         reader_ready = build_reader_ready(
             req.prose or "",
             st=st,
@@ -1558,11 +1552,6 @@ def reader_claim_ep(body: dict = Body(...), work: str = "main"):
     if seq < 1:
         raise HTTPException(status_code=422, detail="seq required")
     scaffold_ok = None
-    try:
-        from scribe3.verify_craft_compliance import gate_b
-        scaffold_ok = bool(gate_b(st, seq).ok)
-    except Exception:
-        scaffold_ok = None
     out = assert_reader_claim(
         prose,
         st=st,
