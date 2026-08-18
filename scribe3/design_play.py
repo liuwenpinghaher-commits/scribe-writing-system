@@ -118,14 +118,43 @@ def _split_on_play_marks(sent: str) -> tuple[str, str] | None:
     return None
 
 
+_AB_SKIP = ("都一样", "还是得选", "你还是得", "还是得先")
+
+
+def _strip_speaker(side: str) -> str:
+    import re
+    t = (side or "").strip(" “”\"'「」『』，,：:")
+    t = re.sub(r"^[\u4e00-\u9fff]{1,4}说[，,]?", "", t)
+    t = re.sub(r"[，,]?[\u4e00-\u9fff]{1,4}说$", "", t)
+    return t.strip(" “”\"'，,：:")
+
+
 def play_choice_ab(play: str) -> tuple[str, str] | None:
-    """从戏里取出那道还没选的两难。只认还是/vs/要么，不扫「对/或」。"""
+    """从戏里取出那道还没选的两难。只认还是/vs/要么，不扫「对/或」。
+
+    取最后一道像样的两难：前面常有旁人的「等还是等」，后面才是他要迈的那一步。
+    引号把一句拆成两截、或左边只剩「某某说」时，拼上上一句再认一次。
+    """
     from scribe3.clue_density import split_sents
+    hits: list[tuple[str, str]] = []
+    prev = ""
     for sent in split_sents(play or ""):
+        if any(k in sent for k in _AB_SKIP):
+            prev = sent
+            continue
         hit = _split_on_play_marks(sent)
+        need_join = bool(hit) and not _side_has_substance(_strip_speaker(hit[0]))
+        if (not hit or need_join) and prev:
+            if any(m in sent for m in ("还是", "要么")) or sent.lstrip("“”\"'「」 ").startswith("还是"):
+                joined = _split_on_play_marks(prev + sent)
+                if joined:
+                    hit = (_strip_speaker(joined[0]), joined[1])
         if hit:
-            return hit
-    return None
+            a, b = _strip_speaker(hit[0]), hit[1]
+            if _side_has_substance(a) and _side_has_substance(b):
+                hits.append((a, b))
+        prev = sent
+    return hits[-1] if hits else None
 
 
 def _copied_clause(slot: str, source: str) -> bool:

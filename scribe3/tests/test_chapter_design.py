@@ -403,6 +403,21 @@ def test_play_choice_ab_skips_dui():
     assert "交核" in ab[0] and "自按" in ab[1]
 
 
+def test_play_choice_ab_takes_last_real_dilemma():
+    from scribe3.design_play import play_choice_ab
+    play = (
+        "他知道沈烛在等。等一个样本，还是等一块碎片，都一样。"
+        "交给赫斯，他的手比屋子还冷。柳岸青说，还是我自己按回去。"
+        "他把碎片按回胸口。"
+    )
+    ab = play_choice_ab(play)
+    assert ab is not None
+    assert "赫斯" in ab[0] or "交" in ab[0]
+    assert "按回" in ab[1]
+    none = play_choice_ab("去医院能退烧。去旧货站能抢钟。你还是得选。")
+    assert none is None
+
+
 def test_table_same_play_rejects_meta_and_second_choice():
     from scribe3.design_play import table_same_play
     play = "柳岸青要把碎片按回裂口。交出去还是自己按回去。他自己按回去。大遮蔽改锁。"
