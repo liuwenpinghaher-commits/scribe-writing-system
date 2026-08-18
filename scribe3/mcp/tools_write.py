@@ -1412,7 +1412,12 @@ async def s3_generate_stage(
             merged = {**(ch or {}), **fields}
             book = load_design_book(st, seq, merged)
             if out.get("play") and stg in ("design", "outline", "beats"):
-                from scribe3.design_play import persist_play_design_blocked
+                from scribe3.design_play import persist_play_design_blocked, reviewed_play_meta
+                if not out.get("ok"):
+                    fields = {
+                        "beats_meta": out.get("beats_meta")
+                        or reviewed_play_meta(ch, str(out.get("play") or "")),
+                    }
                 blocked = persist_play_design_blocked(
                     fields, book=book, store=st, existing=ch,
                 )

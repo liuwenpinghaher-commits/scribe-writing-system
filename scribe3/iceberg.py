@@ -596,6 +596,33 @@ def persist_fields_blocked(
             )
         want = None
         meta = (fields.get("beats_meta") or (existing or {}).get("beats_meta") or {})
+        if not isinstance(meta, dict):
+            meta = {}
+        play_txt = str(meta.get("play") or "")
+        if not play_txt and isinstance((existing or {}).get("beats_meta"), dict):
+            play_txt = str(((existing or {}).get("beats_meta") or {}).get("play") or "")
+        if play_txt:
+            from scribe3.design_play import persist_play_design_blocked
+            packed = {
+                "chapter_spine": merged_spine,
+                "beats": merged_beats,
+                "beats_meta": {**meta, "play": play_txt},
+            }
+            hit = persist_play_design_blocked(
+                packed, book=book, store=store, existing=existing,
+            )
+            if hit:
+                return {
+                    "code": hit.get("code") or "extract_thin",
+                    "message": hit.get("message") or "表还不是这篇戏",
+                    "missing": hit.get("missing") or [],
+                    "warnings": warnings,
+                    "role": "iceberg_substrate",
+                }
+            _check_deductions()
+            if missing:
+                return _block("不能把薄材料存成大纲/节拍/演绎。补情节原子（选择/代价/线），禁止烟/锅/巷凑句")
+            return _fate_hit()
         if isinstance(meta, dict) and meta.get("designated_beat"):
             want = meta.get("designated_beat")
         ev_clock = ev_place = None

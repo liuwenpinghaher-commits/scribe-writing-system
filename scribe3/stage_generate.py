@@ -434,6 +434,11 @@ def _extra_force(extra: str) -> bool:
     return "force=1" in blob or "force：1" in extra or "force:1" in blob
 
 
+def _extra_rewrite_play(extra: str) -> bool:
+    blob = (extra or "").lower()
+    return "rewrite_play=1" in blob or "rewrite_play：1" in extra or "rewrite_play:1" in blob
+
+
 # ── 解析 ──────────────────────────────────────────────────────────
 
 def _strip_fence(text: str) -> str:
@@ -1169,6 +1174,15 @@ def _ctx_bits(ch: Mapping[str, Any] | None, st=None) -> str:
         land = format_must_land(spine, chapter=meta)
         if land:
             bits.append(land)
+        bm = meta.get("beats_meta") if isinstance(meta.get("beats_meta"), dict) else {}
+        play_txt = str((bm or {}).get("play") or "").strip()
+        staged = str((bm or {}).get("staged_choice") or "").strip()
+        if play_txt:
+            bits.append("这篇过审戏：\n" + play_txt)
+            if staged:
+                bits.append(f"排演演这篇戏里那一次选择（{staged}），不要另起一道。")
+            else:
+                bits.append("排演演这篇戏里那一次选择，不要另起一道。")
     # 无 spine：不灌肥 synopsis。跨章咬合见 _prev_hook_block
     prev_bite = _prev_hook_block(st, meta)
     if prev_bite:
@@ -1358,6 +1372,7 @@ _DEDUCE_ASK = (
 
 _DRAFT_ASK = (
     "按节拍把场面走一遍：糙、可越界待改，用来发现节拍漏洞。"
+    "排演演这篇戏里那一次选择，不要另起一道。"
     "【必须落地】里的选择必须在场面里发生一次，决断与代价必须看得见；"
     "禁令不得说出口。禁止只写巷/门/烟。"
     "字数不是通过条件。这是排演，不是读者正文。只输出排演正文。"
@@ -1963,15 +1978,19 @@ def thicken_chapter_design(
         load_working_paper,
         paper_record,
         persist_play_design_blocked,
+        persist_reviewed_play,
+        play_sha,
         run_play_review_extract,
+        staged_from_table,
     )
     from scribe3.fate_dearer import parse_clock_place_labels
     known = known_line_ids_from_store(st) if st is not None else None
     book = load_design_book(st, seq, ch if isinstance(ch, dict) else {}, extra=extra) if st is not None else None
 
-    paper = None if _extra_force(extra) else load_working_paper(st, seq)
+    rewrite_play = _extra_rewrite_play(extra)
+    paper = None if rewrite_play else load_working_paper(st, seq, ch=ch if isinstance(ch, dict) else None)
     prev_play = str((paper or {}).get("play") or "")
-    resume_extract = bool(prev_play and (paper or {}).get("review_ok"))
+    resume_extract = bool(prev_play and (paper or {}).get("review_ok")) and not rewrite_play
     pipe = run_play_review_extract(
         llm_fn=llm_fn, book=book, seq=seq, extra=extra, known_line_ids=known,
         previous_play=prev_play, resume_extract=resume_extract,
@@ -1993,6 +2012,10 @@ def thicken_chapter_design(
         except Exception:
             pass
 
+    play_meta = persist_reviewed_play(
+        persist_fn, ch if isinstance(ch, dict) else None, play,
+    ) if (review_ok and play) else {}
+
     if not pipe.get("ok"):
         return {
             "ok": False,
@@ -2003,6 +2026,7 @@ def thicken_chapter_design(
             "parsed": parsed,
             "chapter_spine": parsed.get("chapter_spine"),
             "beats": parsed.get("beats"),
+            "beats_meta": play_meta or pipe.get("beats_meta") or {},
             "attempts": slim_attempts(attempts),
             "trail": trail,
         }
@@ -2050,6 +2074,14 @@ def thicken_chapter_design(
         meta["must_happen"] = meta["duty"]["event"]
     if play:
         meta["play"] = play[:4000]
+        meta["play_review_ok"] = True
+        meta["play_sha"] = play_sha(play)
+        staged_label, staged_n = staged_from_table(play, parsed)
+        if staged_label:
+            meta["staged_choice"] = staged_label
+        if staged_n:
+            meta["staged_beat"] = staged_n
+            meta["designated_beat"] = staged_n
     fields["beats_meta"] = meta
     try:
         from scribe3.world_surface import coerce_world_claim, groups_from_spine, merge_world_claim
@@ -2061,6 +2093,10 @@ def thicken_chapter_design(
         }, merged_ch)
         if derived:
             meta = merge_world_claim({"beats_meta": fields.get("beats_meta")}, derived)
+            if play:
+                meta["play"] = play[:4000]
+                meta["play_review_ok"] = True
+                meta["play_sha"] = play_sha(play)
             fields["beats_meta"] = meta
     except Exception:
         pass

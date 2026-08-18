@@ -35,6 +35,12 @@ from scribe3.stage_generate import (
 from scribe3.tests.test_chapter_spine import G1, KNOWN
 from scribe3.tests.test_iceberg import _GCD_BEATS
 from scribe3.tests.test_stage_generate import _DRY_BEATS, _DRY_OUTLINE
+
+_GOLD_PLAY = (
+    "灰七要在炉冷前把焦黑还回侧门。冷锅婆挡着，灰狸递假铜。"
+    "他还没选：硬还焦黑暴露埋灰人，还是只把纸角塞回门缝。"
+    "他不进门，把纸角朝门里推回一分。账清了门更死。"
+)
 from scribe3.world_surface import extra_authors, extra_gold, extra_gold_blocked
 
 # 指定拍（默认拍2）必须落下 decision/cost 内容词，否则旗 on 报 beat_off_spine
@@ -245,11 +251,7 @@ def test_persist_repair_merged_choice_mismatch():
 def test_thicken_play_then_review_then_extract():
     os.environ["SCRIBE3_CHAPTER_DESIGN"] = "on"
     gold = _DRY_OUTLINE + "\n选拍：2\n" + _DRY_BEATS
-    play = (
-        "灰七要在炉冷前把焦黑还回侧门。冷锅婆挡着，灰狸递假铜。"
-        "他还没选：硬还焦黑暴露埋灰人，还是只把纸角塞回门缝。"
-        "他不进门，把纸角朝门里推回一分。账清了门更死。"
-    )
+    play = _GOLD_PLAY
     prompts: list[str] = []
 
     def llm(prompt, max_tokens=4096):
@@ -303,7 +305,7 @@ def test_extract_retry_does_not_rewrite_play():
     def llm(prompt, max_tokens=4096):
         if "写成一篇短戏" in prompt or "不要输出表格" in prompt:
             plays.append(prompt)
-            return "灰七还焦黑。硬还还是塞纸角。他塞了。门更死。"
+            return _GOLD_PLAY
         if "只判断这场戏像不像" in prompt:
             return "过"
         n["i"] += 1
@@ -351,7 +353,7 @@ def test_thicken_chapter_design_persists_once_on_gold():
             return "过"
         if "已经过审" in prompt or "抽出标签行" in prompt:
             return gold
-        return "灰七还焦黑。硬还还是塞纸角。他塞纸角。门更死。"
+        return _GOLD_PLAY
 
     r = thicken_chapter_design(
         {},
@@ -369,20 +371,101 @@ def test_thicken_chapter_design_persists_once_on_gold():
 def test_play_design_ready_opens_next_stage():
     from scribe3.design_play import play_design_ready
     from scribe3.stage_generate import iceberg_ok_for, stage_ready
+    play = "柳岸青要把碎片按回裂口。交出去还是自己按回去。他自己按回去。大遮蔽改锁。"
     ch = {
         "chapter_spine": {
             "schema": "chapter_spine.v1",
-            "choice": "交核还是自按",
-            "goal": "按回碎片",
+            "choice": "交出去还是自己按回去",
+            "goal": "要把碎片按回裂口",
+            "decision": "他自己按回去",
             "cost": "大遮蔽改锁",
         },
-        "beats": [{"goal": "a"}, {"goal": "b"}, {"goal": "c"}],
-        "beats_meta": {"schema_design": "chapter_design.v1", "play": "交核还是自按，按回碎片，大遮蔽改锁。"},
+        "beats": [
+            {"goal": "a", "choice": ""},
+            {"goal": "b", "choice": "交出去还是自己按回去"},
+            {"goal": "c", "choice": ""},
+        ],
+        "beats_meta": {"schema_design": "chapter_design.v1", "play": play, "play_review_ok": True},
     }
-    assert play_design_ready(ch)
+    assert play_design_ready(ch), play_design_ready
+    from scribe3.design_play import table_same_play
+    assert not table_same_play(play, ch, None)
     assert iceberg_ok_for(ch, "design")
     r = stage_ready(ch, "deduce")
     assert r.get("ok") is True, r
+
+
+def test_play_choice_ab_skips_dui():
+    from scribe3.design_play import play_choice_ab
+    play = "沈烛若对观测口说不。交核还是自按。他把碎片按回。"
+    ab = play_choice_ab(play)
+    assert ab is not None
+    assert "交核" in ab[0] and "自按" in ab[1]
+
+
+def test_table_same_play_rejects_meta_and_second_choice():
+    from scribe3.design_play import table_same_play
+    play = "柳岸青要把碎片按回裂口。交出去还是自己按回去。他自己按回去。大遮蔽改锁。"
+    bad = {
+        "ok": True,
+        "chapter_spine": {
+            "schema": "chapter_spine.v1",
+            "goal": "柳岸青做出选择",
+            "choice": "交出去还是自己按回去",
+            "decision": "等于没选",
+            "cost": "另一本账帘丝涌出",
+        },
+        "beats": [
+            {"choice": "交出去还是自己按回去"},
+            {"choice": "交出去还是自己按回去"},
+            {"choice": ""},
+        ],
+    }
+    miss = table_same_play(play, bad, None)
+    assert "本章要" in miss
+    assert "决断" in miss
+    assert any("只有一场" in x or "搬上" in x for x in miss)
+    good = {
+        "ok": True,
+        "chapter_spine": {
+            "schema": "chapter_spine.v1",
+            "goal": "要把碎片按回裂口",
+            "choice": "交出去还是自己按回去",
+            "decision": "他自己按回去",
+            "cost": "大遮蔽改锁",
+        },
+        "beats": [
+            {"choice": ""},
+            {"choice": "交出去还是自己按回去"},
+            {"choice": "无"},
+        ],
+    }
+    assert table_same_play(play, good, None) == []
+
+
+def test_prose_choice_uses_staged_not_inflated_spine():
+    from scribe3.fate_dearer import evaluate_prose_choice
+    spine = {"choice": "做出选择还是不做出选择，并且考虑大遮蔽与成核点"}
+    ch = {
+        "chapter_spine": spine,
+        "beats_meta": {
+            "play": "柳岸青要把碎片按回裂口。交出去还是自己按回去。他自己按回去。大遮蔽改锁。",
+            "staged_choice": "交出去 还是 自己按回去",
+        },
+    }
+    good = "他把碎片交出去。手停住。他自己按回去。"
+    assert evaluate_prose_choice(good, spine, ch=ch) == []
+    other = "他开门。又关门。他进了门。"
+    assert evaluate_prose_choice(other, spine, ch=ch) == ["choice_unperformed"]
+
+
+def test_format_must_land_prefers_staged_choice():
+    from scribe3.chapter_spine import format_must_land
+    spine = {"choice": "膨胀的选择句还是另一句", "goal": "按回裂口"}
+    ch = {"beats_meta": {"staged_choice": "交核 还是 自按"}}
+    text = format_must_land(spine, chapter=ch)
+    assert "交核 还是 自按" in text
+    assert "膨胀" not in text
 
 
 def test_parse_review_only_exact_pass():
@@ -420,7 +503,7 @@ def test_persist_play_skips_old_table_exam():
     os.environ["SCRIBE3_DESIGN_BOOK"] = "on"
     book = _wb(
         duty_who="沈拾灯",
-        duty_event="交核还是自按",
+        duty_event="按场核成核",
         duty_bill="大遮蔽撕开",
         character_names=frozenset({"沈拾灯"}),
     )
@@ -431,9 +514,17 @@ def test_persist_play_skips_old_table_exam():
     fields = {
         "chapter_spine": spine,
         "beats": beats,
-        "beats_meta": {"play": "沈拾灯交核还是自按，大遮蔽撕开。", "place": {"name": "华山北峰", "delta": 0}},
+        "beats_meta": {
+            "play": (
+                "沈拾灯要按场核成核，确认成核点没有外溢。"
+                "交核还是自己按回去。"
+                "沈拾灯把场核按回自己腕里。"
+                "大遮蔽撕开一档，成核点开始跟他的指针态渗光。"
+            ),
+            "place": {"name": "华山北峰", "delta": 0},
+        },
     }
-    assert persist_play_design_blocked(fields, book=book, store=None) is None
+    assert persist_play_design_blocked(fields, book=book, store=None) is None, persist_play_design_blocked(fields, book=book, store=None)
 
 
 def test_table_ungrounded_invented_cast():
