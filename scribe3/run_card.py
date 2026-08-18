@@ -281,7 +281,10 @@ def expected_for(name: str, facts: ExpectedFacts) -> tuple[bool, str]:
         ),
         "drama_contract": (True, "always_l0", "always_l0"),
         "drama_vacuum": (
-            bool(facts.drama_vacuum_flag) and bool(facts.should_drama_vacuum),
+            bool(facts.drama_vacuum_flag)
+            and bool(facts.should_drama_vacuum)
+            and not bool(facts.contract_has_scene)
+            and np not in ("outline", "beats", "deduce"),
             "no_goal_and_conflict",
             "has_gcd_or_flag_off",
         ),
@@ -293,8 +296,7 @@ def expected_for(name: str, facts: ExpectedFacts) -> tuple[bool, str]:
         "envelope": (True, "always_l1", "always_l1"),
         "codex": (bool(facts.envelope_v2), "envelope_v2", "v1"),
         "seed_words": (bool(facts.has_seed_words), "seeds_present", "no_seeds"),
-        # build_craft_block() 无规则也注入默认「写作引擎」，期望必须跟注入走
-        "craft": (True, "always_engines", "always_engines"),
+        "craft": (False, "play_contract_zero_kpi", "play_contract_zero_kpi"),
         "phase_role": (bool(np), "phase_set", "no_phase"),
         "avoid": (False, "default_omit", "default_omit"),
         "revelation_discipline": (
@@ -352,8 +354,16 @@ def expected_for(name: str, facts: ExpectedFacts) -> tuple[bool, str]:
         "request_constraint": (
             bool(facts.has_extra_instructions), "has_extra", "no_extra",
         ),
-        "identity": (True, "always_l0", "always_l0"),
-        "write_protocol": (True, "always_l0", "always_l0"),
+        "identity": (
+            np not in ("outline", "beats", "deduce", "draft"),
+            "final_chrome",
+            "stage_skip_editor_chrome",
+        ),
+        "write_protocol": (
+            np not in ("outline", "beats", "deduce", "draft"),
+            "final_chrome",
+            "stage_skip_editor_chrome",
+        ),
         "revision": (bool(facts.is_revision), "is_revision", "not_revision"),
         "continue_snapshot": (bool(facts.reread_ok), "reread_ok", "reread_ack_required"),
         "tool_scope": (bool(facts.with_tools), "with_tools", "no_tools"),

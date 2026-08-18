@@ -222,7 +222,7 @@ def test_instruction_suffix_for_scaffold_domains():
 def test_phase_role_block_maps_outline_beats_deduce():
     from scribe3.api.services.misc_helpers import _phase_role_block
 
-    assert "规划" in _phase_role_block("outline") or "大纲" in _phase_role_block("outline")
+    assert "规划" in _phase_role_block("outline") or "大纲" in _phase_role_block("outline") or "责任" in _phase_role_block("outline") or "duty" in _phase_role_block("outline")
     assert "节拍" in _phase_role_block("beats") or "s3_generate_stage" in _phase_role_block("beats") or "契约" in _phase_role_block("beats")
     assert "演绎" in _phase_role_block("deduce") or "scene_truth" in _phase_role_block("deduce")
     assert _phase_role_block("") == ""

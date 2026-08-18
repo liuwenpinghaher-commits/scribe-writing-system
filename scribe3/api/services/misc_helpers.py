@@ -246,33 +246,25 @@ def _phase_role_block(phase: str) -> str:
     world_write Hermes 主路径**不依赖**本函数（用 resolve instruction_suffix）。
     """
     p = (phase or "").strip().lower()
-    # outline ↔ plan：前端偶发仍把 outline 映射为 plan
-    if p == "outline":
-        p = "plan"
-    if p in ("plan", "beats", "design", "chapter_design"):
+    if p in ("outline", "plan"):
+        p = "duty"
+    if p == "chapter_design":
         p = "design"
     roles = {
-        "design": "## 阶段角色(章设计)\n你此刻必须用 LLM 一次写出 14 槽章纲（禁令可空）+ ≥3 拍台阶。"
-                "选择必须 A vs B；默认拍2演出这个选择，可用「选拍：N」改指定；禁止再发明第二个选择。"
-                "动哪条线必须 promise:<id> 或 storyline:<id>。"
-                "用 s3_generate_stage(stage=design) 或一次提交 spine+beats 的 s3_patch_chapter_plan。"
-                "禁止只写大纲留下空节拍。禁止场面预演、禁止口号。",
-        "plan": "## 阶段角色(规划期/大纲)\n你此刻必须用 LLM 写出 13 短槽章纲："
-                "时空/在场/咬上章/本章要/挡/触发/升级/选择/决断/代价/信息差/动哪条线/钩。"
-                "选择必须 A vs B；动哪条线必须 promise:<id> 或 storyline:<id>。"
-                "禁止场面预演、禁止口号。用 s3_generate_stage 或 s3_patch_chapter_plan(chapter_spine)。",
-        "beats": "## 阶段角色(节拍)\n你此刻必须用 LLM 写 ≥3 拍台阶：每拍只要/挡/变/付，全章至少一拍有选（A vs B）。"
-                "GCD 是主合同，禁止千字进场。用 s3_generate_stage 或 s3_patch_chapter_plan 写 beats。禁止大纲切句充数。",
-        "deduce": "## 阶段角色(演绎)\n你此刻必须用 LLM 写 scene_truth + 每人五层限知投影，抽出至少 1 条矿。"
-                  "禁止摘录占位、禁止空白五栏。字数不是通过条件。"
-                  "用 s3_patch_chapter_plan 写 scene_truth/deductions；"
-                  "勿把场景真相写成 s3_add_fact 世界命题。",
-        "draft": "## 阶段角色(排演)\n你此刻走场面排演：糙可改，只落 chapter.draft"
-                 "（s3_save_chapter_draft），禁止写入 prose，禁止越界写焦点者不知之事。"
-                 "字数不是通过条件。",
-        "final": "## 阶段角色(正文期)\n你此刻写读者正文：冰山齐才开写。"
-                 "材料全文在提示词里；读者正文另写，勿复读排演，守限知。"
-                 "字数不是通过条件。用 s3_save_chapter 落 prose。",
+        "duty": "## 阶段角色(责任)\n你此刻立这一章必须办成的事。"
+                "用 s3_generate_stage(stage=duty)。禁止另办一件事。",
+        "design": "## 阶段角色(写戏)\n你此刻写一篇短戏，定这一章发生什么。"
+                "先有冻结责任卡。用 s3_generate_stage(stage=design)；人工改戏用 s3_patch_play，改契约用 s3_patch_contract。"
+                "禁止场面预演当正文，禁止口号。",
+        "plan": "## 阶段角色(写戏)\n大纲已废。请 s3_generate_stage(stage=duty) 再 design。",
+        "beats": "## 阶段角色(契约)\n节拍已废。请 s3_generate_stage(stage=design) 从戏里抄契约。",
+        "deduce": "## 阶段角色(演绎)\n你此刻写五层限知。"
+                  "用 s3_generate_stage(stage=deduce)。勿把场景真相写成 s3_add_fact。",
+        "draft": "## 阶段角色(排演)\n你此刻走场面排演：糙可改，只落排演稿"
+                 "（s3_save_chapter_draft），禁止写入 prose，禁止越界写焦点者不知之事。",
+        "final": "## 阶段角色(正文期)\n你此刻把排演打磨成读者正文。"
+                 "守限知，不改结构上的事/两难/决断/账/钩子。"
+                 "用 s3_save_chapter 落 prose。",
     }
     block = roles.get(p)
     return f"\n\n{block}" if block else ""
