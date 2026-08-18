@@ -1942,9 +1942,9 @@ def thicken_chapter_design(
             "beats_meta": (ch or {}).get("beats_meta"),
             "contract_backfill": bool(extra_fields.get("narrative_contract")),
         }, ch, st=st, seq=seq, kind="design", persist=False)
-    from scribe3.chapter_spine import known_line_ids_from_store
-    from scribe3.clue_density import design_allow_keys, evaluate_chapter_design
-    from scribe3.fate_dearer import parse_clock_place_labels
+    from scribe3.chapter_spine import assemble_synopsis_from_spine, known_line_ids_from_store
+    from scribe3.clue_density import evaluate_chapter_design
+    from scribe3.design_attempt import first_passed, record_attempt, slim_attempts
     known = known_line_ids_from_store(st) if st is not None else None
     book = load_design_book(st, seq, ch if isinstance(ch, dict) else {}, extra=extra) if st is not None else None
 
@@ -1956,70 +1956,65 @@ def thicken_chapter_design(
         raw_text = _call_llm(llm_fn, prompt, STAGE_MAX_TOKENS["design"])
         return raw_text, parse_chapter_design_payload(raw_text, known_line_ids=known)
 
-    raw, parsed = _run()
-    best_spine = parsed.get("chapter_spine") if isinstance(parsed.get("chapter_spine"), dict) else {}
-    best_beats = parsed.get("beats") if isinstance(parsed.get("beats"), list) else []
-    best_desig = parsed.get("designated_beat")
-    best_clock = dict(parsed.get("clock") or {})
-    best_place = dict(parsed.get("place") or {})
-    dens = evaluate_chapter_design(
-        parsed.get("chapter_spine"), parsed.get("beats"),
-        known_line_ids=known,
-        designated_beat=parsed.get("designated_beat"),
-        book=book, clock=best_clock or None, place=best_place or None,
-    ) if parsed.get("ok") else None
-    for _repair in range(2):
-        if parsed.get("ok") and dens is not None and dens.ok:
-            break
-        hint = _design_fail_hint(parsed, dens)
-        keep = _design_keep_block(best_spine, best_beats)
-        allow_spine, allow_meta = design_allow_keys(list(getattr(dens, "errors", None) or []))
-        repair_hint = (
-            "【只补没过的格】已过的格子原样保留，禁止改写。\n"
-            + (keep + "\n" if keep else "")
-            + "【没过】" + hint + "\n"
-            "只输出要改的标签行。改拍必须带 ## 拍N。不要重写【章】全部标签。"
-        )
-        raw2, patch = _run(retry_hint=repair_hint)
-        raw = (raw or "") + "\n" + (raw2 or "")
-        best_spine, best_beats = merge_chapter_design(
-            best_spine, best_beats,
-            patch.get("chapter_spine"), patch.get("beats"),
-            allow_keys=allow_spine,
-        )
-        patch_clock, patch_place = parse_clock_place_labels(raw2 or "")
-        if not patch_clock and isinstance(patch.get("clock"), dict):
-            patch_clock = patch.get("clock") or {}
-        if not patch_place and isinstance(patch.get("place"), dict):
-            patch_place = patch.get("place") or {}
-        best_clock, best_place = merge_clock_place_patch(
-            best_clock, best_place, patch_clock, patch_place,
-            allow_keys=allow_meta,
-        )
-        if patch.get("designated_beat"):
-            best_desig = patch.get("designated_beat")
-        struct_ok = len([b for b in best_beats if b]) >= 3
-        parsed = {
-            **parsed,
-            "ok": struct_ok,
-            "code": "" if struct_ok else "design_beats_unparsed",
-            "chapter_spine": best_spine,
-            "beats": best_beats,
-            "designated_beat": best_desig,
-            "clock": best_clock,
-            "place": best_place,
-            "source": patch.get("source") or parsed.get("source") or "llm",
-        }
+    attempts: list[dict[str, Any]] = []
+    raw = ""
+    parsed: dict[str, Any] = {}
+    dens = None
+    last_hint = ""
+    for rnd in range(3):
+        hint = ""
+        if rnd and last_hint:
+            hint = (
+                "上一整份没过：" + last_hint + "。"
+                "不要只补一格，整份重写。责任还是硬卡上那一场戏。"
+            )
+        raw, parsed = _run(retry_hint=hint)
+        clock = dict(parsed.get("clock") or {})
+        place = dict(parsed.get("place") or {})
         dens = evaluate_chapter_design(
-            best_spine, best_beats,
+            parsed.get("chapter_spine"), parsed.get("beats"),
             known_line_ids=known,
-            designated_beat=best_desig,
-            book=book, clock=best_clock or None, place=best_place or None,
+            designated_beat=parsed.get("designated_beat"),
+            book=book, clock=clock or None, place=place or None,
         ) if parsed.get("ok") else None
         if parsed.get("ok"):
-            from scribe3.chapter_spine import assemble_synopsis_from_spine
-            parsed["synopsis"] = assemble_synopsis_from_spine(best_spine)
-    if not parsed["ok"] or dens is None or not dens.ok:
+            parsed["synopsis"] = assemble_synopsis_from_spine(parsed.get("chapter_spine") or {})
+        rec = record_attempt(rnd + 1, parsed, dens, raw=raw)
+        attempts.append(rec)
+        if st is not None and hasattr(st, "save_design_attempt") and seq:
+            try:
+                st.save_design_attempt(int(seq), rec)
+            except Exception:
+                pass
+        last_hint = _design_fail_hint(parsed, dens)
+        if rec.get("struct_ok") and rec.get("exam_ok"):
+            break
+
+    winner = first_passed(attempts)
+    if winner:
+        parsed = {
+            **parsed,
+            "ok": True,
+            "code": "",
+            "chapter_spine": winner.get("chapter_spine") or {},
+            "beats": winner.get("beats") or [],
+            "designated_beat": winner.get("designated_beat"),
+            "clock": winner.get("clock") or {},
+            "place": winner.get("place") or {},
+            "synopsis": winner.get("synopsis") or "",
+            "source": parsed.get("source") or "llm",
+        }
+        dens = evaluate_chapter_design(
+            parsed.get("chapter_spine"), parsed.get("beats"),
+            known_line_ids=known,
+            designated_beat=parsed.get("designated_beat"),
+            book=book,
+            clock=parsed.get("clock") or None,
+            place=parsed.get("place") or None,
+        )
+    best_clock = dict(parsed.get("clock") or {})
+    best_place = dict(parsed.get("place") or {})
+    if not parsed.get("ok") or dens is None or not dens.ok:
         thin_code = parsed.get("code") or ""
         if dens is not None and not dens.ok:
             if "choice_not_staged" in dens.errors:
@@ -2034,12 +2029,13 @@ def thicken_chapter_design(
             "source": parsed.get("source") or "llm",
             "got": parsed.get("cn"),
             "need": "chapter_design",
-            "message": "情节薄：章设计缺选择/拍台阶/同源兑现，禁止半稿落库",
+            "message": "整份还没过：留下的几稿一块看过了，没有一整份能进书",
             "parsed": parsed,
             "chapter_spine": parsed.get("chapter_spine"),
             "beats": parsed.get("beats"),
             "density": (dens.as_dict() if dens is not None else parsed.get("density")),
             "missing": (dens.as_missing() if dens is not None else []),
+            "attempts": slim_attempts(attempts),
         }, ch, st=st, seq=seq, kind="design", persist=False)
     fields: dict[str, Any] = {
         "chapter_spine": parsed["chapter_spine"],
@@ -2093,16 +2089,20 @@ def thicken_chapter_design(
             "ok": False, "code": blocked["code"], "message": blocked["message"],
             "source": "llm", "fate": blocked.get("fate"),
             "missing": blocked.get("missing"),
+            "attempts": slim_attempts(attempts),
         }
     from scribe3.narrative_contract import merge_iceberg_contract
     fields = merge_iceberg_contract({**(ch or {}), **fields}, fields)
     attached = _attach_fate(
         {"ok": True, "source": parsed.get("source") or "llm", **fields,
-         "cn": parsed["cn"], "density": dens.as_dict()},
+         "cn": parsed.get("cn"), "density": dens.as_dict(),
+         "attempts": slim_attempts(attempts)},
         {**(ch or {}), **fields},
         st=st, seq=seq, kind="design", persist=bool(persist_fn),
     )
     if attached.get("ok") is False:
+        attached = dict(attached)
+        attached.setdefault("attempts", slim_attempts(attempts))
         return attached
     if persist_fn:
         persist_fn(fields)

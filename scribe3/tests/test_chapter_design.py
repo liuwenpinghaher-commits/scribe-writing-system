@@ -10,6 +10,7 @@ from scribe3.clue_density import (
     evaluate_chapter_design,
 )
 from scribe3.iceberg import design_half_block, persist_fields_blocked
+from scribe3.design_attempt import first_passed, record_attempt
 from scribe3.stage_generate import (
     _DESIGN_ASK,
     _BEATS_ASK,
@@ -218,24 +219,23 @@ def test_persist_repair_merged_choice_mismatch():
     assert "choice_not_staged" in ids or "choice_not_staged" in (blk.get("message") or "")
 
 
-def test_thicken_asks_only_failed_slots():
+def test_thicken_full_rewrite_not_slot_patch():
     os.environ["SCRIBE3_CHAPTER_DESIGN"] = "on"
     gold = _DRY_OUTLINE + "\n选拍：2\n" + _DRY_BEATS
     thin = gold.replace("选：硬还焦黑暴露 vs 纸角塞回门缝", "选：无")
     prompts: list[str] = []
+    n = {"i": 0}
 
     def llm(prompt, max_tokens=4096):
         prompts.append(prompt)
-        if "只补没过" in prompt:
-            return (
-                "## 拍2\n要：把焦黑还回侧门\n挡：婆子说账勾了门没开\n"
-                "变：门更死咳了一声\n付：门没开更险\n"
-                "选：硬还焦黑暴露 vs 纸角塞回门缝\n水下：咳像爹\n"
-            )
-        return thin
+        n["i"] += 1
+        return thin if n["i"] == 1 else gold
 
-    thicken_chapter_design({}, llm_fn=llm, persist_fn=lambda f: None, seq=1)
-    assert any("只补没过" in p for p in prompts)
+    r = thicken_chapter_design({}, llm_fn=llm, persist_fn=lambda f: None, seq=1)
+    assert not any("只补没过" in p for p in prompts)
+    assert any("整份重写" in p for p in prompts)
+    assert len(prompts) >= 2
+    assert r.get("attempts")
 
 
 def test_thicken_chapter_design_does_not_persist_thin():
@@ -782,6 +782,19 @@ def test_duty_event_and_bill_and_who():
         known_line_ids=_KNOWN_WB, book=book,
     )
     assert "who_unmet" in r.errors
+
+
+def test_first_passed_uses_whole_version_not_stitch():
+    a = record_attempt(1, {"ok": True, "chapter_spine": {"choice": "去医院 vs 找箱"}, "beats": [1, 2, 3]}, None)
+    a["exam_ok"] = False
+    a["errors"] = ["bill_unmet"]
+    b = record_attempt(2, {"ok": True, "chapter_spine": {"choice": "开箱 vs 焊死"}, "beats": [1, 2, 3]}, None)
+    b["exam_ok"] = True
+    b["errors"] = []
+    win = first_passed([a, b])
+    assert win is b
+    assert win["chapter_spine"]["choice"] == "开箱 vs 焊死"
+    assert first_passed([a]) is None
 
 
 def test_duty_bill_body_heat_not_world_word():
