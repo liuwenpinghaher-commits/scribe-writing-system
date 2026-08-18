@@ -416,6 +416,13 @@ def test_play_choice_ab_takes_last_real_dilemma():
     assert "按回" in ab[1]
     none = play_choice_ab("去医院能退烧。去旧货站能抢钟。你还是得选。")
     assert none is None
+    ab2 = play_choice_ab(
+        "沈烛问：你今晚是想读，还是想焊？他没定。"
+        "今晚该办的那一件事——读码还是焊死——没办成。"
+    )
+    assert ab2 is not None
+    assert "读" in ab2[0] and "焊" in ab2[1]
+    assert "没办成" not in ab2[0] + ab2[1]
 
 
 def test_table_same_play_rejects_meta_and_second_choice():

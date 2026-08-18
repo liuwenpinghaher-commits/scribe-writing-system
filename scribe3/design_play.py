@@ -118,7 +118,7 @@ def _split_on_play_marks(sent: str) -> tuple[str, str] | None:
     return None
 
 
-_AB_SKIP = ("都一样", "还是得选", "你还是得", "还是得先")
+_AB_SKIP = ("都一样", "还是得选", "你还是得", "还是得先", "没办成", "等于没选", "已经选")
 
 
 def _strip_speaker(side: str) -> str:
