@@ -164,18 +164,25 @@ export const SCAFFOLD_FORBID_SAVE =
  */
 export function scaffoldToolContract(scope) {
   const s = String(scope || '').toLowerCase()
+  if (s === 'design' || s === '章设计' || s === 'chapter_design') {
+    return {
+      tool: 's3_generate_stage',
+      field: 'chapter_spine+beats',
+      gateHint: '必须用 LLM 一次写 14 槽章纲 + ≥3 拍。选择 A vs B；默认拍2演出这个选择。用 s3_generate_stage(stage=design) 或一次提交 spine+beats 的 s3_patch_chapter_plan。禁止只写一半。',
+    }
+  }
   if (s === 'outline' || s === 'synopsis' || s === '章大纲') {
     return {
-      tool: 's3_patch_chapter_plan',
-      field: 'synopsis',
-      gateHint: '必须用 LLM 写因果大纲 ≥500 字（日子/必须发生/因→果/不能说/章末未决）。禁止口号。也可用 s3_generate_stage(stage=outline)。',
+      tool: 's3_generate_stage',
+      field: 'chapter_spine+beats',
+      gateHint: '旗 on：请走 s3_generate_stage(stage=design) 一次写章纲+节拍。禁止只补一半。旗 off 才单独写 13 短槽。',
     }
   }
   if (s === 'beats' || s === '节拍') {
     return {
-      tool: 's3_patch_chapter_plan',
-      field: 'beats',
-      gateHint: '必须用 LLM 写场面纸：每拍 ≥500、合计 ≥2000。禁止大纲切句。也可用 s3_generate_stage(stage=beats)。',
+      tool: 's3_generate_stage',
+      field: 'chapter_spine+beats',
+      gateHint: '旗 on：请走 s3_generate_stage(stage=design)。禁止单独写节拍。旗 off 才单独写 ≥3 拍。',
     }
   }
   if (s === 'deduce' || s === 'scene_truth' || s === '演绎') {
@@ -260,9 +267,9 @@ export function seedChapterOutline(seq, synopsis = '', extraHint = '') {
     'outline',
     `第 ${n} 章大纲`,
     [
-      `使用工具 s3_patch_chapter_plan(seq=${n}, field=synopsis) 提交写入提案；或先 s3_generate_stage(stage=outline) 让 LLM 写厚再批。`,
+      `使用工具 s3_generate_stage(stage=design, seq=${n}) 一次写章纲+节拍；或 s3_patch_chapter_plan 一次提交 chapter_spine+beats。`,
       SCAFFOLD_FORBID_SAVE,
-      '大纲必须 LLM 生成 ≥500 字（日子/必须发生/因→果/不能说/章末未决），禁止口号。',
+      '必须一次写出 14 槽章纲 + ≥3 拍（选择 A vs B，默认拍2演出）。禁止只写一半。',
       body,
     ].join('\n'),
   )
@@ -284,9 +291,9 @@ export function seedChapterBeats(seq, beats = [], extraHint = '') {
     'beats',
     `第 ${n} 章节拍`,
     [
-      `使用工具 s3_patch_chapter_plan(seq=${n}, field=beats) 提交写入提案；或先 s3_generate_stage(stage=beats) 让 LLM 写厚再批。`,
+      `写节拍就是写这一章：使用工具 s3_generate_stage(stage=design, seq=${n}) 一次写章纲+节拍；或 s3_patch_chapter_plan 一次提交 chapter_spine+beats。`,
       SCAFFOLD_FORBID_SAVE,
-      '每拍场面纸 ≥500 字、合计 ≥2000，必须 LLM 生成，禁止大纲切句充数。',
+      '必须一次写出这一章发生什么和分几场上台。禁止只写一半。',
       body,
     ].join('\n'),
   )

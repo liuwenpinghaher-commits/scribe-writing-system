@@ -5,16 +5,27 @@ import os
 from typing import Any
 
 PHASES: tuple[str, ...] = ("outline", "beats", "deduce", "draft", "final")
+_DESIGN_PHASES: tuple[str, ...] = ("design", "deduce", "draft", "final")
 
 # action -> 期望 next（从任意当前；非法则 advisory）
 _ACTIONS: dict[str, str] = {
     "start_outline": "outline",
+    "start_design": "design",
     "to_beats": "beats",
+    "to_design": "design",
     "to_deduce": "deduce",
     "to_draft": "draft",
     "to_final": "final",
     "advance": "",  # 顺序 +1
 }
+
+
+def _design_on() -> bool:
+    return True
+
+
+def active_phases() -> tuple[str, ...]:
+    return _DESIGN_PHASES
 
 
 def stage_machine_enabled() -> bool:
@@ -29,38 +40,46 @@ def stage_machine_hard() -> bool:
 
 def normalize_phase(phase: str | None) -> str | None:
     p = (phase or "").strip().lower()
-    if p in PHASES:
-        return p
     aliases = {
         "plan": "outline",
         "meta": "beats",
         "write": "draft",
         "polish": "final",
+        "chapter_design": "design",
     }
-    return aliases.get(p)
+    p = aliases.get(p, p)
+    if _design_on() and p in ("outline", "plan", "beats"):
+        p = "design"
+    if p in active_phases() or p in PHASES or p == "design":
+        return p
+    return None
 
 
 def next_phase(current: str | None) -> str | None:
+    phases = active_phases()
     cur = normalize_phase(current)
     if cur is None:
-        return "outline"
+        return phases[0]
     try:
-        i = PHASES.index(cur)
+        i = phases.index(cur)
     except ValueError:
-        return "outline"
-    if i + 1 < len(PHASES):
-        return PHASES[i + 1]
+        return phases[0]
+    if i + 1 < len(phases):
+        return phases[i + 1]
     return cur
 
 
 def allowed_forward(current: str | None, target: str | None) -> bool:
     """是否允许从 current 到 target（可同阶段；可前进；默认允许回退 soft）。"""
+    phases = active_phases()
     c, t = normalize_phase(current), normalize_phase(target)
     if t is None:
         return False
     if c is None:
         return True
-    return PHASES.index(t) >= PHASES.index(c) or not stage_machine_hard()
+    if c not in phases or t not in phases:
+        return not stage_machine_hard()
+    return phases.index(t) >= phases.index(c) or not stage_machine_hard()
 
 
 def transition(
@@ -105,14 +124,14 @@ def transition(
             "advisories": advisories,
             "severity": "advisory",
             "hard_park": False,
-            "phases": list(PHASES),
+            "phases": list(active_phases()),
         }
     if act == "advance" or act == "":
         tgt = next_phase(cur)
     elif act in _ACTIONS and _ACTIONS[act]:
-        tgt = _ACTIONS[act]
-    elif act in PHASES:
-        tgt = act
+        tgt = normalize_phase(_ACTIONS[act]) or _ACTIONS[act]
+    elif act in active_phases() or act in PHASES or act == "design":
+        tgt = normalize_phase(act) or act
     else:
         return {
             "ok": False,
@@ -125,14 +144,16 @@ def transition(
             "hard_park": False,
         }
     ok = True
-    if cur and tgt and PHASES.index(tgt) < PHASES.index(cur):
-        advisories.append("backward_transition")
-        if use_hard:
-            ok = False
-    if cur and tgt and PHASES.index(tgt) > PHASES.index(cur) + 1:
-        advisories.append("skipped_phase")
-        if use_hard:
-            ok = False
+    phases = active_phases()
+    if cur in phases and tgt in phases:
+        if phases.index(tgt) < phases.index(cur):
+            advisories.append("backward_transition")
+            if use_hard:
+                ok = False
+        if phases.index(tgt) > phases.index(cur) + 1:
+            advisories.append("skipped_phase")
+            if use_hard:
+                ok = False
     return {
         "ok": ok if use_hard else True,  # soft：业务上允许作者跳，但标 advisory
         "soft_ok": True,
@@ -143,7 +164,7 @@ def transition(
         "advisories": advisories,
         "severity": "hard" if use_hard and not ok else "advisory",
         "hard_park": False,  # 永不默认 hard park 正文
-        "phases": list(PHASES),
+        "phases": list(phases),
     }
 
 
@@ -163,7 +184,14 @@ def stage_from_chapter_dict(ch: dict[str, Any] | None) -> str | None:
         return "draft"
     plan = ch.get("plan") or {}
     if isinstance(plan, dict) and (plan.get("beats") or plan.get("deductions")):
-        return "beats" if plan.get("beats") else "deduce"
+        if plan.get("beats"):
+            return "design" if _design_on() else "beats"
+        return "deduce"
+    if ch.get("beats") or ch.get("chapter_spine"):
+        if _design_on() and (ch.get("beats") or ch.get("chapter_spine")):
+            return "design"
+        if ch.get("beats"):
+            return "beats"
     if (ch.get("synopsis") or ch.get("outline") or "").strip():
-        return "outline"
+        return "design" if _design_on() else "outline"
     return None

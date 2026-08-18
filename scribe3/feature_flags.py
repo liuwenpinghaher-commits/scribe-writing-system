@@ -23,6 +23,27 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag("SCRIBE3_SCENE_BUDGET_PROFILE", "", "显式场景 profile 名", "context_budget", "safe"),
     Flag("SCRIBE3_TOTAL_BUDGET", "", "全域 prompt 硬顶（空=PROMPT_HARD）", "context_budget", "caution"),
     Flag("SCRIBE3_INJECTION_REGISTRY", "active", "off|shadow|active 段注册表", "injection_registry", "caution"),
+    Flag(
+        "SCRIBE3_CLUE_DENSITY",
+        "on",
+        "章纲/节拍密度闸 off|shadow|on。off=回到字数闸（短拼装 250–400 会 422）",
+        "iceberg",
+        "caution",
+    ),
+    Flag(
+        "SCRIBE3_FATE_DEARER",
+        "on",
+        "命运/钟/地闸 off|shadow|on。默认 on，按 SCRIBE3_FATE_WAVE 硬闸",
+        "fate_dearer",
+        "caution",
+    ),
+    Flag(
+        "SCRIBE3_FATE_WAVE",
+        "2",
+        "命运闸波次 1|2。默认 2=并入选择/复读/代价幅度/设定库/笔墨",
+        "fate_dearer",
+        "caution",
+    ),
     Flag("SCRIBE3_DENSITY_TRACE", "1", "密度观测", "injection_registry", "safe"),
     Flag("SCRIBE3_INJECT_DEDUP", "1", "must-link / inject 指纹去重", "inject_dedup", "safe"),
     Flag("SCRIBE3_CANON_SUPPRESS_HEURISTIC", "1", "正典压制文本弱推断", "memory_retrieval", "safe"),
@@ -113,6 +134,22 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag("SCRIBE3_PIPELINE_TRACE", "1", "写路径 chain+span 主账；0=零 I/O 不挡写", "observability", "safe"),
     Flag("SCRIBE3_PIPELINE_TRACE_PREVIEW", "0", "步骤片段预览（默认关，不回默认 API）", "observability", "caution"),
     Flag("SCRIBE3_PIPELINE_TRACE_TTL_DAYS", "7", "pipeline_chain/span TTL 天", "observability", "safe"),
+    Flag(
+        "SCRIBE3_DESIGN_BOOK",
+        "on",
+        "写章设计时检查这一章是否还接得上这本书（人、地、线、简介）。off=只检查表格填没填满。",
+        "chapter_design",
+        "caution",
+    ),
+    Flag(
+        "SCRIBE3_WORLD_SURFACE",
+        "on",
+        "水面命题卡 / extra 作者扫描 / 矿从命题抽。off=回到仅短槽 fate。记录仪接线不看此旗。",
+        "world_surface",
+        "caution",
+    ),
+    Flag("SCRIBE3_PIPELINE_RECORDER", "1", "飞行记录仪事件+工件；默认开", "observability", "caution"),
+    Flag("SCRIBE3_PIPELINE_ARTIFACT_CAP", "16384", "单工件 Unicode 字帽", "observability", "safe"),
 )
 
 

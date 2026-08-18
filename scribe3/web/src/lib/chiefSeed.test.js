@@ -45,9 +45,9 @@ describe('chiefSeed helpers', () => {
     const t = seedChiefCodexWrite('chars', { name: '季棠', aliases: ['小棠'], abilities: ['读唇'] }, '补外貌')
     expect(t).toMatch(/季棠/)
     expect(t).toMatch(/补外貌/)
-    expect(t).toMatch(/s3_patch_codex/)
-    expect(t).toMatch(/aliases/)
-    expect(t).toMatch(/abilities/)
+    expect(t).toMatch(/s3_generate_codex/)
+    expect(t).toMatch(/禁止把薄字段预填/)
+    expect(t).not.toMatch(/aliases":/)
     expect(sessionStorage.getItem('s3.chief.seed')).toBe(t)
     expect(tabs).toContain('chief')
   })
@@ -74,15 +74,16 @@ describe('chiefSeed helpers', () => {
 
   it('outline/beats/deduce seeds name plan tool and forbid scaffold save', () => {
     const o = seedChapterOutline(3, '旧债上门')
-    expect(o).toMatch(/s3_patch_chapter_plan/)
-    expect(o).toMatch(/synopsis/)
+    expect(o).toMatch(/s3_generate_stage/)
+    expect(o).toMatch(/stage=design/)
     expect(o).toMatch(/s3_save_chapter/)
     expect(o).toContain('禁止用 s3_save_chapter')
     expect(shouldUseHermesRun(o)).toBe(true)
 
     const b = seedChapterBeats(2, [{ text: '抵达' }, { text: '对峙' }])
+    expect(b).toMatch(/s3_generate_stage/)
+    expect(b).toMatch(/stage=design/)
     expect(b).toMatch(/s3_patch_chapter_plan/)
-    expect(b).toMatch(/beats/)
     expect(b).toContain('禁止用 s3_save_chapter')
     expect(shouldUseHermesRun(b)).toBe(true)
 

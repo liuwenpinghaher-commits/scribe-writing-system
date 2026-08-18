@@ -45,17 +45,15 @@ def setup_module():
     os.environ["SCRIBE3_CHAPTER_DESIGN"] = "on"
 
 
-def test_chapter_design_mode_default_on():
+def test_chapter_design_mode_always_on():
     old = os.environ.get("SCRIBE3_CHAPTER_DESIGN")
     try:
         os.environ.pop("SCRIBE3_CHAPTER_DESIGN", None)
-        assert chapter_design_mode() in ("on", "off")
-        os.environ["SCRIBE3_CHAPTER_DESIGN"] = "on"
         assert chapter_design_mode() == "on"
         os.environ["SCRIBE3_CHAPTER_DESIGN"] = "off"
-        assert chapter_design_mode() == "off"
+        assert chapter_design_mode() == "on"
         os.environ["SCRIBE3_CHAPTER_DESIGN"] = "typo"
-        assert chapter_design_mode() == "off"
+        assert chapter_design_mode() == "on"
     finally:
         if old is None:
             os.environ.pop("SCRIBE3_CHAPTER_DESIGN", None)
@@ -194,17 +192,16 @@ def test_extra_gold_does_not_scan_ask():
     assert extra_authors("必须有一句母亲咳") == ["extra_authors"]
 
 
-def test_dispatch_beats_stage_merged():
-    os.environ["SCRIBE3_CHAPTER_DESIGN"] = "on"
-    hit = dispatch_design_stage("beats", {}, extra="")
-    assert hit and hit.get("code") == "stage_merged"
+def test_dispatch_beats_goes_to_write_chapter():
+    from scribe3.stage_generate import normalize_stage
+    assert normalize_stage("beats") == "design"
+    assert normalize_stage("outline") == "design"
+    assert dispatch_design_stage("beats", {}, extra="") is None
     ready = {
         "chapter_spine": G1,
         "beats": list(_GOLD_BEATS),
     }
-    skip = dispatch_design_stage("beats", ready, extra="")
-    assert skip and skip.get("ok") is True
-    assert "章设计已过" in (skip.get("skipped") or "")
+    assert dispatch_design_stage("beats", ready, extra="") is None
 
 
 def test_persist_design_half_top_code():
@@ -406,7 +403,7 @@ def test_design_book_mode_default_on():
         assert design_book_mode() == "off"
         os.environ["SCRIBE3_CHAPTER_DESIGN"] = "off"
         os.environ["SCRIBE3_DESIGN_BOOK"] = "on"
-        assert design_book_mode() == "off"
+        assert design_book_mode() == "on"
     finally:
         if old_d is None:
             os.environ.pop("SCRIBE3_DESIGN_BOOK", None)

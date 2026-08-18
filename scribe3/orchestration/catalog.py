@@ -29,6 +29,8 @@ CATALOG: list[dict[str, Any]] = [
         "channel": "world_write",
         "instruction_duty": (
             "域纪律(作品意图):用 s3_set_intent；**不是**评分卡 scorecard。"
+            "写大纲前先 s3_set_intent(who_pays, axis_terms, clock_start, clock_end)；"
+            "缺 who_pays 或章钟 span / 地点 name 会 422。"
         ),
     },
     # —— 设定 Codex ——
@@ -294,8 +296,34 @@ CATALOG: list[dict[str, Any]] = [
                "layout_mode": "collaboration", "panel": "chapter_meta"},
         "channel": "world_write",
     },
-    # —— 章阶段（大纲/节拍/演绎）——
+    # —— 章阶段（设计/大纲/节拍/演绎）——
     # match_force 含 s3_patch_chapter_plan：种子点名即 world_write（软门控；非 Hermes include）
+    {
+        "domain": "chapter.design",
+        "label": "章设计",
+        "match_keywords": (
+            "章设计", "写设计", "stage=design", "chapter_design",
+            "一次写大纲和节拍", "合成闸",
+        ),
+        "match_force": (
+            "s3_generate_stage", "s3_patch_chapter_plan",
+            "写设计", "写大纲", "写节拍", "章设计", "stage=design",
+        ),
+        "read_tools": ("s3_get_chapter", "s3_get_intent", "s3_list_promises"),
+        "write_tools": ("s3_patch_chapter_plan", "s3_generate_stage"),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "manuscript", "phase": "design", "node": {"type": "chapter"},
+               "right_tab": "chief", "layout_mode": "collaboration", "panel": "design"},
+        "channel": "world_write",
+        "phase_hint": "design",
+        "context_pack": ("synopsis", "beats", "intent_snip", "open_promises"),
+        "instruction_duty": (
+            "域纪律(章设计):必须用 LLM 一次写 14 槽章纲（禁令可空）+ ≥3 拍台阶；"
+            "选择 A vs B；默认拍2演出这个选择；禁止再发明第二个选择；"
+            "用 s3_generate_stage(stage=design) 或一次提交 spine+beats 的 s3_patch_chapter_plan；"
+            "禁止只写一半；禁止 s3_save_chapter 完成本任务。"
+        ),
+    },
     {
         "domain": "chapter.outline",
         "label": "章大纲",
@@ -317,9 +345,9 @@ CATALOG: list[dict[str, Any]] = [
         "phase_hint": "outline",
         "context_pack": ("synopsis", "intent_snip", "open_promises", "volume_intro"),
         "instruction_duty": (
-            "域纪律(章大纲):必须用 LLM 写因果大纲 ≥500 字；"
-            "可用 s3_generate_stage(stage=outline) 或 s3_patch_chapter_plan 写 synopsis；"
-            "禁止口号；禁止 s3_save_chapter 完成本任务。"
+            "域纪律(章大纲):写大纲就是写这一章。"
+            "用 s3_generate_stage(stage=design) 或一次提交 chapter_spine+beats 的 s3_patch_chapter_plan；"
+            "禁止只补一半；禁止口号与场面预演；禁止 s3_save_chapter 完成本任务。"
         ),
     },
     {
@@ -342,9 +370,9 @@ CATALOG: list[dict[str, Any]] = [
         "phase_hint": "beats",
         "context_pack": ("beats", "synopsis_snip", "drama_contract"),
         "instruction_duty": (
-            "域纪律(章节拍):必须用 LLM 写场面纸，每拍≥500、合计≥2000；"
-            "可用 s3_generate_stage(stage=beats) 或 s3_patch_chapter_plan 写 beats；"
-            "禁止大纲切句充数；禁止 s3_save_chapter 完成本任务。"
+            "域纪律(章节拍):写节拍就是写这一章。"
+            "用 s3_generate_stage(stage=design) 或一次提交 chapter_spine+beats 的 s3_patch_chapter_plan；"
+            "禁止只补一半；禁止千字进场；禁止 s3_save_chapter 完成本任务。"
         ),
     },
     {

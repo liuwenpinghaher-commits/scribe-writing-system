@@ -249,19 +249,30 @@ def _phase_role_block(phase: str) -> str:
     # outline ↔ plan：前端偶发仍把 outline 映射为 plan
     if p == "outline":
         p = "plan"
+    if p in ("plan", "beats", "design", "chapter_design"):
+        p = "design"
     roles = {
-        "plan": "## 阶段角色(规划期/大纲)\n你此刻必须用 LLM 写出因果大纲：日子、必须发生、因→果、"
-                "不能说、章末未决；去掉空白 ≥500 字。禁止一句口号。用 s3_patch_chapter_plan 写 synopsis。",
-        "beats": "## 阶段角色(节拍)\n你此刻必须用 LLM 写场面纸：≥3 拍，每拍 ≥500 字（进场/事件/翻转/出场/水下），"
-                "合计 ≥2000。GCD 短字段不能代替 text。用 s3_patch_chapter_plan 写 beats。禁止大纲切句充数。",
-        "deduce": "## 阶段角色(演绎)\n你此刻必须用 LLM 写 scene_truth + 每人五层限知投影，合计 ≥5000 字。"
-                  "禁止摘录占位、禁止空白五栏。用 s3_patch_chapter_plan 写 scene_truth/deductions；"
+        "design": "## 阶段角色(章设计)\n你此刻必须用 LLM 一次写出 14 槽章纲（禁令可空）+ ≥3 拍台阶。"
+                "选择必须 A vs B；默认拍2演出这个选择，可用「选拍：N」改指定；禁止再发明第二个选择。"
+                "动哪条线必须 promise:<id> 或 storyline:<id>。"
+                "用 s3_generate_stage(stage=design) 或一次提交 spine+beats 的 s3_patch_chapter_plan。"
+                "禁止只写大纲留下空节拍。禁止场面预演、禁止口号。",
+        "plan": "## 阶段角色(规划期/大纲)\n你此刻必须用 LLM 写出 13 短槽章纲："
+                "时空/在场/咬上章/本章要/挡/触发/升级/选择/决断/代价/信息差/动哪条线/钩。"
+                "选择必须 A vs B；动哪条线必须 promise:<id> 或 storyline:<id>。"
+                "禁止场面预演、禁止口号。用 s3_generate_stage 或 s3_patch_chapter_plan(chapter_spine)。",
+        "beats": "## 阶段角色(节拍)\n你此刻必须用 LLM 写 ≥3 拍台阶：每拍只要/挡/变/付，全章至少一拍有选（A vs B）。"
+                "GCD 是主合同，禁止千字进场。用 s3_generate_stage 或 s3_patch_chapter_plan 写 beats。禁止大纲切句充数。",
+        "deduce": "## 阶段角色(演绎)\n你此刻必须用 LLM 写 scene_truth + 每人五层限知投影，抽出至少 1 条矿。"
+                  "禁止摘录占位、禁止空白五栏。字数不是通过条件。"
+                  "用 s3_patch_chapter_plan 写 scene_truth/deductions；"
                   "勿把场景真相写成 s3_add_fact 世界命题。",
-        "draft": "## 阶段角色(排演)\n你此刻走场面排演：糙可改，≥10000 字，只落 chapter.draft"
-                 "（s3_save_chapter_draft），禁止写入 prose，禁止越界写焦点者不知之事。",
-        "final": "## 阶段角色(正文期)\n你此刻写读者正文：冰山齐才开写，水面 ≥5000。"
+        "draft": "## 阶段角色(排演)\n你此刻走场面排演：糙可改，只落 chapter.draft"
+                 "（s3_save_chapter_draft），禁止写入 prose，禁止越界写焦点者不知之事。"
+                 "字数不是通过条件。",
+        "final": "## 阶段角色(正文期)\n你此刻写读者正文：冰山齐才开写。"
                  "材料全文在提示词里；读者正文另写，勿复读排演，守限知。"
-                 "用 s3_save_chapter 落 prose。",
+                 "字数不是通过条件。用 s3_save_chapter 落 prose。",
     }
     block = roles.get(p)
     return f"\n\n{block}" if block else ""
@@ -309,14 +320,60 @@ def _is_selection_candidate_version(ver: dict) -> bool:
 
 def _pilot_llm_gen(st, work: str, seq: int, phase: str, ask: str, focalizer: str = "",
                    max_tokens: int | None = 1600) -> str:
-    """pilot 生成通道:同一 _assemble_write_instructions 组装链(宪法:不另起简化 prompt)。"""
+    """pilot 生成通道。章设计只给一张纸；正文仍走组装链。"""
+    from contextlib import nullcontext
+
+    from scribe3.pipeline_trace_hooks import write_chain_guard
+
     outcome_binding = _WriteOutcomeBinding(st)
-    from scribe3.pipeline_trace_hooks import open_write_chain, write_chain_guard
-    open_write_chain(
-        st, outcome_binding.manifest_trace, work=work,
-        chapter=int(seq or 1), kind="write", phase=phase or "draft",
-    )
-    with write_chain_guard(st, outcome_binding.manifest_trace):
+    from scribe3.api.services.write_stream import bind_pilot_trace
+    nested = bind_pilot_trace(outcome_binding, st, work, seq, phase)
+    ctx = nullcontext() if nested else write_chain_guard(st, outcome_binding.manifest_trace)
+    with ctx:
+        stg = (phase or "").strip().lower()
+        if stg in ("design", "chapter_design", "outline", "plan", "beats"):
+            from scribe3.stage_generate import planning_system_prompt
+            ins = planning_system_prompt()
+            from scribe3.deepseek_client import DeepSeekResponseError
+            from scribe3.llm import default_model, hermes_complete_result
+            text = ""
+            used_model = default_model()
+            last_err: Exception | None = None
+            last_usage = None
+            for _attempt in range(3):
+                try:
+                    result = hermes_complete_result(
+                        ask, system=ins, model=used_model, max_tokens=max_tokens,
+                        thinking="disabled",
+                    )
+                    text = (result.content if result is not None else "") or ""
+                    used_model = getattr(result, "model", None) or used_model
+                    last_usage = getattr(result, "usage", None)
+                    if str(text).strip():
+                        break
+                except DeepSeekResponseError as exc:
+                    last_err = exc
+                    text = ""
+                    continue
+            if not str(text).strip():
+                if last_err is not None:
+                    raise last_err
+                raise RuntimeError("规划补全为空")
+            try:
+                outcome_binding.persist({
+                    "status": "completed",
+                    "response_id": None,
+                    "usage": last_usage,
+                    "provider": {
+                        "provider": "official_complete",
+                        "phase": stg,
+                        "model": used_model,
+                    },
+                    "model": used_model,
+                })
+            except Exception:
+                pass
+            return text
         ins = _assemble_write_instructions(
             st, chapter=seq, focalizer=focalizer, phase=phase,
             with_tools=False, seed_words=[], short_mode=False, work=work,

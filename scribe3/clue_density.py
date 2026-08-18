@@ -210,28 +210,12 @@ class DensityReport:
 
 
 def chapter_design_mode() -> str:
-    """on | off。设置 DB → env → 默认 on。非法 typo → off。"""
-    raw = ""
-    try:
-        from scribe3.settings import get_setting
-        raw = str(get_setting("SCRIBE3_CHAPTER_DESIGN") or "").strip().lower()
-    except Exception:
-        raw = ""
-    if not raw:
-        raw = str(os.environ.get("SCRIBE3_CHAPTER_DESIGN") or "").strip().lower()
-    if raw in ("on", "1", "true", "yes"):
-        return "on"
-    if raw in ("off", "0", "false", "no"):
-        return "off"
-    if not raw:
-        return "on"
-    return "off"
+    """永远一次写完这一章。旧两步开关已拆。"""
+    return "on"
 
 
 def design_book_mode() -> str:
-    """on | off。CHAPTER_DESIGN 关则本旗也关。空→on，typo→off。"""
-    if chapter_design_mode() != "on":
-        return "off"
+    """on | off。空→on，typo→off。"""
     raw = ""
     try:
         from scribe3.settings import get_setting

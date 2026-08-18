@@ -60,7 +60,12 @@ def _reject_thin_iceberg(st, chapter: int, phase: str, *, write_intent: bool, sk
         ch = st.get_chapter(int(chapter)) if hasattr(st, "get_chapter") else None
     except Exception:
         ch = None
-    report = evaluate_iceberg(ch or {}, for_phase=phase or "draft")
+    report = evaluate_iceberg(
+        ch or {},
+        for_phase=phase or "draft",
+        st=st,
+        seq=int(chapter or 1),
+    )
     if not report.get("ok"):
         raise HTTPException(status_code=409, detail=iceberg_http_detail(report))
 
@@ -71,35 +76,46 @@ def _reject_stage_not_ready(st, chapter: int, phase: str, *, skip: bool) -> None
         return
     try:
         from scribe3.iceberg import iceberg_enabled
-        from scribe3.stage_generate import normalize_stage, stage_not_ready_http, stage_ready
+        from scribe3.stage_generate import (
+            dispatch_design_stage,
+            normalize_stage,
+            stage_not_ready_http,
+            stage_ready,
+        )
     except Exception:
         return
     if not iceberg_enabled():
         return
     stg = normalize_stage(phase)
-    if stg in ("", "outline"):
-        return
     try:
         ch = st.get_chapter(int(chapter)) if hasattr(st, "get_chapter") else None
     except Exception:
         ch = None
-    report = stage_ready(ch or {}, stg)
+    hit = dispatch_design_stage(stg, ch or {}, extra="")
+    if hit and hit.get("code") == "stage_merged":
+        raise HTTPException(status_code=422, detail=hit)
+    if stg in ("", "outline", "design", "beats"):
+        return
+    report = stage_ready(ch or {}, stg, store=st, seq=int(chapter or 1))
     if not report.get("ok"):
         raise HTTPException(status_code=409, detail=stage_not_ready_http(report))
 
 
 class GenerateStageReq(BaseModel):
     seq: int
-    stage: Literal["outline", "beats", "deduce", "draft"]
+    stage: Literal["outline", "beats", "design", "chapter_design", "deduce", "draft", "final"]
     persist: bool = False
     extra: str = ""
+    focalizer: str = ""
+    brief_only: bool = False  # 只 persist chapter_spine + 可选四仪；禁止 synopsis/beats/prose
 
 
 def generate_stage(req: GenerateStageReq, work: str = "main"):
-    """独立 LLM 生成链：outline/beats/deduce/draft。禁止模板/切句回退。"""
+    """独立 LLM 生成链：outline/beats/deduce/draft/final。禁止模板/切句回退。"""
     from scribe3.stage_generate import (
         STAGE_MAX_TOKENS,
         normalize_stage,
+        resolve_stage_focalizer,
         stage_not_ready_http,
         thicken_stage,
     )
@@ -109,22 +125,109 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
     ch = st.get_chapter(seq) or {}
     _reject_stage_not_ready(st, seq, stage, skip=False)
 
+    foc = resolve_stage_focalizer(req.focalizer, ch)
+
+    from scribe3.stage_generate import dispatch_design_stage
+    from scribe3.world_surface import extra_authors
+    if extra_authors(req.extra or ""):
+        raise HTTPException(status_code=422, detail={
+            "code": "extra_authors",
+            "missing": ["extra_authors"],
+            "message": "extra 不得当作者：禁止「必须原样 / 必须有一句 / 必须以时空」",
+        })
+    hit = dispatch_design_stage(stage, ch, extra=req.extra or "")
+    if hit and hit.get("ok") is False:
+        raise HTTPException(status_code=422, detail=hit)
+
     def llm_fn(prompt, max_tokens=STAGE_MAX_TOKENS.get(stage, 4096)):
-        return _pilot_llm_gen(st, work, seq, stage, prompt, max_tokens=max_tokens)
+        return _pilot_llm_gen(
+            st, work, seq, stage, prompt, focalizer=foc, max_tokens=max_tokens,
+        )
 
     persist_fn = None
     if req.persist:
-        def persist_fn(fields: dict) -> None:
-            if "draft" in fields:
-                st.save_chapter_draft(seq, fields.get("draft") or "")
-            else:
-                st.update_chapter_meta(seq, fields)
+        from scribe3.chapter_spine import filter_brief_only_fields, is_prose_locked
+        if is_prose_locked(work, seq, ch) and not req.brief_only:
+            raise HTTPException(status_code=422, detail={
+                "code": "prose_locked",
+                "message": "本章定稿已锁，禁止覆盖大纲/节拍/正文；请用 brief_only 只写章纲。",
+                "seq": seq,
+            })
 
-    out = thicken_stage(
-        stage, ch, llm_fn=llm_fn, persist_fn=persist_fn,
-        seq=seq, extra=req.extra or "",
-        st=st, work=work, focalizer="",
-    )
+        def persist_fn(fields: dict) -> None:
+            payload = dict(fields or {})
+            if req.brief_only:
+                payload = filter_brief_only_fields(payload, existing=ch)
+                if not payload:
+                    return
+            if foc and not req.brief_only:
+                payload.setdefault("focalizer", foc)
+            from scribe3.iceberg_leak import reject_persist_leaks
+            reject_persist_leaks(payload)
+            if "prose" in payload:
+                st.save_chapter(
+                    seq, payload.get("prose") or "",
+                    title=str((ch or {}).get("title") or ""),
+                    focalizer=foc or None,
+                )
+            elif "draft" in payload:
+                prose = payload.get("draft") or ""
+                st.save_chapter_draft(seq, prose)
+                try:
+                    st.add_chapter_version(
+                        seq, prose, label="generate-stage",
+                        kind="checkpoint", stage="draft",
+                        summary="独立生成链排演",
+                    )
+                except Exception:
+                    pass
+                if foc:
+                    try:
+                        st.update_chapter_meta(seq, {"focalizer": foc})
+                    except Exception:
+                        pass
+            else:
+                st.update_chapter_meta(seq, payload)
+
+    from scribe3.pipeline_trace_hooks import finish_failed, finish_ok, open_write_chain
+    mt: dict = {}
+    open_write_chain(st, mt, work=work, chapter=seq, kind="write", phase=stage)
+    try:
+        out = thicken_stage(
+            stage, ch, llm_fn=llm_fn, persist_fn=persist_fn,
+            seq=seq, extra=req.extra or "",
+            st=st, work=work,
+            focalizer=resolve_stage_focalizer(req.focalizer, ch),
+        )
+        from scribe3.stage_generate import _emit_fate_artifacts
+        _emit_fate_artifacts(stage, out, dict(out or {}), {**(ch or {}), **(out or {})})
+        finish_ok(st, mt)
+    except RuntimeError as exc:
+        try:
+            finish_failed(st, mt, err=exc)
+        except Exception:
+            pass
+        raise HTTPException(status_code=503, detail={
+            "code": "llm_stream_failed",
+            "message": str(exc)[:240],
+            "stage": stage,
+            "seq": seq,
+        }) from exc
+    except Exception as exc:
+        try:
+            finish_failed(st, mt, err=exc)
+        except Exception:
+            pass
+        from scribe3.iceberg_leak import PersistIcebergLeak
+        if isinstance(exc, PersistIcebergLeak):
+            raise HTTPException(status_code=422, detail={
+                "code": "iceberg_leak",
+                "message": str(exc)[:240],
+                "hits": exc.hits,
+                "stage": stage,
+                "seq": seq,
+            }) from exc
+        raise
     if out.get("code") == "stage_not_ready":
         raise HTTPException(status_code=409, detail=stage_not_ready_http(out))
     if out.get("ok") is False and out.get("code") == "llm_thin":
@@ -133,6 +236,37 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
             "message": out.get("message"),
             "got": out.get("got"),
             "need": out.get("need"),
+            "parsed": out.get("parsed"),
+            "missing": out.get("missing") or [],
+        })
+    if out.get("ok") is False and out.get("code") in (
+        "extra_authors", "extra_gold", "stage_merged", "stage_flag_off",
+        "design_half", "choice_not_staged", "second_choice",
+    ):
+        raise HTTPException(status_code=422, detail={
+            "code": out.get("code"),
+            "missing": out.get("missing") or [out.get("code")],
+            "message": out.get("message"),
+            "stage": out.get("stage") or stage,
+            "parsed": out.get("parsed"),
+        })
+    if out.get("ok") is False and out.get("code") in (
+        "fate_blocked", "iceberg_thin_persist", "design_half",
+    ):
+        raise HTTPException(status_code=422, detail={
+            "code": out.get("code"),
+            "message": out.get("message"),
+            "missing": out.get("missing") or [],
+            "fate": out.get("fate"),
+        })
+    if out.get("ok") is False:
+        raise HTTPException(status_code=422, detail={
+            "code": out.get("code") or "llm_thin",
+            "message": out.get("message"),
+            "missing": out.get("missing") or [],
+            "parsed": out.get("parsed"),
+            "need": out.get("need"),
+            "stage": out.get("stage") or stage,
         })
     return out
 
@@ -213,6 +347,13 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
     (每新开一个注入点都泄露过一次)对 GET 同样成立;现与 POST/loop 物理同源。
     不落库(台账 D-005,无生产调用方的兼容端点)。"""
     st = _store_for(work)
+    from scribe3.world_surface import extra_authors
+    if extra_authors(msg):
+        raise HTTPException(status_code=422, detail={
+            "code": "extra_authors",
+            "missing": ["extra_authors"],
+            "message": "extra 不得当作者：禁止「必须原样 / 必须有一句 / 必须以时空」",
+        })
     # 明确动稿时，统一上下文已经给足正典、结构与限知材料；即使 UI 仍处在 draft，
     # 也不能再挂 MCP 让模型把未执行的工具调用混进提案或陷入工具循环。讨论/核查
     # （_is_write_intent=False）才保留 work 作用域工具，多书约束仍由提示层强制。
@@ -242,6 +383,13 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
                     work: str = "main"):
     """POST 版写作对话(支持图片附件):前端用 fetch 流式读取。"""
     st = _store_for(work)
+    from scribe3.world_surface import extra_authors
+    if extra_authors(getattr(req, "msg", "") or ""):
+        raise HTTPException(status_code=422, detail={
+            "code": "extra_authors",
+            "missing": ["extra_authors"],
+            "message": "extra 不得当作者：禁止「必须原样 / 必须有一句 / 必须以时空」",
+        })
     outcome_binding = _WriteOutcomeBinding(st)
     from scribe3.pipeline_trace_hooks import open_write_chain, write_chain_guard, finish_failed
     open_write_chain(
@@ -1464,6 +1612,8 @@ def _bind_and_register() -> None:
     from scribe3.api.sse import sse_response as _sse_response
     core.sse_response = _sse_response
     core.GenerateStageReq = GenerateStageReq
+    core.GenerateCodexReq = GenerateCodexReq
+    core.GenerateCodexBatchReq = GenerateCodexBatchReq
     core._reject_stage_not_ready = _reject_stage_not_ready
     core._reject_thin_iceberg = _reject_thin_iceberg
     g = globals()

@@ -40,6 +40,48 @@ export function SettingField({ item, onChanged }) {
           <Input type="password" variant="bordered" size="sm" placeholder={item.is_set ? '已设置(输入以更换)' : '未设置'} aria-label={item.label}
             className="w-48" value={draft ?? ''} onChange={(e) => setDraft(e.target.value)}
             onBlur={() => draft && submit(draft)} />
+        ) : item.key === 'SCRIBE3_CLUE_DENSITY' ? (
+          <select
+            aria-label={item.label}
+            className="h-8 w-48 rounded-md border border-line bg-canvas px-2 text-f13 text-ink"
+            value={draft ?? String(item.value ?? 'on')}
+            onChange={(e) => { setDraft(e.target.value); submit(e.target.value) }}
+          >
+            <option value="on">on · 密度硬闸</option>
+            <option value="shadow">shadow · 只报告不 422</option>
+            <option value="off">off · 回到字数闸（短拼装会 422）</option>
+          </select>
+        ) : item.key === 'SCRIBE3_FATE_DEARER' ? (
+          <select
+            aria-label={item.label}
+            className="h-8 w-48 rounded-md border border-line bg-canvas px-2 text-f13 text-ink"
+            value={draft ?? String(item.value ?? 'on')}
+            onChange={(e) => { setDraft(e.target.value); submit(e.target.value) }}
+          >
+            <option value="on">on · 按波次硬闸</option>
+            <option value="shadow">shadow · 只报告不 422</option>
+            <option value="off">off · 只留密度闸</option>
+          </select>
+        ) : item.key === 'SCRIBE3_WORLD_SURFACE' ? (
+          <select
+            aria-label={item.label}
+            className="h-8 w-48 rounded-md border border-line bg-canvas px-2 text-f13 text-ink"
+            value={draft ?? String(item.value ?? 'on')}
+            onChange={(e) => { setDraft(e.target.value); submit(e.target.value) }}
+          >
+            <option value="on">on · 水面命题硬闸</option>
+            <option value="off">off · 只留短槽命运闸</option>
+          </select>
+        ) : item.key === 'SCRIBE3_FATE_WAVE' ? (
+          <select
+            aria-label={item.label}
+            className="h-8 w-48 rounded-md border border-line bg-canvas px-2 text-f13 text-ink"
+            value={draft ?? String(item.value ?? '2')}
+            onChange={(e) => { setDraft(e.target.value); submit(e.target.value) }}
+          >
+            <option value="1">1 · 卡住/钟地/矿/种子/功能/世界事实/本章要世界词</option>
+            <option value="2">2 · 并入选择/复读/代价/设定库/笔墨</option>
+          </select>
         ) : (
           <Input type={item.type === 'str' ? 'text' : 'number'} variant="bordered" size="sm"
             step={item.type === 'float' ? '0.1' : '1'} aria-label={item.label}

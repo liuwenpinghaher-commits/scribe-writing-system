@@ -16,19 +16,21 @@ def build_actions(work: str) -> dict:
         from scribe3.stage_generate import (
             STAGE_MAX_TOKENS,
             iceberg_ok_for,
-            thicken_outline,
+            thicken_chapter_design,
         )
         ch0 = st.get_chapter(seq) or {}
-        if iceberg_ok_for(ch0, "synopsis"):
-            return {"skipped": "大纲已达覆盖地板,按既有推进(不覆盖)"}
+        if iceberg_ok_for(ch0, "design"):
+            return {"skipped": "章设计已过，不覆盖"}
         steer = _pilot_steer(st, seq)
+        thicken = thicken_chapter_design
+        stage_name = "design"
 
-        def llm_fn(prompt, max_tokens=STAGE_MAX_TOKENS["outline"]):
+        def llm_fn(prompt, max_tokens=STAGE_MAX_TOKENS[stage_name if stage_name != "plan" else "outline"]):
             return _pilot_llm_gen(
-                st, work, seq, "plan", prompt, max_tokens=max_tokens,
+                st, work, seq, stage_name, prompt, max_tokens=max_tokens,
             )
 
-        result = thicken_outline(
+        result = thicken(
             ch0,
             llm_fn=llm_fn,
             persist_fn=lambda fields: st.update_chapter_meta(seq, fields),

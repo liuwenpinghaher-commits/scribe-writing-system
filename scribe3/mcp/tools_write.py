@@ -189,6 +189,10 @@ async def s3_set_intent(ctx: Context,
                         reader_feeling: str | None = None,
                         emotional_arc: str | None = None,
                         red_lines: str | None = None,
+                        who_pays: str | None = None,
+                        axis_terms: str | None = None,
+                        clock_start: str | None = None,
+                        clock_end: str | None = None,
                         overdue_threshold: int | None = None,
                         total_word_goal: int | None = None,
                         daily_word_goal: int | None = None,
@@ -206,6 +210,14 @@ async def s3_set_intent(ctx: Context,
         fields["emotional_arc"] = emotional_arc
     if red_lines is not None:
         fields["red_lines"] = red_lines
+    if who_pays is not None:
+        fields["who_pays"] = who_pays
+    if axis_terms is not None:
+        fields["axis_terms"] = axis_terms
+    if clock_start is not None:
+        fields["clock_start"] = clock_start
+    if clock_end is not None:
+        fields["clock_end"] = clock_end
     if overdue_threshold is not None:
         fields["overdue_threshold"] = overdue_threshold
     if total_word_goal is not None:
@@ -1077,9 +1089,10 @@ async def s3_patch_chapter_meta(
     label: str | None = None,
     volume_id: str | None = None,
     clear_volume: bool = False,
+    prose_lock: bool | None = None,
     work: str | None = None,
 ) -> dict:
-    """改章身份元数据(标题/标签/卷归属;写,待批)。不改 synopsis/beats/prose。
+    """改章身份元数据(标题/标签/卷归属/定稿锁;写,待批)。不改 synopsis/beats/prose。
 
     clear_volume=True 时清空卷归属(volume=None);否则 volume_id 非 None 时设归属。
     章不存在 → status=error。"""
@@ -1092,6 +1105,8 @@ async def s3_patch_chapter_meta(
         fields["volume"] = None
     elif volume_id is not None:
         fields["volume"] = volume_id
+    if prose_lock is not None:
+        fields["prose_lock"] = bool(prose_lock)
     if not fields:
         return {"status": "noop", "tool": "s3_patch_chapter_meta", "reason": "no fields"}
     ok = await _ask(ctx, f"改第{seq}章 meta {list(fields)}")
@@ -1115,6 +1130,7 @@ async def s3_patch_chapter_plan(
     story_move_plan: dict | None = None,
     narrative_contract: dict | None = None,
     reveal_secret_ids: list[str] | None = None,
+    chapter_spine: dict | None = None,
     work: str | None = None,
 ) -> dict:
     """改章阶段内容:大纲/节拍/场景真相/演绎/出场角色/场面合同/本章揭示(写,待批)。不改 prose/身份 meta。
@@ -1192,6 +1208,14 @@ async def s3_patch_chapter_plan(
     if reveal_secret_ids is not None:
         from scribe3.chapter_meta_codec import coerce_chapter_json_list
         fields["reveal_secret_ids"] = coerce_chapter_json_list(reveal_secret_ids)
+    if chapter_spine is not None:
+        if not isinstance(chapter_spine, dict):
+            return {
+                "status": "error",
+                "tool": "s3_patch_chapter_plan",
+                "error": "chapter_spine 必须是 dict",
+            }
+        fields["chapter_spine"] = chapter_spine
     # 演绎若显式提交 deductions，必须覆盖本次（或已存）的全部出场角色。
     # 否则 `deductions=[]` 会经审批被写成成功，但 Gate-B/后续限知上下文均不可消费。
     if deductions is not None:
@@ -1208,8 +1232,31 @@ async def s3_patch_chapter_plan(
             }
     if not fields:
         return {"status": "noop", "tool": "s3_patch_chapter_plan", "reason": "no fields"}
-    from scribe3.iceberg import persist_fields_blocked
-    _blocked = persist_fields_blocked(fields)
+    from scribe3.chapter_spine import is_v1, known_line_ids_from_store
+    from scribe3.fate_dearer import persist_fate_kwargs
+    from scribe3.iceberg import design_half_block, persist_fields_blocked, sync_design_surface
+    from scribe3.stage_generate import load_design_book
+    current_ch = store.get_chapter(seq) or {}
+    if "chapter_spine" in fields or "beats" in fields:
+        have_s = is_v1(current_ch.get("chapter_spine"))
+        have_b = bool(current_ch.get("beats"))
+        sending_s = "chapter_spine" in fields
+        sending_b = "beats" in fields
+        if sending_s and not sending_b and not have_b:
+            return {"status": "error", "tool": "s3_patch_chapter_plan", **design_half_block("spine_without_beats")}
+        if sending_b and not sending_s and not have_s:
+            return {"status": "error", "tool": "s3_patch_chapter_plan", **design_half_block("beats_without_spine")}
+    if "chapter_spine" in fields:
+        fields = sync_design_surface(fields, current_ch, store=store)
+    book = load_design_book(store, seq, {**(current_ch or {}), **fields})
+    _blocked = persist_fields_blocked(
+        fields,
+        existing=current_ch,
+        known_line_ids=known_line_ids_from_store(store),
+        book=book,
+        store=store,
+        **persist_fate_kwargs(store, int(seq), fields, current_ch),
+    )
     if _blocked:
         return {
             "status": "error",
@@ -1245,15 +1292,15 @@ async def s3_patch_chapter_plan(
 async def s3_save_chapter_draft(
     seq: int, draft: str, work: str | None = None,
 ) -> dict:
-    """落/覆盖某章排演稿 chapter.draft（≠ prose）。非空必须 ≥10000 覆盖地板。不经 elicitation。"""
-    from scribe3.iceberg import DRAFT_FLOOR, cn_len
+    """落/覆盖某章排演稿 chapter.draft（≠ prose）。空稿拒绝；字数不是通过条件。不经 elicitation。"""
+    from scribe3.iceberg import cn_len
     n = cn_len(draft)
-    if (draft or "").strip() and n < DRAFT_FLOOR:
+    if not (draft or "").strip():
         return {
             "status": "error",
             "tool": "s3_save_chapter_draft",
-            "code": "iceberg_thin_persist",
-            "error": f"排演稿 {n}<{DRAFT_FLOOR}，禁止把短稿存进 chapter.draft",
+            "code": "empty_draft",
+            "error": "排演稿为空，禁止把空稿存进 chapter.draft",
         }
     st = _store_for(work)
     st.save_chapter_draft(int(seq), draft or "")
@@ -1268,21 +1315,42 @@ async def s3_generate_stage(
     persist: bool = False,
     extra: str = "",
     work: str | None = None,
+    brief_only: bool = False,
 ) -> dict:
     """独立 LLM 生成链：outline / beats / deduce / draft。禁止模板、切句、摘录占位。
 
-    persist=false 只返回厚稿；persist=true 时 outline/beats/deduce 待批落 plan，
-    draft 走 save_chapter_draft。"""
+    persist=false 只返回厚稿；persist=true 时 outline/beats/deduce/design 待批落 plan，
+    draft 走 save_chapter_draft，final 走 save_chapter。"""
     from scribe3.stage_generate import (
         STAGE_MAX_TOKENS,
+        dispatch_design_stage,
         normalize_stage,
         thicken_stage,
     )
     stg = normalize_stage(stage)
-    if stg not in ("outline", "beats", "deduce", "draft"):
+    if stg not in ("outline", "beats", "design", "deduce", "draft", "final"):
         return {"status": "error", "tool": "s3_generate_stage", "error": f"未知阶段 {stage}"}
     st = _store_for(work)
     ch = st.get_chapter(int(seq)) or {}
+    from scribe3.world_surface import extra_authors
+    if extra_authors(extra or ""):
+        return {
+            "status": "error",
+            "tool": "s3_generate_stage",
+            "code": "extra_authors",
+            "missing": ["extra_authors"],
+            "error": "extra 不得当作者：禁止「必须原样 / 必须有一句 / 必须以时空」",
+        }
+    hit = dispatch_design_stage(stg, ch, extra=extra or "")
+    if hit is not None:
+        if hit.get("ok") is False:
+            return {
+                "status": "error",
+                "tool": "s3_generate_stage",
+                "error": hit.get("message") or hit.get("code"),
+                **hit,
+            }
+        return {"status": "ok", "tool": "s3_generate_stage", **hit}
 
     def llm_fn(prompt, max_tokens=STAGE_MAX_TOKENS.get(stg, 4096)):
         try:
@@ -1296,17 +1364,68 @@ async def s3_generate_stage(
     if persist and stg == "draft":
         def persist_fn(fields: dict) -> None:
             st.save_chapter_draft(int(seq), fields.get("draft") or "")
-    out = thicken_stage(
-        stg, ch, llm_fn=llm_fn, persist_fn=persist_fn,
-        seq=int(seq), extra=extra or "",
-        st=st, work=work, focalizer="",
-    )
-    if persist and stg != "draft" and out.get("ok"):
-        fields = {k: out[k] for k in ("synopsis", "beats", "scene_truth", "deductions") if k in out}
+    if persist and stg == "final":
+        def persist_fn(fields: dict) -> None:
+            if fields.get("prose"):
+                st.save_chapter(int(seq), fields.get("prose") or "")
+    if persist and stg not in ("draft", "final"):
+        from scribe3.chapter_spine import is_prose_locked
+        if is_prose_locked(work or "main", int(seq), ch) and not brief_only:
+            return {
+                "status": "error",
+                "tool": "s3_generate_stage",
+                "code": "prose_locked",
+                "error": "本章定稿已锁，请用 brief_only 只写章纲",
+            }
+    from scribe3.pipeline_trace_hooks import finish_failed, finish_ok, open_write_chain
+    from scribe3.stage_generate import _emit_fate_artifacts
+    mt: dict = {}
+    open_write_chain(st, mt, work=work or "main", chapter=int(seq), kind="write", phase=stg)
+    try:
+        out = thicken_stage(
+            stg, ch, llm_fn=llm_fn, persist_fn=persist_fn,
+            seq=int(seq), extra=extra or "",
+            st=st, work=work, focalizer="",
+        )
+    except Exception as exc:
+        try:
+            finish_failed(st, mt, err=exc)
+        except Exception:
+            pass
+        raise
+    if persist and stg != "draft" and (out.get("ok") or out.get("beats_meta")):
+        copy_keys = (
+            "synopsis", "beats", "scene_truth", "deductions",
+            "chapter_spine", "narrative_contract", "beats_meta",
+        )
+        fields = {k: out[k] for k in copy_keys if k in out}
+        if brief_only:
+            from scribe3.chapter_spine import filter_brief_only_fields
+            fields = filter_brief_only_fields(fields, existing=ch)
         if fields:
-            from scribe3.iceberg import persist_fields_blocked
-            blocked = persist_fields_blocked(fields)
+            from scribe3.chapter_spine import known_line_ids_from_store
+            from scribe3.fate_dearer import load_fate_context
+            from scribe3.iceberg import persist_fields_blocked, sync_design_surface
+            from scribe3.stage_generate import load_design_book
+            if "chapter_spine" in fields:
+                fields = sync_design_surface(fields, ch, store=st)
+            merged = {**(ch or {}), **fields}
+            book = load_design_book(st, seq, merged)
+            blocked = persist_fields_blocked(
+                fields,
+                existing=ch,
+                known_line_ids=known_line_ids_from_store(st),
+                fate_ctx=load_fate_context(st, int(seq), merged),
+                chapter=merged,
+                book=book,
+                store=st,
+            )
             if blocked:
+                try:
+                    _emit_fate_artifacts(stg, out, fields, {**(ch or {}), **fields})
+                    finish_ok(st, mt)
+                except Exception:
+                    pass
                 return {"status": "error", "tool": "s3_generate_stage", **blocked, "generated": out}
             ok = await _ask(ctx, f"LLM 生成第{seq}章 {stg} 并落库 {list(fields)}")
 
@@ -1318,7 +1437,17 @@ async def s3_generate_stage(
             gated = commit_if_approved("s3_generate_stage", ok, _write)
             if isinstance(gated, dict):
                 gated["generated"] = {k: out.get(k) for k in ("cn", "source", "ok")}
+            try:
+                _emit_fate_artifacts(stg, out, fields, {**(ch or {}), **fields})
+                finish_ok(st, mt)
+            except Exception:
+                pass
             return gated
+    try:
+        _emit_fate_artifacts(stg, out, dict(out or {}), {**(ch or {}), **(out or {})})
+        finish_ok(st, mt)
+    except Exception:
+        pass
     status = "ok" if out.get("ok") or out.get("skipped") else "error"
     return {"status": status, "tool": "s3_generate_stage", "seq": int(seq), **out}
 

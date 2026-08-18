@@ -69,14 +69,8 @@ def normalize_stage(phase: str | None) -> str:
         p = "outline"
     if p in ("write", "prose"):
         return "final"
-    if p == "chapter_design":
-        p = "design"
-    try:
-        from scribe3.clue_density import chapter_design_mode
-        if chapter_design_mode() == "on" and p == "outline":
-            return "design"
-    except Exception:
-        pass
+    if p in ("chapter_design", "outline", "beats"):
+        return "design"
     return p
 
 
@@ -1824,153 +1818,11 @@ def thicken_outline(
     extra: str = "",
     st=None, work=None, focalizer: str = "",
 ) -> dict[str, Any]:
-    if iceberg_ok_for(ch, "synopsis", store=st, seq=seq) and not _extra_force(extra):
-        from scribe3.narrative_contract import merge_iceberg_contract
-        extra = merge_iceberg_contract(ch, {})
-        if persist_fn and extra.get("narrative_contract"):
-            persist_fn(extra)
-        return _attach_fate({
-            "ok": True,
-            "skipped": "线索密度已过，不覆盖",
-            "source": "existing",
-            "synopsis": (ch or {}).get("synopsis"),
-            "chapter_spine": (ch or {}).get("chapter_spine"),
-            "beats_meta": (ch or {}).get("beats_meta"),
-            "contract_backfill": bool(extra.get("narrative_contract")),
-        }, ch, st=st, seq=seq, kind="outline", persist=False)
-    from scribe3.chapter_spine import known_line_ids_from_store, parse_spine_labels
-    from scribe3.clue_density import clue_density_mode, evaluate_spine
-    from scribe3.design_attempt import first_open_slot, slot_allow_keys
-    known = known_line_ids_from_store(st) if st is not None else None
-    bible = _bible_for_thicken(st, work, ch, extra, focalizer, seq)
-    book = load_design_book(st, seq, ch if isinstance(ch, dict) else {}, extra=extra) if st is not None else None
-    prompt = build_stage_prompt("outline", ch, seq=seq, extra=extra, bible=bible, st=st)
-    raw = _call_llm(llm_fn, prompt, STAGE_MAX_TOKENS["outline"])
-    parsed = parse_outline_payload(raw, known_line_ids=known)
-    if parsed.get("source") != "llm_13slot":
-        raw = _call_llm(
-            llm_fn,
-            build_stage_prompt(
-                "outline", ch, seq=seq, extra=extra, strict=True,
-                previous=raw, bible=bible, st=st,
-            ),
-            STAGE_MAX_TOKENS["outline"],
-        )
-        parsed = parse_outline_payload(raw, known_line_ids=known)
-    if parsed.get("source") != "llm_13slot":
-        return _attach_fate({
-            "ok": False,
-            "code": "llm_thin",
-            "source": parsed.get("source") or "llm",
-            "got": parsed["cn"],
-            "need": "clue_density",
-            "message": "情节薄：缺选择/代价/动线等原子，禁止口号/烟锅巷落库",
-            "parsed": parsed,
-            "chapter_spine": parsed.get("chapter_spine"),
-        }, ch, st=st, seq=seq, kind="outline", persist=False)
-    if clue_density_mode() != "on" and not parsed.get("ok"):
-        return _attach_fate({
-            "ok": False,
-            "code": "llm_thin",
-            "source": parsed.get("source") or "llm",
-            "got": parsed["cn"],
-            "need": "clue_density",
-            "message": "情节薄：缺选择/代价/动线等原子，禁止口号/烟锅巷落库",
-            "parsed": parsed,
-            "chapter_spine": parsed.get("chapter_spine"),
-        }, ch, st=st, seq=seq, kind="outline", persist=False)
-    spine = dict(parsed.get("chapter_spine") or {})
-    dens = evaluate_spine(spine, known_line_ids=known)
-    if clue_density_mode() == "on":
-        for _rnd in range(4):
-            if dens.ok:
-                break
-            slot = first_open_slot(list(dens.errors or []), struct_ok=True)
-            if not slot:
-                break
-            hint = _slot_edit_hint(slot, spine, [], book, dens)
-            raw2 = _call_llm(
-                llm_fn,
-                build_stage_prompt(
-                    "outline", ch, seq=seq, extra=extra, bible=bible, st=st,
-                    retry_hint=hint,
-                ),
-                STAGE_MAX_TOKENS["outline"],
-            )
-            patch_spine = parse_spine_labels(raw2)
-            spine, _ = merge_chapter_design(
-                spine, [], patch_spine, [], allow_keys=slot_allow_keys(slot),
-            )
-            dens = evaluate_spine(spine, known_line_ids=known)
-            raw = raw2
-    parsed = dict(parsed)
-    parsed["chapter_spine"] = spine
-    parsed["ok"] = bool(dens.ok) if clue_density_mode() == "on" else bool(parsed.get("ok"))
-    parsed["density"] = dens.as_dict()
-    parsed["source"] = "llm_13slot"
-    if clue_density_mode() == "on" and not dens.ok:
-        return _attach_fate({
-            "ok": False,
-            "code": "llm_thin",
-            "source": "llm_13slot",
-            "got": parsed.get("cn"),
-            "need": "clue_density",
-            "message": "这份大纲还没过：没过的那一格改完仍不像这场戏",
-            "parsed": parsed,
-            "chapter_spine": spine,
-            "density": dens.as_dict(),
-            "missing": dens.as_missing(),
-        }, ch, st=st, seq=seq, kind="outline", persist=False)
-    fields: dict[str, Any] = {"chapter_spine": parsed["chapter_spine"]}
-    existing_syn = str((ch or {}).get("synopsis") or "").strip()
-    if parsed.get("source") == "llm_13slot" and not existing_syn:
-        fields["synopsis"] = parsed["synopsis"]
-    from scribe3.fate_dearer import (
-        merge_clock_place,
-        merge_world_fact,
-        parse_clock_place_labels,
-        parse_world_fact_label,
+    """旧入口。写大纲就是写这一章。"""
+    return thicken_chapter_design(
+        ch, llm_fn=llm_fn, persist_fn=persist_fn, seq=seq, extra=extra,
+        st=st, work=work, focalizer=focalizer,
     )
-    clock, place = parse_clock_place_labels(raw)
-    wf = parse_world_fact_label(raw)
-    if clock or place or wf:
-        meta = merge_clock_place(ch if isinstance(ch, dict) else {}, clock, place)
-        if wf:
-            meta = merge_world_fact({"beats_meta": meta}, wf)
-        fields["beats_meta"] = meta
-    try:
-        from scribe3.world_surface import coerce_world_claim, groups_from_spine, merge_world_claim
-        merged_ch = {**(ch if isinstance(ch, dict) else {}), **fields}
-        derived = coerce_world_claim({"id": "wc.outline", "claim": (wf or {}).get("text") or "", "groups": groups_from_spine(merged_ch)}, merged_ch)
-        if derived:
-            meta = merge_world_claim({"beats_meta": fields.get("beats_meta") or (ch or {}).get("beats_meta")}, derived)
-            fields["beats_meta"] = meta
-    except Exception:
-        pass
-    blocked = _blocked_or_none(
-        fields, existing=ch if isinstance(ch, dict) else None, st=st, seq=seq,
-    )
-    if blocked:
-        return {
-            "ok": False, "code": blocked["code"], "message": blocked["message"],
-            "source": "llm", "fate": blocked.get("fate"),
-            "missing": blocked.get("missing"),
-        }
-    from scribe3.narrative_contract import merge_iceberg_contract
-    fields = merge_iceberg_contract({**(ch or {}), **fields}, fields)
-    attached = _attach_fate(
-        {"ok": True, "source": parsed.get("source") or "llm", **fields,
-         "cn": parsed["cn"], "parts": parsed["parts"],
-         "density": parsed.get("density")},
-        {**(ch or {}), **fields},
-        st=st, seq=seq, kind="outline", persist=bool(persist_fn),
-    )
-    if attached.get("ok") is False:
-        return attached
-    if persist_fn:
-        persist_fn(fields)
-        _emit_fate_artifacts("outline", attached, fields, ch)
-    return attached
 
 
 def thicken_beats(
@@ -1982,119 +1834,19 @@ def thicken_beats(
     extra: str = "",
     st=None, work=None, focalizer: str = "",
 ) -> dict[str, Any]:
-    ready = stage_ready(ch, "beats", store=st, seq=seq)
-    if not ready["ok"]:
-        return {"ok": False, **ready}
-    if iceberg_ok_for(ch, "beats", store=st, seq=seq) and not _extra_force(extra):
-        from scribe3.narrative_contract import merge_iceberg_contract
-        extra = merge_iceberg_contract(ch, {})
-        if persist_fn and extra.get("narrative_contract"):
-            persist_fn(extra)
-        return _attach_fate({
-            "ok": True,
-            "skipped": "线索密度已过，不覆盖",
-            "source": "existing",
-            "beats": (ch or {}).get("beats"),
-            "contract_backfill": bool(extra.get("narrative_contract")),
-        }, ch, st=st, seq=seq, kind="beats", persist=False)
-    from scribe3.chapter_spine import is_v1
-    from scribe3.clue_density import clue_density_mode, evaluate_beats
-    spine = (ch or {}).get("chapter_spine") if is_v1((ch or {}).get("chapter_spine")) else None
-    bible = _bible_for_thicken(st, work, ch, extra, focalizer, seq)
-    book = load_design_book(st, seq, ch if isinstance(ch, dict) else {}, extra=extra) if st is not None else None
-    prompt = build_stage_prompt("beats", ch, seq=seq, extra=extra, bible=bible, st=st)
-    raw = _call_llm(llm_fn, prompt, STAGE_MAX_TOKENS["beats"])
-    parsed = parse_beats_payload(raw, spine=spine)
-    if len(parsed.get("beats") or []) < 3:
-        raw = _call_llm(
-            llm_fn,
-            build_stage_prompt(
-                "beats", ch, seq=seq, extra=extra, strict=True,
-                previous=raw, bible=bible, st=st,
-            ),
-            STAGE_MAX_TOKENS["beats"],
-        )
-        parsed = parse_beats_payload(raw, spine=spine)
-    if len(parsed.get("beats") or []) < 3:
-        return {
-            "ok": False,
-            "code": "llm_thin",
-            "source": parsed.get("source") or "llm",
-            "got": parsed["cn"],
-            "thin": parsed.get("thin"),
-            "need": "clue_density",
-            "message": "情节薄：节拍缺要/挡/变/付或全章无 A vs B 选择，禁止切句充数",
-            "parsed": parsed,
-        }
-    beats = list(parsed.get("beats") or [])
-    dens = evaluate_beats(beats, spine=spine)
-    if clue_density_mode() == "on":
-        for _rnd in range(4):
-            if dens.ok:
-                break
-            hint = _slot_edit_hint("beat", spine, beats, book, dens)
-            raw2 = _call_llm(
-                llm_fn,
-                build_stage_prompt(
-                    "beats", ch, seq=seq, extra=extra, bible=bible, st=st,
-                    retry_hint=hint,
-                ),
-                STAGE_MAX_TOKENS["beats"],
-            )
-            patch = parse_beats_payload(raw2, spine=spine)
-            beats = _merge_beats_by_head(beats, patch.get("beats"), raw2)
-            dens = evaluate_beats(beats, spine=spine)
-            raw = raw2
-    parsed = dict(parsed)
-    parsed["beats"] = beats
-    parsed["ok"] = bool(dens.ok) if clue_density_mode() == "on" else bool(parsed.get("ok"))
-    parsed["density"] = dens.as_dict()
-    parsed["cn"] = sum(cn_len((b or {}).get("text")) for b in beats if isinstance(b, dict))
-    if clue_density_mode() == "on" and not dens.ok:
-        return {
-            "ok": False,
-            "code": "llm_thin",
-            "source": parsed.get("source") or "llm",
-            "got": parsed.get("cn"),
-            "need": "clue_density",
-            "message": "这几场还没过：没演出的那一场改完仍不像这场戏",
-            "parsed": parsed,
-            "density": dens.as_dict(),
-            "missing": dens.as_missing(),
-        }
-    fields = {"beats": parsed["beats"]}
-    blocked = _blocked_or_none(
-        fields, existing=ch if isinstance(ch, dict) else None, st=st, seq=seq,
+    """旧入口。写节拍就是写这一章。"""
+    return thicken_chapter_design(
+        ch, llm_fn=llm_fn, persist_fn=persist_fn, seq=seq, extra=extra,
+        st=st, work=work, focalizer=focalizer,
     )
-    if blocked:
-        return {
-            "ok": False, "code": blocked["code"], "message": blocked["message"],
-            "source": "llm", "fate": blocked.get("fate"),
-            "missing": blocked.get("missing"),
-        }
-    from scribe3.narrative_contract import merge_iceberg_contract
-    fields = merge_iceberg_contract(ch, fields)
-    attached = _attach_fate(
-        {"ok": True, "source": parsed.get("source") or "llm", **fields,
-         "cn": parsed["cn"], "density": parsed.get("density")},
-        {**(ch or {}), **fields},
-        st=st, seq=seq, kind="beats", persist=bool(persist_fn),
-    )
-    if attached.get("ok") is False:
-        return attached
-    if persist_fn:
-        persist_fn(fields)
-        _emit_fate_artifacts("beats", attached, fields, ch)
-    return attached
 
 
 def dispatch_design_stage(stg: str, ch, *, extra: str = "") -> dict | None:
     """返回 skip 字典 / error 字典 / None=继续 thicken。
 
     调用方：_reject_stage_not_ready、thicken_stage、s3_generate_stage。
-    旗 on 且 stg==beats 时禁止先走 stage_ready → 409。
+    大纲/节拍都走写这一章，不再另起旧两步。
     """
-    from scribe3.clue_density import chapter_design_mode
     from scribe3.world_surface import extra_authors, extra_gold
 
     if extra_authors(extra):
@@ -2112,31 +1864,6 @@ def dispatch_design_stage(stg: str, ch, *, extra: str = "") -> dict | None:
             "missing": ["extra_gold"],
             "message": "规划 extra 不得交 14 槽金样或标题形拍头试卷",
             "stage": stg,
-        }
-    if chapter_design_mode() != "on":
-        if stg in ("design", "chapter_design"):
-            return {
-                "ok": False,
-                "code": "stage_flag_off",
-                "message": "SCRIBE3_CHAPTER_DESIGN=off，请用 outline 然后 beats",
-                "stage": stg,
-            }
-        return None
-    if stg == "beats":
-        if iceberg_ok_for(ch, "design") and not _extra_force(extra):
-            return {
-                "ok": True,
-                "skipped": "章设计已过，不覆盖",
-                "source": "existing",
-                "chapter_spine": (ch or {}).get("chapter_spine"),
-                "beats": (ch or {}).get("beats"),
-                "stage": "beats",
-            }
-        return {
-            "ok": False,
-            "code": "stage_merged",
-            "message": "旗 on：大纲+节拍已合成 design，禁止单独写节拍",
-            "stage": "beats",
         }
     return None
 
@@ -2780,8 +2507,8 @@ def thicken_stage(
         return hit
     fns = {
         "design": thicken_chapter_design,
-        "outline": thicken_outline,
-        "beats": thicken_beats,
+        "outline": thicken_chapter_design,
+        "beats": thicken_chapter_design,
         "deduce": thicken_deduce,
         "draft": thicken_draft,
         "final": thicken_final,

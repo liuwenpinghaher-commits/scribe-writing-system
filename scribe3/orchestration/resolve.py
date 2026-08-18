@@ -32,23 +32,31 @@ def _score_entry(text: str, entry: dict[str, Any]) -> int:
             continue
         # 三脚手架域共享同一 force 工具名时，字段/阶段词再定胜负（下方加权）
         if kw == "s3_patch_chapter_plan" and domain.startswith("chapter."):
-            score += 100
+            if domain in ("chapter.outline", "chapter.beats"):
+                score += 10
+            else:
+                score += 100
             continue
         score += 100
     for kw in entry.get("match_keywords") or ():
         if kw and kw in t:
             # 基础 10 + 长度加成（封顶 24），多关键词累加
             score += 10 + min(len(kw), 14)
+    if domain == "chapter.design" and re.search(
+        r"写大纲|写节拍|章纲|章设计|field\s*=\s*synopsis|field\s*=\s*beats|stage\s*=\s*design",
+        t, re.I,
+    ):
+        score += 90
     # plan 工具 + 字段/中文域词 → 明确偏 outline / beats / deduce
     if plan_tool or re.search(r"s3_patch_chapter_plan", t):
         if domain == "chapter.beats" and re.search(
             r"节拍|章节拍|beats|field\s*=\s*beats", t, re.I
         ):
-            score += 90
+            score += 10
         if domain == "chapter.outline" and re.search(
             r"大纲|章纲|synopsis|field\s*=\s*synopsis", t, re.I
         ):
-            score += 90
+            score += 10
         if domain == "chapter.deduce" and re.search(
             r"演绎|场景真相|scene_truth|deduce|field\s*=\s*scene_truth", t, re.I
         ):

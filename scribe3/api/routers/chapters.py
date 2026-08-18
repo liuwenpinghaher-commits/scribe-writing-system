@@ -102,6 +102,9 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
         raise
 
     def _generate(attempt: int, constraints: str) -> str:
+        from scribe3.world_surface import extra_authors
+        if extra_authors(constraints) or extra_authors(req.msg or ""):
+            raise RuntimeError("extra_authors")
         with_tools = _work_has_tools(work) and _write_phase_allows_tools(req.phase)
         msg = req.msg or (f"按本章简报、大纲与全部纪律写第 {req.chapter} 章完整正文,"
                           f"用 ⟦PROPOSAL scope=chapter⟧ 围栏交稿。")
@@ -449,8 +452,26 @@ def patch_chapter(seq: int, req: ChapterMetaReq, work: str = "main"):
     R2.5: 目标 volume 不存在→422。
     """
     fields = req.model_dump(exclude_unset=True)
-    from scribe3.iceberg import persist_fields_blocked
-    _blocked = persist_fields_blocked(fields)
+    from scribe3.chapter_spine import known_line_ids_from_store
+    from scribe3.fate_dearer import load_fate_context
+    from scribe3.iceberg import persist_fields_blocked, sync_design_surface
+    from scribe3.stage_generate import load_design_book
+    st_gate = _store_for(work)
+    ch_gate = st_gate.get_chapter(seq) if hasattr(st_gate, "get_chapter") else None
+    merged = {**(ch_gate if isinstance(ch_gate, dict) else {}), **fields}
+    if "chapter_spine" in fields:
+        fields = sync_design_surface(fields, ch_gate if isinstance(ch_gate, dict) else None, store=st_gate)
+        merged = {**(ch_gate if isinstance(ch_gate, dict) else {}), **fields}
+    book = load_design_book(st_gate, seq, merged)
+    _blocked = persist_fields_blocked(
+        fields,
+        existing=ch_gate if isinstance(ch_gate, dict) else None,
+        known_line_ids=known_line_ids_from_store(st_gate),
+        fate_ctx=load_fate_context(st_gate, int(seq), merged),
+        chapter=merged,
+        book=book,
+        store=st_gate,
+    )
     if _blocked:
         raise HTTPException(status_code=422, detail=_blocked)
     # 北极星任务6:目的合同登记校验——strict 解析(P1-5:非法条目 422 指明第几条,
@@ -525,6 +546,45 @@ def patch_chapter_gcd_fields(seq: int, req: GcdFieldsReq, work: str = "main"):
             status_code=422,
             detail=f"GCD field patch rejected: {reason}",
         )
+    try:
+        from scribe3.chapter_spine import is_v1, known_line_ids_from_store
+        from scribe3.clue_density import evaluate_chapter_design
+        from scribe3.fate_dearer import load_clock, load_place
+        from scribe3.stage_generate import load_design_book
+        spine = ch.get("chapter_spine")
+        if not is_v1(spine):
+            from scribe3.iceberg import design_half_block
+            raise HTTPException(status_code=422, detail=design_half_block("beats_without_spine"))
+        want = None
+        meta = ch.get("beats_meta") if isinstance(ch.get("beats_meta"), dict) else {}
+        if meta.get("designated_beat"):
+            want = meta.get("designated_beat")
+        book = load_design_book(st, seq, ch)
+        meta_ch = {"beats_meta": meta}
+        rep = evaluate_chapter_design(
+            spine, normalized,
+            known_line_ids=known_line_ids_from_store(st),
+            designated_beat=want,
+            book=book,
+            clock=load_clock(meta_ch),
+            place=load_place(meta_ch),
+        )
+        if not rep.ok:
+            top = "iceberg_thin_persist"
+            ids = [str(m.get("id") or "") for m in rep.as_missing()]
+            for code in ("choice_not_staged", "second_choice", "design_half"):
+                if code in ids or code in (rep.errors or []):
+                    top = code
+                    break
+            raise HTTPException(status_code=422, detail={
+                "code": top,
+                "message": "节拍微调后合成闸不过",
+                "missing": rep.as_missing(),
+            })
+    except HTTPException:
+        raise
+    except Exception:
+        pass
     try:
         written = st.update_chapter_meta(seq, {"beats": normalized})
     except ValueError as e:
@@ -850,6 +910,13 @@ def select_finalize(req: SelectFinalizeReq, background: BackgroundTasks, work: s
         # 以为理由存了。不 raise(定稿已落库),但响应带 lesson_saved=false 让前端可提示重试。
         logging.getLogger("scribe3").error("终选理由入 lesson 失败(定稿不受影响)", exc_info=True)
         lesson_saved, lesson_error = False, str(e)[:120]
+    try:
+        from scribe3.inbox import _latest_select_result_files, mark_select_result_verdict
+        _l1, _l2 = _latest_select_result_files(work)
+        if req.chapter in _l2:
+            mark_select_result_verdict(_l2[req.chapter], "finalized")
+    except Exception:
+        logging.getLogger("scribe3").warning("终选后回写选择环 verdict 失败(收件箱可能仍挂)", exc_info=True)
     return {"status": "finalized", "chapter": req.chapter, "version_id": req.version_id,
             "lesson_saved": lesson_saved, "lesson_error": lesson_error,
             "note": "正文已落库;已排后台反哺(ingest)更新知识账本"}
@@ -1024,14 +1091,21 @@ def select_light_pick(req: SelectLightPickReq, work: str = "main"):
     except Exception as e:
         logging.getLogger("scribe3").warning("L1 pick lesson 失败(草稿已落): %s", e)
     try:
-        with open(path, encoding="utf-8") as f:
-            body = _j.load(f)
-        if isinstance(body, dict):
-            body["picked"] = picked
-            body["verdict"] = "picked"
-            body["draft_version_id"] = draft_vid
-            with open(path, "w", encoding="utf-8") as f:
-                _j.dump(body, f, ensure_ascii=False)
+        from scribe3.inbox import _latest_select_result_files, mark_select_result_verdict
+        l1_files, _ = _latest_select_result_files(work)
+        dest = l1_files.get(req.chapter)
+        if dest:
+            try:
+                body = _j.loads(dest.read_text(encoding="utf-8"))
+            except Exception:
+                body = {}
+            if isinstance(body, dict):
+                body["picked"] = picked
+                body["verdict"] = "picked"
+                body["draft_version_id"] = draft_vid
+                dest.write_text(_j.dumps(body, ensure_ascii=False), encoding="utf-8")
+            else:
+                mark_select_result_verdict(dest, "picked")
     except Exception:
         pass
     return {

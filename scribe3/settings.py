@@ -94,7 +94,7 @@ REGISTRY: tuple[Setting, ...] = (
     Setting("SCRIBE3_LLM_LEDGER", "connection", "str", "", "restart", "日帽台账路径", "空 = ~/.scribe2-surreal/scribe3_llm_ledger.sqlite3"),
     Setting("SCRIBE3_READ_MCP_LABEL", "connection", "str", "scribe3_read", "restart", "只读 MCP 工具集标签"),
     # ── llm(LLM 与用量;全热)──
-    Setting("llm.model", "llm", "str", "deepseek-v4-flash-0731", "hot", "补全模型名"),
+    Setting("llm.model", "llm", "str", "deepseek-v4-pro-0813", "hot", "补全模型名"),
     # 与写网关 agent.gateway_timeout=1800 对齐(H1 2026-08-08)；客户端须 ≥ 最长动稿。
     Setting("llm.timeout_seconds", "llm", "float", 1800.0, "hot", "LLM 请求超时(秒)", min=30, max=3600),
     Setting("llm.max_retries", "llm", "int", 3, "hot", "瞬时错误重试次数", min=0, max=10),
@@ -372,6 +372,51 @@ REGISTRY: tuple[Setting, ...] = (
     Setting("SCRIBE3_INJECTION_REGISTRY", "flags", "str", "active", "hot",
             "段注册表模式",
             "active=声明序参与 join；shadow=仅观测；0=关。默认 active。O6。"),
+    Setting(
+        "SCRIBE3_CLUE_DENSITY", "flags", "str", "on", "hot",
+        "章纲/节拍线索密度闸",
+        "on=密度硬闸（验选择/代价/线，不验 500 字）。"
+        "shadow=只出报告不 422。"
+        "off=回到 Ice1/Ice2 字数闸——已落库的短拼装大纲（250–400）在 off 下会 422 / 不能 skip。",
+        audience="author",
+    ),
+    Setting(
+        "SCRIBE3_FATE_DEARER", "flags", "str", "on", "hot",
+        "命运/故事钟/地点闸",
+        "on=按 SCRIBE3_FATE_WAVE 硬闸（默认开）。"
+        "shadow=只出报告不 422。"
+        "off=关闭命运报告与硬闸。",
+        audience="author",
+    ),
+    Setting(
+        "SCRIBE3_FATE_WAVE", "flags", "str", "2", "hot",
+        "命运闸波次",
+        "1=卡住/冻钟地/矿/种子/功能/世界事实/本章要与代价点名世界词。"
+        "2=并入选择演出、复读、代价幅度、设定库、笔墨与跨度（默认）。"
+        "仅 FATE_DEARER=on 时硬拦。炉灰记空库不因 world_catalog_empty 422。",
+        audience="author",
+    ),
+    Setting(
+        "SCRIBE3_DESIGN_BOOK", "flags", "str", "on", "hot",
+        "章设计接得上这本书",
+        "写章设计时，检查这一章是否还接得上这本书（人、地、线、简介）。"
+        "关掉则只检查表格填没填满。",
+        audience="author",
+    ),
+    Setting(
+        "SCRIBE3_WORLD_SURFACE", "flags", "str", "on", "hot",
+        "水面世界命题闸",
+        "on=claim_paid 硬闸 + extra_authors + 矿从命题抽。"
+        "off=关闭新 422，短槽 fate 仍按 FATE_DEARER。"
+        "记录仪进链是 bugfix，不看此旗。",
+        audience="author",
+    ),
+    Setting(
+        "SCRIBE3_PIPELINE_RECORDER", "flags", "bool", True, "hot",
+        "飞行记录仪",
+        "开=写入 fate/spine/矿/种子工件，供审稿。关=N/A，不挡写。默认开。",
+        audience="author",
+    ),
     Setting("SCRIBE3_DISTRIBUTED_LOCK", "flags", "bool", True, "hot",
             "分布式/store 并发锁",
             "开=acquire_lock 优先 store；关=进程内。默认开。O28。"),
