@@ -40,10 +40,32 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
   const [parallelResults, setParallelResults] = useState(null)
   const [parallelBusy, setParallelBusy] = useState(false)
   const generationRef = useRef(null)
-  const chars = meta?.chars || []
+  const [frozenDeduce, setFrozenDeduce] = useState(null)
+  useEffect(() => {
+    let alive = true
+    setFrozenDeduce(null)
+    if (!seq) return () => { alive = false }
+    api.chapterDeduce(seq, work)
+      .then((row) => { if (alive) setFrozenDeduce(row || null) })
+      .catch(() => { if (alive) setFrozenDeduce(null) })
+    return () => { alive = false }
+  }, [seq, work])
+  const deduceChars = (frozenDeduce?.characters || []).map((c) => ({
+    id: c.id,
+    name: c.id,
+  }))
+  const chars = (deduceChars.length ? deduceChars : (meta?.chars || []))
+  const sceneTruth = frozenDeduce?.scene_truth || meta?.scene_truth || ''
+  const deductions = frozenDeduce?.characters
+    ? frozenDeduce.characters.map((c) => ({
+        character_id: c.id,
+        character_name: c.id,
+        prose: ['看到/听到：' + (c.perceived || ''), '知道：' + (c.known || ''), '以为：' + (c.believed || ''), '做了/说了：' + (c.acted || ''), '没察觉：' + (c.blind || '')].join('\n'),
+      }))
+    : (meta?.deductions || [])
   const cur = selected === 'truth'
-    ? { name: '场景真相', prose: meta?.scene_truth || '' }
-    : (meta?.deductions || []).find((d) => d.character_id === selected)
+    ? { name: '场景真相', prose: sceneTruth }
+    : (deductions || []).find((d) => d.character_id === selected)
       || { character_id: selected, character_name: (chars.find((c) => c.id === selected) || {}).name || selected, prose: '' }
 
   const displayText = preview || cur.prose || ''

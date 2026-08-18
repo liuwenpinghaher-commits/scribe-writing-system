@@ -1149,6 +1149,14 @@ def get_chapter_contract(seq: int, work: str = "main"):
     return rec
 
 
+def get_chapter_deduce(seq: int, work: str = "main"):
+    st = _store_for(work)
+    rec = st.get_frozen("chapter_deduce", int(seq)) if hasattr(st, "get_frozen") else None
+    if not rec:
+        raise HTTPException(status_code=404, detail={"code": "deduce_missing", "seq": seq})
+    return rec
+
+
 class RewriteChapterReq(BaseModel):
     confirm: bool = False
     extra: str = ""
@@ -1451,6 +1459,7 @@ def _bind_and_register() -> None:
     for _name, _path, _methods in (
         ("get_chapter_play", "/chapters/{seq}/play", ["GET"]),
         ("get_chapter_contract", "/chapters/{seq}/contract", ["GET"]),
+        ("get_chapter_deduce", "/chapters/{seq}/deduce", ["GET"]),
         ("rewrite_chapter_play", "/chapters/{seq}/rewrite", ["POST"]),
     ):
         _fn = g[_name]

@@ -49,33 +49,6 @@ def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None
     G4:kind=final 仅经 try_stamp_kind_final（craft hard，danger 不旁路）。
     danger_draft=true 为显式危险旁路(须 agent/作者知情)——仅 QC，不旁路 craft stamp。"""
     st = _store_for(work)
-    # craft 门与 HTTP save 对称(PR-2b)：explore soft 可落 draft
-    try:
-        from scribe3.verify_craft_compliance import evaluate_save_craft_gate
-        cg = evaluate_save_craft_gate(
-            st, seq, prose, skip=bool(skip_craft_gate),
-            create_mode=None,  # 读 SCRIBE3_CREATE_MODE / 默认 standard
-        )
-        if not cg.get("allowed"):
-            return {
-                "status": "blocked",
-                "seq": seq,
-                "code": cg.get("code") or "craft_gate",
-                "message": cg.get("detail") or "工艺门闩未通过,正文未落库",
-                "blocking": cg.get("blocking") or [],
-                "root_causes": cg.get("root_causes") or [],
-                "warnings": cg.get("warnings") or [],
-            }
-    except Exception as e:
-        import logging
-        logging.getLogger("scribe3.mcp").error(
-            "s3_save_chapter craft gate 失败(阻断) seq=%s: %s", seq, e, exc_info=True)
-        return {
-            "status": "blocked",
-            "seq": seq,
-            "code": "craft_gate_error",
-            "message": f"工艺门闩评估失败,已阻断存稿: {e}",
-        }
     from scribe3.finalize_gate import check_finalize_for_save, try_stamp_kind_final
     fg = check_finalize_for_save(
         st, seq, prose, focalizer=focalizer, danger_draft=bool(danger_draft))
@@ -1300,23 +1273,21 @@ async def s3_patch_chapter_plan(
 async def s3_patch_play(
     ctx: Context, seq: int, text: str, work: str | None = None,
 ) -> dict:
-    """人工改正文戏稿。写入 draft，须再走 design 法官才能冻结。"""
-    ok = await _ask(ctx, f"人工改第{seq}章戏")
+    """人工改戏。法官过审后冻结为新版本，旧冻结戏与下游一并作废。"""
+    ok = await _ask(ctx, f"人工改第{seq}章戏并送审")
 
     def _write():
         st = _store_for(work)
-        from scribe3.playbook.structural import check_play_struct
-        hit = check_play_struct(text)
-        if not hit.get("ok"):
-            return {"status": "error", "tool": "s3_patch_play", **hit}
-        rec = {
-            "seq": int(seq), "text": text, "status": "draft",
-            "schema": "chapter_play.v1", "playbook_version": "playbook.1",
-            "version": st.next_version("chapter_play", int(seq)) if hasattr(st, "next_version") else 1,
-        }
-        if hasattr(st, "insert"):
-            st.insert("chapter_play", rec)
-        return {"status": "written", "tool": "s3_patch_play", "seq": int(seq), "note": "仍需法官复审才能冻结"}
+        from scribe3.playbook.pipeline import review_and_freeze_play
+
+        def llm_fn(prompt, max_tokens=2048, **_kw):
+            from scribe3.api.services.misc_helpers import _pilot_llm_gen
+            return _pilot_llm_gen(st, work or "main", int(seq), "design", prompt, max_tokens=max_tokens)
+
+        out = review_and_freeze_play(st, int(seq), text, llm_fn=llm_fn, persist=True)
+        if not out.get("ok"):
+            return {"status": "error", "tool": "s3_patch_play", **out}
+        return {"status": "written", "tool": "s3_patch_play", "seq": int(seq), **out}
 
     return commit_if_approved("s3_patch_play", ok, _write)
 

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any  # store is duck-typed; finalize_gate is optional last mile
 
 from scribe3.playbook.quote import quote_in_play
 
@@ -223,3 +223,23 @@ def check_final_struct(prose_text: str) -> dict[str, Any]:
     if n < 1000:
         return _fail("prose_len", f"正文字数 {n} 低于 1000")
     return _ok()
+
+
+def check_final_last_mile(prose_text: str, *, store: Any = None, seq: int | None = None) -> dict[str, Any]:
+    """Length floor + kept finalize_gate (deterministic last mile)."""
+    hit = check_final_struct(prose_text)
+    if not hit.get("ok"):
+        return hit
+    if store is None:
+        return hit
+    try:
+        from scribe3.finalize_gate import check_finalize_for_save
+        fg = check_finalize_for_save(store, int(seq or 0), prose_text or "")
+    except Exception as exc:
+        return _fail("finalize_gate_error", str(exc)[:240])
+    if not fg.get("allowed"):
+        return _fail(
+            str(fg.get("code") or "finalize_gate"),
+            str(fg.get("detail") or "定稿门没过"),
+        )
+    return hit

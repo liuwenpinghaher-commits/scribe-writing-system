@@ -128,7 +128,7 @@ def test_resolve_outline_plan_is_write_intent():
     assert pkg["domain"] == "chapter.outline"
     assert pkg["use_world_write_run"] is True
     assert pkg["required_outcome"] == "write_proposal"
-    assert "s3_patch_chapter_plan" in (pkg.get("write_tools") or [])
+    assert "s3_generate_stage" in (pkg.get("write_tools") or []) or "s3_patch_play" in (pkg.get("write_tools") or [])
     assert (pkg.get("instruction_suffix") or "")
     assert "context_pack" in pkg
 
@@ -136,7 +136,7 @@ def test_resolve_outline_plan_is_write_intent():
 def test_resolve_outline_intent():
     pkg = resolve_work_package("请起草第12章大纲", work="w1", chapter=12)
     assert pkg["domain"] == "chapter.outline"
-    assert "s3_patch_chapter_plan" in pkg["write_tools"] or "s3_patch_chapter_meta" in pkg["write_tools"]
+    assert "s3_generate_stage" in pkg["write_tools"] or "s3_patch_chapter_meta" in pkg["write_tools"] or "s3_patch_play" in pkg["write_tools"]
     assert pkg["ui_directive"].get("phase") == "outline"
     assert pkg["chapter"] == 12 or (pkg.get("focus") or {}).get("ref") == 12
 
@@ -144,16 +144,16 @@ def test_resolve_outline_intent():
 def test_resolve_plan_tool_force_outline_world_write():
     """大纲文案 + plan 工具 → domain 必须是 chapter.outline（不是 beats）。"""
     pkg = resolve_work_package(
-        "请更新第1章大纲并使用工具 s3_patch_chapter_plan 提交写入提案",
+        "请更新第1章大纲并使用工具 s3_generate_stage 提交写入提案",
         work="w1",
         chapter=1,
         phase="outline",
     )
     assert pkg["domain"] == "chapter.outline"
     assert pkg["use_world_write_run"] is True
-    assert "s3_patch_chapter_plan" in pkg["write_tools"]
+    assert "s3_generate_stage" in pkg["write_tools"] or "s3_patch_play" in pkg["write_tools"]
     suf = pkg.get("instruction_suffix") or ""
-    assert "synopsis" in suf or "大纲" in suf
+    assert "责任" in suf or "大纲" in suf or "duty" in suf
     assert "beats 结构" not in suf
     assert isinstance(pkg.get("context_pack"), list)
 
@@ -161,22 +161,22 @@ def test_resolve_plan_tool_force_outline_world_write():
 def test_resolve_plan_tool_beats_not_outline():
     """节拍文案 + plan 工具 → domain==chapter.beats；suffix 含 beats/节拍（AC2 诚实）。"""
     pkg = resolve_work_package(
-        "使用工具 s3_patch_chapter_plan 更新第2章节拍",
+        "使用工具 s3_patch_contract 更新第2章节拍",
         work="w1",
         chapter=2,
         phase="beats",
     )
     assert pkg["domain"] == "chapter.beats", pkg["domain"]
     assert pkg["use_world_write_run"] is True
-    assert "s3_patch_chapter_plan" in pkg["write_tools"]
+    assert "s3_patch_contract" in pkg["write_tools"] or "s3_generate_stage" in pkg["write_tools"]
     suf = pkg.get("instruction_suffix") or ""
-    assert "beats" in suf or "节拍" in suf
+    assert "契约" in suf or "节拍" in suf or "design" in suf
     assert "synopsis" not in suf or "章节拍" in suf
 
 
 def test_resolve_plan_tool_field_beats():
     pkg = resolve_work_package(
-        "s3_patch_chapter_plan(seq=2, field=beats) 提交写入提案",
+        "s3_patch_contract 更新第2章节拍 field=beats 提交写入提案",
         work="w1",
         chapter=2,
     )
@@ -216,14 +216,14 @@ def test_instruction_suffix_for_scaffold_domains():
         e = get_domain(dom)
         suf = instruction_suffix_for_entry(e, chapter=3)
         assert suf
-        assert "s3_patch_chapter_plan" in suf or "域纪律" in suf
+        assert "s3_generate_stage" in suf or "s3_patch_play" in suf or "s3_patch_contract" in suf or "域纪律" in suf
 
 
 def test_phase_role_block_maps_outline_beats_deduce():
     from scribe3.api.services.misc_helpers import _phase_role_block
 
     assert "规划" in _phase_role_block("outline") or "大纲" in _phase_role_block("outline")
-    assert "节拍" in _phase_role_block("beats") or "s3_patch_chapter_plan" in _phase_role_block("beats")
+    assert "节拍" in _phase_role_block("beats") or "s3_generate_stage" in _phase_role_block("beats") or "契约" in _phase_role_block("beats")
     assert "演绎" in _phase_role_block("deduce") or "scene_truth" in _phase_role_block("deduce")
     assert _phase_role_block("") == ""
 

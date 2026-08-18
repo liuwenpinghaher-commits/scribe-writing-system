@@ -158,10 +158,10 @@ def _pass_llm(kind_text: dict[str, str]):
                 }],
                 "ore": ["掌心发烫", "药面热气", "门外呼吸"],
             }, ensure_ascii=False)
-        if "糙稿" in prompt:
-            return "场面。" * 300
         if "打磨成正文" in prompt:
             return "正文。" * 600
+        if "糙稿" in prompt:
+            return "场面。" * 300
         return PLAY * 8
     return llm_fn
 
@@ -305,3 +305,117 @@ def test_judge_goldens_exist_and_crooked_fails_struct():
     hit = check_contract_struct(crooked["input"]["contract"], play)
     assert hit["ok"] is False
     assert hit["code"] == "quote_not_in_play"
+
+
+class CopyingStore(MemoryPlaybookStore):
+    """Surreal-like: list_versions returns copies so in-place mutation is a no-op."""
+
+    def list_versions(self, table, seq):
+        return [dict(r) for r in super().list_versions(table, seq)]
+
+
+def test_rewrite_persists_downstream_supersede_on_copying_store():
+    store = CopyingStore()
+    llm = _pass_llm({})
+    ctx = {
+        "seq": 1, "focalizer": "沈烛若",
+        "available_cast": ["沈烛若"], "available_lines": [],
+        "prev_hook_quote": None,
+    }
+    d = run_stage(store, 1, "duty", llm_fn=llm, ctx=ctx)
+    run_stage(store, 1, "design", llm_fn=llm, ctx={**ctx, "duty": d["artifact"]})
+    run_stage(store, 1, "deduce", llm_fn=llm, ctx=ctx)
+    assert store.get_frozen("chapter_deduce", 1) is not None
+    rewritten = run_stage(store, 1, "design", extra="rewrite=1", llm_fn=llm, ctx={**ctx, "duty": d["artifact"]})
+    assert rewritten["ok"] is True
+    assert store.get_frozen("chapter_deduce", 1) is None
+    play = store.get_frozen("chapter_play", 1)
+    contract = store.get_frozen("chapter_contract", 1)
+    assert contract is not None
+    assert (contract.get("play_sha") or contract.get("source_sha")) == play.get("sha")
+
+
+def test_json_parse_fail_is_infra_not_needs_human():
+    store = MemoryPlaybookStore()
+
+    def llm_fn(prompt, **_k):
+        return "<<<not-json>>>"
+
+    out = run_stage(
+        store, 1, "duty", llm_fn=llm_fn,
+        ctx={"seq": 1, "available_cast": ["沈烛若"], "prev_hook_quote": None},
+    )
+    assert out.get("ok") is False
+    assert out.get("code") == "infra"
+    assert out.get("status") != "needs_human"
+
+
+def test_review_and_freeze_play_supersedes_old():
+    from scribe3.playbook.pipeline import review_and_freeze_play
+    store = CopyingStore()
+    llm = _pass_llm({})
+    ctx = {
+        "seq": 1, "focalizer": "沈烛若",
+        "available_cast": ["沈烛若"], "available_lines": [],
+        "prev_hook_quote": None,
+    }
+    d = run_stage(store, 1, "duty", llm_fn=llm, ctx=ctx)
+    first = run_stage(store, 1, "design", llm_fn=llm, ctx={**ctx, "duty": d["artifact"]})
+    old = first["sha"]
+    run_stage(store, 1, "deduce", llm_fn=llm, ctx=ctx)
+    out = review_and_freeze_play(
+        store, 1, ("沈烛若把碎片按回胸口。" * 40),
+        llm_fn=llm, ctx={**ctx, "duty": d["artifact"]},
+    )
+    assert out["ok"] is True
+    assert out["sha"] != old
+    assert store.get_by_sha("chapter_play", old)["status"] == "superseded"
+    assert store.get_frozen("chapter_deduce", 1) is None
+
+
+def test_final_last_mile_calls_finalize_gate(monkeypatch):
+    seen = {"n": 0}
+
+    def fake(st, seq, prose, **_k):
+        seen["n"] += 1
+        seen["prose"] = prose
+        return {"allowed": False, "code": "finalize_gate", "detail": "定稿门没过"}
+
+    import scribe3.playbook.structural as structural_mod
+    import scribe3.playbook.pipeline as pipeline_mod
+
+    orig = structural_mod.check_final_last_mile
+
+    def wrapped(text, store=None, seq=None):
+        seen["entered"] = True
+        return orig(text, store=store, seq=seq)
+
+    monkeypatch.setattr("scribe3.finalize_gate.check_finalize_for_save", fake)
+    monkeypatch.setattr(pipeline_mod, "check_final_last_mile", wrapped)
+    store = MemoryPlaybookStore()
+    llm = _pass_llm({})
+    ctx = {
+        "seq": 1, "focalizer": "沈烛若",
+        "available_cast": ["沈烛若"], "available_lines": [],
+        "prev_hook_quote": None,
+    }
+    d = run_stage(store, 1, "duty", llm_fn=llm, ctx=ctx)
+    run_stage(store, 1, "design", llm_fn=llm, ctx={**ctx, "duty": d["artifact"]})
+    run_stage(store, 1, "deduce", llm_fn=llm, ctx=ctx)
+    run_stage(store, 1, "draft", llm_fn=llm, ctx=ctx)
+    out = run_stage(store, 1, "final", llm_fn=llm, ctx=ctx)
+    assert seen["n"] >= 1
+    assert out.get("ok") is False
+
+
+def test_catalog_teaches_play_contract_not_old_plan():
+    from scribe3.orchestration.catalog import get_domain
+    design = get_domain("chapter.design")
+    tools = design.get("write_tools") or ()
+    assert "s3_patch_play" in tools
+    assert "s3_patch_contract" in tools
+    assert "s3_patch_chapter_plan" not in tools
+    assert "14 槽" not in (design.get("instruction_duty") or "")
+    deduce = get_domain("chapter.deduce")
+    assert "s3_patch_chapter_plan" not in (deduce.get("write_tools") or ())
+    assert "s3_generate_stage" in (deduce.get("write_tools") or ())

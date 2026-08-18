@@ -31,6 +31,7 @@ from scribe3.playbook.structural import (
     check_deduce_struct,
     check_draft_struct,
     check_duty_struct,
+    check_final_last_mile,
     check_final_struct,
     check_play_struct,
 )
@@ -79,14 +80,17 @@ def _quality_loop(
     last_struct: dict[str, Any] = {"ok": False, "code": "no_attempt"}
     last_art: Any = None
     quality = 0
+    infra_fails = 0
     while quality < MAX_QUALITY_ROUNDS:
         try:
             art = generate()
         except InfraError as exc:
             return {"ok": False, "code": "infra", "message": str(exc), "layer": name}
         except ParseError as exc:
-            quality += 1
+            infra_fails += 1
             last_struct = {"ok": False, "code": "json", "message": str(exc)}
+            if infra_fails >= 3:
+                return {"ok": False, "code": "infra", "message": str(exc), "layer": name}
             continue
         last_art = art
         target = extract(art) if extract else art
@@ -101,8 +105,10 @@ def _quality_loop(
         except InfraError as exc:
             return {"ok": False, "code": "infra", "message": str(exc), "layer": name}
         except ParseError as exc:
-            quality += 1
+            infra_fails += 1
             last_struct = {"ok": False, "code": "judge_json", "message": str(exc)}
+            if infra_fails >= 3:
+                return {"ok": False, "code": "infra", "message": str(exc), "layer": name}
             continue
         body = target if isinstance(target, str) else _json(target)
         sha = str(hash(body))
@@ -394,7 +400,10 @@ def _run_final(store, seq, ctx, llm_fn, *, force, persist):
     result = _quality_loop(
         name="final",
         generate=lambda: gen_final(ctx, llm_fn),
-        struct=lambda d: check_final_struct(d.get("text") if isinstance(d, dict) else str(d)),
+        struct=lambda d: check_final_last_mile(
+            d.get("text") if isinstance(d, dict) else str(d),
+            store=store, seq=seq,
+        ),
         judge_type="final",
         judge_ctx=lambda d: {
             "prose_text": d.get("text") if isinstance(d, dict) else str(d),
@@ -442,9 +451,62 @@ def _finish(store, table, schema, seq, result, *, persist, rewrite, source_sha="
     return result
 
 
+def review_and_freeze_play(
+    store: MemoryPlaybookStore,
+    seq: int,
+    text: str,
+    *,
+    llm_fn: Callable,
+    ctx: dict[str, Any] | None = None,
+    persist: bool = True,
+) -> dict[str, Any]:
+    """Judge a human-edited play draft and freeze it as a new version.
+
+    Old frozen play is superseded; downstream citing the old sha is superseded.
+    """
+    ctx = dict(ctx or {})
+    ctx.setdefault("seq", int(seq))
+    duty = store.get_frozen("duty_card", seq) or ctx.get("duty") or {}
+    struct = check_play_struct(text)
+    if not struct.get("ok"):
+        return {**struct, "layer": "play"}
+    art = {"seq": int(seq), "text": text, "duty_sha": duty.get("sha") or ""}
+    try:
+        verdict = judge(
+            "play", art, PLAYBOOK_VERSION,
+            {"duty_json": _json(duty), "play_text": text},
+            llm_fn=llm_fn,
+        )
+    except (InfraError, ParseError) as exc:
+        return {"ok": False, "code": "infra", "message": str(exc), "layer": "play"}
+    if verdict.get("verdict") != "pass":
+        if persist:
+            rec = {
+                "seq": int(seq), "text": text, "status": "draft",
+                "schema": "chapter_play.v1", "playbook_version": PLAYBOOK_VERSION,
+                "duty_sha": duty.get("sha") or "",
+                "version": store.next_version("chapter_play", int(seq)),
+            }
+            store.insert("chapter_play", rec)
+        return {
+            "ok": False, "code": "needs_human", "status": "draft",
+            "review": verdict, "layer": "play",
+        }
+    if not persist:
+        return {"ok": True, "artifact": art, "review": verdict}
+    frozen = freeze_artifact(
+        store, "chapter_play", int(seq), art,
+        schema="chapter_play.v1",
+        source_sha=str(duty.get("sha") or ""),
+        review=pass_review(),
+        rewrite=True,
+    )
+    return {"ok": True, "artifact": frozen, "play": frozen, "sha": frozen.get("sha"), "review": verdict}
+
+
 # Re-export for tests that drive freeze/overwrite through this module.
 __all__ = [
     "run_stage", "overwrite_play", "freeze_artifact", "MemoryPlaybookStore",
     "normalize_stage", "reject_gone_stage", "GONE_STAGES", "LIVE_STAGES",
-    "MIGRATE_HINT", "StageGone", "MAX_QUALITY_ROUNDS",
+    "MIGRATE_HINT", "StageGone", "MAX_QUALITY_ROUNDS", "review_and_freeze_play",
 ]

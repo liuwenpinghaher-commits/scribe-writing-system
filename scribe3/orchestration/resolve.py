@@ -26,14 +26,19 @@ def _score_entry(text: str, entry: dict[str, Any]) -> int:
     score = 0
     domain = entry.get("domain") or ""
     # 共享 plan 工具只 force 计一次（勿再塞进 keywords 双计）
-    plan_tool = "s3_patch_chapter_plan" in t
+    plan_tool = "s3_patch_play" in t or "s3_patch_contract" in t or "s3_generate_stage" in t
     for kw in entry.get("match_force") or ():
         if not kw or kw not in t:
             continue
-        # 三脚手架域共享同一 force 工具名时，字段/阶段词再定胜负（下方加权）
-        if kw == "s3_patch_chapter_plan" and domain.startswith("chapter."):
-            if domain in ("chapter.outline", "chapter.beats"):
-                score += 10
+        # 脚手架域共享生成/改戏工具时，字段/阶段词再定胜负（下方加权）
+        if kw in ("s3_patch_play", "s3_patch_contract", "s3_generate_stage") and domain.startswith("chapter."):
+            if domain == "chapter.design":
+                if re.search(r"stage\s*=\s*(duty|design)|写戏|章设计|责任卡", t, re.I):
+                    score += 100
+                elif re.search(r"大纲|节拍|synopsis|beats|演绎|deduce", t, re.I):
+                    score += 10
+                else:
+                    score += 80
             else:
                 score += 100
             continue
@@ -48,7 +53,7 @@ def _score_entry(text: str, entry: dict[str, Any]) -> int:
     ):
         score += 90
     # plan 工具 + 字段/中文域词 → 明确偏 outline / beats / deduce
-    if plan_tool or re.search(r"s3_patch_chapter_plan", t):
+    if plan_tool or re.search(r"s3_patch_play|s3_patch_contract|s3_generate_stage", t):
         if domain == "chapter.beats" and re.search(
             r"节拍|章节拍|beats|field\s*=\s*beats", t, re.I
         ):
@@ -117,7 +122,7 @@ def match_domain(message: str, *, prior_domain: str | None = None) -> dict[str, 
                 return aux
     if best and best.get("domain") == "chapter.beats":
         if re.search(r"经验复盘|经验六格|问诊信|Scene.?Sequel", text) and not re.search(
-            r"s3_patch_chapter_plan|写节拍|更新节拍", text
+            r"s3_patch_contract|s3_generate_stage|写节拍|更新节拍", text
         ):
             aux = get_domain("aux.experience")
             if aux:
@@ -149,13 +154,13 @@ def instruction_suffix_for_entry(
     # 回落：章脚手架三域
     fallbacks = {
         "chapter.outline": (
-            "域纪律(章大纲):s3_patch_chapter_plan 写 synopsis；禁 s3_save_chapter 完成本任务。"
+            "域纪律(章大纲):s3_generate_stage(stage=duty) 立责任；禁 s3_save_chapter 完成本任务。"
         ),
         "chapter.beats": (
-            "域纪律(章节拍):s3_patch_chapter_plan 写 beats；禁 s3_save_chapter；≠经验六格。"
+            "域纪律(章节拍):s3_generate_stage(stage=design) / s3_patch_contract；禁 s3_save_chapter。"
         ),
         "chapter.deduce": (
-            "域纪律(章演绎):s3_patch_chapter_plan 写 scene_truth；禁 s3_save_chapter；勿 s3_add_fact。"
+            "域纪律(章演绎):s3_generate_stage(stage=deduce)；禁 s3_save_chapter；勿 s3_add_fact。"
         ),
         "aux.scorecard": "域纪律(评分卡):只读；≠作品意图；禁止写评分卡 SSOT。",
         "aux.experience": "域纪律(经验复盘):≠pressure_drive/beats；六格为作者复盘。",

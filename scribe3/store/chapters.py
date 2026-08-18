@@ -11,6 +11,28 @@ from scribe3.chapter_meta_codec import (  # noqa: F401
     dump_chapter_json_meta,
 )
 
+
+def _deduce_for_ui(deduce: dict) -> tuple[list[dict], list[dict]]:
+    mapped: list[dict] = []
+    chars: list[dict] = []
+    for c in deduce.get("characters") or []:
+        if not isinstance(c, dict):
+            continue
+        cid = str(c.get("id") or "").strip()
+        if not cid:
+            continue
+        prose = "\n".join([
+            f"看到/听到：{c.get('perceived') or ''}",
+            f"知道：{c.get('known') or ''}",
+            f"以为：{c.get('believed') or ''}",
+            f"做了/说了：{c.get('acted') or ''}",
+            f"没察觉：{c.get('blind') or ''}",
+        ])
+        mapped.append({"character_id": cid, "character_name": cid, "prose": prose})
+        chars.append({"id": cid, "name": cid})
+    return mapped, chars
+
+
 class ChaptersMixin:
 
     def purge_ingest(self, seq: int, *, _qstats: dict | None = None) -> None:
@@ -457,6 +479,16 @@ class ChaptersMixin:
             if contract:
                 r["contract_sha"] = contract.get("sha") or r.get("contract_sha")
                 r["contract"] = contract
+            try:
+                deduce = self.get_frozen("chapter_deduce", int(seq))
+            except Exception:
+                deduce = None
+            if deduce:
+                r["deduce"] = deduce
+                r["scene_truth"] = deduce.get("scene_truth") or ""
+                mapped, chars = _deduce_for_ui(deduce)
+                r["deductions"] = mapped
+                r["chars"] = chars
         return r
 
     def list_chapters(self) -> list[dict]:

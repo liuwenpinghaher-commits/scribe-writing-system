@@ -594,7 +594,32 @@ export const api = {
     const qs = p.toString()
     return j('/debug/pipeline-traces' + (qs ? '?' + qs : ''), work)
   },
-  pipelineTrace: (id, work) => j('/debug/pipeline-traces/' + enc(id), work),
+  pipelineTrace: (id, work, include) => {
+    const qs = include ? ('?include=' + encodeURIComponent(include)) : ''
+    return j('/debug/pipeline-traces/' + enc(id) + qs, work)
+  },
+  pipelineEvents: (q = {}, work) => {
+    const p = new URLSearchParams()
+    if (q.trace_id) p.set('trace_id', q.trace_id)
+    if (q.step_key) p.set('step_key', q.step_key)
+    if (q.kind) p.set('kind', q.kind)
+    if (q.empty != null) p.set('empty', String(q.empty))
+    if (q.since) p.set('since', q.since)
+    if (q.after_seq != null) p.set('after_seq', String(q.after_seq))
+    if (q.limit) p.set('limit', String(q.limit))
+    const qs = p.toString()
+    return j('/debug/pipeline-events' + (qs ? '?' + qs : ''), work)
+  },
+  pipelineArtifacts: (q = {}, work) => {
+    const p = new URLSearchParams()
+    if (q.trace_id) p.set('trace_id', q.trace_id)
+    if (q.kind) p.set('kind', q.kind)
+    if (q.name) p.set('name', q.name)
+    if (q.limit) p.set('limit', String(q.limit))
+    const qs = p.toString()
+    return j('/debug/pipeline-artifacts' + (qs ? '?' + qs : ''), work)
+  },
+  pipelineArtifact: (id, work) => j('/debug/pipeline-artifacts/' + enc(id), work),
   pipelineLogs: (q = {}, work) => {
     const p = new URLSearchParams()
     if (q.trace_id) p.set('trace_id', q.trace_id)
@@ -647,6 +672,9 @@ export const api = {
   },
   // 改章梗概/卷/标签/标题(不碰正文/embedding/qc)
   // work 可选:大纲/节拍卸载兜底 flush 传入捕获的 work,钉死目标书,防切书写错书(F5,同 saveDraft/saveChapter)。
+  chapterPlay: (seq, work) => j(`/chapters/${enc(seq)}/play`, work),
+  chapterContract: (seq, work) => j(`/chapters/${enc(seq)}/contract`, work),
+  chapterDeduce: (seq, work) => j(`/chapters/${enc(seq)}/deduce`, work),
   patchChapter: (seq, b, work) => patch('/chapters/' + seq, b, work),
   // O14 / emergency 闸外：仅 beats GCD 微调（拍数守恒）；勿用 patchChapter 存 GCD 面板
   patchChapterGcdFields: (seq, b, work) => patch('/chapters/' + seq + '/gcd-fields', b, work),

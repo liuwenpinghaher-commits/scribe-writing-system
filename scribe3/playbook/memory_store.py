@@ -53,7 +53,10 @@ class MemoryPlaybookStore:
                 rec["status"] = "superseded"
 
     def list_by_play_sha(self, table: str, play_sha: str) -> list[dict[str, Any]]:
-        return [r for r in self.rows[table] if r.get("play_sha") == play_sha]
+        return [
+            r for r in self.rows[table]
+            if r.get("play_sha") == play_sha or r.get("source_sha") == play_sha
+        ]
 
 
 def overwrite_play(store: MemoryPlaybookStore, sha: str, new_text: str) -> dict[str, Any]:
@@ -96,10 +99,23 @@ def freeze_artifact(
 
 
 def supersede_downstream(store: MemoryPlaybookStore, seq: int, old_play_sha: str) -> list[str]:
+    """Mark every frozen downstream row that still cites the old play.
+
+    Must call store.mark_superseded — list_versions may return copies (Surreal).
+    """
     touched: list[str] = []
+    want = str(old_play_sha or "")
+    if not want:
+        return touched
     for table in DOWNSTREAM:
         for rec in store.list_versions(table, seq):
-            if rec.get("status") == "frozen" and rec.get("play_sha") == old_play_sha:
-                rec["status"] = "superseded"
-                touched.append(f"{table}:{rec.get('sha')}")
+            if rec.get("status") != "frozen":
+                continue
+            linked = str(rec.get("play_sha") or rec.get("source_sha") or "")
+            if linked != want:
+                continue
+            ver = int(rec.get("version") or 0)
+            store.mark_superseded(table, seq, ver)
+            rec["status"] = "superseded"
+            touched.append(f"{table}:{rec.get('sha')}")
     return touched
