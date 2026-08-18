@@ -272,6 +272,20 @@ def test_deleted_old_gate_files_absent():
     assert still == []
 
 
+def test_production_does_not_import_old_gates():
+    root = Path(__file__).resolve().parents[1]
+    banned = ("scribe3.clue_density", "scribe3.fate_dearer")
+    hits = []
+    for p in root.rglob("*.py"):
+        if "/tests/" in str(p) or p.name.startswith("test_"):
+            continue
+        text = p.read_text(encoding="utf-8")
+        for name in banned:
+            if f"from {name}" in text or f"import {name}" in text:
+                hits.append(f"{p.relative_to(root)}:{name}")
+    assert hits == []
+
+
 def test_generate_stage_req_old_names_are_410():
     from fastapi import HTTPException
     from scribe3.api.routers.write import GenerateStageReq, generate_stage

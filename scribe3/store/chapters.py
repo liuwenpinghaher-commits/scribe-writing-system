@@ -319,31 +319,6 @@ class ChaptersMixin:
         except Exception as _e:
             logging.getLogger("scribe3.store").warning(
                 "end_hook 回填失败(存稿不受影响): %s", _e)
-        # 即兴落户：只写 beats_meta.seeds，禁止 plant_promise。
-        try:
-            from scribe3.fate_dearer import extract_seeds, load_ore, merge_seeds
-            cur = self.get_chapter(seq) or {}
-            spine = cur.get("chapter_spine") if isinstance(cur.get("chapter_spine"), dict) else {}
-            import re
-            names: set[str] = set()
-            for n in re.split(r"[、，,/／]", str((spine or {}).get("cast") or "")):
-                if n.strip():
-                    names.add(n.strip())
-            seeds = extract_seeds(
-                prose, spine, ore=load_ore(cur), known_names=names,
-            )
-            if seeds:
-                bm = merge_seeds(cur, seeds)
-                self.update_chapter_meta(seq, {"beats_meta": bm})
-                try:
-                    from scribe3.pipeline_recorder import put_fate_artifact
-                    put_fate_artifact("seed_census", "seeds", str(seeds)[:400])
-                except Exception:
-                    pass
-        except Exception as _e:
-            logging.getLogger("scribe3.store").warning(
-                "seeds 回填失败(存稿不受影响): %s", _e)
-
     def add_chapter_version(self, seq: int, prose: str, label: str = "",
                             kind: str = "checkpoint", qc: dict | None = None,
                             stage: str = "final", summary: str = "",

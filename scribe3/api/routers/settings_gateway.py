@@ -104,9 +104,7 @@ def capabilities():
             "emergency_rest_write": _flag_enabled("SCRIBE3_EMERGENCY_REST_WRITE"),
             # 章设计：大纲+节拍一次写完。旧两步已拆，恒为开。
             "chapter_design": True,
-            "design_book": __import__(
-                "scribe3.clue_density", fromlist=["design_book_mode"]
-            ).design_book_mode() == "on",
+            "design_book": True,
             # 章节流水线闭环(PR-1/2)
             "ingest_lease": True,
             "ingest_policy": True,

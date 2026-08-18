@@ -366,37 +366,6 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
                 "code": "stage_gone",
                 "error": "s3_patch_chapter_plan 已废，请走 s3_generate_stage 或 s3_patch_play / s3_patch_contract。",
             }
-            seq = int(kw.get("seq") or kw.get("chapter") or 1)
-            fields = {k: v for k, v in kw.items()
-                      if k not in ("seq", "chapter", "work") and v is not None}
-            from scribe3.iceberg import persist_fields_blocked, sync_design_surface
-            from scribe3.stage_generate import load_design_book
-            cur = st.get_chapter(seq) if hasattr(st, "get_chapter") else {}
-            if "chapter_spine" in fields:
-                fields = sync_design_surface(fields, cur if isinstance(cur, dict) else None, store=st)
-            book = load_design_book(st, seq, {**(cur or {}), **fields} if isinstance(cur, dict) else fields)
-            _blocked = persist_fields_blocked(
-                fields,
-                existing=cur if isinstance(cur, dict) else None,
-                known_line_ids=known_line_ids_from_store(st),
-                book=book,
-                store=st,
-                **persist_fate_kwargs(st, seq, fields, cur if isinstance(cur, dict) else None),
-            )
-            if _blocked:
-                return {
-                    "status": "error",
-                    "error": _blocked["message"],
-                    "code": _blocked["code"],
-                    "iceberg": _blocked,
-                }
-            if hasattr(st, "update_chapter_meta") and fields:
-                ok = st.update_chapter_meta(seq, fields)
-                return {"status": "written" if ok else "error", "seq": seq, "fields": list(fields)}
-            if hasattr(st, "patch_chapter"):
-                st.patch_chapter(seq, **fields)
-                return {"status": "written", "seq": seq}
-            return {"status": "error", "error": "chapter not found"}
 
         def _set_intent(**kw):
             fields = {k: v for k, v in kw.items() if v is not None and k not in ("work",)}
