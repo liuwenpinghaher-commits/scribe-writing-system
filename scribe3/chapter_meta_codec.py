@@ -4,7 +4,8 @@ from __future__ import annotations
 import json
 
 CHAPTER_JSON_META_KEYS = frozenset({
-    "pressure_drive", "beats_meta", "narrative_drive", "narrative_contract", "stage_state",
+    "pressure_drive", "beats_meta", "narrative_drive", "narrative_contract",
+    "stage_state", "chapter_spine",
 })
 
 # JSON 列表合同列（揭示覆盖等）
@@ -15,7 +16,8 @@ CHAPTER_JSON_LIST_META_KEYS = frozenset({
 CHAPTER_META_ALLOWED = frozenset({
     "synopsis", "volume", "label", "title", "beats",
     "scene_truth", "involved_characters", "deductions",
-    "purpose_text", "deltas",
+    "purpose_text", "deltas", "focalizer", "prose_lock",
+    "play_sha", "contract_sha", "playbook_version",
     *CHAPTER_JSON_META_KEYS,
     *CHAPTER_JSON_LIST_META_KEYS,
 })

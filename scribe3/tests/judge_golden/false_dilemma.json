@@ -1,0 +1,14 @@
+{
+  "artifact_type": "play",
+  "expected_verdict": "fail",
+  "expected_fail_question": 5,
+  "input": {
+    "duty": {
+      "who": ["沈烛若"],
+      "must_happen": "沈烛若把碎片按回胸口",
+      "bill": "四十二度成了他的常态",
+      "forbidden_reveal": ["炉认主"]
+    },
+    "play_text": "沈烛若走到炉边。选择：继续走 还是 停下来。他想了想，继续走。夜色深了。"
+  }
+}

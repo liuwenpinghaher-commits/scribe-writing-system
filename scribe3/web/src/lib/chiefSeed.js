@@ -156,7 +156,7 @@ export function seedChiefDeleteCodex(objectType, objectId, { label = '', archive
 
 /** 脚手架任务禁止用正文 save 完成（软合同 · 与 H1 设计一致） */
 export const SCAFFOLD_FORBID_SAVE =
-  '禁止用 s3_save_chapter 或「保存正文」完成本章大纲/节拍/演绎/章信息脚手架；请用下列 patch 工具提交写入提案。'
+  '禁止用 s3_save_chapter 或「保存正文」完成本章责任/戏/演绎/章信息脚手架；请用 s3_generate_stage 或 s3_patch_play / s3_patch_contract 提交写入提案。'
 
 /**
  * scope → 具名写工具合同（点名工具 = RunToolContract / match_force 素材）。
@@ -164,32 +164,32 @@ export const SCAFFOLD_FORBID_SAVE =
  */
 export function scaffoldToolContract(scope) {
   const s = String(scope || '').toLowerCase()
-  if (s === 'design' || s === '章设计' || s === 'chapter_design') {
+  if (s === 'design' || s === '章设计' || s === 'chapter_design' || s === 'duty') {
     return {
       tool: 's3_generate_stage',
-      field: 'chapter_spine+beats',
-      gateHint: '必须用 LLM 一次写 14 槽章纲 + ≥3 拍。选择 A vs B；默认拍2演出这个选择。用 s3_generate_stage(stage=design) 或一次提交 spine+beats 的 s3_patch_chapter_plan。禁止只写一半。',
+      field: 'play+contract',
+      gateHint: '先 s3_generate_stage(stage=duty) 立责任，再 s3_generate_stage(stage=design) 写戏并抽出契约。人工改戏用 s3_patch_play，改契约用 s3_patch_contract，改完仍须法官复审才能冻结。',
     }
   }
   if (s === 'outline' || s === 'synopsis' || s === '章大纲') {
     return {
       tool: 's3_generate_stage',
-      field: 'chapter_spine+beats',
-      gateHint: '旗 on：请走 s3_generate_stage(stage=design) 一次写章纲+节拍。禁止只补一半。旗 off 才单独写 13 短槽。',
+      field: 'duty',
+      gateHint: '大纲已废。请走 s3_generate_stage(stage=duty) 再 design。',
     }
   }
   if (s === 'beats' || s === '节拍') {
     return {
       tool: 's3_generate_stage',
-      field: 'chapter_spine+beats',
-      gateHint: '旗 on：请走 s3_generate_stage(stage=design)。禁止单独写节拍。旗 off 才单独写 ≥3 拍。',
+      field: 'contract',
+      gateHint: '节拍已废。请走 s3_generate_stage(stage=design)；契约从戏里抄出。',
     }
   }
   if (s === 'deduce' || s === 'scene_truth' || s === '演绎') {
     return {
-      tool: 's3_patch_chapter_plan',
-      field: 'scene_truth',
-      gateHint: '必须用 LLM 写场景真相+五层投影合计 ≥5000。禁止摘录占位。也可用 s3_generate_stage(stage=deduce)。',
+      tool: 's3_generate_stage',
+      field: 'deduce',
+      gateHint: '用 s3_generate_stage(stage=deduce) 写五层限知。',
     }
   }
   if (s === 'draft' || s === '排演' || s === '草稿') {
@@ -207,16 +207,16 @@ export function scaffoldToolContract(scope) {
   }
   if (s === 'story_move' || s === '招式' || s === '这一圈') {
     return {
-      tool: 's3_patch_chapter_plan',
-      field: 'story_move_plan',
+      tool: 's3_generate_stage',
+      field: 'design',
       gateHint: '这一圈是绕法，不是完成灯。先 s3_move_retrieve。',
     }
   }
   if (s === 'scene' || s === '场面' || s === 'narrative_contract') {
     return {
-      tool: 's3_patch_chapter_plan',
-      field: 'narrative_contract',
-      gateHint: '场面合同走审批。不要把建议四格原样当合同。',
+      tool: 's3_patch_contract',
+      field: 'contract',
+      gateHint: '场面已并入契约。人工指定用 s3_patch_contract，仍须法官复审。',
     }
   }
   return null
@@ -243,7 +243,7 @@ export function seedChiefNarrativeWrite(scope, target, hint = '') {
       )
     }
     if (contract.gateHint) lines.push(contract.gateHint)
-    if (contract.tool === 's3_patch_chapter_plan' || contract.tool === 's3_patch_chapter_meta') {
+    if (contract.tool === 's3_patch_play' || contract.tool === 's3_patch_contract' || contract.tool === 's3_patch_chapter_meta') {
       lines.push(SCAFFOLD_FORBID_SAVE)
     }
   } else {
@@ -267,9 +267,9 @@ export function seedChapterOutline(seq, synopsis = '', extraHint = '') {
     'outline',
     `第 ${n} 章大纲`,
     [
-      `使用工具 s3_generate_stage(stage=design, seq=${n}) 一次写章纲+节拍；或 s3_patch_chapter_plan 一次提交 chapter_spine+beats。`,
+      `使用工具 s3_generate_stage(stage=duty, seq=${n}) 立责任，再 s3_generate_stage(stage=design, seq=${n}) 写戏。`,
       SCAFFOLD_FORBID_SAVE,
-      '必须一次写出 14 槽章纲 + ≥3 拍（选择 A vs B，默认拍2演出）。禁止只写一半。',
+      '戏是主人。不要再写旧章纲表。',
       body,
     ].join('\n'),
   )
@@ -291,9 +291,9 @@ export function seedChapterBeats(seq, beats = [], extraHint = '') {
     'beats',
     `第 ${n} 章节拍`,
     [
-      `写节拍就是写这一章：使用工具 s3_generate_stage(stage=design, seq=${n}) 一次写章纲+节拍；或 s3_patch_chapter_plan 一次提交 chapter_spine+beats。`,
+      `使用工具 s3_generate_stage(stage=design, seq=${n}) 写戏并抽出契约。人工改契约用 s3_patch_contract。`,
       SCAFFOLD_FORBID_SAVE,
-      '必须一次写出这一章发生什么和分几场上台。禁止只写一半。',
+      '不要再单独写节拍表。',
       body,
     ].join('\n'),
   )
@@ -312,7 +312,7 @@ export function seedChapterScene(seq, extraHint = '') {
       '2. 先用人话讲这场戏：发生哪一下、谁拦、留下什么。材料不够就问作者，不要凑字。',
       '3. 再落四义+≤3痕迹，每条能指回 briefing.source。',
       '4. 自检咬合（check_scene_lock 的人话版）；与上章 turn 撞车则改。',
-      `5. s3_patch_chapter_plan(seq=${n}, narrative_contract={desire,obstacle,turn,cost,bindings:{evidence_must_show:[…]}}) 提交我批准。`,
+      `5. 场面合同已并入契约。请 s3_generate_stage(stage=design, seq=${n}) 或 s3_patch_contract 提交我批准。`,
       '未获批准不得声称已落库。若场面合同已变，旧提案会被拒，须按最新场面重拟。',
       '不要先齐大纲/节拍。不要说 GATE、可开写、材料够了。不要把建议四格原样当合同。',
       extraHint || '',
@@ -328,9 +328,9 @@ export function seedChapterDeduce(seq, sceneTruth = '', extraHint = '') {
     'deduce',
     `第 ${n} 章演绎/场景真相`,
     [
-      `使用工具 s3_patch_chapter_plan(seq=${n}, field=scene_truth) 提交写入提案；演绎字段也可同工具；或先 s3_generate_stage(stage=deduce)。`,
+      `使用工具 s3_generate_stage(stage=deduce, seq=${n}) 写演绎。`,
       SCAFFOLD_FORBID_SAVE,
-      '限知投影合计 ≥5000 字，必须 LLM 生成。勿用 s3_add_fact 当场景真相。禁止摘录占位。',
+      '五层限知必须齐。勿用 s3_add_fact 当场景真相。',
       body,
     ].join('\n'),
   )
@@ -355,7 +355,7 @@ export function seedChiefMovePlan(seq, benyi = '') {
     `第 ${n} 章招式计划`,
     [
       `域纪律(章招式):先 s3_move_retrieve(benyi=${benyi || '（先问作者：本意是什么）'}) 取一张已批招式（默认真三角；勿用 pending）。`,
-      `使用工具 s3_patch_chapter_plan(seq=${n}, story_move_plan=) 提交本意+招式+构造拍。`,
+      `招式计划仍可讨论。先 s3_move_retrieve，再口头确认。`,
       SCAFFOLD_FORBID_SAVE,
       '这是这一圈怎么绕，不是完成宣称。',
     ].join('\n'),

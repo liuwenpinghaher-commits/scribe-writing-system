@@ -57,12 +57,7 @@ def cn_len(text: str | None) -> int:
 
 def _floor_for(field: str) -> int:
     if field in ("synopsis", "beat"):
-        try:
-            from scribe3.clue_density import clue_density_mode
-            if clue_density_mode() != "off":
-                return 0
-        except Exception:
-            return 0
+        return 0
     return {
         "synopsis": SYNOPSIS_FLOOR,
         "beat": BEAT_EACH_FLOOR,
@@ -157,7 +152,10 @@ def evaluate_iceberg(
 
     命运闸必须经 ``load_fate_context(st, seq, ch)``（或显式 ``fate_ctx``）。
     禁止空 FateCtx：否则旗 on 时齐全章也会恒报 who_pays_missing。
+
+    play-contract：evaluate_iceberg 语义闸已废，只保留函数壳给旧调用点。
     """
+    return {"ok": True, "missing": [], "measures": {}, "message": "", "code": ""}
     meta = ch if isinstance(ch, dict) else {}
     phase = (for_phase or "draft").strip().lower()
     syn = cn_len(meta.get("synopsis"))
@@ -345,11 +343,11 @@ def should_block_prose_write(phase: str | None, *, write_intent: bool) -> bool:
 
 
 def design_half_block(detail: str) -> dict[str, Any]:
-    """创建半稿的统一 422 构造。REST / MCP / persist 共用，禁止两套文案。"""
+    """旧半稿闸已废。"""
     return {
-        "code": "design_half",
-        "role": "iceberg_thin_persist",
-        "message": "旗 on：禁止只写一半。请一次提交 spine+beats，或 s3_generate_stage(stage=design)",
+        "code": "stage_gone",
+        "http": 410,
+        "message": "章纲/节拍半稿已废。请走 duty → design。",
         "missing": [{"id": "design_half", "detail": detail}],
     }
 
@@ -361,6 +359,7 @@ def sync_design_surface(
     store=None,
 ) -> dict[str, Any]:
     """设计落库一张嘴：本次带 chapter_spine 且旗 on 才覆盖简介/四义；只 PATCH 简介不动。"""
+    return dict(fields or {})
     out = dict(fields or {})
     from scribe3.clue_density import design_book_mode
     if design_book_mode() != "on":
@@ -423,7 +422,10 @@ def persist_fields_blocked(
     """写入大纲/节拍/演绎时的硬闸。None=放行。
 
     空串/空列表 = 尚未写，允许。旗 on 验线索原子；shadow 只报告不 422；off 走旧字数。
+
+    play-contract：persist 语义闸已废。
     """
+    return None
     if not iceberg_enabled() or not isinstance(fields, dict):
         return None
     from scribe3.chapter_spine import is_v1, slot_text

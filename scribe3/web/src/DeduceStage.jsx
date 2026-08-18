@@ -20,7 +20,7 @@ const truncateQuote = (s) => {
 }
 
 // 演绎中区:只读展示 + 阶段专用 Run。它不能借普通 chatWrite 或主编种子绕过
-// scribe3_deduce 的物理工具面；唯一写入口是该 Run 中经审批的 s3_patch_chapter_plan。
+// scribe3_deduce 的物理工具面；唯一写入口是 s3_generate_stage(stage=deduce)。
 export function DeduceStage({ seq, meta, onSaved, work }) {
   const toast = useToast()
   const { selected, setSelected } = useDeduceSel()
@@ -278,7 +278,7 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
     generationRef.current = run
     setBusy(true)
     setApproval(null)
-    const instruction = `将以下已经由作者审阅的第 ${seq} 章演绎提案原样写入。只能调用一次 s3_patch_chapter_plan，且工具参数中的字段值必须与该 JSON 完全一致；不得调用任何其他写工具或扩展内容。调用会请求作者审批。\n\n${JSON.stringify(payload)}`
+    const instruction = `将以下已经由作者审阅的第 ${seq} 章演绎提案写入。只能调用一次 s3_generate_stage(stage=deduce, persist=true)。调用会请求作者审批。\n\n${JSON.stringify(payload)}`
     const request = api.runWrite(instruction, {
       chapter: seq, phase: 'deduce',
       context: snapshot ? {
@@ -362,18 +362,22 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
   return (
     <div
       data-testid="deduce-stage"
-      className="w-full max-w-[min(1120px,calc(100%-48px))] mx-auto px-6 py-6 h-full flex flex-col min-h-0"
+      className="w-full max-w-[min(1120px,calc(100%-24px))] mx-auto px-4 py-2 h-full flex flex-col min-h-0"
     >
-      <div
-        className="mb-3 rounded-lg border border-line/60 bg-surface/50 px-3 py-2 space-y-2"
+      <details
+        className="mb-2 shrink-0 rounded-lg border border-line/60 bg-surface/50 px-3 py-1.5"
         data-testid="parallel-deduce-panel"
       >
-        <div className="text-f12 font-medium text-ink">多视角并行演绎</div>
-        <p className="text-f11 text-faint">
+        <summary className="cursor-pointer text-f12 font-medium text-ink">
+          多视角并行演绎
+          <span className="ml-2 font-normal text-faint">默认收起 · 确认执行才打 LLM</span>
+        </summary>
+        <div className="mt-2 space-y-2">
+        <p className="text-f12 text-faint">
           preview（:8646 只读）与 deduce（:8645）并列；默认 dry-run；确认执行才打 LLM（限并发 · 章锁 · soft）。
         </p>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-lg border border-line overflow-hidden text-f11" role="group" aria-label="并行模式">
+          <div className="flex rounded-lg border border-line overflow-hidden text-f12" role="group" aria-label="并行模式">
             <button
               type="button"
               data-testid="parallel-mode-preview"
@@ -406,7 +410,7 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
           </Btn>
         </div>
         {parallelPlan && (
-          <pre className="text-f11 text-faint max-h-24 overflow-auto whitespace-pre-wrap" data-testid="parallel-deduce-plan-out">
+          <pre className="text-f12 text-faint max-h-24 overflow-auto whitespace-pre-wrap" data-testid="parallel-deduce-plan-out">
             {JSON.stringify(parallelPlan.runs || parallelPlan, null, 0).slice(0, 800)}
           </pre>
         )}
@@ -416,14 +420,15 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
               <li key={i} className="border-b border-line/40 py-1">
                 <strong>{r.focalizer || '_default'}</strong>
                 <span className="text-faint"> · {r.status}</span>
-                <div className="text-f11 text-faint truncate">{(r.summary || r.error || '').slice(0, 200)}</div>
+                <div className="text-f12 text-faint truncate">{(r.summary || r.error || '').slice(0, 200)}</div>
               </li>
             ))}
           </ul>
         )}
-      </div>
-      <div className="flex items-center gap-2 mb-3 flex-wrap">
-        <h3 className="type-section text-ink">{selected === 'truth' ? '场景真相 · 全知' : `${cur.character_name} · 限知投影`}</h3>
+        </div>
+      </details>
+      <div className="flex items-center gap-2 mb-2 flex-wrap shrink-0">
+        <h3 className="text-f13 font-medium text-ink">{selected === 'truth' ? '场景真相 · 全知' : `${cur.character_name} · 限知投影`}</h3>
         {chars.length > 0 && (
           <div className="flex items-center gap-1 ml-auto">
             <select aria-label="投射角色" value={roleToAdd} onChange={(e) => setRoleToAdd(e.target.value)}
@@ -501,7 +506,6 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
           </div>
         </SelectionQuoteActions>
       )}
-      <div className="text-f12 text-faint mt-2">预览只在本地供作者审阅和修订；写入一律经本阶段受限 Run 的 MCP 审批。所有角色投影都从「场景真相」派生。</div>
     </div>
   )
 }

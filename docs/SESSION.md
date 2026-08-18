@@ -8,13 +8,14 @@
 
 | 项 | 值 |
 |----|-----|
-| **总 PASS 协议** | **v6.3.4** · [`e2e-director-journey-v634-true-chat-full-capability.md`](./e2e-director-journey-v634-true-chat-full-capability.md) |
+| **总 PASS 协议** | **v6.3.4 rev.11** · [`e2e-director-journey-v634-true-chat-full-capability.md`](./e2e-director-journey-v634-true-chat-full-capability.md)（OpSeq 步数因 design 合并减少，**总 PASS 公式不变**） |
 | **WCG SSOT** | `scripts/v4_world_complete_gate.py`（exit 0 / `pass=true`） |
 | **体验路径** | SPA 对话驱动 + 点批/工作台裁决；**禁止**脚本灌章 / EMERGENCY / fabric-off 刷绿冒充总 PASS |
 | **工程对照** | `scripts/v632_true_chat_journey.py` · v6.3.2 记忆子集 · v6.3.3 变更复验 → **≠** 体验总 PASS |
 | **证据清单** | `scripts/v634_evidence_checklist.py` |
 | **证据模板** | `docs/evidence/v634-true-chat-TEMPLATE/` |
 | **公式** | 总 PASS ⇔ Wave A ∧ Wave B；仅 Wave A 或 `author_human=false` → 最高 **PARTIAL** |
+| **命运闸** | [`2026-08-16-fate-dearer-novelist-reform.md`](./plans/2026-08-16-fate-dearer-novelist-reform.md) **rev.8** + world-surface。默认 `FATE_DEARER=on` + `FATE_WAVE=2` + `RECORDER=1` + `WORLD_SURFACE=on`。WAVE-1 含 `goal_off_world` / `surface_claim_unpaid` / `claim_paid_by_paraphrase` / `gesture_echo`。旧书 `book_bdfdcdc4` / `book_e415dfeb` / `book_61a7935e` / **`book_83584141`** **不 overlay**。本轮验收书 = **rev.10 新建三章 slug**（见当前状态）。 |
 
 ---
 
@@ -61,6 +62,60 @@
 ---
 
 ## 当前状态
+
+### 戏为唯一主人 · play-contract（2026-08-19）
+
+章设计改成：责任卡 → 写戏 → 抄契约 → 演绎 → 排演 → 正文。旧大纲/节拍生成返回 410。戏过审冻结后 force 改不掉。demo 已热更；`book_b0beed49` 第 1 章能读到冻结戏，duty 层 force 后戏的 sha 没变。
+
+### 章设计接得上这本书 · design-book-continuity（2026-08-17）
+
+> **设计** [`docs/plans/2026-08-17-design-book-continuity.md`](./plans/2026-08-17-design-book-continuity.md)
+
+- 短名 `design-book-continuity`。细旗 `SCRIBE3_DESIGN_BOOK` 默认 **on**（`CHAPTER_DESIGN` 关则本旗也关；typo→off）。
+- 过检从「表格填满」扩成「这一章接得上这本书」：人/地/咬/线/左右镜像。仍一道 `evaluate_chapter_design`。不传 book 时旧格式金样仍绿。
+- 写之前发本书硬卡（人名/线 id+正文/上章钩与地）。简介在带章纲落库时用章纲覆盖。不自动建人、不自动种线。
+- 有 store 不传 book → 422 `design_book_missing`。验收用**新书**，不 overlay `book_44eb8789` 及名单旧书。
+- **现网冒烟书** `book_21f2dca9`：ch1 主编一次过；ch2/3 点批过检后落库。负例「对手周青臣」→ `cast_invented`；第2章标题箱锁却挂指针态线 → `line_wrong_bind`。不 force 再写 → 跳过。
+- **2026-08-17 按 6.3.4 重写前三章+设定：** 现网只留 **`book_7042c28c`《万界概率战争》**（已改成这个书名）。先种设定（沈拾灯人物卡、金縢之箱/场核碎片/令牌、术语、华山北峰/伪真空口、守火人、世界规则、三条母题、两条线）。三章《华山成核》《金縢箱锁》《双锚伪真空》设计已过检落库。第2章主编一次过；第1、3章点批过同一套检查。历史验收书已从书库永久删掉。系统书《乱世铜炉·设定参照》也已从现网摘掉。本轮仍只写到章设计，未写演绎/正文。
+
+### 大纲/节拍融合 · outline-beats-merge（2026-08-17）
+
+> **设计** [`docs/plans/2026-08-17-outline-beats-merge.md`](./plans/2026-08-17-outline-beats-merge.md)
+
+- 短名 `outline-beats-merge`。旗 `SCRIBE3_CHAPTER_DESIGN` 默认 **on**。
+- 规范阶段 `design`：一次 LLM、一次 persist、一道 `evaluate_chapter_design`。落库仍是 `chapter_spine` + `beats[]` + `beats_meta.schema_design=chapter_design.v1`。
+- 验收须**新 slug** 第 1 章融合节点。`book_718fe88f` 只作双节点病灶考古，**不 overlay**。
+- 合法写：主编 / 点批整份 / generate-stage=design / `/chat/write`。创建半稿 → 422 `design_half`。旧脚本单独 beats → 422 `stage_merged`。
+- 协议 **v6.3.4 rev.11**：只改 OpSeq 叙述与 KD-25；总 PASS 公式 / GATE-B / WCG / SPA **不改**。
+- **2026-08-17 优化 6.3.4 + 新书三章设计：** 协议加 **rev.11 本轮只写设计节点**。ASK 改为格式先于洪水（`## 拍1/2/3`、短 A vs B、线 id 置顶）。新书 **`book_44eb8789`**《万界概率战争·v6.3.4rev11·三章设计·20260817c》：intent 已设；promise `7mlc0hskmmndl0cmyxkg` / `9g8pq9n16fbt1o9ungh3`；storyline `sl_20ff834e8b`；三章壳《华山成核》《金縢箱锁》《双锚伪真空》。ch1 `stage=design persist=true` 多轮均 **422 llm_thin**（`spine_density` / `beat_gcd` / `beat_leak`），**未落库**——闸按方案拒半稿。不 overlay 旧书。不写演绎/正文。
+
+### 小说家第二刀 · 命运变贵（2026-08-16）
+
+> **设计** [`docs/plans/2026-08-16-fate-dearer-novelist-reform.md`](./plans/2026-08-16-fate-dearer-novelist-reform.md)（scratch 同源 `/tmp/grok-1000/grok-design-doc-c58fdafc.md`）
+
+- 病灶：一场好戏 ≠ 一部小说（同门同纸、钟停在当夜、矿当氛围、种子无户口）。
+- 方案 **rev.8**：场景坐标 = 命运 × 钟 × **地点**。`setting` 启发式退役硬闸。
+- **用户终裁：** 字数不作手段；炉灰记 / `book_e415dfeb` 不 overlay；钟/地都不是唯一主轴，也都不是装饰。
+- **现行已落地：** `FATE_DEARER=on` + `FATE_WAVE=2` + `PIPELINE_RECORDER=1` + **`WORLD_SURFACE=on`**。WAVE-1 含 `cast_role_frozen` / `world_fact_*` / `goal_off_world`，以及水面孪生 `surface_claim_unpaid` / `claim_paid_by_paraphrase` / `gesture_echo`。extra 后置【世界合同】；命令语气走 `extra_authors`。F3b/c 分批硬闸是历史切片，勿再当部署清单。
+- 协议 **v6.3.4 rev.10**。本轮验收书 **`book_718fe88f`**（`万界概率战争·v6.3.4rev10·三章水面·20260817`）。ch1–3 已有定稿；质量审查 [`docs/audits/2026-08-17-book718fe88f-ch1-3-quality.md`](./audits/2026-08-17-book718fe88f-ch1-3-quality.md)：**未完全按方案**（ch2/3 大纲节拍点批；水面只付组内一词）。`book_83584141` 只作上一轮 ch1 样本，**不 overlay**。旧书 `book_61a7935e` / `book_e415dfeb` ch8/9 **不 overlay / 不重写**。
+- 本书户口：promise `fo0rzii5phykb4gm0ojr` 十八个月深渊碰撞 / `22bx5lg7mn4e2y64r00a` 肉体三年碳化 / `o47d4lnrtvzmha2omh4a` 金縢因果封印；storyline `sl_3887096383` 金縢未开。
+- **ch1《华山成核》OpSeq 已跑完**（outline→beats→deduce→draft→final，均 `persist=true`）。钩：`成核点开始复制他的指针态`。**现网终态已付清**：卡 `wc.ch1.nucleation-pointer`，定稿含成核点+指针态+大遮蔽。初稿曾把成核点写成黑针（符合度 P0 / 热更前只读红），`force=1` 重跑 final 后已不是现网终态。
+- 符合度审查：[`docs/audits/2026-08-16-book83584141-ch1-reform-gap.md`](./audits/2026-08-16-book83584141-ch1-reform-gap.md) 记录的是付清前切片（闸绿、水面丢词）。
+- **打破补丁循环设计（已审定并落地）：** [`docs/plans/2026-08-16-world-surface-break-the-loop.md`](./plans/2026-08-16-world-surface-break-the-loop.md)。短名 `world-surface`。设置页可拨 `SCRIBE3_WORLD_SURFACE` on/off。
+
+### v6.3.4 rev.6 · 万界换锚（2026-08-15）
+
+> **协议** [`docs/e2e-director-journey-v634-true-chat-full-capability.md`](./e2e-director-journey-v634-true-chat-full-capability.md) **rev.6**  
+> **宇宙 SSOT** [`docs/worlds/wanjie-probability-war-v7.md`](./worlds/wanjie-probability-war-v7.md)
+
+- 默认验收宇宙 = 《万界概率战争》V7.0（柳岸青 / 沈烛 / 赫斯 / 兰因；三卷囚笼·泄露·第三条路）。
+- 炉灰记与 `book_bdfdcdc4` **退役**，不得续写冒充本版总 PASS；必须新建 slug。
+- 产品闸不改：13 槽、密度、OpSeq、SPA、WCG、宣称。
+- 章纲闭环工程审查（假铜复演 / `role:以为` / `st` 未传）仍有效，金样改为万界原子。
+
+### 章纲闭环 + 三章验收审查（2026-08-15 · 考古）
+
+> 当时验收书 `book_bdfdcdc4`（炉灰记合同）。**rev.6 起不再当总 PASS 书。**
 
 ### 冰山完整方案（2026-08-14）
 

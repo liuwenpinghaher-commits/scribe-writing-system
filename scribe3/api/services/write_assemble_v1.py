@@ -20,6 +20,7 @@ from scribe3.api.services.write_assemble_blocks import (  # noqa: F401
     _faction_prompt_block,
     _codex_block,
     _codex_segments,
+    strip_codex_pad,
     _editor_system,
     _editor_identity_block,
     _write_protocol_block,
@@ -64,7 +65,6 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     from scribe3.context_assembler import envelope_trace_manifest, render_envelope_text
     from scribe3.context_engine import CreativeContextEngine
     from scribe3.context_models import ContextRequest, ContextSource
-    from scribe3.craft import build_craft_block
     import hashlib
 
     # 未显式传 work 时与当前 store 库名对齐(测试夹具 db=test;生产=一书一库)
@@ -96,8 +96,14 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     # 伏笔 + 章前简报,会与下方 envelope 的 canonical/global 重复(facts 2×/promises 3×)。
     # v1 让 envelope 独占 facts/promises/角色/北极星的数据注入,身份层只留身份+硬协议+文风。
     # prefix 只留 anti_slop+章号；身份 / 写协议独立 _push。
-    _identity_txt = timed_call("assemble.seg.identity", _editor_identity_block)
-    _protocol_raw = timed_call("assemble.seg.write_protocol", _write_protocol_block)
+    from scribe3.stage_generate import stage_skips_editor_chrome as _skip_chrome_fn
+    _skip_chrome_pre = _skip_chrome_fn(phase)
+    if _skip_chrome_pre:
+        _identity_txt = ""
+        _protocol_raw = ""
+    else:
+        _identity_txt = timed_call("assemble.seg.identity", _editor_identity_block)
+        _protocol_raw = timed_call("assemble.seg.write_protocol", _write_protocol_block)
     prefix = (
         _anti_slop_floor_block()
         + _domain_input(
@@ -144,7 +150,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         if _exp_st.has_reread_ack(work or "main", chapter) or not _exp_st.get_require_reread(work or "main"):
             _snap = timed_call(
                 "assemble.seg.continue_snapshot",
-                lambda: build_continue_snapshot(st, chapter, work=work or "main"),
+                lambda: build_continue_snapshot(
+                    st, chapter, work=work or "main", focalizer=focalizer or "",
+                ),
             )
             _cblk = continue_block_text(_snap)
             if _cblk:
@@ -239,6 +247,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         request_text=request_text, work=work,
         named_soft_cap=named_pack_soft_cap(work=work),
     )
+    from scribe3.api.services.write_assemble_blocks import strip_codex_pad as _strip_pad
+    _named_txt = _strip_pad(_named_txt or "")
+    _cards_txt = _strip_pad(_cards_txt or "")
     if not _named_txt and not _cards_txt:
         _named_txt = (
             "【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n"
@@ -308,19 +319,42 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 pass
             return text
 
-        _push("identity", "redline", _identity_txt)
-        if _protocol_txt:
-            _push("write_protocol", "redline", _protocol_txt)
-        elif _protocol_skip:
-            _record_write_soft_fail(_protocol_skip)
+        from scribe3.stage_generate import stage_skips_editor_chrome
+        _skip_chrome = stage_skips_editor_chrome(phase)
+        if _skip_chrome:
+            note_push("identity", "", skip="stage_skip_editor_chrome")
+            note_push("write_protocol", "", skip="stage_skip_editor_chrome")
+        else:
+            _push("identity", "redline", _identity_txt)
+            if _protocol_txt:
+                _push("write_protocol", "redline", _protocol_txt)
+            elif _protocol_skip:
+                _record_write_soft_fail(_protocol_skip)
         _push("prefix", "redline", prefix)
-        if _revision_txt:
+        if _skip_chrome:
+            if _revision_txt:
+                note_push("revision", "", skip="stage_skip_editor_chrome")
+        elif _revision_txt:
             _push("revision", "redline", _revision_txt)
         elif _revision_skip:
             _record_write_soft_fail(_revision_skip)
-        _push("structure_diversity", "redline", _sd_txt)
-        _push("continue_snapshot", "redline", _continue_txt)
-        _push("secret_guard", "redline", _secret_guard_txt)
+        from scribe3.stage_generate import (
+            stage_skips_continue_snapshot,
+            stage_skips_structure_diversity,
+        )
+        if stage_skips_structure_diversity(phase):
+            note_push("structure_diversity", "", skip="stage_skip_planning")
+        else:
+            _push("structure_diversity", "redline", _sd_txt)
+        if stage_skips_continue_snapshot(phase):
+            note_push("continue_snapshot", "", skip="stage_skip_planning")
+        else:
+            _push("continue_snapshot", "redline", _continue_txt)
+        from scribe3.stage_generate import stage_skips_secret_guard
+        if stage_skips_secret_guard(phase):
+            note_push("secret_guard", "", skip="stage_skip_planning_paper")
+        else:
+            _push("secret_guard", "redline", _secret_guard_txt)
         _push("focalizer", "redline", _focalizer_txt)
         if _tool_txt:
             _push("tool_scope", "redline", _tool_txt)
@@ -340,16 +374,32 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             try:
                 _inputs = load_chapter_story_inputs(st, chapter) or {}
                 try:
+                    from scribe3.narrative_contract import repair_iceberg_contract
+                    _ch_live = st.get_chapter(int(chapter)) if st is not None and chapter is not None else {}
+                    _fixed, _repaired = repair_iceberg_contract(_ch_live)
+                    if _repaired and _fixed:
+                        _inputs["contract"] = _fixed
+                        try:
+                            st.update_chapter_meta(int(chapter), {"narrative_contract": _fixed})
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                try:
                     import json as _json
                     from scribe3.pipeline_recorder import current_recorder, dump_story_inputs
                     rec = current_recorder()
                     if rec is not None:
                         dump = dump_story_inputs({**_inputs, "chapter": chapter})
-                        aid = rec.put_artifact(
-                            kind="story_inputs", name="chapter_story_io",
-                            body=_json.dumps(dump, ensure_ascii=False),
-                            media="json", span_id=sid_load,
-                        )
+                        if not (dump.get("presence") or {}).get("contract"):
+                            note_push("chapter_story_io", "", skip="empty_story_contract")
+                            aid = None
+                        else:
+                            aid = rec.put_artifact(
+                                kind="story_inputs", name="chapter_story_io",
+                                body=_json.dumps(dump, ensure_ascii=False),
+                                media="json", span_id=sid_load,
+                            )
                         rec.emit(
                             sid_load, "read",
                             empty=not any(dump.get("presence", {}).values()),
@@ -445,11 +495,8 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                                 pred_value=bool(raw.strip()),
                                 payload={"inputs": {"chars": len(raw), "empty": not raw.strip()}},
                             )
-                        fa = rec.put_artifact(
-                            kind="fuel_block", name=_fn, body=str(_ft or ""), span_id=sid,
-                        )
-                        if fa:
-                            rec.produce(sid, fa, name=f"{_fn}_fuel")
+                        # 正文只 produce 一次：下面 _push 写 kind=segment。
+                        # 这里只记读源 / 谓词 / 吃 chapter_story_io，不再双写 fuel_block。
                         rec.consume(sid, name="chapter_story_io", role="input")
                 except Exception:
                     pass
@@ -505,9 +552,15 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 format_drama_vacuum_warn,
                 should_inject_drama_vacuum,
             )
+            from scribe3.stage_generate import stage_skips_drama_vacuum
             _ch_d = st.get_chapter(int(chapter)) if chapter is not None else {}
             _beats_d = (_ch_d or {}).get("beats") or []
-            if should_inject_drama_vacuum(_beats_d):
+            # 已有场面合同或规划阶段：空 GCD 不是「没戏」，灌真空会和 drama_contract 对打。
+            if (
+                not stage_skips_drama_vacuum(phase)
+                and not (_dr_raw or "").strip()
+                and should_inject_drama_vacuum(_beats_d)
+            ):
                 _vac = format_drama_vacuum_warn(beats=_beats_d)
                 if _vac:
                     _push(
@@ -519,6 +572,11 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                         ),
                     )
                     _budget_report_holder["drama_vacuum_injected"] = True
+            elif stage_skips_drama_vacuum(phase) or (_dr_raw or "").strip():
+                note_push(
+                    "drama_vacuum", "",
+                    skip="skip_vacuum_has_contract_or_planning",
+                )
         except Exception as _sf_e:
             from scribe3.soft_fail import soft_fail
             import logging as _sf_logging
@@ -649,20 +707,12 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             from scribe3.soft_fail import soft_fail
             import logging as _sf_logging
             soft_fail('write_assemble_soft_3', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
-        craft = build_craft_block(st.list_craft_rules() or None, short_mode=short_mode)
-        if craft:
-            craft = subtract_codex_canonical_echoes(craft, env_text or "")
-        if (craft or "").strip():
-            _cr = _domain_input(
-                f"work:{work or 'main'}:craft", "craft", "\n\n" + craft,
-            )
-            _push("craft", "supplemental", _cr)
-        else:
-            _record_write_soft_fail("empty_craft")
+        craft = ""
+        note_push("craft", "", skip="play_contract_zero_kpi")
         # WS-1 C.2：phase_role 与 craft/anti_slop 去重；空 phase 不 push
         _pr_raw = _phase_role_block(phase)
         try:
-            from scribe3.injection_compact import dedup_phase_role
+            from scribe3.injection_compact import dedup_phase_role, phase_role_has_substance
             _pr_raw = dedup_phase_role(
                 _pr_raw,
                 craft_text=craft or "",
@@ -674,7 +724,8 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             soft_fail('write_assemble_soft_4', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
         _phase_role_injected = False
         _phase_role_skip = ""
-        if (_pr_raw or "").strip():
+        from scribe3.injection_compact import phase_role_has_substance as _pr_ok
+        if (_pr_raw or "").strip() and _pr_ok(_pr_raw):
             _pr = _domain_input(
                 f"chapter:{chapter}:phase-role", "phase_role",
                 _pr_raw,
@@ -683,6 +734,8 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             _phase_role_injected = True
         else:
             _phase_role_skip = "phase_role_skip_empty"
+            if (_pr_raw or "").strip():
+                note_push("phase_role", "", skip="phase_role_skip_empty")
             _record_write_soft_fail(_phase_role_skip)
         # WS-1 C.3：默认 omit 独立 avoid 段（并入 anti_slop 旗，禁词表进 L0）
         _skip_avoid = False
@@ -956,18 +1009,22 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         _push("final_reminder", "redline", _fr)
         if normalized_phase == "deduce":
             truth = ((st.get_chapter(chapter) or {}).get("scene_truth") or "").strip()
-            scene_truth_input = (
-                "\n\n## 本场「场景真相」(角色投影的唯一事实源)\n"
-                + (truth or "(尚未填写场景真相；只能说明未能确认。)")
-                + "\n\n【演绎终检合同】输出必须逐字可追溯到本场「场景真相」。"
-                  "每个标题下只写真相中明确出现、且该角色可感知的内容；"
-                  "不得补写环境细节、动作过程、人物关系、历史、心理原因或后续结果。"
-                  "真相未写明时用“未能从场景真相确认。”留白，而不是推测。"
-            )
-            _st = _domain_input(
-                f"chapter:{chapter}:scene-truth", "scene_truth", scene_truth_input,
-            )
-            _push("scene_truth_proj", "redline", _st)
+            if truth:
+                scene_truth_input = (
+                    "\n\n## 本场「场景真相」(角色投影的唯一事实源)\n"
+                    + truth
+                    + "\n\n【演绎终检合同】输出必须逐字可追溯到本场「场景真相」。"
+                      "每个标题下只写真相中明确出现、且该角色可感知的内容；"
+                      "不得补写环境细节、动作过程、人物关系、历史、心理原因或后续结果。"
+                      "真相未写明时用“未能从场景真相确认。”留白，而不是推测。"
+                )
+                _st = _domain_input(
+                    f"chapter:{chapter}:scene-truth", "scene_truth", scene_truth_input,
+                )
+                _push("scene_truth_proj", "redline", _st)
+            else:
+                # 正在生成真相：禁止灌「尚未填写→只能未能确认」，否则模型不敢写真相。
+                note_push("scene_truth_proj", "", skip="deduce_truth_not_yet")
         _rc_injected = False
         _rc_skip = ""
         if (extra_instructions or "").strip():

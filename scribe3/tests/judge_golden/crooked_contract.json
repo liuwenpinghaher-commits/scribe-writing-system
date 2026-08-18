@@ -1,0 +1,26 @@
+{
+  "artifact_type": "contract",
+  "expected_verdict": "fail",
+  "expected_fail_question": null,
+  "input": {
+    "play_text": "交出去，娘就有一线生机；自己按回去，赌的是这条命。沈烛若合上五指。",
+    "contract": {
+      "fields": {
+        "goal": {"text": "编造的目标", "quote": "这句话戏里根本没有"},
+        "choice": {
+          "text": "交还是按",
+          "quote": "交出去，娘就有一线生机；自己按回去，赌的是这条命",
+          "side_a": {"text": "交", "quote": "交出去，娘就有一线生机"},
+          "side_b": {"text": "按", "quote": "自己按回去，赌的是这条命"}
+        },
+        "decision": {"text": "按回", "quote": "沈烛若合上五指"},
+        "hook": {"text": "没做完", "quote": "沈烛若合上五指"}
+      },
+      "beats": [
+        {"n": 1, "goal": {"text": "g", "quote": "交出去，娘就有一线生机"}, "turn": {"text": "t", "quote": "交出去，娘就有一线生机"}, "stages_choice": false},
+        {"n": 2, "goal": {"text": "g", "quote": "自己按回去，赌的是这条命"}, "turn": {"text": "t", "quote": "沈烛若合上五指"}, "stages_choice": true},
+        {"n": 3, "goal": {"text": "g", "quote": "沈烛若合上五指"}, "turn": {"text": "t", "quote": "沈烛若合上五指"}, "stages_choice": false}
+      ]
+    }
+  }
+}

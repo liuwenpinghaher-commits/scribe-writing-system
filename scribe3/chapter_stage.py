@@ -187,11 +187,10 @@ def stage_from_chapter_dict(ch: dict[str, Any] | None) -> str | None:
         if plan.get("beats"):
             return "design" if _design_on() else "beats"
         return "deduce"
+    if ch.get("play_sha") or ch.get("playbook_version"):
+        return "design"
     if ch.get("beats") or ch.get("chapter_spine"):
-        if _design_on() and (ch.get("beats") or ch.get("chapter_spine")):
-            return "design"
-        if ch.get("beats"):
-            return "beats"
+        return "design"
     if (ch.get("synopsis") or ch.get("outline") or "").strip():
         return "design" if _design_on() else "outline"
     return None

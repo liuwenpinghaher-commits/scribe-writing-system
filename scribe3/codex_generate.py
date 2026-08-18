@@ -675,13 +675,12 @@ def _duty_blob(kind: str, fields: Mapping[str, Any] | None) -> str:
 
 
 def portrait_grounded(kind: str, fields: Mapping[str, Any] | None, portrait: str) -> bool:
-    from scribe3.clue_density import _distinctive_overlap
+    from scribe3.playbook.quote import _norm
     blob = _duty_blob(kind, fields)
-    if not str(blob or "").strip():
+    if not str(blob or "").strip() or not str(portrait or "").strip():
         return False
-    if not str(portrait or "").strip():
-        return False
-    return _distinctive_overlap(portrait, blob, None)
+    b, p = _norm(blob), _norm(portrait)
+    return bool(b) and bool(p) and (b in p or p in b)
 
 
 def _apply_portrait_extract(kind: str, working: dict, patch: dict, raw: str) -> dict[str, Any]:

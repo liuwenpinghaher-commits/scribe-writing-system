@@ -1,0 +1,111 @@
+"""Per-layer generate. Each function returns a raw payload (not yet frozen)."""
+from __future__ import annotations
+
+from typing import Any, Callable
+
+from scribe3.playbook.parse import parse_json_with_retry
+from scribe3.playbook.prompts import (
+    IDENTITY_NOVELIST,
+    IDENTITY_SCRIBE,
+    contract_extract,
+    deduce_generate,
+    draft_generate,
+    duty_generate,
+    final_generate,
+    identity_for,
+    play_generate,
+)
+
+
+def _call(llm_fn: Callable, prompt: str, *, system: str, temperature: float, max_tokens: int) -> str:
+    try:
+        return llm_fn(
+            prompt, max_tokens=max_tokens, system=system, temperature=temperature,
+        ) or ""
+    except TypeError:
+        try:
+            return llm_fn(prompt, max_tokens=max_tokens) or ""
+        except TypeError:
+            return llm_fn(prompt) or ""
+
+
+def generate_json(llm_fn: Callable, prompt: str, *, system: str, max_tokens: int, temperature: float = 0.8) -> dict[str, Any]:
+    def _once() -> str:
+        return _call(llm_fn, prompt, system=system, temperature=temperature, max_tokens=max_tokens)
+
+    return parse_json_with_retry(_once)
+
+
+def generate_text(llm_fn: Callable, prompt: str, *, system: str, max_tokens: int) -> str:
+    return _call(llm_fn, prompt, system=system, temperature=0.8, max_tokens=max_tokens).strip()
+
+
+def gen_duty(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
+    raw = generate_json(
+        llm_fn, duty_generate(ctx), system=identity_for("duty"), max_tokens=2048,
+    )
+    raw["seq"] = int(ctx.get("seq") or 0)
+    raw["focalizer"] = ctx.get("focalizer") or raw.get("focalizer") or ""
+    raw["available_cast"] = list(ctx.get("available_cast") or [])
+    raw["available_lines"] = list(ctx.get("available_lines") or [])
+    raw["bite_from_prev"] = ctx.get("prev_hook_quote")
+    if int(raw["seq"] or 0) == 1:
+        raw["bite_from_prev"] = None
+    return raw
+
+
+def gen_play(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
+    text = generate_text(
+        llm_fn, play_generate(ctx), system=IDENTITY_NOVELIST, max_tokens=4096,
+    )
+    duty = ctx.get("duty") or {}
+    return {
+        "seq": int(ctx.get("seq") or 0),
+        "text": text,
+        "duty_sha": duty.get("sha") or "",
+    }
+
+
+def gen_contract(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
+    raw = generate_json(
+        llm_fn, contract_extract(ctx),
+        system=IDENTITY_SCRIBE, max_tokens=4096, temperature=0,
+    )
+    play = ctx.get("play") or {}
+    raw["play_sha"] = play.get("sha") or ctx.get("play_sha") or ""
+    raw["seq"] = int(ctx.get("seq") or 0)
+    return raw
+
+
+def gen_deduce(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
+    raw = generate_json(
+        llm_fn, deduce_generate(ctx), system=IDENTITY_NOVELIST, max_tokens=8192,
+    )
+    raw["play_sha"] = (ctx.get("play") or {}).get("sha") or ""
+    raw["contract_sha"] = (ctx.get("contract") or {}).get("sha") or ""
+    raw["seq"] = int(ctx.get("seq") or 0)
+    return raw
+
+
+def gen_draft(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
+    text = generate_text(
+        llm_fn, draft_generate(ctx), system=IDENTITY_NOVELIST, max_tokens=16384,
+    )
+    return {
+        "seq": int(ctx.get("seq") or 0),
+        "text": text,
+        "play_sha": (ctx.get("play") or {}).get("sha") or "",
+        "contract_sha": (ctx.get("contract") or {}).get("sha") or "",
+    }
+
+
+def gen_final(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
+    text = generate_text(
+        llm_fn, final_generate(ctx), system=IDENTITY_NOVELIST, max_tokens=16384,
+    )
+    return {
+        "seq": int(ctx.get("seq") or 0),
+        "text": text,
+        "play_sha": (ctx.get("play") or {}).get("sha") or "",
+        "contract_sha": (ctx.get("contract") or {}).get("sha") or "",
+    }

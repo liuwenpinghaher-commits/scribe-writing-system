@@ -29,7 +29,7 @@ export function hermesRunInstructions({ chapter, phase, focalizer } = {}) {
     '这是 scribe3 会改世界状态的主编任务。',
     '必须先用只读 s3_ 工具核实当前书内事实;需要写入时使用 scribe3_write 工具,等待作者审批。',
     '书级北极星用 s3_get_intent 核实后 s3_set_intent 写入;角色字段更正用 s3_patch_character。',
-    '结构运维:建卷 s3_add_volume、建章 s3_add_chapter、重排 s3_reorder_chapters、删卷 s3_delete_volume、章脚手架 s3_patch_chapter_plan。',
+    '结构运维:建卷 s3_add_volume、建章 s3_add_chapter、重排 s3_reorder_chapters、删卷 s3_delete_volume、章脚手架 s3_generate_stage / s3_patch_play / s3_patch_contract。',
     '母题(开书强制):设定圣经阶段必须用 s3_add_motif(name, theme, echoes, unfolding) 立至少 3 条母题；禁止零母题开写。写作注入与正文反哺只匹配已立母题，不会从正文自动新建。',
     '素材是作者直管的非正典参考记忆，只读召回和引用，不得写入或删改。',
     '作者点名工具时必须调用该工具并等待审批,禁止只口头答应不调用。',

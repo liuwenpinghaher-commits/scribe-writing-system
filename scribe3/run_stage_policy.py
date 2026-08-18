@@ -50,11 +50,10 @@ DEDUCE_ALLOWED_TOOLS = frozenset({
     "s3_list_entity_relations",
     "s3_list_world_rules",
     "s3_list_promises",
-    "s3_patch_chapter_plan",
     "s3_generate_stage",
 })
 
-DEDUCE_PREVIEW_ALLOWED_TOOLS = DEDUCE_ALLOWED_TOOLS - {"s3_patch_chapter_plan"}
+DEDUCE_PREVIEW_ALLOWED_TOOLS = DEDUCE_ALLOWED_TOOLS
 
 # 大纲/节拍脚手架：可读章 + plan 写；物理排除 save/ingest（novel-first O-5）
 PLAN_SCAFFOLD_ALLOWED_TOOLS = frozenset({
@@ -63,7 +62,8 @@ PLAN_SCAFFOLD_ALLOWED_TOOLS = frozenset({
     "s3_get_intent",
     "s3_list_promises",
     "s3_list_volumes",
-    "s3_patch_chapter_plan",
+    "s3_patch_play",
+    "s3_patch_contract",
     "s3_patch_chapter_meta",
     "s3_generate_stage",
 })
@@ -84,7 +84,7 @@ _POLICIES = {
         allowed_tools=DEDUCE_ALLOWED_TOOLS,
         # 演绎至多需读取当前章+角色/规则/关系/伏笔，再提交一次计划；12 次后说明游走。
         max_tool_calls=12,
-        required_tools=frozenset({"s3_patch_chapter_plan"}),
+        required_tools=frozenset({"s3_generate_stage"}),
     ),
     # 预览是质量审查的输入，必须物理上没有任何写工具；它绝不能靠 prompt “不写”。
     "deduce_preview": RunStagePolicy(
@@ -102,7 +102,23 @@ _POLICIES = {
         api_env="HERMES_PLAN_RUNS_API",
         allowed_tools=PLAN_SCAFFOLD_ALLOWED_TOOLS,
         max_tool_calls=12,
-        required_tools=frozenset({"s3_patch_chapter_plan"}),
+        required_tools=frozenset({"s3_generate_stage"}),
+    ),
+    "design": RunStagePolicy(
+        phase="design",
+        profile="scribe3_plan",
+        api_env="HERMES_PLAN_RUNS_API",
+        allowed_tools=PLAN_SCAFFOLD_ALLOWED_TOOLS,
+        max_tool_calls=12,
+        required_tools=frozenset({"s3_generate_stage"}),
+    ),
+    "chapter_design": RunStagePolicy(
+        phase="design",
+        profile="scribe3_plan",
+        api_env="HERMES_PLAN_RUNS_API",
+        allowed_tools=PLAN_SCAFFOLD_ALLOWED_TOOLS,
+        max_tool_calls=12,
+        required_tools=frozenset({"s3_generate_stage"}),
     ),
     "beats": RunStagePolicy(
         phase="beats",
@@ -110,7 +126,7 @@ _POLICIES = {
         api_env="HERMES_PLAN_RUNS_API",
         allowed_tools=PLAN_SCAFFOLD_ALLOWED_TOOLS,
         max_tool_calls=12,
-        required_tools=frozenset({"s3_patch_chapter_plan"}),
+        required_tools=frozenset({"s3_generate_stage"}),
     ),
     # 与 outline/beats 共用受限 plan profile
     "plan": RunStagePolicy(
@@ -119,7 +135,7 @@ _POLICIES = {
         api_env="HERMES_PLAN_RUNS_API",
         allowed_tools=PLAN_SCAFFOLD_ALLOWED_TOOLS,
         max_tool_calls=12,
-        required_tools=frozenset({"s3_patch_chapter_plan"}),
+        required_tools=frozenset({"s3_generate_stage"}),
     ),
     # 草稿：允许 save，禁止 ingest / 世界设定写
     "draft": RunStagePolicy(
@@ -136,7 +152,7 @@ _POLICIES = {
             "s3_list_world_rules",
             "s3_save_chapter",
             "s3_save_chapter_draft",
-            "s3_patch_chapter_plan",
+            "s3_generate_stage",
             "s3_generate_stage",
         }),
         max_tool_calls=20,
@@ -156,7 +172,7 @@ _POLICIES = {
             "s3_list_world_rules",
             "s3_save_chapter",
             "s3_save_chapter_draft",
-            "s3_patch_chapter_plan",
+            "s3_generate_stage",
             "s3_generate_stage",
         }),
         max_tool_calls=20,
@@ -176,7 +192,7 @@ def scaffold_tools_exclude_save(policy: RunStagePolicy | None) -> bool:
 # 脚手架阶段：即使「世界写」启发式命中，也必须带 chapter:N:<phase> run_scope，
 # 走 scribe3_plan / deduce 受限 profile，禁止静默落到全写（含 save/ingest）。
 SCAFFOLD_PHASES = frozenset({
-    "outline", "beats", "plan", "deduce", "deduce_preview", "draft", "final",
+    "outline", "beats", "design", "chapter_design", "plan", "deduce", "deduce_preview", "draft", "final",
 })
 
 

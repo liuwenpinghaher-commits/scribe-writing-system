@@ -228,6 +228,9 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
 
     统一内核是唯一生产写作路由。编译失败直接上抛，不得回退旧散点链
     伪装成“没有上下文”。"""
+    from scribe3.playbook.stages import extra_authors
+    if extra_authors(extra_instructions):
+        raise ValueError("extra_authors")
     return _assemble_write_instructions_v1(
         st, chapter=chapter, focalizer=focalizer, phase=phase,
         seed_words=seed_words, short_mode=short_mode,

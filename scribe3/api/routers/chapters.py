@@ -102,7 +102,7 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
         raise
 
     def _generate(attempt: int, constraints: str) -> str:
-        from scribe3.world_surface import extra_authors
+        from scribe3.playbook.stages import extra_authors
         if extra_authors(constraints) or extra_authors(req.msg or ""):
             raise RuntimeError("extra_authors")
         with_tools = _work_has_tools(work) and _write_phase_allows_tools(req.phase)
@@ -452,28 +452,16 @@ def patch_chapter(seq: int, req: ChapterMetaReq, work: str = "main"):
     R2.5: 目标 volume 不存在→422。
     """
     fields = req.model_dump(exclude_unset=True)
-    from scribe3.chapter_spine import known_line_ids_from_store
-    from scribe3.fate_dearer import load_fate_context
-    from scribe3.iceberg import persist_fields_blocked, sync_design_surface
-    from scribe3.stage_generate import load_design_book
+    gone_fields = {"chapter_spine", "beats", "beats_meta", "deductions", "scene_truth", "draft"}
+    hit = gone_fields.intersection(fields)
+    if hit:
+        raise HTTPException(status_code=410, detail={
+            "code": "stage_gone",
+            "message": "chapter_spine/beats/beats_meta 已废。请改用 GET/PATCH play 与 contract。",
+            "fields": sorted(hit),
+        })
     st_gate = _store_for(work)
     ch_gate = st_gate.get_chapter(seq) if hasattr(st_gate, "get_chapter") else None
-    merged = {**(ch_gate if isinstance(ch_gate, dict) else {}), **fields}
-    if "chapter_spine" in fields:
-        fields = sync_design_surface(fields, ch_gate if isinstance(ch_gate, dict) else None, store=st_gate)
-        merged = {**(ch_gate if isinstance(ch_gate, dict) else {}), **fields}
-    book = load_design_book(st_gate, seq, merged)
-    _blocked = persist_fields_blocked(
-        fields,
-        existing=ch_gate if isinstance(ch_gate, dict) else None,
-        known_line_ids=known_line_ids_from_store(st_gate),
-        fate_ctx=load_fate_context(st_gate, int(seq), merged),
-        chapter=merged,
-        book=book,
-        store=st_gate,
-    )
-    if _blocked:
-        raise HTTPException(status_code=422, detail=_blocked)
     # 北极星任务6:目的合同登记校验——strict 解析(P1-5:非法条目 422 指明第几条,
     # 绝不静默丢弃后整体覆盖=静默数据销毁)+ 条数量控 + 认知类写前预演
     # (不可实现 → 422 带原因;预演降级放行时响应带旗,P2-2)。
@@ -526,6 +514,11 @@ def patch_chapter(seq: int, req: ChapterMetaReq, work: str = "main"):
 
 
 def patch_chapter_gcd_fields(seq: int, req: GcdFieldsReq, work: str = "main"):
+    """节拍微调节已废。"""
+    raise HTTPException(status_code=410, detail={
+        "code": "stage_gone",
+        "message": "beats patch 已废。请改用 POST /generate-stage stage=design 或人工 s3_patch_contract。",
+    })
     """novel-first / O14：作者微调节拍 GCD 短字段；text 锁定，不开放 synopsis/volume。
 
     路径：
@@ -1140,6 +1133,40 @@ def select_light_latest(chapter: int, work: str = "main"):
 
 
 
+def get_chapter_play(seq: int, work: str = "main"):
+    st = _store_for(work)
+    rec = st.get_frozen("chapter_play", int(seq)) if hasattr(st, "get_frozen") else None
+    if not rec:
+        raise HTTPException(status_code=404, detail={"code": "play_missing", "seq": seq})
+    return rec
+
+
+def get_chapter_contract(seq: int, work: str = "main"):
+    st = _store_for(work)
+    rec = st.get_frozen("chapter_contract", int(seq)) if hasattr(st, "get_frozen") else None
+    if not rec:
+        raise HTTPException(status_code=404, detail={"code": "contract_missing", "seq": seq})
+    return rec
+
+
+class RewriteChapterReq(BaseModel):
+    confirm: bool = False
+    extra: str = ""
+
+
+def rewrite_chapter_play(seq: int, req: RewriteChapterReq, work: str = "main"):
+    if not req.confirm:
+        raise HTTPException(status_code=400, detail={
+            "code": "confirm_required",
+            "message": "rewrite 会作废这篇戏和下游契约/演绎/排演，请 confirm=true。",
+        })
+    from scribe3.api.routers.write import GenerateStageReq, generate_stage
+    return generate_stage(
+        GenerateStageReq(seq=int(seq), stage="design", persist=True, rewrite=True, extra=req.extra or ""),
+        work=work,
+    )
+
+
 def _bind_and_register() -> None:
     """Rebind handlers onto app_impl globals so monkeypatch keeps working."""
     from scribe3.api import app_impl as core
@@ -1420,5 +1447,18 @@ def _bind_and_register() -> None:
     setattr(core, 'select_light_latest', _re)
     g['select_light_latest'] = _re
     router.add_api_route('/select/light/latest', _re, methods=['GET'], name='select_light_latest')
+
+    for _name, _path, _methods in (
+        ("get_chapter_play", "/chapters/{seq}/play", ["GET"]),
+        ("get_chapter_contract", "/chapters/{seq}/contract", ["GET"]),
+        ("rewrite_chapter_play", "/chapters/{seq}/rewrite", ["POST"]),
+    ):
+        _fn = g[_name]
+        _re = types.FunctionType(_fn.__code__, core.__dict__, _name, _fn.__defaults__, _fn.__closure__)
+        if _fn.__annotations__:
+            _re.__annotations__ = dict(_fn.__annotations__)
+        setattr(core, _name, _re)
+        g[_name] = _re
+        router.add_api_route(_path, _re, methods=_methods, name=_name)
 
 _bind_and_register()

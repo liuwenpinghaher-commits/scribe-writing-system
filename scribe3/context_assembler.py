@@ -1041,10 +1041,8 @@ class ContextAssembler:
         if not items:
             return [], []
         try:
-            from scribe3.craft import build_craft_block
             from scribe3.injection_compact import line_echoes_cover
-            rules = self.store.list_craft_rules() or []
-            cover = build_craft_block(rules) or ""
+            cover = ""
         except Exception:
             return list(items), []
         if not str(cover).strip():

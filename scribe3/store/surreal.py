@@ -31,7 +31,8 @@ from scribe3.store.story_moves import StoryMovesMixin
 from scribe3.store.run_card_ops import RunCardOpsMixin
 from scribe3.store.pipeline_trace_ops import PipelineTraceOpsMixin
 from scribe3.store.design_attempts import DesignAttemptsMixin
+from scribe3.playbook.store import PlaybookOpsMixin
 
-class SurrealStore(ConnectionMixin, CharactersMixin, FactsKnowledgeMixin, EventsMixin, RecallMixin, ChaptersMixin, PromisesMixin, IntentMixin, CodexExtMixin, VoiceCraftMixin, MaterialsMixin, ChatAiMixin, StructureMixin, WorksMixin, MotifsMixin, UnverifiedIngestMixin, CanonCandidatesMixin, ProgressStatsMixin, CharacterArcMixin, StorylineStoreMixin, PilotOpsMixin, InfraOpsMixin, ContextOpsMixin, AdapterOpsMixin, QualityOpsMixin, StoryMovesMixin, RunCardOpsMixin, PipelineTraceOpsMixin, DesignAttemptsMixin, MiscMixin):
+class SurrealStore(ConnectionMixin, CharactersMixin, FactsKnowledgeMixin, EventsMixin, RecallMixin, ChaptersMixin, PromisesMixin, IntentMixin, CodexExtMixin, VoiceCraftMixin, MaterialsMixin, ChatAiMixin, StructureMixin, WorksMixin, MotifsMixin, UnverifiedIngestMixin, CanonCandidatesMixin, ProgressStatsMixin, CharacterArcMixin, StorylineStoreMixin, PilotOpsMixin, InfraOpsMixin, ContextOpsMixin, AdapterOpsMixin, QualityOpsMixin, StoryMovesMixin, RunCardOpsMixin, PipelineTraceOpsMixin, DesignAttemptsMixin, PlaybookOpsMixin, MiscMixin):
     """组合各域 mixin;公开 API 与历史 store.SurrealStore 一致。"""
     pass

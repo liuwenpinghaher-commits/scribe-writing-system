@@ -44,16 +44,15 @@ def craft_gates(seq: int | None = Query(default=None, ge=1), work: str = "main")
     e2e 与 CLI 同源:scribe3.verify_craft_compliance。
     seq 省略 → 只跑 GATE-A;给出 seq → 附加该章 B/C/D 与 journey 汇总。
     """
-    from scribe3.verify_craft_compliance import (
-        audit_chapter_det, gate_a, gate_b, gate_d, journey_pass, to_jsonable,
-    )
     st = _store_for(work)
-    ga = gate_a(st)
     out: dict = {
         "work": work,
-        "gate_a": to_jsonable(ga),
-        "ok": ga.ok,
+        "gate_a": {"ok": True, "retired": True},
+        "ok": True,
+        "message": "craft 节拍闸已废，改走 play-contract。",
     }
+    return out
+    ga = None
     if seq is not None:
         gb = gate_b(st, seq)
         gc = audit_chapter_det(st, seq)

@@ -282,7 +282,7 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
     await waitFor(() => expect(screen.getByTestId('deduce-submit-preview').disabled).toBe(false))
     fireEvent.click(screen.getByTestId('deduce-submit-preview'))
     const [instruction, options] = apiMock.runWrite.mock.calls[1]
-    expect(instruction).toContain('s3_patch_chapter_plan')
+    expect(instruction).toContain('s3_generate_stage')
     expect(instruction).toContain('"deductions"')
     expect(instruction).toContain('"involved_characters"')
     expect(options.phase).toBe('deduce')

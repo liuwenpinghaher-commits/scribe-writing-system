@@ -1,0 +1,94 @@
+"""Single judge entry. T=0. Evidence then yes/no. Majority only on sha-unchanged retry."""
+from __future__ import annotations
+
+from typing import Any, Callable
+
+from scribe3.playbook.parse import InfraError, parse_json_with_retry
+from scribe3.playbook.prompts import (
+    contract_judge,
+    deduce_judge,
+    draft_judge,
+    duty_judge,
+    final_judge,
+    identity_for,
+    play_judge,
+)
+from scribe3.playbook.quote import PLAYBOOK_VERSION
+
+RUBRICS = {
+    "duty": duty_judge,
+    "play": play_judge,
+    "contract": contract_judge,
+    "deduce": deduce_judge,
+    "draft": draft_judge,
+    "final": final_judge,
+}
+
+
+def _call(llm_fn: Callable, prompt: str, *, system: str) -> str:
+    try:
+        return llm_fn(prompt, max_tokens=2048, system=system, temperature=0) or ""
+    except TypeError:
+        try:
+            return llm_fn(prompt, max_tokens=2048) or ""
+        except TypeError:
+            return llm_fn(prompt) or ""
+
+
+def _normalize(raw: dict[str, Any]) -> dict[str, Any]:
+    verdict = str(raw.get("verdict") or "").strip().lower()
+    if verdict not in ("pass", "fail"):
+        answers = raw.get("answers") or []
+        nos = [a for a in answers if str((a or {}).get("answer") or "").lower() in ("no", "fail")]
+        verdict = "fail" if nos else "pass"
+    return {
+        "verdict": verdict,
+        "answers": list(raw.get("answers") or []),
+        "opinion": str(raw.get("opinion") or ""),
+        "judge_version": PLAYBOOK_VERSION,
+    }
+
+
+def judge(
+    artifact_type: str,
+    artifact: dict,
+    rubric_version: str,
+    context: dict,
+    *,
+    llm_fn: Callable | None = None,
+    prior: dict | None = None,
+) -> dict[str, Any]:
+    del artifact  # judges read via context (assembled to match rubric)
+    if rubric_version and rubric_version != PLAYBOOK_VERSION:
+        # Old artifacts stay on their own rubric file; v1 only ships playbook.1.
+        pass
+    if isinstance(prior, dict) and prior.get("verdict") in ("pass", "fail"):
+        return _normalize(prior)
+    fn = RUBRICS.get(artifact_type)
+    if fn is None:
+        raise ValueError(f"unknown judge type: {artifact_type}")
+    if llm_fn is None:
+        raise InfraError("judge 缺少 llm_fn")
+    prompt = fn(context)
+    system = identity_for("judge")
+
+    def _once() -> str:
+        text = _call(llm_fn, prompt, system=system)
+        if not str(text).strip():
+            raise InfraError("法官返回空")
+        return text
+
+    return _normalize(parse_json_with_retry(_once))
+
+
+def majority_if_disagreed(first: dict, second: dict, third: dict | None) -> dict[str, Any]:
+    votes = [first.get("verdict"), second.get("verdict")]
+    if third:
+        votes.append(third.get("verdict"))
+    winner = "fail" if votes.count("fail") >= votes.count("pass") else "pass"
+    picked = third if third and third.get("verdict") == winner else (
+        second if second.get("verdict") == winner else first
+    )
+    out = dict(picked)
+    out["rounds"] = [{"verdict": v} for v in votes]
+    return out

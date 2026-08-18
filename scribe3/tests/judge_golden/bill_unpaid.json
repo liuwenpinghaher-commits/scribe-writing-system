@@ -1,0 +1,14 @@
+{
+  "artifact_type": "play",
+  "expected_verdict": "fail",
+  "expected_fail_question": 3,
+  "input": {
+    "duty": {
+      "who": ["沈烛若"],
+      "must_happen": "沈烛若把碎片按回胸口",
+      "bill": "四十二度成了他的常态，母亲的生机被标价",
+      "forbidden_reveal": ["炉认主"]
+    },
+    "play_text": "沈烛若发现碎片会跟着自己的体温发烫。交出去还是按回去，他站了很久。他合上五指按回胸口。事情办完了。他付出了代价。门外有人。"
+  }
+}

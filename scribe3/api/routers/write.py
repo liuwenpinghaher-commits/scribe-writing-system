@@ -103,15 +103,17 @@ def _reject_stage_not_ready(st, chapter: int, phase: str, *, skip: bool) -> None
 
 class GenerateStageReq(BaseModel):
     seq: int
-    stage: Literal["outline", "beats", "design", "chapter_design", "deduce", "draft", "final"]
+    stage: str
     persist: bool = False
     extra: str = ""
     focalizer: str = ""
-    brief_only: bool = False  # 只 persist chapter_spine + 可选四仪；禁止 synopsis/beats/prose
+    brief_only: bool = False
+    force: bool = False
+    rewrite: bool = False
 
 
 def generate_stage(req: GenerateStageReq, work: str = "main"):
-    """独立 LLM 生成链：outline/beats/deduce/draft/final。禁止模板/切句回退。"""
+    """五层管线：duty → design → deduce → draft → final。旧 outline/beats 返回 410。"""
     from scribe3.stage_generate import (
         STAGE_MAX_TOKENS,
         normalize_stage,
@@ -119,23 +121,33 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
         stage_not_ready_http,
         thicken_stage,
     )
+    from scribe3.playbook.stages import extra_authors, reject_gone_stage
+    stage = normalize_stage(req.stage)
+    gone = reject_gone_stage(stage)
+    if gone:
+        raise HTTPException(status_code=410, detail=gone)
     st = _store_for(work)
     seq = int(req.seq)
-    stage = normalize_stage(req.stage)
+    extra = req.extra or ""
+    if req.force and "force=1" not in extra:
+        extra = (extra + " force=1").strip()
+    if req.rewrite and "rewrite=1" not in extra:
+        extra = (extra + " rewrite=1").strip()
     ch = st.get_chapter(seq) or {}
     _reject_stage_not_ready(st, seq, stage, skip=False)
 
     foc = resolve_stage_focalizer(req.focalizer, ch)
 
     from scribe3.stage_generate import dispatch_design_stage
-    from scribe3.world_surface import extra_authors
-    if extra_authors(req.extra or ""):
+    if extra_authors(extra):
         raise HTTPException(status_code=422, detail={
             "code": "extra_authors",
             "missing": ["extra_authors"],
             "message": "extra 不得当作者：禁止「必须原样 / 必须有一句 / 必须以时空」",
         })
-    hit = dispatch_design_stage(stage, ch, extra=req.extra or "")
+    hit = dispatch_design_stage(stage, ch, extra=extra)
+    if hit and hit.get("http") == 410:
+        raise HTTPException(status_code=410, detail=hit)
     if hit and hit.get("ok") is False:
         raise HTTPException(status_code=422, detail=hit)
 
@@ -146,20 +158,15 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
 
     persist_fn = None
     if req.persist:
-        from scribe3.chapter_spine import filter_brief_only_fields, is_prose_locked
-        if is_prose_locked(work, seq, ch) and not req.brief_only:
+        if bool((ch or {}).get("prose_lock")) and not req.brief_only:
             raise HTTPException(status_code=422, detail={
                 "code": "prose_locked",
-                "message": "本章定稿已锁，禁止覆盖大纲/节拍/正文；请用 brief_only 只写章纲。",
+                "message": "本章定稿已锁，禁止覆盖正文。",
                 "seq": seq,
             })
 
         def persist_fn(fields: dict) -> None:
             payload = dict(fields or {})
-            if req.brief_only:
-                payload = filter_brief_only_fields(payload, existing=ch)
-                if not payload:
-                    return
             if foc and not req.brief_only:
                 payload.setdefault("focalizer", foc)
             from scribe3.iceberg_leak import reject_persist_leaks
@@ -170,6 +177,14 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
                     title=str((ch or {}).get("title") or ""),
                     focalizer=foc or None,
                 )
+                try:
+                    st.update_chapter_meta(seq, {
+                        "play_sha": payload.get("play_sha") or "",
+                        "contract_sha": payload.get("contract_sha") or "",
+                        "playbook_version": "playbook.1",
+                    })
+                except Exception:
+                    pass
             elif "draft" in payload:
                 prose = payload.get("draft") or ""
                 st.save_chapter_draft(seq, prose)
@@ -186,8 +201,6 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
                         st.update_chapter_meta(seq, {"focalizer": foc})
                     except Exception:
                         pass
-            else:
-                st.update_chapter_meta(seq, payload)
 
     from scribe3.pipeline_trace_hooks import finish_failed, finish_ok, open_write_chain
     mt: dict = {}
@@ -195,7 +208,7 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
     try:
         out = thicken_stage(
             stage, ch, llm_fn=llm_fn, persist_fn=persist_fn,
-            seq=seq, extra=req.extra or "",
+            seq=seq, extra=extra,
             st=st, work=work,
             focalizer=resolve_stage_focalizer(req.focalizer, ch),
         )
@@ -228,6 +241,10 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
                 "seq": seq,
             }) from exc
         raise
+    if out.get("http") == 410 or out.get("code") == "stage_gone":
+        raise HTTPException(status_code=410, detail=out)
+    if out.get("code") == "needs_human":
+        return {**out, "ok": False, "status": "needs_human"}
     if out.get("code") == "stage_not_ready":
         raise HTTPException(status_code=409, detail=stage_not_ready_http(out))
     if out.get("ok") is False and out.get("code") == "llm_thin":
@@ -349,7 +366,7 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
     (每新开一个注入点都泄露过一次)对 GET 同样成立;现与 POST/loop 物理同源。
     不落库(台账 D-005,无生产调用方的兼容端点)。"""
     st = _store_for(work)
-    from scribe3.world_surface import extra_authors
+    from scribe3.playbook.stages import extra_authors
     if extra_authors(msg):
         raise HTTPException(status_code=422, detail={
             "code": "extra_authors",
@@ -385,7 +402,7 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
                     work: str = "main"):
     """POST 版写作对话(支持图片附件):前端用 fetch 流式读取。"""
     st = _store_for(work)
-    from scribe3.world_surface import extra_authors
+    from scribe3.playbook.stages import extra_authors
     if extra_authors(getattr(req, "msg", "") or ""):
         raise HTTPException(status_code=422, detail={
             "code": "extra_authors",

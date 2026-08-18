@@ -310,6 +310,24 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
                                    tier=kw.get("tier") or "chapter")
             return {"status": "written", "promise": row}
 
+        def _patch_promise(**kw):
+            pid = str(kw.get("promise_id") or kw.get("pid") or "").strip()
+            if not pid or not hasattr(st, "update_promise"):
+                return {"status": "error", "error": "missing promise_id"}
+            fields = {
+                k: kw[k] for k in (
+                    "text", "resolution", "tier", "setup_chapter", "kind",
+                    "payoff_min", "payoff_max",
+                ) if kw.get(k) is not None
+            }
+            if not fields:
+                return {"status": "noop", "promise_id": pid}
+            try:
+                ok = st.update_promise(pid, fields)
+            except ValueError as e:
+                return {"status": "error", "error": str(e)[:200]}
+            return {"status": "written" if ok else "error", "promise_id": pid, "fields": list(fields)}
+
         def _patch_char(**kw):
             """角色字段更正。生产 Store 无 patch_character，须走 update_record 真落库。
             旧实现在无 patch_character 时只写 _orch_chars 内存 → API 仍空 → Web 设定像没写。"""
@@ -342,11 +360,29 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
             return {"status": "written", "character_id": oid}
 
         def _patch_plan(**kw):
+            return {
+                "status": "error",
+                "http": 410,
+                "code": "stage_gone",
+                "error": "s3_patch_chapter_plan 已废，请走 s3_generate_stage 或 s3_patch_play / s3_patch_contract。",
+            }
             seq = int(kw.get("seq") or kw.get("chapter") or 1)
             fields = {k: v for k, v in kw.items()
                       if k not in ("seq", "chapter", "work") and v is not None}
-            from scribe3.iceberg import persist_fields_blocked
-            _blocked = persist_fields_blocked(fields)
+            from scribe3.iceberg import persist_fields_blocked, sync_design_surface
+            from scribe3.stage_generate import load_design_book
+            cur = st.get_chapter(seq) if hasattr(st, "get_chapter") else {}
+            if "chapter_spine" in fields:
+                fields = sync_design_surface(fields, cur if isinstance(cur, dict) else None, store=st)
+            book = load_design_book(st, seq, {**(cur or {}), **fields} if isinstance(cur, dict) else fields)
+            _blocked = persist_fields_blocked(
+                fields,
+                existing=cur if isinstance(cur, dict) else None,
+                known_line_ids=known_line_ids_from_store(st),
+                book=book,
+                store=st,
+                **persist_fate_kwargs(st, seq, fields, cur if isinstance(cur, dict) else None),
+            )
             if _blocked:
                 return {
                     "status": "error",
@@ -383,6 +419,10 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
                 name = oid.split(":", 1)[-1]
             if not oid:
                 return {"status": "error", "error": "missing character oid/name"}
+            from scribe3.canon_aliases import normalize_char_importance
+            if kw.get("importance") is not None:
+                kw = dict(kw)
+                kw["importance"] = normalize_char_importance(kw.get("importance"))
             traits = {
                 k: v for k, v in kw.items()
                 if k not in ("oid", "character_id", "name", "label", "work") and v is not None
@@ -488,9 +528,10 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
             )
             if _blk:
                 return {"status": "error", "error": _blk["message"], "code": _blk["code"]}
+            from scribe3.canon_aliases import normalize_rule_category
             st.add_world_rule(
                 name=name,
-                category=kw.get("category") or "民俗",
+                category=normalize_rule_category(kw.get("category")),
                 source=kw.get("source"),
                 capabilities=kw.get("capabilities"),
                 cost=kw.get("cost"),
@@ -624,6 +665,7 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
 
         executors = {
             "s3_plant_promise": _plant,
+            "s3_patch_promise": _patch_promise,
             "s3_patch_character": _patch_char,
             "s3_add_character": _add_char,
             "s3_set_intent": _set_intent,

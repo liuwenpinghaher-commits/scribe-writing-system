@@ -1133,6 +1133,14 @@ async def s3_patch_chapter_plan(
     chapter_spine: dict | None = None,
     work: str | None = None,
 ) -> dict:
+    """已废。请改用 s3_generate_stage 或 s3_patch_play / s3_patch_contract。"""
+    return {
+        "status": "error",
+        "http": 410,
+        "code": "stage_gone",
+        "tool": "s3_patch_chapter_plan",
+        "error": "s3_patch_chapter_plan 的 spine/beats 已废。请改用 s3_generate_stage(stage=duty|design|deduce|draft|final) 或人工 s3_patch_play / s3_patch_contract（仍需法官复审才能冻结）。",
+    }
     """改章阶段内容:大纲/节拍/场景真相/演绎/出场角色/场面合同/本章揭示(写,待批)。不改 prose/身份 meta。
 
     beats 每项必须有 text（beat/action 可作别名）；involved_characters 必须是书内角色
@@ -1289,6 +1297,60 @@ async def s3_patch_chapter_plan(
 
 
 @mcp.tool(annotations=_RW)
+async def s3_patch_play(
+    ctx: Context, seq: int, text: str, work: str | None = None,
+) -> dict:
+    """人工改正文戏稿。写入 draft，须再走 design 法官才能冻结。"""
+    ok = await _ask(ctx, f"人工改第{seq}章戏")
+
+    def _write():
+        st = _store_for(work)
+        from scribe3.playbook.structural import check_play_struct
+        hit = check_play_struct(text)
+        if not hit.get("ok"):
+            return {"status": "error", "tool": "s3_patch_play", **hit}
+        rec = {
+            "seq": int(seq), "text": text, "status": "draft",
+            "schema": "chapter_play.v1", "playbook_version": "playbook.1",
+            "version": st.next_version("chapter_play", int(seq)) if hasattr(st, "next_version") else 1,
+        }
+        if hasattr(st, "insert"):
+            st.insert("chapter_play", rec)
+        return {"status": "written", "tool": "s3_patch_play", "seq": int(seq), "note": "仍需法官复审才能冻结"}
+
+    return commit_if_approved("s3_patch_play", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_patch_contract(
+    ctx: Context, seq: int, contract: dict, work: str | None = None,
+) -> dict:
+    """人工指定契约 quote。写入 draft，须再走 design 法官才能冻结。"""
+    ok = await _ask(ctx, f"人工改第{seq}章契约")
+
+    def _write():
+        st = _store_for(work)
+        play = st.get_frozen("chapter_play", int(seq)) if hasattr(st, "get_frozen") else None
+        if not play:
+            return {"status": "error", "tool": "s3_patch_contract", "error": "还没有冻结的戏"}
+        from scribe3.playbook.structural import check_contract_struct
+        hit = check_contract_struct(contract, play.get("text") or "")
+        if not hit.get("ok"):
+            return {"status": "error", "tool": "s3_patch_contract", **hit}
+        rec = dict(contract)
+        rec.update({
+            "seq": int(seq), "status": "draft", "play_sha": play.get("sha"),
+            "schema": "chapter_contract.v1", "playbook_version": "playbook.1",
+            "version": st.next_version("chapter_contract", int(seq)) if hasattr(st, "next_version") else 1,
+        })
+        if hasattr(st, "insert"):
+            st.insert("chapter_contract", rec)
+        return {"status": "written", "tool": "s3_patch_contract", "seq": int(seq), "note": "仍需法官复审才能冻结"}
+
+    return commit_if_approved("s3_patch_contract", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
 async def s3_save_chapter_draft(
     seq: int, draft: str, work: str | None = None,
 ) -> dict:
@@ -1316,23 +1378,29 @@ async def s3_generate_stage(
     extra: str = "",
     work: str | None = None,
     brief_only: bool = False,
+    force: bool = False,
+    rewrite: bool = False,
 ) -> dict:
-    """独立 LLM 生成链：outline / beats / deduce / draft。禁止模板、切句、摘录占位。
-
-    persist=false 只返回厚稿；persist=true 时 outline/beats/deduce/design 待批落 plan，
-    draft 走 save_chapter_draft，final 走 save_chapter。"""
+    """五层管线：duty / design / deduce / draft / final。"""
     from scribe3.stage_generate import (
         STAGE_MAX_TOKENS,
         dispatch_design_stage,
         normalize_stage,
         thicken_stage,
     )
+    from scribe3.playbook.stages import extra_authors, reject_gone_stage
     stg = normalize_stage(stage)
-    if stg not in ("outline", "beats", "design", "deduce", "draft", "final"):
+    gone = reject_gone_stage(stg)
+    if gone:
+        return {"status": "error", "http": 410, "tool": "s3_generate_stage", **gone}
+    if stg not in ("duty", "design", "deduce", "draft", "final"):
         return {"status": "error", "tool": "s3_generate_stage", "error": f"未知阶段 {stage}"}
+    if force and "force=1" not in (extra or ""):
+        extra = ((extra or "") + " force=1").strip()
+    if rewrite and "rewrite=1" not in (extra or ""):
+        extra = ((extra or "") + " rewrite=1").strip()
     st = _store_for(work)
     ch = st.get_chapter(int(seq)) or {}
-    from scribe3.world_surface import extra_authors
     if extra_authors(extra or ""):
         return {
             "status": "error",
@@ -1369,8 +1437,7 @@ async def s3_generate_stage(
             if fields.get("prose"):
                 st.save_chapter(int(seq), fields.get("prose") or "")
     if persist and stg not in ("draft", "final"):
-        from scribe3.chapter_spine import is_prose_locked
-        if is_prose_locked(work or "main", int(seq), ch) and not brief_only:
+        if bool((ch or {}).get("prose_lock")) and not brief_only:
             return {
                 "status": "error",
                 "tool": "s3_generate_stage",

@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Any
+from typing import Any, Mapping
 
 SCHEMA = "narrative_contract.v1"
 CONTRACT_MIN_FIELD_CHARS = 8
@@ -267,6 +267,253 @@ def resolve_beat_items(
     if isinstance(cb, list) and any(beat_text(x) for x in cb):
         return cb
     return list(chapter_beats or [])
+
+
+_OUTLINE_HEAD = re.compile(
+    r"(?:^|\n)\s*(?:#{1,3}\s*)?(?:\d+[\.、．]?\s*)?(?:[一二三四五][、.．]?\s*)?"
+    r"(?P<h>日子|必须发生|因\s*[→\->]?\s*果|因|不能说|章末未决)\s*[：:]*",
+    re.MULTILINE,
+)
+_BEAT_SLOT = re.compile(
+    r"\*\*(?P<h>进场|事件|翻转|出场|水下)\s*[：:]?\*\*\s*(?P<body>.+?)(?=\n\s*\*\*(?:进场|事件|翻转|出场|水下)|$)",
+    re.DOTALL,
+)
+_OBSTACLE_LEX = ("拦", "讨", "按", "堵", "逼", "砸", "怕", "禁", "扣", "顶", "跟", "递", "暴露")
+_WANT_LEX = (
+    "要去", "要换", "他要", "灰七要", "核对", "核验", "清债", "今天清",
+    "认下", "不认", "对照", "对上", "抠出", "还回去", "交竹",
+)
+CONTRACT_FIELD_CAP = 40
+_SLOT_LEAK_RE = re.compile(
+    r"为什么非发生不可|下一章的动作与把柄|必须发生|章末未决|"
+    r"因\s*[→\-]\s*果|不能说|验收|WCG|合同四|帧外"
+)
+_SLOT_EXACT = frozenset({
+    "日子", "必须发生", "因", "果", "不能说", "章末未决",
+    "进场", "事件", "翻转", "出场", "水下",
+    "下一章的动作与把柄", "为什么非发生不可",
+})
+
+
+def _is_slot_or_meta_leak(text: str) -> bool:
+    t = cn_strip(text)
+    if not t:
+        return False
+    if t in _SLOT_EXACT:
+        return True
+    return bool(_SLOT_LEAK_RE.search(t))
+
+
+def _clip_cn(text: str, cap: int = 160) -> str:
+    raw = re.sub(r"\s+", "", str(text or "").strip())
+    return raw[:cap]
+
+
+def _tidy_clause(text: str) -> str:
+    """去掉半边引号、悬空逗号，避免代价变成「“那角纸，你收好」。"""
+    t = str(text or "").strip()
+    t = re.sub(r"^[“\"'「『]+", "", t)
+    t = re.sub(r"[”\"'」』]+$", "", t)
+    if t.count("“") != t.count("”"):
+        t = t.replace("“", "").replace("”", "")
+    t = t.strip("，,：:；;")
+    return t
+
+
+def _sents(blob: str) -> list[str]:
+    return [s.strip() for s in re.split(r"[。！？\n；;]", blob or "") if str(s).strip()]
+
+
+def split_outline_parts(synopsis: str) -> dict[str, str]:
+    """从大纲正文切五槽。兼容「## 一、日子」与「1. 日子」。"""
+    src = synopsis or ""
+    marks = list(_OUTLINE_HEAD.finditer(src))
+    out: dict[str, str] = {}
+    for i, m in enumerate(marks):
+        end = marks[i + 1].start() if i + 1 < len(marks) else len(src)
+        key = re.sub(r"\s+", "", m.group("h"))
+        if key.startswith("因"):
+            key = "因"
+        out[key] = src[m.end():end].strip()
+    return out
+
+
+def _beat_slot_text(beats: list | None, slot: str) -> str:
+    chunks: list[str] = []
+    for b in beats or []:
+        raw = beat_text(b)
+        for m in _BEAT_SLOT.finditer(raw):
+            if m.group("h") == slot:
+                body = (m.group("body") or "").strip()
+                if body:
+                    chunks.append(body)
+    return "\n".join(chunks)
+
+
+def _pick_want(blobs: list[str]) -> str:
+    for blob in blobs:
+        for sent in _sents(blob):
+            if _is_slot_or_meta_leak(sent):
+                continue
+            if any(k in sent for k in _WANT_LEX) and cn_len(sent) >= CONTRACT_MIN_FIELD_CHARS:
+                return _clip_cn(sent, CONTRACT_FIELD_CAP)
+    for blob in blobs:
+        for sent in _sents(blob):
+            if _is_slot_or_meta_leak(sent):
+                continue
+            if cn_len(sent) >= CONTRACT_MIN_FIELD_CHARS:
+                return _clip_cn(sent, CONTRACT_FIELD_CAP)
+    return ""
+
+
+def _pick_obstacle(blobs: list[str], desire: str) -> str:
+    for blob in blobs:
+        for sent in _sents(blob):
+            if _is_slot_or_meta_leak(sent):
+                continue
+            if not any(k in sent for k in _OBSTACLE_LEX):
+                continue
+            if cn_len(sent) < CONTRACT_MIN_FIELD_CHARS:
+                continue
+            cand = _clip_cn(sent, CONTRACT_FIELD_CAP)
+            if desire and (_share_8(cand, desire) or cn_strip(cand) in cn_strip(desire)):
+                continue
+            return cand
+    return ""
+
+
+def extract_contract_from_spine(spine: Mapping[str, Any] | None) -> dict[str, str]:
+    """四仪只读章纲 4/5/7|9/10，不扫进场。"""
+    def slot_text(val):
+        if isinstance(val, dict):
+            return str(val.get("text") or val.get("quote") or "").strip()
+        return str(val or "").strip()
+    src = spine if isinstance(spine, dict) else {}
+    return {
+        "desire": _clip_cn(slot_text(src.get("goal")), CONTRACT_FIELD_CAP),
+        "obstacle": _clip_cn(slot_text(src.get("obstacle")), CONTRACT_FIELD_CAP),
+        "turn": _clip_cn(
+            slot_text(src.get("escalation") or src.get("decision")),
+            CONTRACT_FIELD_CAP,
+        ),
+        "cost": _clip_cn(slot_text(src.get("cost")), CONTRACT_FIELD_CAP),
+    }
+
+
+def extract_contract_from_iceberg(ch: Mapping[str, Any] | None) -> dict[str, str]:
+    """只读章纲 13 槽投影。无 spine 不抽肥大纲、不扫进场。"""
+    src = ch if isinstance(ch, dict) else {}
+    if not isinstance(src.get("chapter_spine"), dict):
+        return {}
+    extracted = extract_contract_from_spine(src.get("chapter_spine"))
+    out_spine: dict[str, str] = {}
+    for key, val in extracted.items():
+        if val and cn_len(val) >= CONTRACT_MIN_FIELD_CHARS and cn_strip(val) not in _PLACEHOLDERS:
+            out_spine[key] = _tidy_clause(val)
+    return out_spine
+
+
+def iceberg_contract_dirty(nc: Any, ch: Mapping[str, Any] | None = None) -> bool:
+    """iceberg 回填把场面整段落进欲望/阻力互为子串 → 该修。作者锁不修。"""
+    if not isinstance(nc, dict) or nc.get("locked"):
+        return False
+    src = str(nc.get("source") or "")
+    if src == "author":
+        return False
+    if src and src != "iceberg":
+        return False
+    for key in _FIELD_KEYS:
+        val = str(nc.get(key) or "")
+        if key == "desire" and cn_len(val) < CONTRACT_MIN_FIELD_CHARS:
+            return True
+        if _is_slot_or_meta_leak(val):
+            return True
+    desire = str(nc.get("desire") or "")
+    obstacle = str(nc.get("obstacle") or "")
+    if obstacle and desire and (
+        _share_8(obstacle, desire) or cn_strip(obstacle) in cn_strip(desire)
+    ):
+        return True
+    for key in _FIELD_KEYS:
+        if cn_len(str(nc.get(key) or "")) > CONTRACT_FIELD_CAP + 8:
+            return True
+    parts = split_outline_parts(str((ch or {}).get("synopsis") or ""))
+    must = cn_strip(parts.get("必须发生") or "")
+    d = cn_strip(desire)
+    if must and d and d[:32] == must[:32]:
+        return True
+    extracted = extract_contract_from_iceberg(ch)
+    for key in _FIELD_KEYS:
+        old = str(nc.get(key) or "")
+        new = extracted.get(key) or ""
+        if any(q in old for q in ("“", "”", "「", "」")):
+            return True
+        if new and old and new != old and not _share_8(new, old):
+            return True
+    return False
+
+
+def repair_iceberg_contract(ch: Mapping[str, Any] | None) -> tuple[dict[str, Any], bool]:
+    """脏 iceberg 合同整表重抽。返回 (合同, 是否改了)。locked/author 原样。"""
+    src = ch if isinstance(ch, dict) else {}
+    prev = src.get("narrative_contract")
+    if isinstance(prev, str) and prev.strip():
+        try:
+            prev = json.loads(prev)
+        except (TypeError, ValueError):
+            prev = {}
+    if not isinstance(prev, dict):
+        prev = {}
+    if prev.get("locked") or str(prev.get("source") or "") == "author":
+        return validate_narrative_contract(prev) if prev else {}, False
+    if prev and not iceberg_contract_dirty(prev, src):
+        return validate_narrative_contract(prev), False
+    extracted = extract_contract_from_iceberg(src)
+    if not extracted:
+        return (validate_narrative_contract(prev) if prev else {}), False
+    nxt = dict(prev)
+    for key in _FIELD_KEYS:
+        nxt[key] = extracted.get(key) or ""
+    nxt["source"] = "iceberg"
+    nxt["schema"] = SCHEMA
+    return validate_narrative_contract(nxt), True
+
+
+def merge_iceberg_contract(
+    ch: Mapping[str, Any] | None,
+    fields: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """空四义才回填；locked / 作者已写的字段不动。返回应并入 persist 的 fields。"""
+    out = dict(fields or {})
+    merged = dict(ch or {})
+    merged.update(out)
+    prev = merged.get("narrative_contract")
+    if isinstance(prev, str) and prev.strip():
+        try:
+            prev = json.loads(prev)
+        except (TypeError, ValueError):
+            prev = {}
+    if not isinstance(prev, dict):
+        prev = {}
+    if prev.get("locked"):
+        return out
+    extracted = extract_contract_from_iceberg(merged)
+    if not extracted:
+        return out
+    nxt = dict(prev)
+    filled = False
+    for key in _FIELD_KEYS:
+        if str(nxt.get(key) or "").strip():
+            continue
+        if extracted.get(key):
+            nxt[key] = extracted[key]
+            filled = True
+    if not filled:
+        return out
+    nxt["source"] = str(nxt.get("source") or "iceberg")
+    nxt["schema"] = SCHEMA
+    out["narrative_contract"] = validate_narrative_contract(nxt)
+    return out
 
 
 def contract_has_scene_fields(contract: Any) -> bool:

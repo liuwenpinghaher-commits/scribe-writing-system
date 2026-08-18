@@ -50,7 +50,7 @@ def _editor_write_system(st, focalizer: str = "", chapter: int = None) -> str:
             import logging
             logging.getLogger("scribe3").warning("章前简报组装失败(non-fatal): %s", _bf_e)
     # Task7:M8 修订纪律(恒注入,与是否有简报无关) + 内核3 反平庸下限
-    revision = _write_revision_block() + _anti_slop_floor_block()
+    revision = _write_revision_block()
     return base + revision + (("\n\n" + brief_txt) if brief_txt else "")
 
 
@@ -175,42 +175,27 @@ def _outline_block(
         ch = st.get_chapter(chapter) or {}
     except Exception:
         raise   # U-011: fail-loud(_outline_block 大纲/节拍)
-    synopsis = (ch.get("synopsis") or "").strip()
-    beat_texts = []
-    for b in ch.get("beats") or []:
-        if isinstance(b, dict):
-            t = (b.get("text") or "").strip()
-        else:
-            t = str(b or "").strip()
-        if t:
-            beat_texts.append(t)
-    if not synopsis and not beat_texts:
-        return ""
     from scribe3.iceberg import clip_for
-    parts = ["## 本章大纲/节拍(据此展开正文,勿另起炉灶)"]
-    if synopsis:
-        parts.append("〔大纲〕" + clip_for("synopsis", synopsis))
-    if beat_texts:
-        numbered = "\n".join(
-            f"{i}.{clip_for('beat', t)}"
-            for i, t in enumerate(beat_texts, 1)
-        )
-        parts.append("〔节拍〕\n" + numbered)
-        parts.append("写作要求:按节拍轻重分配笔墨,不得均匀注水。")
+    parts = ["## 本章必须兑现"]
+    contract = None
+    if hasattr(st, "get_frozen"):
+        try:
+            contract = st.get_frozen("chapter_contract", int(chapter))
+        except Exception:
+            contract = None
+    fields = (contract or {}).get("fields") if isinstance(contract, dict) else {}
+    if not isinstance(fields, dict) or not fields:
+        return ""
+    labels = (("goal", "要办的事"), ("choice", "两难"), ("decision", "决断"), ("hook", "章末钩子"), ("cost", "要付的账"))
+    for key, lab in labels:
+        node = fields.get(key) if isinstance(fields.get(key), dict) else {}
+        text = str((node or {}).get("text") or "").strip()
+        if text:
+            parts.append(f"{lab}：{clip_for('beat', text)}")
+    if len(parts) <= 1:
+        return ""
     if focalizer:
-        parts.append("(以上为作者视角大纲,写限知视角时只呈现焦点者可感知的部分;"
-                     "帧外私密留作伏笔,不得由焦点者知晓或道破。)")
-    plan_mode = (mode or "write").strip().lower() == "plan"
-    if plan_mode:
-        parts.append(
-            "章节定位标注:生成/调整大纲或节拍时,每章须标注「压力级:1-5」与"
-            "「chapter_role:高压|推进|修炼|关系回收|低压|信息整理」。"
-        )
-        parts.append(
-            "反转标注规范:若本章含反转,节拍须标注「reversal_type:七类之一(身份反转/"
-            "动机反转/因果反转/立场反转/信息差反转/时间线反转/道德反转)」+「setup_clues」"
-            "(≥3 处铺垫,须引用前文对应片段)+「reveal_position_pct」(建议落在 50-85 区间)。"
-        )
+        parts.append("(贴着焦点者的限知写；帧外私密不得由焦点者知晓或道破。)")
     return "\n\n" + "\n".join(parts)
 
 
@@ -327,9 +312,10 @@ def _drama_block(st, chapter: int, focalizer: str = "") -> str:
                     break
     try:
         from scribe3.drama_beats import format_drama_block
-        return format_drama_block(
+        raw = format_drama_block(
             beats, chapter_hook=hook, focalizer=focalizer or "",
         ) or ""
+        return raw.replace("：：", "：").replace("::", "：")
     except Exception as e:
         logging.getLogger("scribe3").warning(
             "写路径 _drama_block 格式化失败(fail-soft): %s", e)
@@ -776,6 +762,25 @@ def _brief_must_has_ops(sec: dict) -> bool:
     )
 
 
+_LIE_WORK_ORDER = re.compile(
+    r"s3_set_char_anchors|缺错误信念|Lie[）)]锚|弧光指令与信奉度",
+)
+
+
+def _strip_lie_work_orders(text: str) -> str:
+    """写作 prompt 不要夹运维工单。伏笔窗口句保留。"""
+    if not (text or "").strip():
+        return text or ""
+    kept: list[str] = []
+    for ln in str(text).splitlines():
+        if _LIE_WORK_ORDER.search(ln):
+            continue
+        kept.append(ln)
+    out = "\n".join(kept)
+    out = re.sub(r"\n{3,}", "\n\n", out).strip()
+    return out
+
+
 def _brief_must_sections_write_block(
     st, chapter: int, focalizer: str = "",
     *, must_link_already_pinned: bool | None = None,
@@ -818,19 +823,23 @@ def _brief_must_sections_write_block(
         # 戏剧合同已在 envelope 前由 _drama_block 置顶注入；此处去重避免双份稀释。
         sec.pop("drama_contract", None)
         if not _brief_must_has_ops(sec):
-            return must_prefix
+            return _strip_lie_work_orders(must_prefix)
         sec, n_drop = _filter_brief_must_against_cover(sec, cover)
         if n_drop:
             _record_story_soft_fail("brief_must_echo_dropped")
         if not _brief_must_has_ops(sec):
-            return must_prefix
+            return _strip_lie_work_orders(must_prefix)
         text = (render_brief(sec) or "").strip()
         if not text or text == "## 本章创作简报(章前组装,遵守但不复述)":
-            return must_prefix
+            return _strip_lie_work_orders(must_prefix)
         if n_drop:
             text = "（已省略与大纲/场面合同重复的必达项）\n\n" + text
+        text = _strip_lie_work_orders(text)
+        must_prefix = _strip_lie_work_orders(must_prefix)
+        if not (text or "").strip() and not (must_prefix or "").strip():
+            return ""
         if must_prefix:
-            return must_prefix + "\n\n" + text
+            return must_prefix + ("\n\n" + text if text else "")
         return text
     except Exception as e:
         logging.getLogger("scribe3").warning(
@@ -1062,16 +1071,82 @@ def _query_from_contract_and_synopsis(st, chapter: int) -> str:
     return q[:200]
 
 
-def _hybrid_recall_for_write(st, chapter: int) -> str:
-    """限知写作用世界此刻。secret 恒掩码。失败记 empty_story_recall。"""
-    try:
-        q = _query_from_contract_and_synopsis(st, chapter)
-        if not q or not hasattr(st, "hybrid_recall"):
-            return ""
-        facts = st.hybrid_recall(q, int(chapter), k=5)
-    except Exception:
-        _record_story_soft_fail("empty_story_recall")
+def _chapter_title(ch: Any, seq: int) -> str:
+    row = ch if isinstance(ch, dict) else {}
+    return str(row.get("title") or f"第{int(seq)}章").strip()
+
+
+def _chapter_turn(ch: Any) -> str:
+    row = ch if isinstance(ch, dict) else {}
+    nc = row.get("narrative_contract")
+    if isinstance(nc, str) and nc.strip():
+        try:
+            import json as _json
+            nc = _json.loads(nc)
+        except Exception:
+            nc = {}
+    if not isinstance(nc, dict):
         return ""
+    return str(nc.get("turn") or "").strip()
+
+
+def _recall_fallback_from_chapters(st, chapter: int) -> str:
+    """无事实库时：开着的承诺 + 上章可见余波。不编情节，不泄 scene_truth。"""
+    lines: list[str] = []
+    try:
+        if hasattr(st, "open_promises"):
+            for p in list(st.open_promises() or [])[:5]:
+                if not isinstance(p, dict):
+                    continue
+                text = str(p.get("text") or "").strip()
+                if not text:
+                    continue
+                setup = p.get("setup_chapter") or p.get("chapter")
+                prefix = f"第{int(setup)}章 " if setup not in (None, "") else ""
+                lines.append(f"- 开着：{prefix}{text[:48]}")
+    except Exception:
+        pass
+    if int(chapter) > 1:
+        try:
+            prev = st.get_chapter(int(chapter) - 1) or {}
+            title = _chapter_title(prev, int(chapter) - 1)
+            from scribe3.narrative_drive import resolve_prev_end_hook
+            hook = resolve_prev_end_hook(prev)
+            if hook:
+                lines.append(f"- {title}余波：{hook[:72].replace(chr(10), '')}")
+        except Exception:
+            pass
+    return "\n".join(lines[:8])
+
+
+def _causal_fallback_from_chapters(st, chapter: int) -> str:
+    """无事件图时：近章标题链 + 已落库回合。不编新因果。"""
+    n = int(chapter)
+    if n <= 1:
+        return ""
+    start = max(1, n - 3)
+    rows: list[tuple[int, str, str]] = []
+    for seq in range(start, n):
+        try:
+            ch = st.get_chapter(seq) or {}
+        except Exception:
+            ch = {}
+        rows.append((seq, _chapter_title(ch, seq), _chapter_turn(ch)[:36]))
+    if not rows:
+        return ""
+    lines: list[str] = []
+    for i, (seq, title, turn) in enumerate(rows):
+        if i == 0:
+            extra = f"：{turn}" if turn else ""
+            lines.append(f"- {title}{extra}")
+            continue
+        prev_seq, prev_title, _ = rows[i - 1]
+        extra = f"（{turn}）" if turn else ""
+        lines.append(f"- {prev_title} → {title}{extra}")
+    return "\n".join(lines[:8])
+
+
+def _format_recall_facts(facts) -> str:
     lines: list[str] = []
     for f in facts or []:
         if isinstance(f, dict):
@@ -1091,6 +1166,24 @@ def _hybrid_recall_for_write(st, chapter: int) -> str:
         if len(lines) >= 8:
             break
     return "\n".join(lines)
+
+
+def _hybrid_recall_for_write(st, chapter: int) -> str:
+    """限知写作用世界此刻。secret 恒掩码。无事实库则回退章账本。"""
+    text = ""
+    try:
+        q = _query_from_contract_and_synopsis(st, chapter)
+        if q and hasattr(st, "hybrid_recall"):
+            facts = st.hybrid_recall(q, int(chapter), k=5)
+            text = _format_recall_facts(facts)
+    except Exception:
+        _record_story_soft_fail("empty_story_recall")
+    if not (text or "").strip():
+        try:
+            text = _recall_fallback_from_chapters(st, chapter)
+        except Exception:
+            text = ""
+    return text or ""
 
 
 def _event_id_local(ev) -> str:
@@ -1114,36 +1207,48 @@ def _causal_chain_for_write(st, chapter: int) -> str:
                 events.extend(list(st.events_at(int(chapter) - 1) or []))
             events.extend(list(st.events_at(int(chapter)) or []))
         seeds = [e for e in events if _event_id_local(e)][:3]
-        if not seeds or not hasattr(st, "causal_chain"):
-            return ""
-        lines: list[str] = []
-        seen: set[str] = set()
-        for ev in seeds:
-            eid = _event_id_local(ev)
-            chain = st.causal_chain(eid, direction="backward", max_depth=3) or []
-            for node in chain:
-                if isinstance(node, dict):
-                    nid = str(node.get("id") or "")
-                    title = str(node.get("title") or "").strip()
-                    seq = node.get("seq")
-                else:
-                    nid = str(getattr(node, "id", "") or "")
-                    title = str(getattr(node, "title", "") or "").strip()
-                    seq = getattr(node, "seq", None)
-                key = nid or title
-                if not key or key in seen:
-                    continue
-                seen.add(key)
-                prefix = f"第{seq}章 " if seq not in (None, "") else ""
-                lines.append(f"- {prefix}{title or key}")
+        if seeds and hasattr(st, "causal_chain"):
+            lines: list[str] = []
+            seen: set[str] = set()
+            for ev in seeds:
+                eid = _event_id_local(ev)
+                chain = st.causal_chain(eid, direction="backward", max_depth=3) or []
+                for node in chain:
+                    if isinstance(node, dict):
+                        nid = str(node.get("id") or "")
+                        title = str(node.get("title") or "").strip()
+                        seq = node.get("seq")
+                    else:
+                        nid = str(getattr(node, "id", "") or "")
+                        title = str(getattr(node, "title", "") or "").strip()
+                        seq = getattr(node, "seq", None)
+                    key = nid or title
+                    if not key or key in seen:
+                        continue
+                    seen.add(key)
+                    prefix = f"第{seq}章 " if seq not in (None, "") else ""
+                    label = title or ""
+                    from scribe3.story_causal_text import is_internal_event_id, humanize_causal_body
+                    if is_internal_event_id(label) or is_internal_event_id(str(nid)):
+                        continue
+                    if not label:
+                        continue
+                    lines.append(f"- {prefix}{label}")
+                    if len(lines) >= 8:
+                        break
                 if len(lines) >= 8:
                     break
-            if len(lines) >= 8:
-                break
-        return "\n".join(lines)
+            from scribe3.story_causal_text import humanize_causal_body
+            cleaned = humanize_causal_body("\n".join(lines))
+            if cleaned.strip():
+                return cleaned
+        return _causal_fallback_from_chapters(st, chapter)
     except Exception:
         _record_story_soft_fail("empty_story_causal")
-        return ""
+        try:
+            return _causal_fallback_from_chapters(st, chapter)
+        except Exception:
+            return ""
 
 
 def collect_story_fuel_segments(
@@ -1161,6 +1266,9 @@ def collect_story_fuel_segments(
     segs: list[dict] = []
     for name in ("story_ember", "story_recall", "story_causal"):
         text = (fuel.get(name) or "").strip()
+        if name == "story_causal" and text:
+            from scribe3.story_causal_text import humanize_causal_body
+            text = humanize_causal_body(text).strip()
         if text:
             segs.append({"name": name, "layer": "supplemental", "text": text})
         else:
@@ -1208,8 +1316,8 @@ def load_chapter_story_inputs(st, chapter: int) -> dict:
     if int(chapter) > 1:
         try:
             prev = st.get_chapter(int(chapter) - 1) or {}
-            pnd = prev.get("narrative_drive") if isinstance(prev.get("narrative_drive"), dict) else {}
-            hook = str(pnd.get("end_hook") or "").strip()
+            from scribe3.narrative_drive import resolve_prev_end_hook
+            hook = resolve_prev_end_hook(prev)
             if hook:
                 out["prior_consequences"] = hook
         except Exception:

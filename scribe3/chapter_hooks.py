@@ -42,6 +42,12 @@ def resolve_chapter_hook(
     """
     ch = chapter if isinstance(chapter, dict) else {}
 
+    fields = ch.get("contract_fields") if isinstance(ch.get("contract_fields"), dict) else {}
+    hook_node = fields.get("hook") if isinstance(fields.get("hook"), dict) else {}
+    cq = _s(hook_node.get("quote") or hook_node.get("text"))
+    if cq:
+        return cq
+
     meta = beats_meta
     if meta is None:
         raw = ch.get("beats_meta")
@@ -52,6 +58,12 @@ def resolve_chapter_hook(
     bm_hook = _s(meta.get("chapter_hook"))
     if bm_hook:
         return bm_hook
+
+    spine = ch.get("chapter_spine")
+    if isinstance(spine, dict):
+        sh = _s(spine.get("hook"))
+        if sh:
+            return sh
 
     beat_list = beats if beats is not None else ch.get("beats")
     lb = last_beat_hook(beat_list)

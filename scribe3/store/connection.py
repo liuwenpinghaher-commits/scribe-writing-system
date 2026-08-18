@@ -192,6 +192,12 @@ class ConnectionMixin:
             key = f"_migration:{f.stem}"
             if key in applied:
                 continue
+            if f.stem.startswith("147_") and hasattr(self, "migrate_legacy_plays"):
+                try:
+                    self.migrate_legacy_plays()
+                except Exception:
+                    logging.getLogger("scribe3").warning(
+                        "migrate_legacy_plays 失败(继续 147)", exc_info=True)
             try:
                 self._raw_query(f.read_text(encoding="utf-8"))
             except Exception as e:

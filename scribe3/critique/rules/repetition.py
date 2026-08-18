@@ -28,6 +28,8 @@ def find_repetitions(text: str, n: int = 8, min_count: int = 3, top: int = 10) -
 
 
 def _cjk_ngrams(text: str, n: int) -> set[str]:
+    """play-contract：ngram 不再当质量嘴。"""
+    return set()
     """正文去空白后所有含中文的 n-gram 集合(用于跨文本逐字比对)。"""
     s = re.sub(r"\s+", "", text or "")
     return {s[i:i + n] for i in range(len(s) - n + 1)

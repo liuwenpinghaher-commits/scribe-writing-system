@@ -1,0 +1,27 @@
+{
+  "artifact_type": "contract",
+  "expected_verdict": "fail",
+  "expected_fail_question": 1,
+  "input": {
+    "play_text": "沈烛若站在炉边，掌心发烫。交出去，娘就有一线生机；自己按回去，赌的是这条命。他合上五指把烫按回胸口。门外的呼吸声停了半拍——她全都听见了。",
+    "contract": {
+      "fields": {
+        "goal": {"text": "弄明白体温", "quote": "掌心发烫"},
+        "choice": {
+          "text": "交还是按",
+          "quote": "交出去，娘就有一线生机；自己按回去，赌的是这条命",
+          "side_a": {"text": "交", "quote": "交出去，娘就有一线生机"},
+          "side_b": {"text": "按", "quote": "自己按回去，赌的是这条命"}
+        },
+        "decision": {"text": "按回", "quote": "他合上五指把烫按回胸口"},
+        "hook": {"text": "门外有人", "quote": "门外的呼吸声停了半拍——她全都听见了"}
+      },
+      "beats": [
+        {"n": 1, "goal": {"text": "g", "quote": "掌心发烫"}, "turn": {"text": "t", "quote": "掌心发烫"}, "stages_choice": false},
+        {"n": 2, "goal": {"text": "g", "quote": "交出去，娘就有一线生机"}, "turn": {"text": "t", "quote": "他合上五指把烫按回胸口"}, "stages_choice": true},
+        {"n": 3, "goal": {"text": "g", "quote": "门外的呼吸声停了半拍"}, "turn": {"text": "t", "quote": "她全都听见了"}, "stages_choice": false}
+      ],
+      "note": "戏里按回胸口是关键转折，契约未单独标出账/体温落地，法官完整性应判漏"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "artifact_type": "play",
+  "expected_verdict": "fail",
+  "expected_fail_question": 7,
+  "input": {
+    "duty": {
+      "who": ["沈烛若"],
+      "must_happen": "沈烛若把碎片按回胸口",
+      "bill": "四十二度成了他的常态",
+      "forbidden_reveal": ["炉认主"]
+    },
+    "play_text": "沈烛若站在炉边。交出去，娘就有一线生机；自己按回去，赌的是这条命。他合上五指，把碎片按回胸口。四十二度成了他的体温。夜色深了，一切都安静下来。"
+  }
+}

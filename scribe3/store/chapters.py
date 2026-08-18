@@ -282,6 +282,45 @@ class ChaptersMixin:
         except Exception as _e:
             logging.getLogger("scribe3.store").warning(
                 "_record_daily_progress 失败(记账跳过,存稿不受影响): %s", _e)
+        # 余烬：正文尾巴写入 narrative_drive.end_hook，下章 story_ember 必吃。
+        try:
+            from scribe3.narrative_drive import extract_end_hook_from_prose, merge_end_hook
+            cur0 = self.get_chapter(seq) or {}
+            spine = cur0.get("chapter_spine") if isinstance(cur0.get("chapter_spine"), dict) else {}
+            hook = str((spine or {}).get("hook") or "").strip() or extract_end_hook_from_prose(prose)
+            if hook:
+                cur = self.get_chapter(seq) or {}
+                drive = cur.get("narrative_drive") if isinstance(cur.get("narrative_drive"), dict) else {}
+                nxt = merge_end_hook(drive, hook)
+                if (nxt.get("end_hook") or "") != (drive.get("end_hook") or ""):
+                    self.update_chapter_meta(seq, {"narrative_drive": nxt})
+        except Exception as _e:
+            logging.getLogger("scribe3.store").warning(
+                "end_hook 回填失败(存稿不受影响): %s", _e)
+        # 即兴落户：只写 beats_meta.seeds，禁止 plant_promise。
+        try:
+            from scribe3.fate_dearer import extract_seeds, load_ore, merge_seeds
+            cur = self.get_chapter(seq) or {}
+            spine = cur.get("chapter_spine") if isinstance(cur.get("chapter_spine"), dict) else {}
+            import re
+            names: set[str] = set()
+            for n in re.split(r"[、，,/／]", str((spine or {}).get("cast") or "")):
+                if n.strip():
+                    names.add(n.strip())
+            seeds = extract_seeds(
+                prose, spine, ore=load_ore(cur), known_names=names,
+            )
+            if seeds:
+                bm = merge_seeds(cur, seeds)
+                self.update_chapter_meta(seq, {"beats_meta": bm})
+                try:
+                    from scribe3.pipeline_recorder import put_fate_artifact
+                    put_fate_artifact("seed_census", "seeds", str(seeds)[:400])
+                except Exception:
+                    pass
+        except Exception as _e:
+            logging.getLogger("scribe3.store").warning(
+                "seeds 回填失败(存稿不受影响): %s", _e)
 
     def add_chapter_version(self, seq: int, prose: str, label: str = "",
                             kind: str = "checkpoint", qc: dict | None = None,
@@ -359,9 +398,10 @@ class ChaptersMixin:
         # cast only when present. type::record (not type::record) for two-arg record ids.
         rows = self._query(
             "SELECT seq,title,label,(IF volume THEN meta::id(volume) ELSE NONE END) AS volume,"
-            "focalizer,prose,synopsis,beats,draft,"
-            "scene_truth,scene_truth_revision,involved_characters,deductions,purpose_text,deltas,"
-            "pressure_drive,beats_meta,narrative_drive,narrative_contract,"
+            "focalizer,prose,synopsis,"
+            "scene_truth_revision,involved_characters,purpose_text,deltas,"
+            "pressure_drive,narrative_drive,narrative_contract,"
+            "prose_lock,play_sha,contract_sha,playbook_version,"
             "reveal_secret_ids,"
             "archived,"
             "(IF archived_at IS NONE THEN NONE ELSE <string>archived_at END) AS archived_at,"
@@ -371,12 +411,13 @@ class ChaptersMixin:
         if not rows:
             return None
         r = rows[0]
-        raw_beats = r.get("beats")
-        try:
-            r["beats"] = json.loads(raw_beats) if raw_beats else []
-        except (ValueError, TypeError):
-            r["beats"] = []
-        for _k in ("involved_characters", "deductions", "deltas"):
+        r["beats"] = []
+        r["draft"] = ""
+        r["chapter_spine"] = {}
+        r["beats_meta"] = {}
+        r["deductions"] = []
+        r["scene_truth"] = ""
+        for _k in ("involved_characters", "deltas"):
             raw = r.get(_k)
             try:
                 r[_k] = json.loads(raw) if raw else []
@@ -386,25 +427,10 @@ class ChaptersMixin:
         pd = r.get("pressure_drive")
         if pd is not None and not isinstance(pd, (str, dict)):
             r["pressure_drive"] = str(pd)
-        # beats_meta：JSON 串 → dict（坏数据 / 空 → {}）；已是 dict 则原样
-        bm = r.get("beats_meta")
-        if bm is None or bm == "":
-            r["beats_meta"] = {}
-        elif isinstance(bm, dict):
-            r["beats_meta"] = bm
-        elif isinstance(bm, str):
-            try:
-                parsed_bm = json.loads(bm)
-                r["beats_meta"] = parsed_bm if isinstance(parsed_bm, dict) else {}
-            except (ValueError, TypeError):
-                r["beats_meta"] = {}
-        else:
-            r["beats_meta"] = {}
-        # narrative_drive / narrative_contract：JSON 串 → dict
         r["narrative_drive"] = coerce_chapter_json_dict(r.get("narrative_drive"))
         r["narrative_contract"] = coerce_chapter_json_dict(r.get("narrative_contract"))
+        r["prose_lock"] = bool(r.get("prose_lock"))
         r["reveal_secret_ids"] = coerce_chapter_json_list(r.get("reveal_secret_ids"))
-        r["scene_truth"] = r.get("scene_truth") or ""
         try:
             r["scene_truth_revision"] = max(0, int(r.get("scene_truth_revision") or 0))
         except (TypeError, ValueError):
@@ -416,6 +442,21 @@ class ChaptersMixin:
             r["post_analysis"] = self.post_analysis_summary(int(seq), r.get("prose") or "")
         except Exception:
             r["post_analysis"] = None
+        if hasattr(self, "get_frozen"):
+            try:
+                play = self.get_frozen("chapter_play", int(seq))
+            except Exception:
+                play = None
+            if play:
+                r["play_sha"] = play.get("sha") or r.get("play_sha")
+                r["play"] = play.get("text") or ""
+            try:
+                contract = self.get_frozen("chapter_contract", int(seq))
+            except Exception:
+                contract = None
+            if contract:
+                r["contract_sha"] = contract.get("sha") or r.get("contract_sha")
+                r["contract"] = contract
         return r
 
     def list_chapters(self) -> list[dict]:
@@ -433,12 +474,28 @@ class ChaptersMixin:
         """遗留处置 2-D(#5):书级面板窄查询——一次拉草料/目的字段,不拉 prose/embedding
         (north_star_book 原逐章 get_chapter 全行,几百章时既慢又占内存)。缺失字段补 None,
         调用方不必区分"无键"与"空值"。"""
-        rows = self._query(
-            "SELECT seq, title, synopsis, beats, scene_truth, deltas FROM chapter:.. "
-            "WHERE archived = NONE OR archived != true ORDER BY seq")
+        sql = (
+            "SELECT seq, title, synopsis, deltas FROM chapter:.. "
+            "WHERE archived = NONE OR archived != true ORDER BY seq"
+        )
+        sql_flags = (
+            "SELECT seq, title, synopsis, deltas, "
+            "(IF prose IS NONE OR prose = '' THEN false ELSE true END) AS has_prose "
+            "FROM chapter:.. "
+            "WHERE archived = NONE OR archived != true ORDER BY seq"
+        )
+        try:
+            rows = self._query(sql_flags)
+        except Exception:
+            rows = self._query(sql)
         for r in rows:
-            for k in ("title", "synopsis", "beats", "scene_truth", "deltas"):
+            for k in ("title", "synopsis", "deltas"):
                 r.setdefault(k, None)
+            r.setdefault("beats", None)
+            r.setdefault("scene_truth", None)
+            if "has_prose" in r:
+                r["has_prose"] = bool(r.get("has_prose"))
+            r["has_draft"] = False
         return rows
 
     def recent_proses(self, before_seq: int, k: int = 5) -> list[dict]:

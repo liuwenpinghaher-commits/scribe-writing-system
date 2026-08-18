@@ -197,27 +197,7 @@ def check_persist_gates(
     - craft 过、质控失败 → 同 check_finalize_for_save
     - danger_draft 仅旁路质控 triage
     """
-    from scribe3.verify_craft_compliance import evaluate_craft_finalize_gate
-
-    craft = evaluate_craft_finalize_gate(st, int(seq), skip=bool(skip_craft))
-    if not craft.get("allowed"):
-        return {
-            "allowed": False,
-            "code": "craft_finalize",
-            "verdict": "blocking",
-            "detail": craft.get("detail") or "craft finalize blocked",
-            "blocking": list(craft.get("blocking") or []),
-            "advisory_items": [],
-            "craft": craft,
-            "triage": {
-                "verdict": "blocking",
-                "blocking": list(craft.get("blocking") or []),
-                "advisory_count": 0,
-                "advisory_items": [],
-                "degraded_stages": [],
-                "leaks": [],
-            },
-        }
+    craft = {"allowed": True, "blocking": [], "skip": bool(skip_craft), "code": "play_contract"}
     fg = check_finalize_for_save(
         st, int(seq), prose,
         focalizer=focalizer or None,
@@ -257,11 +237,7 @@ def try_stamp_kind_final(
           detail: str,
         }
     """
-    from scribe3.verify_craft_compliance import evaluate_craft_finalize_gate
-
-    craft = evaluate_craft_finalize_gate(
-        st, int(seq), skip=bool(skip_craft or force),
-    )
+    craft = {"allowed": True, "blocking": [], "skip": bool(skip_craft or force), "code": "play_contract"}
     if not craft.get("allowed"):
         return {
             "stamped": False,

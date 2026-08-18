@@ -1,0 +1,332 @@
+"""playbook.1 identity + generate/judge prompts. Changing this file requires a version bump."""
+from __future__ import annotations
+
+from scribe3.playbook.quote import PLAYBOOK_VERSION
+
+IDENTITY_NOVELIST = (
+    "你是一个写了二十年长篇类型小说的小说家。你从不写提纲式概括，你写场面："
+    "具体的时间、具体的地方、人在做什么说什么。你写的时候心里装着读者："
+    "读完这章，要能说出发生了什么、谁付出了什么、还想不想翻下一页。"
+)
+IDENTITY_DUTY = "你是这本书的主编剧，管整本书的账房：每章办什么事、付什么账，你说了算。"
+IDENTITY_SCRIBE = "你是剧组里最较真的场记。你只抄，不写。戏里没有的一个字都不许添。"
+IDENTITY_JUDGE = (
+    "你是最苛刻的文学编辑，毙过的稿子比过稿多十倍。你只认纸面上的东西："
+    "产物里有的才算数，『作者大概是想……』一律不算。你判案先引原文："
+    "每个判断必须先引用产物原句作证据，再下结论。你的意见说人话，"
+    "像老编辑在稿纸边上用红笔写的那种话。"
+)
+
+VERDICT_SCHEMA = (
+    "输出 JSON（不输出任何别的文字）：\n"
+    '{"answers": [{"q": 1, "evidence": "产物原句", "answer": "yes/no", "reason": "..."}],\n'
+    ' "verdict": "pass/fail",\n'
+    ' "opinion": "fail 时必填：老编辑红笔式的意见，只说作品本身，禁提字段名与指标"}'
+)
+
+
+def duty_generate(ctx: dict) -> str:
+    return f"""你在为第 {ctx.get("seq")} 章立"责任"——这一章必须办成的事。
+这份责任卡直接驱动下游写戏：写戏的严格按你立的来，立歪了整章歪。
+
+【全书定位】
+卷纲：{ctx.get("volume_outline") or "（无）"}
+北极星：{ctx.get("north_star") or "（无）"}
+
+【本章焦点者】{ctx.get("focalizer") or "（未指定）"}（这一章贴着谁的视角走）
+【上一章章末留下的钩子】（原文，必须接住）
+{ctx.get("prev_hook_quote") or "（第1章无上章钩子）"}
+【近 3 章的责任】（避免连续同类型账单）
+{ctx.get("recent_duty_summary") or "（无）"}
+【户口：可用的人】{ctx.get("available_cast") or []}
+【可绑的线】{ctx.get("available_lines") or []}
+【相关设定】{ctx.get("codex_recall") or "（无）"}
+【全书秘密清单】{ctx.get("secret_list") or []}
+
+立四件事：
+1. must_happen——本章必须办的一件事。
+   检验：能不能用一个动作说清（谁在什么物件上做什么）？
+2. bill——本章的账：办成这件事必须付出的、收不回来的东西。
+   账必须从这章的具体处境里长出来，不是从类型里挑一个。
+3. who——在场做事的人，只能从户口里选。
+4. forbidden_reveal——从秘密清单里选本章还不能揭的。
+
+输出 JSON（不输出任何别的文字）：
+{{"must_happen": "...", "bill": "...", "who": ["..."],
+ "forbidden_reveal": ["..."], "line_to_touch": "线id 或 null"}}
+"""
+
+
+def duty_judge(ctx: dict) -> str:
+    return f"""【责任卡】{ctx.get("duty_json")}
+【卷纲】{ctx.get("volume_outline") or "（无）"}
+【近 3 章的责任】{ctx.get("recent_duty_summary") or "（无）"}
+【上一章章末钩子】{ctx.get("prev_hook_quote") or "（第1章无）"}
+
+五问：
+1. must_happen 是不是一个可演的具体动作（不是情绪/方向/主题）？
+2. bill 是不是一笔收不回来的账（不是"付出代价"这种空话）？
+3. 这份责任和近 3 章的账单同类型吗？（同质 → 不过）
+4. 这份责任接住上一章的钩子了吗？（字符串核对是机器的事，你只判「责任与钩子有没有关系」）
+5. forbidden_reveal 有没有漏掉"照这章的写法极可能说漏嘴"的秘密？
+
+{VERDICT_SCHEMA}
+"""
+
+
+def play_generate(ctx: dict) -> str:
+    d = ctx.get("duty") or {}
+    return f"""写第 {ctx.get("seq")} 章的戏。这是给全书定"这一章发生什么"的一篇短戏，不是给读者的正文。
+
+【本章责任】（责任卡已冻结，严格照此写，不得另办一件事）
+- 要办的一件事：{d.get("must_happen")}
+- 要付的账：{d.get("bill")}
+- 在场做事的人：{d.get("who")}
+- 必须接住的上章钩子：{d.get("bite_from_prev")}
+- 禁止拆穿的事：{d.get("forbidden_reveal")}
+- 本章焦点者：{d.get("focalizer")}（贴着这个人的处境写）
+
+【可用的人】{d.get("available_cast")}（编造户口外的人 = 废稿）
+【相关设定】{ctx.get("codex_recall") or "（无）"}（设定以外的东西不许发明）
+【近 3 章戏的场面类型】{ctx.get("recent_scene_summary") or "（无）"}（避免连着写同类型的戏）
+
+怎么写：
+1. 800-2000 字，自然语言。不写标签、不写表格、不分场标题。
+2. 写成戏，不写成梗概：至少要有一个具体场面。
+3. 两难是这章的心脏：他还没选的时候，两头都让他疼。
+   检验：如果读者能说"这还用想？当然选 A"，这道两难就死了，重写。
+4. 他最后必须选，选要落成动作（他做了什么），不是态度（他想了什么）。
+5. 账要当场付：责任卡上那笔账，在这章里真的付出去。
+6. 章末留一件没做完的事——让读者想翻页的那件。
+7. 禁止拆穿 {d.get("forbidden_reveal")}。
+8. 禁止元话。
+
+写完自己读一遍：
+- 如果你只能用"他想通了/他决定了"来概括这章 → 重写。
+- 如果删掉任何一个在场的人这章照样成立 → 那个人就不该在场。
+"""
+
+
+def play_judge(ctx: dict) -> str:
+    return f"""【责任卡】{ctx.get("duty_json")}
+【戏】{ctx.get("play_text")}
+
+你是审稿的，不是改稿的——先判，判不过才写意见。
+八问，每问必须先从戏里引用原句作证据，再给"yes/no"：
+
+1. 责任里点名的人都在场做事吗？（站着看的不算）
+2. 办的是责任卡上那件事吗？（办岔了、办多了都算不过）
+3. 责任卡上那笔账，戏里真付出去了吗？（引付出那句原文；旁白一句"他付出了代价"不算）
+4. 戏里有没有至少一个具体场面（具体时空中的动作与对话），还是通篇概括叙述？
+5. 有没有一道"还没选"时两头都疼的两难？用"当然选 A"测试：读者能轻松替他选 → no。
+6. 他的选择落成了具体动作吗？（他做了什么，不是他想了什么）
+7. 章末有没有一件没做完的事？（能抄出原句的、悬着的那件——"夜色深了"式氛围收尾不算）
+8. 有没有提前拆穿禁止拆穿的事？
+
+{VERDICT_SCHEMA}
+"""
+
+
+def contract_extract(ctx: dict) -> str:
+    return f"""下面这篇戏已经过审冻结。你要从戏里抄出契约。
+
+铁律：
+1. 每个字段的 quote 必须是戏里字面出现的连续原句，10-50 字，一个标点都不许改。
+   输出前把每个 quote 拿回戏里找一遍：找不到，就换一句能找到的。
+2. 戏里没有的东西（人、物、线、账）禁止补。
+3. cost/clock/place 戏里没明写就留空（null），禁止编。
+4. beats ≥3 场（通常 3-5 场，按戏的自然台阶走），只有一场 stages_choice=true——
+   他真正站在两难前的那场。
+5. choice 的 quote 是他【还没选】时的那句两难，不是选完之后的总结。
+6. decision 的 quote 是他迈出去的那一步（动作句）。
+7. hook 的 quote 是章末那句没做完的事。
+
+输出 JSON（严格按 schema，不输出任何别的文字）：
+{{"fields": {{"goal": {{"text": "", "quote": ""}},
+ "choice": {{"text": "", "quote": "",
+   "side_a": {{"text": "", "quote": ""}},
+   "side_b": {{"text": "", "quote": ""}}}},
+ "decision": {{"text": "", "quote": ""}},
+ "cost": null,
+ "hook": {{"text": "", "quote": ""}}}},
+ "beats": [{{"n": 1, "goal": {{"text": "", "quote": ""}},
+   "conflict": null, "turn": {{"text": "", "quote": ""}},
+   "cost": null, "stages_choice": false}}],
+ "lines_touched": [],
+ "clock": null,
+ "place": null}}
+
+【戏】
+{ctx.get("play_text")}
+"""
+
+
+def contract_judge(ctx: dict) -> str:
+    return f"""【戏】{ctx.get("play_text")}
+【契约】{ctx.get("contract_json")}
+
+两问，每问先引用契约原句和戏原句作证据：
+1. 完整性：先列出戏里你认为最重要的 3 件事（各引一句戏原文），再逐一指认它们
+   落在契约的哪个字段；指认不出的就是漏。
+2. 忠实性：契约里每个 text 忠实于其 quote 吗？（没有添油加醋或歪曲）
+
+{VERDICT_SCHEMA}
+"""
+
+
+def deduce_generate(ctx: dict) -> str:
+    return f"""基于这场戏和契约，写演绎。
+演绎写的是戏的字缝里的东西：每个人心里的算盘、动作背后的动机、
+读者能拼出但角色拼不出的真相。戏是水面上的，演绎是水面下的。
+
+【戏】{ctx.get("play_text")}
+【契约】{ctx.get("contract_json")}
+【各角色截至上一章的所知所信】
+{ctx.get("characters_epistemic_history") or "（无）"}
+【禁止拆穿】{ctx.get("forbidden_reveal") or []}
+
+写三块：
+1. scene_truth（300-800 字）：这场戏实际发生了什么（上帝视角）。
+2. 每个在场角色的五层限知：看到听到 / 知道 / 以为 / 做了说了 / 没察觉的。
+   水面下要有暗流——「以为」与 scene_truth 有偏差（反讽），
+   或者各方心知肚明但各怀打算、谁也不点破（暗斗），二者有其一即可。
+3. 矿 3-8 条：感官级的具体物。
+
+禁令：
+- 禁止把契约字段复述一遍当演绎。
+- 禁止把禁止拆穿的事写进任何角色的「知道」。
+- 五层每层至少一句具体的话。
+- 不得与【历史限知】矛盾。
+
+输出 JSON：
+{{"scene_truth": "...",
+ "characters": [{{"id": "", "perceived": "", "known": "", "believed": "", "acted": "", "blind": ""}}],
+ "ore": ["..."]}}
+"""
+
+
+def deduce_judge(ctx: dict) -> str:
+    return f"""【戏】{ctx.get("play_text")}
+【契约】{ctx.get("contract_json")}
+【演绎】{ctx.get("deduction_json")}
+【各角色历史限知】{ctx.get("characters_epistemic_history") or "（无）"}
+【禁止拆穿】{ctx.get("forbidden_reveal") or []}
+
+六问：
+1. scene_truth 服务这场戏吗？（不是另一场、不是预演正文）
+2. 每个在场角色五层齐且有具体内容吗？
+3. 有没有把禁止拆穿的事写进某个角色的「知道」层？
+4. 矿具体吗？（能在正文里变成一个可写的细节，且能在戏/演绎里找到根）
+5. 这场戏水面下有暗流吗？二者有其一即可：反讽或暗斗。全员工具人式透明才不过。
+6. 与历史限知矛盾吗？（上章知道的这章写成不知道 → 不过）
+
+{VERDICT_SCHEMA}
+"""
+
+
+def draft_generate(ctx: dict) -> str:
+    return f"""按这场戏和演绎，写一遍糙稿（2000-4000 字）。
+糙稿不是提纲：它是一场接一场实际发生的事，有动作有对话有感官，只是语言可以糙。
+
+【戏】{ctx.get("play_text")}
+【契约】{ctx.get("contract_json")}
+【演绎】{ctx.get("deduction_json")}
+
+必须做到：
+1. 贴着焦点者 {ctx.get("focalizer") or ""} 写。
+2. 两难要演到那个瞬间。
+3. 决断落成具体动作；账当场付出。
+4. 章末钩子悬着。
+5. 用演绎里的矿；不另造设定性细节。
+
+禁令：
+- 禁止元叙述。
+- 禁止章末升华。
+- 禁止泄露 {ctx.get("forbidden_reveal") or []}。
+- 禁止上帝视角乱跳。
+"""
+
+
+def draft_judge(ctx: dict) -> str:
+    return f"""【排演】{ctx.get("draft_text")}
+【契约】{ctx.get("contract_json")}
+【演绎（限知与矿）】{ctx.get("deduction_json")}
+【禁止拆穿】{ctx.get("forbidden_reveal") or []}
+
+七问：
+1. 两难演了吗？能不能在排演里指出"他还没选"的那个瞬间？
+2. 决断落了吗？他选的那边变成了一个具体动作吗（不是"他决定"）？
+3. 代价付了吗？契约里那笔账在排演里真付出了吗？
+4. 有没有泄露禁止拆穿的事？
+5. 有没有章末升华或元叙述？
+6. 视角守住焦点者限知了吗？
+7. 是连续场面还是概括叙述？
+
+{VERDICT_SCHEMA}
+"""
+
+
+def final_generate(ctx: dict) -> str:
+    cost_line = ""
+    if ctx.get("cost_text"):
+        cost_line = f"- 要付的账：{ctx.get('cost_text')}\n"
+    return f"""把这份糙稿打磨成正文（面向读者的最终文本）。
+
+【糙稿（蓝本，结构照此）】{ctx.get("draft_text")}
+【本章必须兑现的】
+- 要办的事：{ctx.get("goal_text")}
+- 两难：{ctx.get("choice_text")}
+- 决断：{ctx.get("decision_text")}
+- 章末钩子：{ctx.get("hook_text")}
+{cost_line}【演绎（细节矿与限知，供取用）】{ctx.get("deduction_json")}
+【禁止拆穿】{ctx.get("forbidden_reveal") or []}
+【上一章正文结尾】{ctx.get("prev_prose_tail") or "（无）"}
+【声纹】{ctx.get("voice_anchor_block") or "（无）"}
+【相关设定】{ctx.get("codex_recall") or "（无）"}
+
+打磨什么：
+- 语言：删掉糙话、补上画面的质感与声音。
+- 对话：贴每个角色的声纹。
+- 节奏：场面内部该快的快该慢的慢（不设字数配额）。
+
+不改什么：
+- 结构上的一件事、两难、决断、账、钩子，照糙稿。
+- 禁止拆穿的事，依然禁止。
+
+禁令：
+- 章末升华/感悟收尾。
+- 同类比喻连续两段出现。
+- 元叙述（"命运""选择""代价"这些词不进叙述层，除非角色说出口）。
+- 复述排演的叙述原句（对话若已是声口对的原句可保留）。
+- 泄露禁止拆穿的事。
+"""
+
+
+def final_judge(ctx: dict) -> str:
+    return f"""【正文】{ctx.get("prose_text")}
+【契约核心四件+账】{ctx.get("contract_core_json")}
+【演绎（限知）】{ctx.get("deduction_epistemic")}
+【禁止拆穿】{ctx.get("forbidden_reveal") or []}
+【禁止清单】{ctx.get("ban_list") or "升华/连续同类比喻/元叙述/泄密"}
+
+四问，每问先引正文原句作证据：
+1. 契约四件（事/两难/决断/钩子）在正文里都兑现了吗？账（若契约有 cost）仍真付着吗？
+2. 视角守住焦点者限知了吗？
+3. 有没有踩禁令（升华/连续同类比喻/元叙述/泄密）？
+4. 这章读得下去吗？——一口气读下来，有没有哪里你会跳行？
+
+{VERDICT_SCHEMA}
+"""
+
+
+def identity_for(kind: str) -> str:
+    if kind == "duty":
+        return IDENTITY_DUTY
+    if kind == "contract":
+        return IDENTITY_SCRIBE
+    if kind.endswith("_judge") or kind == "judge":
+        return IDENTITY_JUDGE
+    return IDENTITY_NOVELIST
+
+
+assert PLAYBOOK_VERSION == "playbook.1"
