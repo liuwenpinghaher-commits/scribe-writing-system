@@ -1826,7 +1826,11 @@ def _attach_fate(
         if persist and kind in ("draft", "final"):
             blocked = prose_fate_blocked(text, src, ctx, kind="final" if kind == "final" else "draft")
         elif persist and kind == "deduce":
-            blocked = spine_fate_blocked(src.get("chapter_spine"), ctx, ch=src)
+            from scribe3.design_play import play_design_ready
+            if play_design_ready(src) or play_design_ready(ch):
+                blocked = None
+            else:
+                blocked = spine_fate_blocked(src.get("chapter_spine"), ctx, ch=src)
             if blocked is None:
                 from scribe3.fate_dearer import WAVE_1_IDS, fate_dearer_mode
                 if fate_dearer_mode() == "on":

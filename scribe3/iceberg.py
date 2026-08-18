@@ -501,7 +501,7 @@ def persist_fields_blocked(
         )
         try:
             from scribe3.design_play import play_design_ready
-            play_ok = play_design_ready(merged)
+            play_ok = play_design_ready(chapter or existing) or play_design_ready(merged)
         except Exception:
             play_ok = False
         if play_ok and not writing_design:
