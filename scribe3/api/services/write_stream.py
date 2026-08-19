@@ -700,6 +700,23 @@ def _save_write_context_outcome(st, envelope_trace: dict, trace: dict):
     return ContextStore(st).save_outcome(outcome)
 
 
+def bind_pilot_trace(outcome_binding, st, work: str, seq: int, phase: str) -> bool:
+    """入口只看 current_trace_buffer。已绑定=nested：抄 defer_finish，不开链。"""
+    from scribe3.pipeline_trace import current_trace_buffer
+    from scribe3.pipeline_trace_hooks import open_write_chain
+
+    buf = current_trace_buffer()
+    if buf is not None:
+        outcome_binding.manifest_trace["request_id"] = getattr(buf, "trace_id", "") or ""
+        outcome_binding.manifest_trace["defer_finish"] = True
+        return True
+    open_write_chain(
+        st, outcome_binding.manifest_trace,
+        work=work, chapter=int(seq or 1), kind="write", phase=phase or "draft",
+    )
+    return False
+
+
 class _WriteOutcomeBinding:
     """一次生成请求的 Manifest 绑定；Outcome 失败属于主链错误，禁止吞掉。"""
 
