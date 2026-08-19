@@ -37,7 +37,7 @@
       "evidence_type": "UI",
       "evidence_path": [],
       "skip_reason": "",
-      "notes": "TEMPLATE: fill during journey"
+      "notes": "rev.7: who_pays / axis_terms / clock_start / clock_end 须在 outline persist 前非空"
     },
     {
       "id": "J5",

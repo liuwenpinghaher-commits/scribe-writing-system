@@ -1,5 +1,6 @@
 # 00-author-path · v6.3.4
 - slug / 书名 / 新建时间（须 ∈ 证据窗）：
+- 宇宙：万界概率战争 V7.0（不得填炉灰记）：
 - 作者是否真人坐浏览器：（填写 是 或 否；否 → 最高 engineering PARTIAL）
 - 通道使用：discuss / world_write 审批 / prose_write / ChangePack（勾选实际用过的）：
 - 是否仅对话+白名单 UI：是 / 否（列例外）：
