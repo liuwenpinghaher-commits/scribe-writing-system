@@ -151,9 +151,10 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
     if hit and hit.get("ok") is False:
         raise HTTPException(status_code=422, detail=hit)
 
-    def llm_fn(prompt, max_tokens=STAGE_MAX_TOKENS.get(stage, 4096)):
+    def llm_fn(prompt, max_tokens=STAGE_MAX_TOKENS.get(stage, 4096), **kwargs):
         return _pilot_llm_gen(
             st, work, seq, stage, prompt, focalizer=foc, max_tokens=max_tokens,
+            system=kwargs.get("system"),
         )
 
     persist_fn = None

@@ -26,6 +26,37 @@ def _names(rows: list[Any]) -> list[str]:
     return out
 
 
+def secret_list(st: Any) -> list[str]:
+    """本章还不能拆穿的事：红线 + 标了私密的命题。"""
+    out: list[str] = []
+    getter = getattr(st, "get_intent", None)
+    if callable(getter):
+        try:
+            red = (getter() or {}).get("red_lines") or ""
+        except Exception:
+            red = ""
+        for line in str(red).splitlines():
+            hit = line.strip()
+            if hit:
+                out.append(hit)
+    secrets_fn = getattr(st, "_secret_proposition_values", None)
+    if callable(secrets_fn):
+        try:
+            for v in secrets_fn() or []:
+                s = str(v or "").strip()
+                if s:
+                    out.append(s)
+        except Exception:
+            pass
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for item in out:
+        if item not in seen:
+            seen.add(item)
+            uniq.append(item)
+    return uniq
+
+
 def available_cast(st: Any) -> list[str]:
     for name in ("list_characters", "characters", "list_character_names"):
         fn = getattr(st, name, None)
@@ -108,6 +139,7 @@ def build_ctx(store: Any, seq: int, *, focalizer: str = "", extra: dict[str, Any
         "available_cast": available_cast(store),
         "available_lines": available_lines(store),
         "prev_hook_quote": prev_hook_quote(store, seq),
+        "secret_list": secret_list(store),
     }
     if extra:
         ctx.update(extra)

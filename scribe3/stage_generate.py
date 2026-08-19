@@ -13,7 +13,7 @@ from scribe3.playbook.stages import (
 )
 from scribe3.playbook.pipeline import run_stage
 from scribe3.playbook.parse import strip_fence as _strip_fence
-from scribe3.playbook.context import available_cast, available_lines, build_ctx, prev_hook_quote
+from scribe3.playbook.context import available_cast, available_lines, build_ctx, prev_hook_quote, secret_list
 from scribe3.playbook.memory_store import MemoryPlaybookStore
 
 LlmFn = Callable[..., str]
@@ -186,6 +186,7 @@ def thicken_stage(
         ctx["available_cast"] = available_cast(st)
         ctx["available_lines"] = available_lines(st)
         ctx["prev_hook_quote"] = prev_hook_quote(store, n)
+        ctx["secret_list"] = secret_list(st)
     out = run_stage(store, n, normalize_stage(stage), extra=extra, llm_fn=llm_fn, ctx=ctx, persist=persist_fn is not None or st is not None)
     if persist_fn and out.get("ok"):
         fields: dict[str, Any] = {}

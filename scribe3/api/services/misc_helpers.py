@@ -311,7 +311,7 @@ def _is_selection_candidate_version(ver: dict) -> bool:
 
 
 def _pilot_llm_gen(st, work: str, seq: int, phase: str, ask: str, focalizer: str = "",
-                   max_tokens: int | None = 1600) -> str:
+                   max_tokens: int | None = 1600, system: str | None = None) -> str:
     """pilot 生成通道。章设计只给一张纸；正文仍走组装链。"""
     from contextlib import nullcontext
 
@@ -323,9 +323,9 @@ def _pilot_llm_gen(st, work: str, seq: int, phase: str, ask: str, focalizer: str
     ctx = nullcontext() if nested else write_chain_guard(st, outcome_binding.manifest_trace)
     with ctx:
         stg = (phase or "").strip().lower()
-        if stg in ("duty", "design", "chapter_design", "outline", "plan", "beats"):
+        if stg in ("duty", "design", "chapter_design", "outline", "plan", "beats", "deduce"):
             from scribe3.stage_generate import planning_system_prompt
-            ins = planning_system_prompt()
+            ins = (system or "").strip() or planning_system_prompt()
             from scribe3.deepseek_client import DeepSeekResponseError
             from scribe3.llm import default_model, hermes_complete_result
             text = ""

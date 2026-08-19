@@ -63,6 +63,38 @@ def test_ch1_bite_is_null():
     assert duty["bite_from_prev"] is None
 
 
+def test_secret_list_from_red_lines():
+    from scribe3.playbook.context import secret_list
+
+    class _St:
+        def get_intent(self):
+            return {"red_lines": "不让柳岸青看见场核坐标\n不提前拆穿炉认主"}
+
+    secrets = secret_list(_St())
+    assert any("场核坐标" in x for x in secrets)
+    assert any("炉认主" in x for x in secrets)
+
+
+def test_gen_duty_fills_forbid_from_secret_list():
+    from scribe3.playbook.layers import gen_duty
+
+    ctx = {
+        "seq": 1,
+        "focalizer": "role:柳岸青",
+        "available_cast": ["柳岸青"],
+        "available_lines": [],
+        "secret_list": ["柳岸青看不见场核坐标", "炉认主的真名"],
+        "prev_hook_quote": None,
+    }
+
+    def llm_fn(prompt, **kwargs):
+        return '{"must_happen": "按回碎片", "bill": "体温", "who": ["柳岸青"], "forbidden_reveal": [], "line_to_touch": null}'
+
+    raw = gen_duty(ctx, llm_fn)
+    assert raw["forbidden_reveal"]
+    assert "场核坐标" in "".join(raw["forbidden_reveal"])
+
+
 def test_frozen_play_cannot_be_overwritten():
     store = MemoryPlaybookStore()
     play = freeze_artifact(
