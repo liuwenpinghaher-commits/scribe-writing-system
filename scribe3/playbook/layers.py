@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from scribe3.playbook.parse import parse_json_with_retry
+from scribe3.playbook.structural import thin_metaphors
 from scribe3.playbook.prompts import (
     IDENTITY_NOVELIST,
     IDENTITY_SCRIBE,
@@ -109,6 +110,8 @@ def gen_draft(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
         llm_fn, draft_generate(ctx), system=IDENTITY_NOVELIST, max_tokens=16384,
         temperature=0.4,
     )
+    bite = ctx.get("bite_quote") or ctx.get("prev_hook_quote") or ""
+    text = thin_metaphors(text, exempt_quotes=tuple(q for q in (bite,) if q))
     return {
         "seq": int(ctx.get("seq") or 0),
         "text": text,
@@ -121,6 +124,7 @@ def gen_final(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
     text = generate_text(
         llm_fn, final_generate(ctx), system=IDENTITY_NOVELIST, max_tokens=16384,
     )
+    text = thin_metaphors(text)
     return {
         "seq": int(ctx.get("seq") or 0),
         "text": text,

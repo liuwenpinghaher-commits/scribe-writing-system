@@ -285,6 +285,40 @@ def _metaphor_fail(
     return _fail(code, f"明喻 {hits} 处 / {n} 字 = {rate:.2f} 每800字，超过 1")
 
 
+def _thin_narr(s: str) -> str:
+    s = (s or "").replace("好像", "似乎").replace("像是", "似乎是")
+    s = s.replace("仿佛", "").replace("似的", "")
+    return re.sub(r"(?<![其])像", "", s)
+
+
+def thin_metaphors(text: str, *, exempt_quotes: tuple[str, ...] = ()) -> str:
+    """叙述层去掉过密的像/仿佛/似的；对白和豁免原句原样保留。密度已合格则不动。"""
+    if metaphor_per_800(text, exempt_quotes=exempt_quotes) <= 1.0:
+        return text or ""
+    raw = text or ""
+    held: list[str] = []
+
+    def stash(chunk: str) -> str:
+        held.append(chunk)
+        return f"\x00H{len(held) - 1}\x00"
+
+    work = raw
+    for q in exempt_quotes or ():
+        if q and q in work:
+            work = work.replace(str(q), stash(str(q)))
+    out: list[str] = []
+    last = 0
+    for m in _DIALOGUE.finditer(work):
+        out.append(_thin_narr(work[last:m.start()]))
+        out.append(m.group())
+        last = m.end()
+    out.append(_thin_narr(work[last:]))
+    work = "".join(out)
+    for i, chunk in enumerate(held):
+        work = work.replace(f"\x00H{i}\x00", chunk)
+    return work
+
+
 def check_gender_pronoun(text: str, characters: list[Any] | None = None) -> dict[str, Any]:
     """角色名 ±30 字窗口内，对已登记男/女的角色统计他/她。反向上位则拦。"""
     blob = text or ""

@@ -76,6 +76,34 @@ def test_gender_pronoun_skips_unregistered():
     assert hit["ok"] is True
 
 
+def test_thin_metaphors_drops_narrative_similes_keeps_dialogue():
+    from scribe3.playbook.structural import check_draft_struct, metaphor_per_800, thin_metaphors
+
+    dense = "他按回碎片。像火。仿佛夜。似的冷。袖口发烫。" * 120
+    assert metaphor_per_800(dense) > 1.0
+    out = thin_metaphors(dense)
+    assert metaphor_per_800(out) <= 1.0
+    assert "按回碎片" in out
+    talk = "「像火一样。」沈烛说。" + "他按回碎片，袖口发烫。" * 80
+    kept = thin_metaphors(talk)
+    assert "像火一样" in kept
+    play = "完全另一场戏，沈烛若没有按回碎片。" * 40
+    long = thin_metaphors(("他按回碎片。像火。仿佛夜。似的冷。袖口发烫。沈烛把盒子推过来。" * 80))
+    hit = check_draft_struct(long, play_text=play)
+    assert hit.get("code") != "draft_metaphor", hit
+
+
+def test_gen_draft_thins_similes_on_the_way_in():
+    from scribe3.playbook.layers import gen_draft
+    from scribe3.playbook.structural import metaphor_per_800
+
+    def llm(prompt, **kw):
+        return "他按回碎片。像火。仿佛夜。似的冷。袖口发烫。" * 80
+
+    raw = gen_draft({"seq": 1}, llm)
+    assert metaphor_per_800(raw["text"]) <= 1.0
+
+
 def test_gen_draft_uses_lower_temperature():
     from scribe3.playbook.layers import gen_draft
     seen: dict = {}
