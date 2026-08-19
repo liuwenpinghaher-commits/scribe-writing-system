@@ -51,6 +51,8 @@ def test_dialogue_and_metaphor_metrics_use_real_text():
     talk = "「你按回去。」沈烛说。\n「不交。」柳岸青说。\n"
     body = talk + "他按住碎片。" * 20
     assert dialogue_ratio(body) > 0.1
+    curly = "“十八个月。”沈烛说，“中途不返航。”\n他看着盒子。\n"
+    assert dialogue_ratio(curly) > 0.4
     dense = "像火。仿佛夜。似的冷。" * 5
     assert metaphor_per_800(dense) > 1.0
 
