@@ -7,7 +7,7 @@
 | 文档 | 用途 |
 |------|------|
 | [SESSION.md](./SESSION.md) | **跨会话滚动状态**（新会话与 AGENTS.md 一起读；结束前更新） |
-| **[v6.3.4 真书·对话驱动·全能力](./e2e-director-journey-v634-true-chat-full-capability.md)** | **主验收协议（唯一体验总 PASS）**；WCG=`scripts/v4_world_complete_gate.py` |
+| **[v6.3.4 真书·对话驱动·全能力](./e2e-director-journey-v634-true-chat-full-capability.md)** | **主验收协议 rev.12**（写章内核 play-contract 五层；唯一体验总 PASS）；WCG=`scripts/v4_world_complete_gate.py` |
 | [CURRENT_ARCHITECTURE.md](./CURRENT_ARCHITECTURE.md) | **当前架构唯一入口**（栈、路径、写通道、文档优先级） |
 | [ARCHITECTURE_SPLIT_ROADMAP.md](./ARCHITECTURE_SPLIT_ROADMAP.md) | `app.py` / `store.py` 分阶段拆分 |
 | [PR_TEST_BASELINE.md](./PR_TEST_BASELINE.md) | PR / 本地最低验证命令 |

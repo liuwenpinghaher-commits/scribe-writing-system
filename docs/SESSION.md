@@ -8,14 +8,14 @@
 
 | 项 | 值 |
 |----|-----|
-| **总 PASS 协议** | **v6.3.4 rev.11** · [`e2e-director-journey-v634-true-chat-full-capability.md`](./e2e-director-journey-v634-true-chat-full-capability.md)（OpSeq 步数因 design 合并减少，**总 PASS 公式不变**） |
+| **总 PASS 协议** | **v6.3.4 rev.12** · [`e2e-director-journey-v634-true-chat-full-capability.md`](./e2e-director-journey-v634-true-chat-full-capability.md)（写章内核 play-contract 五层；**总 PASS 公式不变**） |
 | **WCG SSOT** | `scripts/v4_world_complete_gate.py`（exit 0 / `pass=true`） |
 | **体验路径** | SPA 对话驱动 + 点批/工作台裁决；**禁止**脚本灌章 / EMERGENCY / fabric-off 刷绿冒充总 PASS |
 | **工程对照** | `scripts/v632_true_chat_journey.py` · v6.3.2 记忆子集 · v6.3.3 变更复验 → **≠** 体验总 PASS |
 | **证据清单** | `scripts/v634_evidence_checklist.py` |
 | **证据模板** | `docs/evidence/v634-true-chat-TEMPLATE/` |
 | **公式** | 总 PASS ⇔ Wave A ∧ Wave B；仅 Wave A 或 `author_human=false` → 最高 **PARTIAL** |
-| **命运闸** | [`2026-08-16-fate-dearer-novelist-reform.md`](./plans/2026-08-16-fate-dearer-novelist-reform.md) **rev.8** + world-surface。默认 `FATE_DEARER=on` + `FATE_WAVE=2` + `RECORDER=1` + `WORLD_SURFACE=on`。WAVE-1 含 `goal_off_world` / `surface_claim_unpaid` / `claim_paid_by_paraphrase` / `gesture_echo`。旧书 `book_bdfdcdc4` / `book_e415dfeb` / `book_61a7935e` / **`book_83584141`** **不 overlay**。本轮验收书 = **rev.10 新建三章 slug**（见当前状态）。 |
+| **写章内核** | play-contract 五层 duty→design→deduce→draft→final。Fate/水面词闸已删。旧验收 slug **不 overlay**。 |
 
 ---
 

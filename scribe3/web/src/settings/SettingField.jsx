@@ -40,16 +40,6 @@ export function SettingField({ item, onChanged }) {
           <Input type="password" variant="bordered" size="sm" placeholder={item.is_set ? '已设置(输入以更换)' : '未设置'} aria-label={item.label}
             className="w-48" value={draft ?? ''} onChange={(e) => setDraft(e.target.value)}
             onBlur={() => draft && submit(draft)} />
-        ) : item.key === 'SCRIBE3_WORLD_SURFACE' ? (
-          <select
-            aria-label={item.label}
-            className="h-8 w-48 rounded-md border border-line bg-canvas px-2 text-f13 text-ink"
-            value={draft ?? String(item.value ?? 'on')}
-            onChange={(e) => { setDraft(e.target.value); submit(e.target.value) }}
-          >
-            <option value="on">on · 水面命题硬闸</option>
-            <option value="off">off · 只留短槽命运闸</option>
-          </select>
         ) : (
           <Input type={item.type === 'str' ? 'text' : 'number'} variant="bordered" size="sm"
             step={item.type === 'float' ? '0.1' : '1'} aria-label={item.label}

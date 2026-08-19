@@ -17,4 +17,11 @@
   - ch3:
   - ch4:
   - ch5:
+- 五层：每章 duty/design/deduce/draft/final 冻结状态 + contract quote 核验结果：
+  - ch1:
+  - ch2:
+  - ch3:
+  - ch4:
+  - ch5:
+- 章工作台 play/contract 页截图（替旧 spine/节拍截图）：
 - EMERGENCY / safe_beats / 离线灌库：0 次

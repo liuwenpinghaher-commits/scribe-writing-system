@@ -381,14 +381,6 @@ REGISTRY: tuple[Setting, ...] = (
         audience="author",
     ),
     Setting(
-        "SCRIBE3_WORLD_SURFACE", "flags", "str", "on", "hot",
-        "水面世界命题闸",
-        "on=claim_paid 硬闸 + extra_authors + 矿从命题抽。"
-        "off=关闭新 422。"
-        "记录仪进链是 bugfix，不看此旗。",
-        audience="author",
-    ),
-    Setting(
         "SCRIBE3_PIPELINE_RECORDER", "flags", "bool", True, "hot",
         "飞行记录仪",
         "开=写入 fate/spine/矿/种子工件，供审稿。关=N/A，不挡写。默认开。",

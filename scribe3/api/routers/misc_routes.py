@@ -1121,11 +1121,17 @@ def save_draft(req: SaveDraftReq, seq: int, work: str = "main"):
     return {"status": "saved", "id": vid, "seq": seq, "stage": "draft", "stats": stats}
 
 def latest_draft(seq: int, work: str = "main"):
-    """取该章最新草稿。版本表优先；没有则回落 chapter.draft（generate-stage 只写章字段）。"""
+    """取该章最新排演。版本表 → 冻结 chapter_draft → 旧章字段。"""
     st = _store_for(work)
     v = st.latest_draft_version(seq)
+    frozen = None
+    if hasattr(st, "get_frozen"):
+        try:
+            frozen = st.get_frozen("chapter_draft", int(seq))
+        except Exception:
+            frozen = None
     from scribe3.draft_read import resolve_latest_draft
-    resolved = resolve_latest_draft(v, st.get_chapter(seq) or {})
+    resolved = resolve_latest_draft(v, st.get_chapter(seq) or {}, frozen_draft=frozen)
     if not resolved:
         return {}
     v = resolved

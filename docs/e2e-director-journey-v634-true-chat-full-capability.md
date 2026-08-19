@@ -3,10 +3,10 @@
 | 项 | 值 |
 |----|-----|
 | **文档标题** | 铜炉 Director 旅程验收协议 · 全面更新（全能力 · 真书 · 对话驱动+点批） |
-| **版本** | **v6.3.4 rev.11**（OpSeq 步数因 design 合并减少，**总 PASS 公式不变**；Fate 附录含 `SCRIBE3_WORLD_SURFACE`） |
+| **版本** | **v6.3.4 rev.12**（写章内核换代为 play-contract 五层管线 duty→design→deduce→draft→final，旧 outline/beats/spine/fate 条款作废；**总 PASS 公式、WCG、SPA 不改**） |
 | **作者** | Grok Design（待人类审定） |
-| **日期** | 2026-08-17 |
-| **状态** | **Draft rev.11** · OpSeq = 设计一层 → 演绎 → 排演 → 定稿。本轮验收须**新 slug** 第 1 章融合节点。水面付清 / 宣称 / WCG / SPA **不改** |
+| **日期** | 2026-08-19 |
+| **状态** | **Draft rev.12** · 写章验收按新五层冻结。本轮须**新 slug**。宣称 / WCG / SPA **不改** |
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` · 仓库 `/home/admin/projects/scribe-writing-system` |
 | **验收环境** | **仅 demo 已部署栈**（公网主入口 **`https://tonglu.qing.blue`**；`www.qing.blue` / `qing.blue` 301 → 主域） |
 | **禁止** | Grok 运行机全量 `npm ci` / 本机 Surreal / 第二验收栈 / 脚本灌章冒充体验 PASS |
@@ -35,9 +35,12 @@
 | **v6.3.4 rev.8** · 本文 | 吸收 fate-dearer rev.8：`cast_role_frozen` / `world_fact_*` / extra=`evaluate_write_contract`；默认 WAVE-2。 | **不替换** SPA 三通道与 WCG 脚本 |
 | **v6.3.4 rev.9** · 本文 | WAVE-1 增 `goal_off_world`；ASK 末尾【世界合同】压过 extra；`SCRIBE3_PIPELINE_RECORDER` 默认开；F3b/c 分批硬闸标为历史。当时验收书 `book_83584141`（**rev.10 起不再当本轮验收书**）。禁 overlay `book_e415dfeb` / `book_61a7935e`。**不改** WCG 数字、SPA、宣称、GATE-B 80、`GATE_SAVE_MODE`。 | **不替换** SPA 三通道与 WCG 脚本 |
 | **v6.3.4 rev.10** · 本文 | 本轮验收条：必须 **新建 slug** 连写 **第 1–3 章**；每章 OpSeq 一层 `persist=true`（outline→beats→deduce→draft→final）；`SCRIBE3_WORLD_SURFACE=on` 下定稿付清 goal/hook 组（`surface_claim_unpaid` / `claim_paid_by_paraphrase`）；extra 命令语气 → `extra_authors`；ch2 起 `gesture_echo`。质量验收读阶段文 + 记录仪，**HTTP 200 / 字段非空 / 闸绿 ≠ 完全按方案**。禁 overlay `book_83584141` / `book_e415dfeb` / `book_61a7935e` / `book_bdfdcdc4` / `wanjie-fate-r7`。**不改** WCG 数字、SPA、宣称、GATE-B 80、`GATE_SAVE_MODE`。 | **不替换** SPA 三通道与 WCG 脚本 |
-| **v6.3.4 rev.11** · 本文 | **OpSeq 步数因 design 合并减少，总 PASS 公式不变。** 旗 `SCRIBE3_CHAPTER_DESIGN=on`（默认）时写章第一层 = `stage=design` 一次 LLM/persist。审查者不得把「少一步 outline/beats」判成 FAIL。验收须新 slug 第 1 章融合节点。禁 overlay `book_718fe88f` / `book_83584141` / `book_e415dfeb` / `book_61a7935e` / `book_bdfdcdc4`。**不改** WCG 数字、SPA、宣称、GATE-B 80、`GATE_SAVE_MODE`。 | **不替换** SPA 三通道与 WCG 脚本 |
+| **v6.3.4 rev.11** · 本文 | **史。** 当时 OpSeq 步数因 design 合并减少。旗 `SCRIBE3_CHAPTER_DESIGN`、旧 design=outline+beats **已不存在**（rev.12 作废）。 | **不替换** SPA 三通道与 WCG 脚本 |
+| **v6.3.4 rev.12** · 本文 | **吸收 play-contract 系统换代：** 旧写章五层（outline/beats/deductions/scene_truth/draft）与 Fate/水面闸全部删除；OpSeq、冰山表、Ice/Fate 矩阵行、KD-25/26 重写。总 PASS 公式、WCG、SPA、宣称不改。 | **不替换** SPA 三通道与 WCG 脚本 |
 
-**为何叫 v6.3.4 而非 v6.4：** 仍是 6.3 家族（对话驱动 · 记忆 · 真书），相对 6.3.3 是「补全能力矩阵 + 拉回 SPA 体验主路径」的修订号。仓库与结案字段钉 **v6.3.4**。rev.3 把已上线能力写进可验矩阵；**rev.4 只把操作顺序与实跑病灶写进纪律，不另开总 PASS 公式。rev.5 换章纲合同。rev.6 只换写作素材与记忆锚。rev.7 只换 Ice3/4/6 与 S2/OpSeq 的命运坐标。rev.8/9 只换命运闸现行口径与验收 slug。rev.10 只钉三章水面验收条与新 slug；**rev.11 只改 OpSeq 步数叙述（大纲+节拍合成 design），总 PASS 公式不变。** 不改 WCG 门槛数字。**
+**系统换代声明（rev.12 必读）：** 2026-08-18 起，写章内核换成 play-contract。旧 `stage=outline/beats`、`chapter_spine` / `beats` / Fate / 水面 422 码 **全部作废**。拿 rev.11 条款去验收会误伤 410 或假绿。本文从本节起按新五层验收。
+
+**为何叫 v6.3.4 而非 v6.4：** 仍是 6.3 家族（对话驱动 · 记忆 · 真书），相对 6.3.3 是「补全能力矩阵 + 拉回 SPA 体验主路径」的修订号。仓库与结案字段钉 **v6.3.4**。rev.12 只换写章验收内核，**不改** WCG 门槛数字、SPA 三通道、总 PASS 公式。**
 
 ```text
 6.2 成功 ≈ 对话+点批 → 约 5 万可读好书 + 正典闭环
@@ -64,7 +67,7 @@
 3. **主编对话驱动 + 点批/工作台裁决**（非「禁止点工作台」）；禁止表单直写正典与脚本灌章。  
 4. **真实写作流程**，能力嵌在 **写章 S7** 内，非章后演示点一点。  
 5. 证据可拆穿；**不宣称** 人盲 ≥9.5。  
-6. **写章质量可分析**：冰山五层真厚、注入防洪水可回放、设定库生成链可验、飞行记录仪能打开真实工件；不是「字段非空 / HTTP 200」即绿。
+6. **写章质量可分析**：五层冻结真过审、契约原文引用对得上、注入防洪水可回放、设定库生成链可验、飞行记录仪能打开真实工件；不是「字段非空 / HTTP 200」即绿。水面「付清」改由定稿法官 + 人评，**不再有词匹配 422 硬闸**。
 
 **工期诚实（rev.2 仍准）：** 真人 SPA 全量（Wave A+B）估 **3–5+ 人日**；非 1.5–3 人日。可分波：仅 Wave A → 最高 **PARTIAL**，两波齐才总 PASS。
 
@@ -159,124 +162,94 @@
 > **不改** 上文 SPA 三通道，**不改** `scripts/v4_world_complete_gate.py` 为结构 SSOT。  
 > 工程对照：`docs/plans/2026-08-14-iceberg-complete.md`、`2026-08-14-antiflood-blast-radius.md`、`2026-08-14-codex-generation-chain.md`、`2026-08-14-pipeline-runtime-analysis.md`、`2026-08-14-chief-mode-fusion.md`。
 
-### 写章冰山（Iceberg · 输出纪律）
+### 新五层产物与验收锚（rev.12 · 替代旧写章冰山）
 
-| 层 | 地板（去空白） | 作者动作 | 落库 |
-|----|----------------|----------|------|
-| 大纲 `chapter_spine` | 13 短槽线索密度（选择 A vs B、代价、`lines` 绑已有 promise/storyline id）。原 `synopsis≥500` 是失败的密度代理，不再作为通过条件 | 主编「大纲」或 `POST /generate-stage` `stage=outline` | **必须 `persist=true`** 才算落库；写 `chapter_spine`（可拼装 synopsis≤400）。旧 briefing `GET /chapter-brief` 不动 |
-| 节拍台阶 | ≥3 拍；每拍要/挡/变/付为原子；全章 ≥1 条能拆 A/B 的选。原每拍≥500 / 合计≥2000 不再作为通过条件 | 节拍阶段 | **`persist=true`** → `beats` GCD；`text` 为拼装 |
-| 演绎 | 每人五层 + 至少 1 条矿（字数只进 measures） | 演绎阶段 | **`persist=true`** → `deductions` / `scene_truth` / `beats_meta.ore` |
-| 草稿 | 非空排演；选择/矿结构（字数不是通过条件） | 草稿阶段 | **`persist=true`** → `chapter.draft` + `chapter_version`；**验收源 = `GET /latest-draft`** |
-| 正文水面 | 非空正文；矿落地 + 选择结构（字数只作面积诊断） | 正文 / `/chat/write` `phase=final` | 提案卡「用此版」或 `/save-chapter`；**必须留下 `narrative_drive.end_hook`** |
+| 层 | 产物（146 五表） | 验收锚（Must） | 作者动作 |
+|----|------------------|----------------|----------|
+| duty 责任卡 | `duty_card` | 法官 PASS + 结构闸；ch≥2 时 `bite_from_prev` == 上章 contract `hook.quote` | `POST /generate-stage stage=duty persist=true` |
+| design 戏+契约 | `chapter_play` + `chapter_contract` | 所有 quote ∈ play（`quote_in_play`）；`stages_choice=true` 恰 1 场；法官 PASS 才冻结 | `stage=design persist=true`；`GET /chapters/{seq}/play` 与 `/contract` 回读 |
+| deduce 演绎 | `chapter_deduce` | 法官 PASS；不得与 final prose 合并 | `stage=deduce persist=true` |
+| draft 排演 | `chapter_draft` | 法官 PASS；`GET /latest-draft` 非空 | `stage=draft persist=true` |
+| final 定稿 | `prose` + `narrative_drive.end_hook` | 法官 PASS（含账是否付了）→「用此版」/ `/save-chapter` | `stage=final persist=true` |
 
-**纪律：** 生成必须走 LLM；禁止切句充数、摘录当投影。闸薄了不让开写（draft/final 动稿 409）。冰山是 **产出纪律**；字数可进 `measures`，**不得**再当 Ice3/4/6 通过条件。`GATE_SAVE_MODE=soft` 与宣称公式 **本版不改**。
+**层序铁律：** 上一层未冻结 → 409 `stage_not_ready`。旧 stage 名（outline / beats / chapter_design / plan）→ **410 Gone**，不得当产品 bug 上报。`s3_patch_chapter_plan` 已废，改 `s3_generate_stage` 或人工 `s3_patch_play` / `s3_patch_contract`（仍需法官复审才能冻结）。
 
-### Fate 附录（rev.10 · Should；旗 on 且该波次硬 id 才 Must）
+**纪律：** 生成必须走 LLM。已冻结层默认跳过；`force=1` 只重跑本层、不动上游冻结戏。`rewrite=1` 只许 design：新戏版本，旧戏与下游作废。契约抽三次不过 → `needs_human`，**戏保持冻结**。宣称公式 **本版不改**。
 
-仅 `SCRIBE3_FATE_DEARER=on` 且该波次硬 id 才当 Must。shadow 只报告不 422。  
-**现行默认** `SCRIBE3_FATE_DEARER=on` + `SCRIBE3_FATE_WAVE=2` + `SCRIBE3_PIPELINE_RECORDER=1` + **`SCRIBE3_WORLD_SURFACE=on`**（设置 DB → env → 目录；仅显式 `0/false` 关记录仪）。`beat_span_mismatch` 已实现。`world_catalog_empty` 仅万界轴用语空库才 422。F3b/c「先 shadow 再只开波次 1」是历史切片，勿再当部署清单。
+### Fate / 水面闸（已删）
 
-**水面命题（`SCRIBE3_WORLD_SURFACE`，默认 on）：** 定稿/排演水面必须付清本章 `beats_meta.world_claim` 硬组——goal、hook **各**至少一词进付账句。未付 → WAVE-1 `surface_claim_unpaid`；只用黑针/帘/丝付账 → `claim_paid_by_paraphrase`。第 2 章起同一 actor 仍是 pressor/extractor → `gesture_echo`。extra 命令语气（必须原样 / 必须有一句 / 必须以时空）→ `extra_authors`（REST 422 / MCP `status=error`，不进 fate wave）。设置页拨 `off` 只关这组新 422，短槽 fate 仍按 FATE_DEARER。
+**Fate/水面闸已随 play-contract 删除。** `SCRIBE3_FATE_DEARER` / `SCRIBE3_FATE_WAVE` / `SCRIBE3_WORLD_SURFACE` 及 `fate_blocked` / `surface_claim_unpaid` / `claim_paid_by_paraphrase` / `gesture_echo` / `goal_off_world` / `world_fact_*` / `cast_role_frozen` 422 码均已不存在。唯一存活的旧闸是 `extra_authors`（命令语气 422）。水面「付清」改由 final 法官（账链路，LLM 判）+ 人评承担，**不再是词匹配硬闸**。
 
-### rev.11 本轮：三章只写设计节点（大纲+节拍合成）
+### rev.12 本轮：按新五层写章（替代 rev.11「只跑 design」）
 
-本轮 **不是** Wave A 总 PASS，也 **不是** 续写 `book_718fe88f` / `book_680ab75f`。必须新建 slug。  
-旗 `SCRIBE3_CHAPTER_DESIGN=on`。每章 **只跑** `stage=design persist=true`，不写演绎/排演/正文。
+本轮 **不是** 续写旧验收书。必须新建 slug。每章按新 OpSeq **走全五层**，每层 `persist=true` + 法官冻结后再进下一层。只跑 design 一层只算工程探针，不算体验验收。
 
 | 条 | Must |
 |----|------|
-| 新书 | slug ∉ `{book_83584141, book_e415dfeb, book_61a7935e, book_bdfdcdc4, wanjie-fate-r7, book_718fe88f, book_680ab75f}`。任何 design persist 之前先 `s3_set_intent` 并种可绑的 `promise:` / `storyline:` id |
-| 每章设计 | 一次 `POST /generate-stage stage=design persist=true`。`GET /chapter`：spine 有 A vs B、lines 已绑、beats≥3、指定拍演同一个选择、`schema_design=chapter_design.v1`。禁止大纲绿节拍空 |
-| 跨章 | ch2 咬上章点名 ch1 hook 核（≥4 字）；ch3 咬 ch2。动作必须变 |
-| 冻结 | 不改宣称 / GATE-B / WCG / SPA；本轮不验收水面付清与正文 |
+| 新书 | slug ∉ `{book_83584141, book_e415dfeb, book_61a7935e, book_bdfdcdc4, wanjie-fate-r7, book_718fe88f, book_680ab75f}`。任何 generate persist 之前先 `s3_set_intent` 并种可绑的 `promise:` / `storyline:` id |
+| 每章五层 | `duty → design → deduce → draft → final`，每层 persist=true。design 后 `GET play` + `GET contract`：quote 全在戏里、抉择恰一场、hook.quote 非空 |
+| 跨章 | ch≥2 的 `duty_bite`：`bite_from_prev` **字面等于**上章 contract `hook.quote`（机器硬闸，不是人工点名四字） |
+| 冻结 | 不改宣称 / WCG / SPA。质量读阶段文 + 飞行记录仪；闸绿单独不算「完全按方案」 |
 
-### rev.10 三章水面验收条（史；本轮不跑）
+开书 S2：先 `s3_set_intent(who_pays, axis_terms, clock_start, clock_end)`（纪律，**缺了不会 422**）。设定库用 `add_term` / `add_item`。不 overlay 上表黑名单 slug。
 
-本轮 **不是** Wave A 总 PASS，也 **不是** 续写 `book_83584141`。必须新建 slug，连写第 1–3 章。
+质量验收（本目标增量，非 Wave A 总 PASS 替代）：读戏/契约/演绎/排演/正文 + 飞行记录仪，判 **连贯 / 演绎≠正文合并 / 注水 / 空壳 / 账是否付了**，不得只报「字段非空」。水面付清靠法官 + 人评。
 
-| 条 | Must |
-|----|------|
-| 新书 | slug ∉ `{book_83584141, book_e415dfeb, book_61a7935e, book_bdfdcdc4, wanjie-fate-r7}`。任何 outline persist 之前先 `s3_set_intent(who_pays, axis_terms, clock_start, clock_end)` 并种可绑的 `promise:` / `storyline:` id |
-| 每章 OpSeq | 旗 on：`design → deduce → draft → final`。旗 off：`outline → beats → deduce → draft → final`。每层 `persist=true` + `focalizer`。**禁止**把 thicken `SKIP` / `iceberg_ok` 当成新写的一章 |
-| 水面 | 定稿 `prose` 付清本章 goal 组 **与** hook 组各至少一词；禁止只用黑针/帘/丝交差 |
-| 跨章 | ch2「咬上章」点名 ch1 hook 核（≥4 字）；ch3 咬 ch2。连续两章同一挡槽 actor 不得仍是 pressor/extractor（`gesture_echo`） |
-| 质量 | 读三章阶段文 + 记录仪工件，判连贯 / 演绎≠正文合并 / 注水 / 空壳 / 水面付清 / extra 是否当作者。闸绿单独不算「完全按方案」 |
-| 冻结 | 不改宣称公式、GATE-B（`synopsis_min_chars=80`）、`GATE_SAVE_MODE`、WCG 数字门槛、SPA 三通道 |
+### rev.12 操作顺序（OpSeq · 强制，一层完再进下一层）
 
-- Ice1 另加：who_pays、clock.span、place.name+delta、冻钟/冻地、卡住、种子户口、**`cast_role_frozen`（挡槽论元角色）**、**`world_fact_missing` / `world_fact_same`**、**`goal_off_world`（万界轴下本章要与代价须各点名至少一个 `WORLD_PHRASE`）**（`beats_meta.world_fact`，不占 14 槽）。
-- extra / persist 验收 = `evaluate_write_contract`（密度 + **当前波次**硬 id）。ASK 末尾【世界合同】压过 extra，禁止 extra 把本章要改成帘/丝/看清水。禁止 extra 命令「必须有一句母亲咳 / 原样复述三拍 / 必须以时空：开头」。
-- 定稿剥开头标签行。`时空` / `场景真相` 不得当 POV。
-- Ice3 结构：五层 + `extract_ore`≥1。**废除合计≥5000 作为通过条件。**
-- Ice4/6 结构：选择演出、矿落地、无 action_reread。详略跟 `clock.span`。**废除 10000/5000 作为通过条件。**
-- 开书 S2：先 `s3_set_intent(who_pays, axis_terms, clock_start, clock_end)`。设定库用 `add_term` / `add_item`。不 overlay `book_bdfdcdc4` / `wanjie-fate-r7` / `book_e415dfeb` / `book_61a7935e` / **`book_83584141`**。
-- 跨章：ch2 不得与 ch1 同物件同动作；`clock.delta=0` / `place.delta=0` 只许冻一章，第三次无 freeze/stay 理由 → 422。对手不得连续三章只「按住 X」。
-- 万界户口：`extract_seeds` 只收 `WORLD_PHRASE` 整词；废词「青的 / 出来 / 掌根」不触发 `seed_orphan`。
+> 写章顺序写错仍会空稿、断余烬。rev.12 按 play-contract 钉死。  
+> **不改** SPA 三通道、**不改** WCG、**不改** 宣称。
 
-质量验收（本目标增量，非 Wave A 总 PASS 替代）：读阶段文 + 飞行记录仪，判 **连贯 / 演绎≠正文合并 / 注水 / 空壳**，不得只报「字段非空」。
-
-### rev.4 操作顺序（OpSeq · 强制，一层完再进下一层）
-
-> 前四章实跑证明：能力矩阵写对了，**操作顺序写错仍会空稿、断余烬、脏四仪**。rev.4 把顺序钉死。  
-> **不改** SPA 三通道、**不改** WCG、**不改** 宣称/`GATE_SAVE_MODE`。
-
-对每一章，**严格按层、禁止乱序、禁止并行两层、禁止跳过未厚层**：
+对每一章，**严格按层、禁止乱序、禁止并行两层、禁止跳过未冻结层**：
 
 ```text
-0. 开书 S2（每书一次，任何 design persist 之前）：
-   s3_set_intent(who_pays, axis_terms, clock_start, clock_end, red_lines, total_word_goal)
-   并先种本章 lines 要绑的 promise:/storyline: id
-0b. 新章：点批 s3_add_chapter → GET /chapters 确认壳
-1. POST /generate-stage  stage=design  persist=true  focalizer=role:<本章主视角>
-   → GET /chapter 同时验：
-        chapter_spine 14 槽密度过闸（有 A vs B、lines 已绑 id）
-        clock.span + delta；place.name + delta
-        world_fact 一句可核对变化
-        beats ≥3；指定一拍演出同一个 A vs B；无 second_choice
-        beats_meta.schema_design == chapter_design.v1（新写）
-   旗 off 时仍走旧两步 outline → beats。审查者不得把「少一步」判成 FAIL。
-2. POST /generate-stage  stage=deduce   persist=true  focalizer=…
-   → 有 scene_truth、每人五层、抽得出矿（字数不是通过条件）
-3. POST /generate-stage  stage=draft    persist=true  focalizer=…
-   → GET /latest-draft 正文非空（字数不是通过条件）
-     （禁止只看 generate-stage 返回的 chars；读路径优先 chapter_version，回落 chapter.draft）
-4. POST /generate-stage  stage=final   persist=true  focalizer=…
-   （或 /api/chat/write?phase=final → POST /save-chapter）
-   → GET chapter.prose 非空；优先 spine.hook，其次 narrative_drive.end_hook 非空
-5. 下一章开写前：确认本章 spine.hook 在库。新章「咬上章」必须点名上一章钩（≥4 字核）。
-   动作必须变；勿第三次 delta=0 无理由。
+0.  开书 S2（每书一次）：s3_set_intent(who_pays, axis_terms, clock_start, clock_end,
+    red_lines, total_word_goal) + 种 promise:/storyline: id
+0b. 新章：s3_add_chapter → GET /chapters 确认壳
+1. POST /generate-stage stage=duty   persist=true
+   → ch≥2 验 duty_bite：bite_from_prev == 上章 contract hook.quote
+2. POST /generate-stage stage=design persist=true
+   → GET play：戏非空；GET contract：quote 全 ∈ play、stages_choice 恰 1、
+     hook.quote 非空
+3. POST /generate-stage stage=deduce persist=true → chapter_deduce 冻结
+4. POST /generate-stage stage=draft  persist=true → GET /latest-draft 非空
+5. POST /generate-stage stage=final  persist=true → 法官 PASS → /save-chapter
+   → GET chapter.prose 非空；narrative_drive.end_hook 非空
+6. 下一章开写前：确认上章 contract hook.quote 在库（duty_bite 的咬源）
+禁止：乱序/并行两层/未冻结层开新层（409）/persist=false 当验收/
+      只报 HTTP 200 与字段非空/把 410 旧 stage 当 bug。
 ```
 
-| 已厚层 | 处理 |
-|--------|------|
-| Ice1–3 已达地板 | **SKIP**（记 `skip_reason=iceberg_ok`），从第一层未厚处接着走 |
-| 草稿未厚 / 正文未存 | **必须** 从该层继续，不得跳到更下层 |
-| 仅加厚已落库层 | 允许 `persist=false` 试写；**试写不得当验收**；验收层必须再跑一遍 `persist=true` |
+| 已冻结层 | 处理 |
+|----------|------|
+| 该层 status=frozen | **SKIP** 重跑，从第一层未冻结处接着走 |
+| 排演未冻结 / 正文未存 | **必须** 从该层继续，不得跳到更下层 |
+| 只重抽契约 | `force=1` 只重跑本层，不动上游冻结戏 |
+| 整章重拍戏 | 仅 design 允许 `rewrite=1`：新戏版本，旧戏与下游作废 |
 
-**禁止（rev.4 操作 FAIL，即使 HTTP 200）：**
+**禁止（rev.12 操作 FAIL，即使 HTTP 200）：**
 
-- 新章或未落库层用 `persist=false`
+- 新章或未冻结层用 `persist=false` 当验收
 - `generate-stage` 不传 `focalizer`（记录仪 POV 空/错）
-- 跳过草稿直接 final；跳过 `/save-chapter` 直接开下一章
-- 并行生成两层；乱序（先草稿后大纲）
+- 跳过排演直接 final；跳过 `/save-chapter` 直接开下一章
+- 并行生成两层；乱序（先排演后责任卡）
 - 验收只报 generate-stage 返回值 / HTTP 200 / 字段非空
-- 带着脏四仪（场面段、引号残留、提取不一致）进节拍
-- 把「加厚已有层」的 skip 用到新章
+- 把 410 旧 stage 当产品 bug
+- 把「已冻结层 skip」用到新章
 
 ### 前四章病灶 → 操作纪律（必须吸收）
 
 | # | 病灶 | 现象（炉灰记 book_c14585d8） | 根因 | rev.4 纪律 |
 |---|------|------------------------------|------|------------|
 | F1 | 草稿 Tab 空 | ch1–3 `chapter.draft` 有万字，UI 读 `/latest-draft` 只认 `chapter_version` | 读路径不回退 | **产品已修** `resolve_latest_draft`。操作：draft 后必须 `GET /latest-draft` 验非空 |
-| F2 | 节拍框裁切 | 长拍被 `textarea min-h:2.5rem` 裁掉，误判「没生成完」 | CSS | **产品已修** 为全文 `pre-wrap`。操作：节拍验收读全文，不看框高 |
+| F2 | 长文框裁切 | 长稿被矮框裁掉，误判「没生成完」 | CSS | **产品已修** 为全文 `pre-wrap`。操作：戏/契约/排演验收读全文，不看框高 |
 | F3 | persist=false 无正文 | ch4 大纲/节拍/演绎已厚，`draft=0 prose=0 hook 空` | 加厚脚本把 persist=false 用到未落库层 | **新层一律 persist=true**。ch4 从 draft 补起，不得重开书 |
 | F4 | 忘传 focalizer | 记录仪 POV 空；注入用错视角 | 脚本未传 / generate-stage 默认 `""` | **每层必传** 本章主视角（本书 `role:柳岸青` / 落库 id） |
 | F5 | 上章无 hook → 下章 ember 空 | 未 `/save-chapter` 则 `narrative_drive.end_hook` 不进余烬 | persist=false 或只写 draft | 定稿后必须 save-chapter，再 GET 验 hook，**再**开下一章 |
-| F6 | 四仪脏 | 要/挡/翻/付被进场/事件段倾倒；`**事件：**` 冒号在粗体内 | 提取+格式 | **产品已修**。操作：大纲后读四仪，脏则 assemble 修，禁止带脏合同进节拍 |
-| F7 | drama 槽被截 | `**事件：**` 正则吃到冒号为止 | 槽格式 | **产品已修**。操作：节拍后读事件/翻转/水下，不得空 |
 | F8 | usage=0 | 只统计 proposal fence | `_collect_write` | **产品已修** raw_delta。记录仪须有非零 usage |
 | F9 | recall/causal 空 | 书无 fact/event 图 | C3 章台账回退 | 空则记缺陷，**不得因此停写**；回退须能看见上章因果 |
-| F10 | 已厚层再跑 0.2s skip | 续写当新章重跑 outline | `iceberg_ok` skip | **跳过已厚层**，从第一未厚层顺序往下 |
-| F11 | 草稿不进 version 表 | persist 只 `save_chapter_draft` | 缺 `add_chapter_version` | **产品已补**。仍以 `/latest-draft` 为验收源（含 fallback） |
+| F10 | 已冻结层再跑 skip | 续写当新章重跑 duty/design | 冻结层 skip | **跳过已冻结层**，从第一未冻结层顺序往下 |
+| F11 | 排演读路径空 | persist 只写 `chapter_draft` 表，UI 只认旧 `chapter.draft` | 读路径未接新表 | **产品须** `GET /latest-draft` 回落冻结 `chapter_draft`。验收仍以该接口非空为准 |
 
 **续写裁定（rev.9）：** 炉灰记 / `book_bdfdcdc4` / `wanjie-fate-r7` / `book_e415dfeb` / `book_61a7935e` **不得续写当本版总 PASS**。新旅程必须 **新建 slug**，从 S1 起按 OpSeq 走。旧书只作考古对照（ch8/9 红闸是证据，不是待办）。
 
@@ -351,7 +324,7 @@
 - 宇宙：万界概率战争 V7.0（不得填炉灰记）
 - 作者是否真人坐浏览器：是 / 否（否 → 最高 engineering PARTIAL）
 - 通道使用：discuss / world_write 审批 / prose_write / ChangePack / generate-stage（勾选实际用过的）
-- 冰山：每章 outline/beats/deduce/draft 字数（对照 Ice1–4）
+- 五层：每章 duty/design/deduce/draft/final 冻结状态 + contract quote 核验结果
 - 运行分析：至少 1 条链 `include=events,artifacts` 路径
 - 是否仅对话+白名单 UI：是 / 否（列例外）
 - v632/v633/pilot：用途（禁止/对照）
@@ -620,7 +593,7 @@ Wave B ⇔ Should 计分 ≥80%（见下）∧ 证据 schema 合法
 |----|--------|------|------|------|
 | Drm1 节拍 | Must | S7 | UI | ≥3 非空 soft；有节拍再演绎 |
 | Drm2 接地失败纪律 | **Must-if-triggered** | S7 | UI+日志 | **未触发 → N/A + 声明**；触发 → STOP 同路径、**禁 safe_beats** |
-| Drm3 演绎分列 | Must | S7 | API | scene_truth≠prose 合并 |
+| Drm3 演绎分列 | Must | S7 | API | chapter_deduce 内容不得与 final prose 合并 |
 | Drm4 压力 | Should | S7/S10 | API | findings 路径 |
 | Drm5 戏剧真空 | Could | S7 | API | 触发即验 |
 
@@ -744,20 +717,19 @@ SSOT：`scribe3/qc_product_keys.py`。深链 `leftTab=review` 仍可达 IssueDir
 | QL3 无 pad | Must | 人判 |
 | QL4 人盲 | Could | 不挡总 PASS |
 
-### P. 冰山 / 注入 / 设定生成 / 飞行记录仪（rev.3）
+### P. play-contract 五层 / 注入 / 设定生成 / 飞行记录仪（rev.12）
 
 | ID | 优先级 | 阶段 | 证据 | 要点 |
 |----|--------|------|------|------|
-| Ice1 大纲地板 | Must | S7 每定稿章 | API | `chapter_spine` 线索密度过闸：必填槽、能拆 A/B 的选择、代价、`lines` 绑已有 promise/storyline id。原 `synopsis≥500` 是失败代理，不再作为通过条件 |
-| Ice2 节拍地板 | Must | S7 | API | ≥3 拍；要/挡/变/付为拍级原子；全章 ≥1 条 `parse_choice_ab`；禁止千字进场。原每拍≥500/合计≥2000 不再作为通过条件 |
-| Ice3 演绎地板 | Should | S7 | API | 五层 + 矿≥1；旗 on 才 Must。字数只进 measures。**演绎不得与定稿合并**（=Drm3） |
-| Ice4 草稿地板 | Should | S7 | API | 非空排演 + 选择/矿结构；旗 on 才 Must。禁止字数 422 |
-| Ice5 薄稿挡写 | Must-if-triggered | S7 | API | 冰山未厚时 draft/final 动稿 409；未触发（已厚）→ N/A |
-| Ice6 正文水面 | Should | S7 | API | 非空正文 + 结构；字数只作面积诊断，**不是**宣称/GATE-B |
-| Fate1 波次1 | Should | S7 | API | 旗 on：无 who_pays/span/place、卡住、第三次冻钟/地、矿未抽、**本章要/代价无世界词（`goal_off_world`）** → 422 `fate_blocked` |
-| Fate2 世界合同 | Should | S7 | API | extra 不得覆盖本章要/代价里的世界词；`GET` 本章 spine.goal/cost 须含 `WORLD_PHRASE`；prompt 末尾有【世界合同】 |
-| Fate3 水面命题 | Should | S7 | API | `SCRIBE3_WORLD_SURFACE=on`：定稿硬组未付 → `surface_claim_unpaid`；黑针/帘/丝伪付 → `claim_paid_by_paraphrase`；extra 命令语气 → `extra_authors` |
-| Ice7 落库与余烬 | Must | S7 每新定稿章 | API | `persist=true`；`GET /latest-draft` 非空；定稿后 `spine.hook` 或 `narrative_drive.end_hook` 非空；每层带 focalizer。违反 = 该章 Ice FAIL（即使 HTTP 200） |
+| PB1 duty 法官+咬钩 | Must | S7 每章 | API | duty_card 冻结；ch≥2 `duty_bite` 过闸 |
+| PB2 quote 保真 | Must | S7 | API | contract 全部 quote `quote_in_play` 通过 |
+| PB3 抉择唯一 | Must | S7 | API | `stages_choice=true` 恰 1 场（纯函数结构闸） |
+| PB4 层序 409 | Must-if-triggered | S7 | API | 未冻结下层请求 → 409 `stage_not_ready`；触发即验 |
+| PB5 四态/needs_human | Should | S7 | API | 冻结四态可见；三抽不过 → needs_human 不毁 Play |
+| PB6 extra_authors | Must-if-triggered | S7 | API | 命令语气 extra → 422 `extra_authors` |
+| PB7 deduce≠prose | Must | S7 | API | chapter_deduce 与 final prose 不合并 |
+| PB8 法官留痕 | Should | S7 ≥1 章 | API | 飞行记录仪可见法官结论（T=0、先引原文再判） |
+| Ice7 落库与余烬 | Must | S7 每新定稿章 | API | `persist=true`；`GET /latest-draft` 非空；定稿后 `narrative_drive.end_hook` 非空；每层带 focalizer。违反 = 该章 FAIL（即使 HTTP 200） |
 | Af1 注入可回放 | Should | S7 ≥1 章 | API | 飞行记录仪能打开进模型段 / drop 段；禁止只报 digest |
 | Cx1 设定生成不落库 | Must | S3 | API | `/generate-codex` 200 且 L1 未因本次生成新增实体；落地仍 C1 |
 | Cx2 secret 边界 | Must | S3 | API | REST `include_secret` → 4xx |
@@ -819,7 +791,7 @@ docs/evidence/v634-true-chat-<YYYYMMDD>-<slug>/
 - GET https://tonglu.qing.blue/api/ready → ...
 - GET https://tonglu.qing.blue/api/capabilities → flags.memory_fabric_v1,
   flags.emergency_rest_write, flags.ingest_lease, flags.context_inspector_v1, ...
-- demo env / 设置：SCRIBE3_PIPELINE_TRACE=1；SCRIBE3_FATE_DEARER=on；SCRIBE3_FATE_WAVE=2；SCRIBE3_PIPELINE_RECORDER=1（记录仪默认开）
+- demo env / 设置：SCRIBE3_PIPELINE_TRACE=1；SCRIBE3_PIPELINE_RECORDER=1（记录仪默认开）
 - Hermes deduce preview/full 可达性：ok / degraded / unavailable（影响 H* SKIP）
 - 证据窗起止 UTC
 - deploy 备注（hot 时间可选）
@@ -835,6 +807,7 @@ docs/evidence/v634-true-chat-<YYYYMMDD>-<slug>/
 | 每章 UI 点批（1–5） | 主编硬门 |
 | 收件箱或审批卡点批 | C1/C2 |
 | 章前契约至少 1 章 | I1 |
+| 章工作台 play/contract 页 | PB2 |
 | Issue coverage | Q1 |
 | Context Inspector | X1 |
 | SystemHub 总览 | SH1 |
@@ -1025,13 +998,13 @@ threads、capabilities、ingest/lease、coverage、tool_trace_status、Inspector
 | **KD-17** | 条件 Must → Must-if-triggered / N/A | Issue 5 |
 | **KD-18** | S7 内嵌 IA/Stage/parallel/弧光；S11 补漏 | Issue 4 |
 | **KD-19** | 合法设定落地 = ChangePack **或** world_write 审批（可追溯） | Issue 2 |
-| **KD-20** | 冰山五层地板进 S7 质量门；生成必须 LLM；不改宣称/GATE-B/`GATE_SAVE_MODE` | 08-14 iceberg |
+| **KD-20** | 写章 S7 质量门 = PB1–PB8（duty 咬钩、quote 保真、抉择唯一、层序 409、四态、extra_authors、演绎≠正文、法官留痕）；生成必须 LLM；不改宣称 | 08-19 play-contract |
 | **KD-21** | 防洪水是注入层，不是生成链；验收看记录仪工件 | 08-14 antiflood |
 | **KD-22** | 设定库 generate 只生成不落 L1；secret fail-closed | 08-14 codex chain |
 | **KD-23** | 选择/驾驶 = 主编附属模式；REST 语义不变；切模式不换会话 | 08-14 chief fusion |
 | **KD-24** | 左栏「校验」非日常入口；日常 = 护栏 + 全量体检；决策收件箱含选择+Hermes | 08-14 inbox / rail |
-| **KD-25** | 写章 OpSeq = **设计一层** → 演绎 → 排演 `persist=true`→`GET /latest-draft`→定稿 `/chat/write`→`/save-chapter` 验 hook。禁止 persist 只写 spine 让 beats 空着过闸。已齐设计 SKIP 一次。禁止 persist=false 开新层。不改宣称/GATE-B | 08-17 outline-beats-merge |
-| **KD-26** | 万界轴下本章要/代价必须点名 `WORLD_PHRASE`（`goal_off_world`）；extra 后置【世界合同】；记录仪默认开；F3b/c 分批硬闸退役。旧验收 slug 不 overlay。不改 WCG/SPA/宣称 | 08-16 ch8/9 根因收口 |
+| **KD-25** | 写章 OpSeq = duty→design→deduce→draft→final，每层生成→法官→结构闸→冻结，persist=true；层序 409；旧 stage 410 | 08-19 play-contract |
+| **KD-26** | 保真唯一机制 = Contract quote 字面包含（`quote_in_play`）；语义判断只由法官做；词匹配硬闸（密度/fate/水面）全部退役 | 08-19 play-contract |
 
 ---
 
@@ -1083,7 +1056,7 @@ Wave A
 □ S8  M4 单真
 □ S9  PostFinalize≥2 + M6 + ingest
 □ S10 Q1–Q3 Q7 Q9 V1（护栏/全量体检，非左栏校验 tab）
-□ S7 冰山 Ice1–Ice4 + Ice7（persist / latest-draft / hook）；≥1 章打开 Rec2 卷宗做质量分析（非仅有输出）
+□ S7 PB1-3 + PB7 + latest-draft 非空 + end_hook 非空；≥1 章打开 Rec2 卷宗做质量分析（非仅有输出）
 □ Ch6 模式条可见；若用选择/驾驶则 Inb1/Ch7/Ch8
 □ 记忆 scorecard + 四问草稿
 □ 字数带检查
@@ -1112,9 +1085,14 @@ Wave B
 - `docs/guides/2026-08-11-writing-context-injection-and-data-generation-full-flow.md`  
 - `scribe3/web/src/ChiefDock.jsx` · `lib/orchestrateSend.js` · `lib/chiefMode.js` · `system/SystemHub.jsx` · `ChapterMetaPane.jsx`  
 - `scribe3/mcp_catalog_build.py` · `qc_product_keys.py` · `ingest_lease.py` · `arc_signals.py` · `parallel_deduce.py`  
-- `scribe3/iceberg.py` · `stage_generate.py` · `codex_generate.py` · `pipeline_recorder.py` · `inbox.py`  
-- `docs/plans/2026-08-14-iceberg-complete.md` · `2026-08-14-antiflood-blast-radius.md` · `2026-08-14-codex-generation-chain.md` · `2026-08-14-pipeline-runtime-analysis.md` · `2026-08-14-chief-mode-fusion.md`  
-- `docs/worlds/wanjie-probability-war-v7.md` — **rev.6 验收宇宙 SSOT**  
+- `scribe3/web/src/DeduceStage.jsx`（存在，533 行）  
+- `scribe3/stage_generate.py` — 约 206 行 facade（旧 outline/beats 链已删）  
+- `scribe3/playbook/` — `stages.py` / `pipeline.py` / `structural.py` / `quote.py` / `judge.py` / `prompts.py`  
+- `scribe3/migrations/146_play_contract.surql` · `147_drop_old_design.surql`  
+- `docs/playbook/playbook.1.md`  
+- `scribe3/codex_generate.py` · `pipeline_recorder.py` · `inbox.py`  
+- `docs/plans/2026-08-14-antiflood-blast-radius.md` · `2026-08-14-codex-generation-chain.md` · `2026-08-14-pipeline-runtime-analysis.md` · `2026-08-14-chief-mode-fusion.md`  
+- `docs/worlds/wanjie-probability-war-v7.md` — **验收宇宙 SSOT**  
 - `scripts/v632_true_chat_journey.py` · `scripts/v633_change_revalidation.py`  
 
 ---
@@ -1132,7 +1110,10 @@ Wave B
 | **v6.3.4 Draft rev.7** | 吸收 fate-dearer：Ice3/4/6 字数 Must 改为结构 Should（旗 on 才 Must）；S2/OpSeq 写入 who_pays、书钟、章钟/地点；卡住与冻钟/冻地。**不改** WCG 数字、SPA、宣称、GATE-B、`GATE_SAVE_MODE`。黑名单加 `wanjie-fate-r7`。 |
 | **v6.3.4 Draft rev.8** | 词表 `WORLD_*`、`cast_role_frozen`、`world_fact_*`、extra=`evaluate_write_contract`、默认 WAVE-2。当时验收书 `book_61a7935e`（rev.9 退役）。 |
 | **v6.3.4 Draft rev.9** | `goal_off_world` + 【世界合同】压 extra；记录仪默认开；F3b/c 标历史。新 slug。禁 overlay 旧万界书。**不改** SPA / WCG / 宣称 / GATE-B / `GATE_SAVE_MODE`。 |
+| **v6.3.4 Draft rev.10** | 三章水面验收条（史）。词匹配硬闸现已退役。 |
+| **v6.3.4 Draft rev.11** | 当时 OpSeq 合并为 design 一层（史）。旗与旧 design 语义已不存在。 |
+| **v6.3.4 Draft rev.12** | 写章内核换代 play-contract：新五层 OpSeq、PB 矩阵、quote 保真、咬钩硬闸。Fate/水面/outline/beats 条款作废。总 PASS / WCG / SPA 不改。 |
 
 ---
 
-*完 · rev.9 可审定后落入耐久路径。宇宙 SSOT：`docs/worlds/wanjie-probability-war-v7.md`。命运闸 SSOT：`docs/plans/2026-08-16-fate-dearer-novelist-reform.md`。验收书：`book_83584141`（`万界概率战争·v6.3.4·真chat全能力·20260816-2316`）。*
+*完 · rev.12。宇宙 SSOT：`docs/worlds/wanjie-probability-war-v7.md`。写章 SSOT：`scribe3/playbook/` + `docs/playbook/playbook.1.md`。旧验收书 slug 不 overlay。*

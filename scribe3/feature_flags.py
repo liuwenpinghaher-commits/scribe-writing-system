@@ -121,13 +121,6 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
         "chapter_design",
         "caution",
     ),
-    Flag(
-        "SCRIBE3_WORLD_SURFACE",
-        "on",
-        "水面命题卡 / extra 作者扫描 / 矿从命题抽。off=回到仅短槽 fate。记录仪接线不看此旗。",
-        "world_surface",
-        "caution",
-    ),
     Flag("SCRIBE3_PIPELINE_RECORDER", "1", "飞行记录仪事件+工件；默认开", "observability", "caution"),
     Flag("SCRIBE3_PIPELINE_ARTIFACT_CAP", "16384", "单工件 Unicode 字帽", "observability", "safe"),
 )

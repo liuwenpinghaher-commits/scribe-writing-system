@@ -29,8 +29,8 @@ CATALOG: list[dict[str, Any]] = [
         "channel": "world_write",
         "instruction_duty": (
             "域纪律(作品意图):用 s3_set_intent；**不是**评分卡 scorecard。"
-            "写大纲前先 s3_set_intent(who_pays, axis_terms, clock_start, clock_end)；"
-            "缺 who_pays 或章钟 span / 地点 name 会 422。"
+            "开书先 s3_set_intent(who_pays, axis_terms, clock_start, clock_end)。"
+            "这是纪律，不是 422 硬闸。"
         ),
     },
     # —— 设定 Codex ——
