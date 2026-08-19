@@ -98,6 +98,23 @@ def test_headline_is_human_not_red_green_count():
     assert "卡在" in live and "模型生成" in live and "41" in live
 
 
+def test_headline_ignores_skip_red():
+    h = headline_from_spans([
+        {
+            "step_key": "assemble.seg.drama_vacuum",
+            "step_title": "戏剧真空",
+            "verdict": "red",
+            "actual_reason": "skip_vacuum_has_contract_or_planning",
+        },
+        {
+            "step_key": "assemble.seg.codex_named",
+            "step_title": "点名设定",
+            "verdict": "green",
+        },
+    ])
+    assert "戏剧真空" not in h
+
+
 def test_missing_request_id_is_noop_no_uuid_mint():
     enable_pipeline_trace()
     import uuid as _uuid
@@ -160,6 +177,9 @@ class _FakeStore:
     def get_pipeline_chain(self, trace_id):
         return {"trace_id": trace_id, "status": "in_progress"}
 
+    def get_frozen(self, table, seq):
+        return {"text": "冻稿", "status": "frozen", "seq": seq}
+
 
 def test_llm_running_insert_has_no_end_timing_then_finish_writes_duration():
     """驱动 shipped insert_running_span + finish_ok：INSERT 不得 stamp 终态耗时。"""
@@ -215,6 +235,29 @@ def test_tool_end_writes_real_duration():
     assert float(t2.get("duration_ms") or 0) >= 40, t2
 
 
+def test_finish_failed_stays_failed_when_frozen_exists():
+    """B3：链失败不得因冻稿在库就改成 ok。"""
+    from scribe3.pipeline_trace import enable_pipeline_trace
+    from scribe3.pipeline_trace_hooks import finish_failed
+    from scribe3.pipeline_trace_store import start_chain
+
+    enable_pipeline_trace()
+    st = _FakeStore()
+    st.chain_patches = []
+
+    def capture(trace_id, fields):
+        st.chain_patches.append((trace_id, dict(fields or {})))
+
+    st.update_pipeline_chain = capture
+    mt = {"request_id": "33" * 16}
+    start_chain(st, work="w", chapter=1, kind="write", phase="draft", trace_id=mt["request_id"])
+    finish_failed(st, mt, err=RuntimeError("boom"))
+    assert st.chain_patches, "finish_failed must write chain status"
+    last = st.chain_patches[-1][1]
+    assert last.get("status") == "failed", last
+    assert "链异常但产物已落库" not in str(last)
+
+
 if __name__ == "__main__":
     tests = [
         test_public_span_strips_forbidden_keys,
@@ -226,6 +269,7 @@ if __name__ == "__main__":
         test_handler_id_consumed_not_reminted,
         test_llm_running_insert_has_no_end_timing_then_finish_writes_duration,
         test_tool_end_writes_real_duration,
+        test_finish_failed_stays_failed_when_frozen_exists,
     ]
     for fn in tests:
         fn()

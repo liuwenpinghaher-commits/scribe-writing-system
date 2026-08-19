@@ -66,6 +66,11 @@ def write_chain_guard(st: Any, manifest_trace: dict | None):
     try:
         yield
     except Exception as e:
+        defer = bool(
+            isinstance(manifest_trace, dict) and manifest_trace.get("defer_finish")
+        )
+        if defer:
+            raise
         try:
             rid = ""
             if isinstance(manifest_trace, dict):
@@ -218,6 +223,57 @@ def after_join(st: Any, bud_rep: dict | None) -> None:
     )
     o1d = list(te.get("dropped") or [])
     sid2 = buf.start_span("budget.o1")
+    try:
+        from scribe3.pipeline_recorder import current_recorder
+        rec = current_recorder()
+        if rec is not None:
+            rec.remember_span(sid, "budget.l2")
+            rec.remember_span(sid2, "budget.o1")
+            for op in list(l2.get("dropped_ops") or []):
+                nm = str(op.get("name") or "")
+                before = rec.put_artifact(
+                    kind="drop_before", name=nm,
+                    body=str(op.get("text_before") or ""), span_id=sid,
+                )
+                if before:
+                    rec.produce(sid, before, name=nm)
+                    rec.emit(
+                        sid, "drop",
+                        artifact_ids=[before],
+                        payload={"name": nm, "op": op.get("op"),
+                                 "chars_before": op.get("chars_before"),
+                                 "chars_after": op.get("chars_after")},
+                    )
+                after_txt = str(op.get("text_after") or "")
+                if after_txt:
+                    after = rec.put_artifact(
+                        kind="drop_after", name=nm, body=after_txt, span_id=sid,
+                    )
+                    if after:
+                        rec.produce(sid, after, name=nm)
+            rec.emit(
+                sid, "budget",
+                payload={
+                    "cap": l2.get("effective_l2_cap"),
+                    "l0_est": l2.get("l0_est"),
+                    "l1_est": l2.get("l1_est"),
+                    "l2_est": l2.get("l2_est"),
+                    "prompt_hard": l2.get("prompt_hard"),
+                    "soft_exceeded": l2.get("soft_exceeded"),
+                },
+            )
+            for op in list(te.get("dropped_ops") or []):
+                nm = str(op.get("name") or "")
+                before = rec.put_artifact(
+                    kind="drop_before", name=nm,
+                    body=str(op.get("text_before") or ""), span_id=sid2,
+                )
+                if before:
+                    rec.produce(sid2, before, name=nm)
+                    rec.emit(sid2, "drop", artifact_ids=[before],
+                             payload={"name": nm, "op": op.get("op")})
+    except Exception:
+        pass
     buf.end_span(
         sid2,
         status="ok",
@@ -240,6 +296,71 @@ def after_compile(st: Any, compiled) -> None:
     if sid:
         buf.end_span(sid, status="ok")
     mid = buf.start_span("compile.manifest")
+    try:
+        import json as _json
+        from scribe3.pipeline_recorder import current_recorder
+        rec = current_recorder()
+        if rec is not None:
+            rec.remember_span(mid, "compile.manifest")
+            # drain 后 rec.artifacts 空；字数与血缘走 produced_segments 索引
+            meta = rec.snapshot_join()
+            order = list(meta.get("order") or [])
+            seg_ids = list(meta.get("segment_artifact_ids") or [])
+            for aid in seg_ids:
+                rec.consume(mid, artifact_id=aid, role="input")
+            rec.consume(mid, name="chapter_story_io", role="input")
+            jid = rec.put_artifact(
+                kind="joined_meta", name="compile_joined",
+                body=_json.dumps(meta, ensure_ascii=False),
+                media="json", span_id=mid,
+            )
+            if jid:
+                rec.produce(mid, jid, name="compile_joined")
+                rec.emit(
+                    mid, "join",
+                    artifact_ids=[jid, *seg_ids],
+                    payload={
+                        "order": order,
+                        "chars_total": meta["chars_total"],
+                        "segment_names": order,
+                        "segment_artifact_ids": seg_ids,
+                    },
+                )
+            env = getattr(compiled, "envelope", None) or {}
+            blocks = []
+            if isinstance(env, dict):
+                blocks = env.get("blocks") or env.get("selected") or []
+            if isinstance(blocks, list):
+                for i, blk in enumerate(blocks[:8]):
+                    if not isinstance(blk, dict):
+                        continue
+                    body = str(blk.get("text") or blk.get("body") or blk.get("content") or "")
+                    if not body:
+                        continue
+                    baid = rec.put_artifact(
+                        kind="envelope_block", name=str(blk.get("name") or f"env{i}"),
+                        body=body, span_id=mid,
+                    )
+                    if baid:
+                        rec.produce(mid, baid, name=str(blk.get("name") or f"env{i}"))
+            omitted = []
+            if isinstance(env, dict):
+                omitted = env.get("omitted") or env.get("rejected") or []
+            if omitted:
+                rec.emit(
+                    mid, "emit",
+                    payload={
+                        "omitted": [
+                            {"id": str((o or {}).get("id") or ""),
+                             "reason": str((o or {}).get("reason") or ""),
+                             "token": str((o or {}).get("token") or (o or {}).get("digest") or "")}
+                            for o in omitted if isinstance(o, dict)
+                        ][:32],
+                        "rejected_n": len(omitted),
+                    },
+                )
+    except Exception:
+        pass
     buf.end_span(
         mid, status="ok",
         links={"manifest_id": buf.manifest_id},
@@ -258,6 +379,22 @@ def after_guard(st: Any, *, hits=None, leaked: bool = False) -> None:
         n = len(hits) if hits is not None and hasattr(hits, "__len__") else 0
     except Exception:
         n = 0
+    try:
+        from scribe3.pipeline_recorder import current_recorder
+        rec = current_recorder()
+        if rec is not None:
+            rec.remember_span(sid, "guard.epistemic")
+            rec.emit(
+                sid, "gate",
+                payload={
+                    "hit_count": n,
+                    "guard_hits": n,
+                    "scrubbed": bool(leaked),
+                },
+            )
+            rec.consume(sid, name="compile_joined", role="input", got=True)
+    except Exception:
+        pass
     buf.end_span(
         sid,
         status="failed" if leaked else "ok",
@@ -343,7 +480,8 @@ def note_llm_output(text: str | None) -> None:
     sid = buf.span_id_for("llm.generate")
     if not sid:
         sid = buf.start_span("llm.generate")
-    raw = text or ""
+    from scribe3.llm_visible import strip_thinking_markup
+    raw = strip_thinking_markup(text or "")
     body, full, trunc = prepare_emit_body(raw, name="llm_output")
     try:
         buf.append_log(
@@ -355,6 +493,12 @@ def note_llm_output(text: str | None) -> None:
             "shape": "prose", "chars": len(raw),
             "body": body, "truncated": trunc, "chars_full": full,
         })
+        from scribe3.pipeline_recorder import current_recorder
+        rec = current_recorder()
+        if rec is not None:
+            rec.remember_span(sid, "llm.generate")
+            rec.consume(sid, name="compile_joined", role="input")
+            rec.emit(sid, "usage", payload={"output_chars": len(raw)})
     except Exception:
         pass
 
@@ -405,34 +549,8 @@ def finish_failed(st: Any, manifest_trace: dict | None, err: BaseException | Non
         except Exception:
             pass
         extra["notes"] = list(buf.notes)
-    status = "failed"
-    try:
-        phase = ""
-        chapter = 0
-        if buf is not None:
-            phase = str(getattr(buf, "phase", "") or "")
-            chapter = int(getattr(buf, "chapter", 0) or 0)
-        table = {
-            "duty": "duty_card",
-            "design": "chapter_play",
-            "play": "chapter_play",
-            "deduce": "chapter_deduce",
-            "draft": "chapter_draft",
-            "final": "chapter_draft",
-        }.get((phase or "").strip().lower())
-        frozen = None
-        if table and st is not None and hasattr(st, "get_frozen") and chapter:
-            frozen = st.get_frozen(table, chapter)
-        if frozen:
-            status = "ok"
-            notes = list(extra.get("notes") or [])
-            note = "链异常但产物已落库"
-            if note not in notes:
-                notes.append(note)
-            extra["notes"] = notes
-    except Exception:
-        pass
-    finish_chain(st, trace_id=rid or None, status=status, extra=extra or None)
+    # 链失败就是 failed。产物在不在另表对账，禁止在这里改成 ok。
+    finish_chain(st, trace_id=rid or None, status="failed", extra=extra or None)
 
 
 def emit_gate_spans(

@@ -68,6 +68,12 @@ class _Mem:
         return {"prose": (self.get_frozen("chapter_draft", seq) or {}).get("text") or ""}
 
 
+def test_hooks_do_not_paint_failed_ok():
+    src = (ROOT / "scribe3" / "pipeline_trace_hooks.py").read_text(encoding="utf-8")
+    assert "链异常但产物已落库" not in src
+    assert "status = \"ok\"" not in src.split("def finish_failed")[-1].split("def emit_gate_spans")[0]
+
+
 def test_measure_chapter_fails_copy_and_solo_cast():
     st = _Mem()
     play = "交出去，娘就有一线生机。" * 30
