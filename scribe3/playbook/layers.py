@@ -37,8 +37,10 @@ def generate_json(llm_fn: Callable, prompt: str, *, system: str, max_tokens: int
     return parse_json_with_retry(_once)
 
 
-def generate_text(llm_fn: Callable, prompt: str, *, system: str, max_tokens: int) -> str:
-    return _call(llm_fn, prompt, system=system, temperature=0.8, max_tokens=max_tokens).strip()
+def generate_text(
+    llm_fn: Callable, prompt: str, *, system: str, max_tokens: int, temperature: float = 0.8,
+) -> str:
+    return _call(llm_fn, prompt, system=system, temperature=temperature, max_tokens=max_tokens).strip()
 
 
 def gen_duty(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
@@ -105,6 +107,7 @@ def gen_deduce(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
 def gen_draft(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
     text = generate_text(
         llm_fn, draft_generate(ctx), system=IDENTITY_NOVELIST, max_tokens=16384,
+        temperature=0.4,
     )
     return {
         "seq": int(ctx.get("seq") or 0),

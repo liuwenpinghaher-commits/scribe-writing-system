@@ -76,6 +76,18 @@ def test_gender_pronoun_skips_unregistered():
     assert hit["ok"] is True
 
 
+def test_gen_draft_uses_lower_temperature():
+    from scribe3.playbook.layers import gen_draft
+    seen: dict = {}
+
+    def llm(prompt, **kw):
+        seen.update(kw)
+        return "场面。" * 800
+
+    gen_draft({"seq": 1}, llm)
+    assert seen.get("temperature") == 0.4
+
+
 def test_draft_prompt_carries_struct_hint():
     from scribe3.playbook.prompts import draft_generate
     t = draft_generate({"play_text": "戏", "bite_quote": "钩", "struct_hint": "明喻 25 处 / 2469 字超过 1"})
