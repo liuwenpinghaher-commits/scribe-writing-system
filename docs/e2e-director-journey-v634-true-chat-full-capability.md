@@ -3,7 +3,7 @@
 | 项 | 值 |
 |----|-----|
 | **文档标题** | 铜炉 Director 旅程验收协议 · 全面更新（全能力 · 真书 · 对话驱动+点批） |
-| **版本** | **v6.3.4 rev.12**（写章内核换代为 play-contract 五层管线 duty→design→deduce→draft→final，旧 outline/beats/spine/fate 条款作废；**总 PASS 公式、WCG、SPA 不改**） |
+| **版本** | **v6.3.4 rev.12.1**（写章内核 play-contract 五层；漏改收口。**总 PASS 公式、WCG、SPA 不改**） |
 | **作者** | Grok Design（待人类审定） |
 | **日期** | 2026-08-19 |
 | **状态** | **Draft rev.12** · 写章验收按新五层冻结。本轮须**新 slug**。宣称 / WCG / SPA **不改** |
@@ -265,7 +265,7 @@
 
 `pipeline_chain`/`span`（140）+ `pipeline_event`/`pipeline_artifact`（142）。作者入口：**运行时·数据 → 运行分析**（一书一库；禁止再埋进「运维·危险」）。`SCRIBE3_PIPELINE_TRACE` 默认开；`SCRIBE3_PIPELINE_RECORDER` **设置/代码默认开**（仅显式 `0/false` 关）。7 日 TTL。查询：`GET /debug/pipeline-traces?work=`，单链 `include=events,artifacts`。
 
-**全部信息 ≠ 全部字节**：允许窄红名单（密钥 / Cookie / secret 值）。禁止再用这句话砍掉 `end_hook`、合同四义、大纲/节拍、场面真相、丢掉的段正文、编译段。
+**全部信息 ≠ 全部字节**：允许窄红名单（密钥 / Cookie / secret 值）。禁止再用这句话砍掉 `end_hook`、戏/契约/演绎/排演正文、丢掉的段、编译段。
 
 ### 主编附属模式（聊 / 选择 / 驾驶）
 
@@ -290,9 +290,9 @@
 | **主编坞** 发送（discuss / 触发 world_write） | 表单失焦批量改正典 |
 | **主编模式条** 聊 / 选择 / 驾驶（不换会话） | 把选择/驾驶再拆成右栏常驻 tab |
 | **审批卡** 批准/拒绝/过期 | EMERGENCY 世界写 |
-| **大纲放行 / 用此版 / 终选 / advisory 接受** | safe_beats / prose_pure / 离线 prose 灌库 |
+| **戏/契约冻结放行 / 用此版 / 终选 / advisory 接受** | safe_beats / prose_pure / 离线 prose 灌库 |
 | **待确认设定 / 决策收件箱 / pending-claims 点批** | 无 chat 脚本拼 ops |
-| **章工作台** 阶段切换、契约页、节拍/演绎 UI 点批；冰山加厚 | 后台 seed 假记忆；切句充数当冰山 |
+| **章工作台** 阶段切换、play/contract 页、戏/契约/演绎点批；五层冻结 | 后台 seed 假记忆；切句充数当戏 |
 | **Issue「让主编处理」** 种子后再聊 | curl **代聊** |
 | **护栏 / 全量体检**（日常质检） | 把左栏「校验」当日常入口 |
 | **运行时·数据 → 运行分析** | 只报 HTTP 200 / 字段非空当质量 PASS |
@@ -313,7 +313,7 @@
 4. `00-author-path.md` 诚实；脚本主写 → 主编线 FAIL。  
 5. `GET https://tonglu.qing.blue/api/capabilities`：`memory_fabric_v1=true`，`emergency_rest_write=false`。  
 6. chat/种子时间 **早于** 对应 apply / finalize。  
-7. **每章 ≥1 次 UI 点批截图**（大纲放行 **或** 终选 **或** 候选批准之一）；纯 pilot step+approve 无截图 → 最高 **PARTIAL**，不得体验总 PASS。  
+7. **每章 ≥1 次 UI 点批截图**（戏/契约冻结放行 **或** 终选 **或** 候选批准之一）；纯 pilot step+approve 无截图 → 最高 **PARTIAL**，不得体验总 PASS。  
 8. **slug 必须本次新建**：`works.created_at`（或等价）∈ 证据时间窗；禁止旧书改名。旧验收 slug 黑名单示例：`book_7b918ca0`、`book_013bcb3b`、`book_aa57f17e`、`book_052a2adb`、`book_79c0d45e`、`book_b2a72ccb`、`obs-scratch`、`book_qe_live5`、`book_c14585d8`、`book_bdfdcdc4`、`wanjie-fate-r7`——**充分条件是时间窗，名单非穷尽**。
 
 ### `00-author-path.md` 模板
@@ -365,7 +365,7 @@
 
 **三卷：** 囚笼 / 泄露 / 第三条路。**1–5 定稿题：** 华山成核 → 四十二度 → 金縢裂纹 → 灭活边缘 → 牧场主出价。6–10 壳见宇宙 SSOT。
 
-**第 1 章 13 槽必须长这样（可改字，不可改形状）：** 选择 = 交碎片给沈烛换活 **vs** 自己按回裂口暴露双权柄；代价含大遮蔽加撕 / 他被标成移动真真空泡；`lines` 绑已有 promise/storyline id；钩须可被第 2 章 bite 点名。禁止把炉灰记「假铜挡眼皮」搬进本章节拍。
+**第 1 章契约必须长这样（可改字，不可改形状）：** duty + contract 的 goal / choice（交碎片给沈烛换活 **vs** 自己按回裂口暴露双权柄）/ decision / cost / hook.quote 非空；`lines` 绑已有 promise/storyline id；钩须可被第 2 章 `duty_bite` 字面对上。禁止把炉灰记「假铜挡眼皮」搬进本章戏。
 
 ### WCG 可勾选表（与 `v4_world_complete_gate.py` 对齐）
 
@@ -438,11 +438,11 @@ sequenceDiagram
   participant DB as Surreal
 
   A->>C: 开写 user message（硬门）
-  C-->>W: 大纲/提案或 world_write 审批
+  C-->>W: 戏/契约冻结或 world_write 审批
   A->>W: UI 点批截图（硬门）
-  A->>W: 契约页 / StageBoard 对照
-  A->>W: 节拍→演绎（可选 parallel preview）
-  A->>W: 草稿→体检→终选
+  A->>W: play/contract 页对照
+  A->>W: 演绎（戏/契约已冻结）
+  A->>W: 排演→体检→终选
   Note over A,W: ch≥3：M3；限知章：M5；弧光/图谱可同章打开
   W->>DB: finalize → post_finalize / ingest lease
 ```
@@ -587,11 +587,11 @@ Wave B ⇔ Should 计分 ≥80%（见下）∧ 证据 schema 合法
 | I5 final soft banner | Should | S7 | UI | soft 不硬拦 |
 | I6 结构 | Must | S4 | UI | 话术：**「三卷十章壳，本轮定稿 1–5」**；WCG 脚本绿 |
 
-### E. 戏剧 / 节拍 / 压力
+### E. 戏剧 / 契约拍 / 压力
 
 | ID | 优先级 | 阶段 | 证据 | 要点 |
 |----|--------|------|------|------|
-| Drm1 节拍 | Must | S7 | UI | ≥3 非空 soft；有节拍再演绎 |
+| Drm1 契约拍 | Must | S7 | API | contract.beats ≥3；戏/契约冻结后再演绎（与 PB3 同验） |
 | Drm2 接地失败纪律 | **Must-if-triggered** | S7 | UI+日志 | **未触发 → N/A + 声明**；触发 → STOP 同路径、**禁 safe_beats** |
 | Drm3 演绎分列 | Must | S7 | API | chapter_deduce 内容不得与 final prose 合并 |
 | Drm4 压力 | Should | S7/S10 | API | findings 路径 |
@@ -1113,6 +1113,7 @@ Wave B
 | **v6.3.4 Draft rev.10** | 三章水面验收条（史）。词匹配硬闸现已退役。 |
 | **v6.3.4 Draft rev.11** | 当时 OpSeq 合并为 design 一层（史）。旗与旧 design 语义已不存在。 |
 | **v6.3.4 Draft rev.12** | 写章内核换代 play-contract：新五层 OpSeq、PB 矩阵、quote 保真、咬钩硬闸。Fate/水面/outline/beats 条款作废。总 PASS / WCG / SPA 不改。 |
+| **v6.3.4 Draft rev.12.1** | 漏改收口：Drm1、第 1 章契约金样、万界宇宙字段、白名单/记录仪措辞。 |
 
 ---
 

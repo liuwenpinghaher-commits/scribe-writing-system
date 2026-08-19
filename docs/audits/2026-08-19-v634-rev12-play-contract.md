@@ -9,3 +9,5 @@
 - `SCRIBE3_WORLD_SURFACE` 死开关已从设置里拿掉
 - `s3_set_intent` 缺 who_pays 不再谎称会 422
 - `GET /latest-draft` 回落冻结 `chapter_draft`
+
+rev.12.1：Drm1 / 第 1 章契约金样 / 万界宇宙字段 / 白名单措辞已补。

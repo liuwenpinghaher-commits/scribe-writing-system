@@ -28,6 +28,14 @@ def test_dedup_empty_when_fully_covered():
     assert dedup_phase_role("", craft_text="x", anti_slop_text="") == ""
 
 
+def test_heading_only_phase_role_is_empty_shell():
+    from scribe3.injection_compact import phase_role_has_substance
+    assert phase_role_has_substance("## 阶段角色(排演)。") is False
+    assert phase_role_has_substance("## 阶段角色（排演）。") is False
+    assert phase_role_has_substance("") is False
+    assert phase_role_has_substance("## 阶段角色(排演)\n你此刻走场面排演：糙可改。") is True
+
+
 def test_helper_empty_phase_and_v1_skip():
     helpers = (
         Path(__file__).resolve().parents[1] / "api/services/misc_helpers.py"
