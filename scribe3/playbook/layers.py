@@ -14,6 +14,7 @@ from scribe3.playbook.prompts import (
     final_generate,
     identity_for,
     play_generate,
+    state_extract,
 )
 
 
@@ -123,3 +124,59 @@ def gen_final(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
         "play_sha": (ctx.get("play") or {}).get("sha") or "",
         "contract_sha": (ctx.get("contract") or {}).get("sha") or "",
     }
+
+
+def _gender_map(ctx: dict) -> dict[str, str]:
+    out: dict[str, str] = {}
+    prev = ctx.get("prev_state") or {}
+    for ch in (prev.get("characters") or []) if isinstance(prev, dict) else []:
+        if isinstance(ch, dict) and ch.get("name") and str(ch.get("gender") or "").strip() in ("男", "女"):
+            out[str(ch["name"]).strip()] = str(ch["gender"]).strip()
+    for ch in ctx.get("cast_cards") or []:
+        if isinstance(ch, dict) and ch.get("name") and str(ch.get("gender") or "").strip() in ("男", "女"):
+            out[str(ch["name"]).strip()] = str(ch["gender"]).strip()
+    return out
+
+
+def gen_state(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
+    raw = generate_json(
+        llm_fn, state_extract(ctx),
+        system=IDENTITY_SCRIBE, max_tokens=4096, temperature=0.2,
+    )
+    seq = int(ctx.get("seq") or raw.get("seq") or 0)
+    raw["seq"] = seq
+    genders = _gender_map(ctx)
+    chars = raw.get("characters") if isinstance(raw.get("characters"), list) else []
+    for ch in chars:
+        if not isinstance(ch, dict):
+            continue
+        n = str(ch.get("name") or "").strip()
+        if n in genders:
+            ch["gender"] = genders[n]
+    raw["characters"] = chars
+    loops = raw.get("open_loops") if isinstance(raw.get("open_loops"), list) else []
+    for loop in loops:
+        if not isinstance(loop, dict):
+            continue
+        try:
+            frm = int(loop.get("from_seq") or seq)
+        except (TypeError, ValueError):
+            frm = seq
+        if frm < 1:
+            frm = seq
+        loop["from_seq"] = frm
+        try:
+            due = int(loop.get("due_seq") or 0)
+        except (TypeError, ValueError):
+            due = 0
+        if due < frm:
+            due = frm + 3
+        loop["due_seq"] = due
+    raw["open_loops"] = loops
+    if not isinstance(raw.get("objects"), list):
+        raw["objects"] = []
+    if not isinstance(raw.get("timeline"), dict):
+        raw["timeline"] = {"at": "", "elapsed_from_prev": ""}
+    if not isinstance(raw.get("imagery"), list):
+        raw["imagery"] = []
+    return raw

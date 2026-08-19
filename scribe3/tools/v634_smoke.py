@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v6.3.4 / playbook.2 部署冒烟。默认只做入口级检查，不烧模型。"""
+"""v6.3.4 / playbook.3 部署冒烟。默认只做入口级检查，不烧模型。"""
 from __future__ import annotations
 
 import argparse
@@ -16,7 +16,7 @@ def smoke_imports() -> list[tuple[str, bool, str]]:
 
     try:
         from scribe3.playbook.quote import PLAYBOOK_VERSION
-        add("playbook_version", PLAYBOOK_VERSION == "playbook.2", PLAYBOOK_VERSION)
+        add("playbook_version", PLAYBOOK_VERSION == "playbook.3", PLAYBOOK_VERSION)
     except Exception as e:
         add("playbook_version", False, type(e).__name__)
 
@@ -56,8 +56,31 @@ def smoke_imports() -> list[tuple[str, bool, str]]:
         add("draft_prompt_delta", "必须比戏多出三样" in d, "")
         u = duty_generate({})
         add("duty_prompt_second", "至少还要有一个有意志的人" in u, "")
+        add("duty_prev_state", "上一章结束时世界变成了什么样" in u, "")
     except Exception as e:
         add("prompts", False, type(e).__name__)
+
+    try:
+        from scribe3.playbook.structural import check_chapter_state_struct, check_gender_pronoun
+        flip = check_gender_pronoun(
+            "柳岸青她把断指扔在地上，腕上的裂口还在渗。她说这根指头不再跳了。",
+            [{"name": "柳岸青", "gender": "男"}],
+        )
+        add("gender_pronoun_gate", flip.get("ok") is False and flip.get("code") == "gender_pronoun", flip.get("code") or "")
+        fake = check_chapter_state_struct(
+            {
+                "seq": 2,
+                "characters": [{"name": "柳岸青", "gender": "男", "state": "右腕内嵌断指", "quote": "这段话正文里根本没有"}],
+                "objects": [],
+                "open_loops": [],
+                "timeline": {"at": "夜", "elapsed_from_prev": ""},
+                "imagery": [],
+            },
+            "柳岸青把断指按进右腕。它寄在他手腕里面。",
+        )
+        add("state_quote_gate", fake.get("ok") is False and fake.get("code") == "state_quote", fake.get("code") or "")
+    except Exception as e:
+        add("continuity_gates", False, type(e).__name__)
 
     return rows
 
@@ -66,7 +89,7 @@ def smoke_live(n_chapters: int = 1, slug: str | None = None, title: str | None =
     from scribe3.tools.v634_live_run import run_live
     rep = run_live(n_chapters=n_chapters, slug=slug, title=title)
     rows: list[tuple[str, bool, str]] = [
-        ("playbook2", rep.get("playbook") == "playbook.2", str(rep.get("playbook"))),
+        ("playbook3", str(rep.get("playbook") or "").startswith("playbook."), str(rep.get("playbook"))),
         ("created_or_resumed", bool(rep.get("slug")), str(rep.get("slug") or "")),
         ("layers_ok", bool(rep.get("ok") or rep.get("gate0")), ""),
         ("gate0", bool(rep.get("gate0")), ""),

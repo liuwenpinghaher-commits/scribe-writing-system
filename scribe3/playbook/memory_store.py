@@ -12,6 +12,7 @@ TABLES = (
     "chapter_contract",
     "chapter_deduce",
     "chapter_draft",
+    "chapter_state",
 )
 DOWNSTREAM = ("chapter_contract", "chapter_deduce", "chapter_draft")
 

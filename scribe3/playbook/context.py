@@ -69,6 +69,80 @@ def available_cast(st: Any) -> list[str]:
     return []
 
 
+def _entity_gender(row: Any) -> str:
+    traits: dict[str, Any] = {}
+    if isinstance(row, dict):
+        traits = row.get("traits") if isinstance(row.get("traits"), dict) else row
+        g = traits.get("gender") or row.get("gender") or ""
+    else:
+        traits = getattr(row, "traits", None) or {}
+        g = (traits.get("gender") if isinstance(traits, dict) else "") or getattr(row, "gender", "") or ""
+    g = str(g or "").strip()
+    return g if g in ("男", "女") else ""
+
+
+def cast_cards(st: Any) -> list[dict[str, str]]:
+    """户口卡片：名字 + 已登记性别。读失败则空列表。"""
+    rows: list[Any] = []
+    for name in ("list_characters", "characters"):
+        fn = getattr(st, name, None)
+        if callable(fn):
+            try:
+                rows = fn() or []
+                break
+            except Exception:
+                continue
+    out: list[dict[str, str]] = []
+    for r in rows:
+        names = _names([r])
+        if not names:
+            continue
+        out.append({"name": names[0], "gender": _entity_gender(r)})
+    return out
+
+
+def book_imagery(st: Any) -> str:
+    getter = getattr(st, "get_intent", None)
+    if not callable(getter):
+        return ""
+    try:
+        intent = getter() or {}
+    except Exception:
+        return ""
+    if not isinstance(intent, dict):
+        return ""
+    return str(intent.get("imagery") or "").strip()
+
+
+def prev_chapter_state(store: Any, seq: int) -> dict[str, Any] | None:
+    if int(seq) <= 1:
+        return None
+    fn = getattr(store, "get_frozen", None)
+    if not callable(fn):
+        return None
+    rec = fn("chapter_state", int(seq) - 1)
+    return rec if isinstance(rec, dict) else None
+
+
+def gender_roster(*sources: Any) -> list[dict[str, str]]:
+    """合并上章末态人物 + 户口卡片。后写覆盖先写（户口覆盖末态）。"""
+    out: dict[str, str] = {}
+    for src in sources:
+        if not src:
+            continue
+        rows = src
+        if isinstance(src, dict):
+            rows = src.get("characters") or src.get("cast_cards") or []
+        for ch in rows or []:
+            if not isinstance(ch, dict):
+                continue
+            n = str(ch.get("name") or "").strip()
+            g = str(ch.get("gender") or "").strip()
+            if n and g in ("男", "女"):
+                out[n] = g
+    return [{"name": n, "gender": g} for n, g in out.items()]
+
+
 def available_lines(st: Any) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     for name in ("list_promises", "promises"):
@@ -134,13 +208,19 @@ def make_duty(prev: dict[str, Any] | None = None, *, seq: int = 2, **fields: Any
 
 
 def build_ctx(store: Any, seq: int, *, focalizer: str = "", extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    cards = cast_cards(store)
+    prev_state = prev_chapter_state(store, seq)
     ctx: dict[str, Any] = {
         "seq": int(seq),
         "focalizer": focalizer,
         "available_cast": available_cast(store),
+        "cast_cards": cards,
         "available_lines": available_lines(store),
         "prev_hook_quote": prev_hook_quote(store, seq),
         "secret_list": secret_list(store),
+        "prev_state": prev_state,
+        "imagery": book_imagery(store),
+        "gender_roster": gender_roster(prev_state, cards),
     }
     if extra:
         ctx.update(extra)

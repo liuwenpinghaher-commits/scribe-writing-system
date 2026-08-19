@@ -27,6 +27,9 @@ def test_protocol_is_rev13_and_wave_c():
     assert "层法官放行" in text
     assert "窗口版本冻结" in text
     assert "13 槽" in text
+    assert "主角代词跨章一致" in text
+    assert "关键物件位置跨章连续" in text
+    assert "到期悬念全部回响" in text
 
 
 def test_wanjie_ssot_five_layer_not_outline():
@@ -38,7 +41,7 @@ def test_wanjie_ssot_five_layer_not_outline():
 
 
 def test_playbook2_and_d1_code_is_draft_copy_play():
-    assert PLAYBOOK_VERSION == "playbook.2"
+    assert PLAYBOOK_VERSION == "playbook.3"
     play = "沈烛若把场核碎片按回胸口，四十二度顺着袖口往上爬。" * 80
     hit = check_draft_struct(play + "他又看了一眼裂口。" * 20, play_text=play)
     assert hit["code"] == "draft_copy_play"

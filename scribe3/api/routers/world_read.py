@@ -69,6 +69,7 @@ def entities(work: str = "main", reveal_secret: bool = False):
             "deep_need": t.get("deep_need"),
             "internal_conflict": t.get("internal_conflict"),
             "fear": t.get("fear"),
+            "gender": t.get("gender") or "",
         }
         if e.kind == "character":
             row = _mask_field(row, "backstory", "backstory_secret", reveal_secret)

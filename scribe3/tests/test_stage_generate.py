@@ -114,7 +114,7 @@ def test_thicken_stage_persists_via_store_insert():
                 "forbidden_reveal": ["炉认主"],
                 "line_to_touch": None,
             }, ensure_ascii=False)
-        if "你是审稿的" in prompt or "五问" in prompt:
+        if "你是审稿的" in prompt or "五问" in prompt or "六问" in prompt or "七问" in prompt:
             import json
             return json.dumps({
                 "answers": [{"q": 1, "evidence": "按回", "answer": "yes", "reason": "过"}],

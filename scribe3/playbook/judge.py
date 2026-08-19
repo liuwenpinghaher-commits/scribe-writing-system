@@ -9,9 +9,12 @@ from scribe3.playbook.prompts import (
     deduce_judge,
     draft_judge,
     duty_judge,
+    duty_judge_v2,
     final_judge,
+    final_judge_v2,
     identity_for,
     play_judge,
+    play_judge_v2,
 )
 from scribe3.playbook.quote import PLAYBOOK_VERSION
 
@@ -23,6 +26,19 @@ RUBRICS = {
     "draft": draft_judge,
     "final": final_judge,
 }
+RUBRICS_V2 = {
+    **RUBRICS,
+    "duty": duty_judge_v2,
+    "play": play_judge_v2,
+    "final": final_judge_v2,
+}
+VERSIONED_RUBRICS = ("playbook.2", "playbook.3")
+
+
+def _rubrics_for(version: str) -> dict:
+    if version == "playbook.2":
+        return RUBRICS_V2
+    return RUBRICS
 
 
 def _call(llm_fn: Callable, prompt: str, *, system: str) -> str:
@@ -70,12 +86,10 @@ def judge(
     prior: dict | None = None,
 ) -> dict[str, Any]:
     del artifact  # judges read via context (assembled to match rubric)
-    if rubric_version and rubric_version != PLAYBOOK_VERSION:
-        # Old artifacts stay on their own rubric file; new writes use playbook.2.
-        pass
+    table = _rubrics_for(rubric_version or PLAYBOOK_VERSION)
     if isinstance(prior, dict) and prior.get("verdict") in ("pass", "fail"):
         return _normalize(prior)
-    fn = RUBRICS.get(artifact_type)
+    fn = table.get(artifact_type)
     if fn is None:
         raise ValueError(f"unknown judge type: {artifact_type}")
     if llm_fn is None:

@@ -6,13 +6,20 @@ from scribe3.store.core_preamble import *  # noqa: F403
 class IntentMixin:
 
     def get_intent(self) -> dict:
-        rows = self._query(
-            "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold, "
-            "total_word_goal, daily_word_goal, arc_tracking FROM intent:main")
+        try:
+            rows = self._query(
+                "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold, "
+                "total_word_goal, daily_word_goal, arc_tracking, imagery FROM intent:main")
+        except Exception:
+            rows = self._query(
+                "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold, "
+                "total_word_goal, daily_word_goal, arc_tracking FROM intent:main")
         r = rows[0] if rows else {}
         result = {"reader_feeling": r.get("reader_feeling", ""),
                   "emotional_arc": r.get("emotional_arc", ""),
                   "red_lines": r.get("red_lines", "")}
+        if r.get("imagery") is not None and str(r.get("imagery")).strip():
+            result["imagery"] = str(r["imagery"]).strip()
         if r.get("overdue_threshold") is not None:
             result["overdue_threshold"] = r["overdue_threshold"]
         if r.get("total_word_goal") is not None:
@@ -29,7 +36,7 @@ class IntentMixin:
         # 此前 CONTENT 会把未传的 reader_feeling/emotional_arc/red_lines/阈值抹掉
         # (GET 失败后局部保存会毁未传目标)。intent 为 SCHEMAFULL,首建时缺省字段由 schema DEFAULT 补齐。
         content: dict = {}
-        for k in ("reader_feeling", "emotional_arc", "red_lines"):
+        for k in ("reader_feeling", "emotional_arc", "red_lines", "imagery"):
             if k in fields:
                 content[k] = fields[k]
         if fields.get("overdue_threshold") is not None:

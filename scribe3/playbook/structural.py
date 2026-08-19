@@ -7,6 +7,9 @@
 - deduce 五层+矿条数
 - draft 非空/字数 + 相对戏的 8 字重复率 + 章边界词 + 明喻密度
 - final 字数 + 章边界词 + 明喻密度 + 必须有冻结契约 + finalize 最后一公里
+- gender_pronoun：上章末态/户口有性别的角色，正文名旁代词不得翻转
+- state_quote：章末态每条人物/物件 quote 必须字面存在于冻稿
+- simile_density：明喻密度（draft/final 已有；对白内与豁免原句不计入）
 """
 from __future__ import annotations
 
@@ -14,11 +17,15 @@ import re
 from typing import Any  # store is duck-typed; finalize_gate is optional last mile
 
 from scribe3.playbook.quote import quote_in_play
+from scribe3.playbook.schema import check_chapter_state_schema
 
 _LABEL_HEAD = re.compile(
     r"^(时空|在场|本章要|选择|决断|代价)\s*[：:]",
 )
 _METAPHOR = re.compile(r"像|仿佛|似的")
+_DIALOGUE = re.compile(r"[「『“\"].*?[」』”\"]", re.DOTALL)
+_HE = re.compile(r"(?<![其])他(?![们人处日乡后])")
+_SHE = re.compile(r"她(?![们])")
 CLOCK_SPANS = frozenset({"scene", "day", "days"})
 CORE_FIELDS = ("goal", "choice", "decision", "hook")
 FIVE_LAYERS = ("perceived", "known", "believed", "acted", "blind")
@@ -248,21 +255,91 @@ def draft_play_overlap(draft_text: str, play_text: str, *, exempt_quotes: tuple[
     return hits / denom
 
 
-def metaphor_per_800(text: str) -> float:
+def _metaphor_source(text: str, *, exempt_quotes: tuple[str, ...] = ()) -> str:
+    """对白内、必须保留的原句不计入明喻密度。"""
+    s = text or ""
+    for q in exempt_quotes or ():
+        if q:
+            s = s.replace(str(q), "")
+    return _DIALOGUE.sub("", s)
+
+
+def metaphor_per_800(text: str, *, exempt_quotes: tuple[str, ...] = ()) -> float:
     """与 quality_metrics 同一把尺子：明喻次数 / max(去空白字数/800, 1)。"""
+    src = _metaphor_source(text, exempt_quotes=exempt_quotes)
     n = len(_plain(text))
-    hits = len(_METAPHOR.findall(text or ""))
+    hits = len(_METAPHOR.findall(src))
     units = max(n / 800.0, 1.0)
     return hits / units
 
 
-def _metaphor_fail(text: str, *, code: str) -> dict[str, Any] | None:
+def _metaphor_fail(
+    text: str, *, code: str, exempt_quotes: tuple[str, ...] = (),
+) -> dict[str, Any] | None:
+    src = _metaphor_source(text, exempt_quotes=exempt_quotes)
     n = len(_plain(text))
-    hits = len(_METAPHOR.findall(text or ""))
-    rate = metaphor_per_800(text)
+    hits = len(_METAPHOR.findall(src))
+    rate = metaphor_per_800(text, exempt_quotes=exempt_quotes)
     if rate <= 1.0:
         return None
     return _fail(code, f"明喻 {hits} 处 / {n} 字 = {rate:.2f} 每800字，超过 1")
+
+
+def check_gender_pronoun(text: str, characters: list[Any] | None = None) -> dict[str, Any]:
+    """角色名 ±30 字窗口内，对已登记男/女的角色统计他/她。反向上位则拦。"""
+    blob = text or ""
+    for ch in characters or []:
+        if not isinstance(ch, dict):
+            continue
+        name = str(ch.get("name") or "").strip()
+        gender = str(ch.get("gender") or "").strip()
+        if not name or gender not in ("男", "女"):
+            continue
+        windows: list[str] = []
+        start = 0
+        while True:
+            i = blob.find(name, start)
+            if i < 0:
+                break
+            lo = max(0, i - 30)
+            hi = min(len(blob), i + len(name) + 30)
+            windows.append(blob[lo:hi])
+            start = i + len(name)
+        if not windows:
+            continue
+        joined = "".join(windows)
+        he_n = len(_HE.findall(joined))
+        she_n = len(_SHE.findall(joined))
+        if gender == "男" and she_n > he_n:
+            return _fail(
+                "gender_pronoun",
+                f"{name} 户口为男，名旁窗口「她」{she_n} 多于「他」{he_n}",
+                name,
+            )
+        if gender == "女" and he_n > she_n:
+            return _fail(
+                "gender_pronoun",
+                f"{name} 户口为女，名旁窗口「他」{he_n} 多于「她」{she_n}",
+                name,
+            )
+    return _ok()
+
+
+def check_chapter_state_struct(state: dict[str, Any], source_text: str) -> dict[str, Any]:
+    """章末态形状 + 每条人物/物件 quote 必须在冻稿正文里。"""
+    hit = check_chapter_state_schema(state)
+    if not hit.get("ok"):
+        return hit
+    src = source_text or ""
+    for i, ch in enumerate(state.get("characters") or []):
+        q = str((ch or {}).get("quote") or "")
+        if q and not quote_in_play(q, src):
+            return _fail("state_quote", f"characters[{i}] 的 quote 不在正文里", f"characters[{i}].quote")
+    for i, obj in enumerate(state.get("objects") or []):
+        q = str((obj or {}).get("quote") or "")
+        if q and not quote_in_play(q, src):
+            return _fail("state_quote", f"objects[{i}] 的 quote 不在正文里", f"objects[{i}].quote")
+    return _ok()
 
 
 def _meta_chapter_fail(text: str) -> dict[str, Any] | None:
@@ -283,6 +360,7 @@ def check_draft_struct(
     *,
     play_text: str = "",
     exempt_quotes: tuple[str, ...] = (),
+    characters: list[Any] | None = None,
 ) -> dict[str, Any]:
     text = (draft_text or "").strip()
     if not text:
@@ -297,9 +375,12 @@ def check_draft_struct(
         rate = draft_play_overlap(text, play_text, exempt_quotes=exempt_quotes)
         if rate > 0.15:
             return _fail("draft_copy_play", f"糙稿与戏重复率 {rate:.1%} 超过 15%")
-    dens = _metaphor_fail(text, code="draft_metaphor")
+    dens = _metaphor_fail(text, code="draft_metaphor", exempt_quotes=exempt_quotes)
     if dens:
         return dens
+    gp = check_gender_pronoun(text, characters)
+    if not gp.get("ok"):
+        return gp
     return _ok()
 
 
@@ -313,17 +394,27 @@ def check_final_struct(prose_text: str) -> dict[str, Any]:
     return _ok()
 
 
-def check_final_last_mile(prose_text: str, *, store: Any = None, seq: int | None = None) -> dict[str, Any]:
-    """Length floor + 章边界 + 冻结契约 + finalize 最后一公里。"""
+def check_final_last_mile(
+    prose_text: str,
+    *,
+    store: Any = None,
+    seq: int | None = None,
+    characters: list[Any] | None = None,
+    exempt_quotes: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """Length floor + 章边界 + 冻结契约 + 代词连续 + finalize 最后一公里。"""
     hit = check_final_struct(prose_text)
     if not hit.get("ok"):
         return hit
     meta = _meta_chapter_fail(prose_text)
     if meta:
         return meta
-    dens = _metaphor_fail(prose_text, code="final_metaphor")
+    dens = _metaphor_fail(prose_text, code="final_metaphor", exempt_quotes=exempt_quotes)
     if dens:
         return dens
+    gp = check_gender_pronoun(prose_text, characters)
+    if not gp.get("ok"):
+        return gp
     if store is None:
         return hit
     getter = getattr(store, "get_frozen", None)

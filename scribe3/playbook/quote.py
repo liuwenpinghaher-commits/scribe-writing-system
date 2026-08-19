@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import unicodedata
 
-PLAYBOOK_VERSION = "playbook.2"
+PLAYBOOK_VERSION = "playbook.3"
 
 
 def _norm(s: str) -> str:

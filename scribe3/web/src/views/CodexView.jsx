@@ -859,6 +859,7 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete, onCha
               <>
                 <Field label="名字" value={row.name} placeholder="输入角色名" onSave={(v) => save('name', v)} immediate={isNew} required={requiredNew('name')} {...f('名字', { fieldKey: 'name' })} />
                 <Field label="重要度" value={row.importance} type="select" options={labeledOptions(['protagonist', 'major', 'minor', 'background'], IMPORTANCE_CN)} onSave={(v) => save('importance', v)} immediate={isNew} {...f('重要度', { fieldKey: 'importance' })} />
+                <Field label="性别" value={row.gender} type="select" options={[{value:'男',label:'男'},{value:'女',label:'女'}]} onSave={(v) => save('gender', v)} immediate={isNew} {...f('性别', { fieldKey: 'gender' })} />
                 <Field label="外貌" value={row.appearance} type="textarea" placeholder="描述外貌特征" onSave={(v) => save('appearance', v)} immediate={isNew} {...f('外貌', { fieldKey: 'appearance' })} />
                 <Field label="性格标签" type="tags" options={row.personality_tags} onSave={(v) => save('personality_tags', v)} {...f('性格标签', { fieldKey: 'personality_tags' })} />
                 <Field label="性格深描" value={row.personality_detail} type="textarea" placeholder="深入描述性格" onSave={(v) => save('personality_detail', v)} immediate={isNew} {...f('性格深描', { fieldKey: 'personality_detail' })} />

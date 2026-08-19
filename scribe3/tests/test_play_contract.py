@@ -172,7 +172,7 @@ def test_good_contract_passes():
 
 def _pass_llm(kind_text: dict[str, str]):
     def llm_fn(prompt, max_tokens=2048, system="", temperature=0.8):
-        if "你是审稿的" in prompt or "五问" in prompt or "两问" in prompt or "六问" in prompt or "七问" in prompt or "四问" in prompt or "八问" in prompt or "三问" in prompt:
+        if "你是审稿的" in prompt or "五问" in prompt or "两问" in prompt or "六问" in prompt or "七问" in prompt or "四问" in prompt or "八问" in prompt or "三问" in prompt or "十一问" in prompt:
             return json.dumps({
                 "answers": [{"q": 1, "evidence": "沈烛若合上五指", "answer": "yes", "reason": "过"}],
                 "verdict": "pass",
@@ -185,6 +185,15 @@ def _pass_llm(kind_text: dict[str, str]):
                 "who": ["沈烛若"],
                 "forbidden_reveal": ["炉认主"],
                 "line_to_touch": None,
+            }, ensure_ascii=False)
+        if "只抄不编" in prompt and "open_loops" in prompt:
+            return json.dumps({
+                "seq": 1,
+                "characters": [{"name": "沈烛若", "gender": "男", "state": "按回碎片", "quote": "场面。场面。场面。"}],
+                "objects": [{"name": "碎片", "location": "胸口", "state": "按回", "quote": "场面。场面。场面。"}],
+                "open_loops": [],
+                "timeline": {"at": "当夜", "elapsed_from_prev": ""},
+                "imagery": ["掌心"],
             }, ensure_ascii=False)
         if "你要从戏里抄出契约" in prompt:
             return json.dumps(_sample_contract(PLAY), ensure_ascii=False)
@@ -400,7 +409,7 @@ def test_playbook_persists_via_surreal_mixin_methods():
         def _query(self, sql, params=None):
             params = params or {}
             table_hint = ""
-            for t in ("duty_card", "chapter_play", "chapter_contract", "chapter_deduce", "chapter_draft"):
+            for t in ("duty_card", "chapter_play", "chapter_contract", "chapter_deduce", "chapter_draft", "chapter_state"):
                 if t in sql:
                     table_hint = t
                     break
@@ -439,7 +448,7 @@ def test_playbook_persists_via_surreal_mixin_methods():
             if "UPSERT" in sql:
                 rec = json.loads(params["body"])
                 rec["_table"] = "chapter_play" if "chapter_play" in sql else ""
-                for t in ("duty_card", "chapter_play", "chapter_contract", "chapter_deduce", "chapter_draft"):
+                for t in ("duty_card", "chapter_play", "chapter_contract", "chapter_deduce", "chapter_draft", "chapter_state"):
                     if t in sql:
                         rec["_table"] = t
                 self.recs.append(rec)
@@ -537,9 +546,9 @@ def test_final_last_mile_calls_finalize_gate(monkeypatch):
 
     orig = structural_mod.check_final_last_mile
 
-    def wrapped(text, store=None, seq=None):
+    def wrapped(text, store=None, seq=None, **kw):
         seen["entered"] = True
-        return orig(text, store=store, seq=seq)
+        return orig(text, store=store, seq=seq, **kw)
 
     monkeypatch.setattr("scribe3.finalize_gate.check_finalize_for_save", fake)
     monkeypatch.setattr(pipeline_mod, "check_final_last_mile", wrapped)
@@ -678,7 +687,7 @@ def test_sparse_metaphor_still_ok():
 
 def test_draft_and_final_block_chapter_boundary():
     from scribe3.playbook.structural import check_draft_struct, check_final_last_mile
-    draft = ("他按回碎片，袖口发烫。" * 180) + "上一章末他就数过。"
+    draft = ("他按回碎片，袖口发烫。" * 220) + "上一章末他就数过。"
     hit = check_draft_struct(draft, play_text="完全不同的戏文" * 40)
     assert hit["ok"] is False
     assert hit["code"] == "meta_chapter_ref"

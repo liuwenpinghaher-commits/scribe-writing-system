@@ -13,6 +13,7 @@ TABLES = (
     "chapter_contract",
     "chapter_deduce",
     "chapter_draft",
+    "chapter_state",
 )
 
 

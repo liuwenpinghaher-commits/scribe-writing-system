@@ -130,7 +130,8 @@ def add_char(c: CharIn, work: str = "main"):
     _store_for(work).add_entity(Entity(
         f"role:{c.name}", "character", c.name,
         traits={"backstory": backstory, "backstory_secret": c.backstory_secret,
-                "personality_tags": c.personality_tags, "aliases": c.aliases}))
+                "personality_tags": c.personality_tags, "aliases": c.aliases,
+                "gender": c.gender or ""}))
     return {"ok": True, "oid": f"role:{c.name}"}
 
 def get_char(local: str, work: str = "main", reveal_secret: bool = False):
@@ -159,6 +160,7 @@ def get_char(local: str, work: str = "main", reveal_secret: bool = False):
         "deep_need": r.get("deep_need"),
         "internal_conflict": r.get("internal_conflict"),
         "fear": r.get("fear"),
+        "gender": r.get("gender") or "",
         "archived": bool(r.get("archived")),
     }
     from scribe3.iceberg import attach_codex_ready
@@ -177,7 +179,7 @@ def edit_char(local: str, c: CharIn, work: str = "main"):
               "abilities": c.abilities, "weaknesses": c.weaknesses,
               "surface_goal": c.surface_goal, "deep_need": c.deep_need,
               "internal_conflict": c.internal_conflict, "fear": c.fear,
-              "first_appearance": c.first_appearance}
+              "first_appearance": c.first_appearance, "gender": c.gender}
     written = {k: v for k, v in fields.items() if v is not None}
     from scribe3.iceberg import persist_codex_fields_blocked
     _blk = persist_codex_fields_blocked("character", written, mode="incremental")

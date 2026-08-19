@@ -1,7 +1,10 @@
-"""playbook.2 identity + generate/judge prompts. Changing this file requires a version bump."""
+"""playbook.3 identity + generate/judge prompts. Changing this file requires a version bump."""
 from __future__ import annotations
 
+import json
+
 from scribe3.playbook.quote import PLAYBOOK_VERSION
+from scribe3.playbook.schema import snapshot_body
 
 IDENTITY_NOVELIST = (
     "你是一个写了二十年长篇类型小说的小说家。你从不写提纲式概括，你写场面："
@@ -25,6 +28,37 @@ VERDICT_SCHEMA = (
 )
 
 
+def _state_json(ctx: dict) -> str:
+    body = snapshot_body(ctx.get("prev_state") if isinstance(ctx, dict) else None)
+    if not body:
+        return "（无。第1章或上章尚未登记章末态——按本章所见写，不得发明前史伤势/物件位置。）"
+    try:
+        return json.dumps(body, ensure_ascii=False)
+    except TypeError:
+        return str(body)
+
+
+def _cast_line(ctx: dict) -> str:
+    cards = (ctx or {}).get("cast_cards") or []
+    parts: list[str] = []
+    for c in cards:
+        if not isinstance(c, dict):
+            continue
+        n = str(c.get("name") or "").strip()
+        if not n:
+            continue
+        g = str(c.get("gender") or "").strip() or "性别未登记"
+        parts.append(f"{n}（{g}）")
+    if parts:
+        return "、".join(parts)
+    return str((ctx or {}).get("available_cast") or [])
+
+
+def _imagery_line(ctx: dict) -> str:
+    v = str((ctx or {}).get("imagery") or "").strip()
+    return v or "（未设全书意象域）"
+
+
 def duty_generate(ctx: dict) -> str:
     return f"""你在为第 {ctx.get("seq")} 章立"责任"——这一章必须办成的事。
 这份责任卡直接驱动下游写戏：写戏的严格按你立的来，立歪了整章歪。
@@ -38,8 +72,11 @@ def duty_generate(ctx: dict) -> str:
 {ctx.get("prev_hook_quote") or "（第1章无上章钩子）"}
 【近 3 章的责任】（避免连续同类型账单）
 {ctx.get("recent_duty_summary") or "（无）"}
-【户口：可用的人】{ctx.get("available_cast") or []}
+【户口：可用的人】{_cast_line(ctx)}
 【可绑的线】{ctx.get("available_lines") or []}
+【上一章结束时世界变成了什么样】
+{_state_json(ctx)}
+【全书意象域】{_imagery_line(ctx)}
 【相关设定】{ctx.get("codex_recall") or "（无）"}
 【全书秘密清单】{ctx.get("secret_list") or []}
 
@@ -60,7 +97,7 @@ def duty_generate(ctx: dict) -> str:
 """
 
 
-def duty_judge(ctx: dict) -> str:
+def duty_judge_v2(ctx: dict) -> str:
     return f"""【责任卡】{ctx.get("duty_json")}
 【卷纲】{ctx.get("volume_outline") or "（无）"}
 【近 3 章的责任】{ctx.get("recent_duty_summary") or "（无）"}
@@ -78,6 +115,28 @@ def duty_judge(ctx: dict) -> str:
 """
 
 
+def duty_judge(ctx: dict) -> str:
+    return f"""【责任卡】{ctx.get("duty_json")}
+【卷纲】{ctx.get("volume_outline") or "（无）"}
+【近 3 章的责任】{ctx.get("recent_duty_summary") or "（无）"}
+【上一章章末钩子】{ctx.get("prev_hook_quote") or "（第1章无）"}
+【上一章结束时世界变成了什么样】
+{_state_json(ctx)}
+【全书意象域】{_imagery_line(ctx)}
+
+七问：
+1. must_happen 是不是一个可演的具体动作（不是情绪/方向/主题）？
+2. bill 是不是一笔收不回来的账（不是"付出代价"这种空话）？
+3. 这份责任和近 3 章的账单同类型吗？（同质 → 不过）
+4. 这份责任接住上一章的钩子了吗？（字符串核对是机器的事，你只判「责任与钩子有没有关系」）
+5. forbidden_reveal 有没有漏掉"照这章的写法极可能说漏嘴"的秘密？
+6. 这章除了焦点者，有没有第二个有意志的在场者？（能说话或能对抗；远远看着不算）
+7. 这章摸起来还是这本书吗？（全书意象域未设则本问 yes；若这章要跨到另一个世界的质感，责任卡必须先在场上放一个同时属于两个世界的物件作桥，否则 no）
+
+{VERDICT_SCHEMA}
+"""
+
+
 def play_generate(ctx: dict) -> str:
     d = ctx.get("duty") or {}
     return f"""写第 {ctx.get("seq")} 章的戏。这是给全书定"这一章发生什么"的一篇短戏，不是给读者的正文。
@@ -90,7 +149,9 @@ def play_generate(ctx: dict) -> str:
 - 禁止拆穿的事：{d.get("forbidden_reveal")}
 - 本章焦点者：{d.get("focalizer")}（贴着这个人的处境写）
 
-【可用的人】{d.get("available_cast")}（编造户口外的人 = 废稿）
+【可用的人】{_cast_line({**ctx, "available_cast": d.get("available_cast") or ctx.get("available_cast")})}（编造户口外的人 = 废稿）
+【上一章结束时世界变成了什么样】（身体、物件位置、未了的悬念——不得写拧）
+{_state_json(ctx)}
 【相关设定】{ctx.get("codex_recall") or "（无）"}（设定以外的东西不许发明）
 【近 3 章戏的场面类型】{ctx.get("recent_scene_summary") or "（无）"}（避免连着写同类型的戏）
 
@@ -116,7 +177,7 @@ def play_generate(ctx: dict) -> str:
 """
 
 
-def play_judge(ctx: dict) -> str:
+def play_judge_v2(ctx: dict) -> str:
     return f"""【责任卡】{ctx.get("duty_json")}
 【戏】{ctx.get("play_text")}
 
@@ -132,6 +193,32 @@ def play_judge(ctx: dict) -> str:
 6. 他的选择落成了具体动作吗？（他做了什么，不是他想了什么）
 7. 章末有没有一件没做完的事？（能抄出原句的、悬着的那件——"夜色深了"式氛围收尾不算）
 8. 有没有提前拆穿禁止拆穿的事？
+
+{VERDICT_SCHEMA}
+"""
+
+
+def play_judge(ctx: dict) -> str:
+    return f"""【责任卡】{ctx.get("duty_json")}
+【戏】{ctx.get("play_text")}
+【上一章结束时世界变成了什么样】
+{_state_json(ctx)}
+
+你是审稿的，不是改稿的——先判，判不过才写意见。
+十一问，每问必须先从戏里引用原句作证据，再给"yes/no"：
+
+1. 责任里点名的人都在场做事吗？（站着看的不算）
+2. 办的是责任卡上那件事吗？（办岔了、办多了都算不过）
+3. 责任卡上那笔账，戏里真付出去了吗？引"付出"的原句——
+   引不出字面原句，或引出的只是"他付出了代价"式旁白，一律 no。
+4. 戏里有没有至少一个具体场面（具体时空中的动作与对话），还是通篇概括叙述？
+5. 有没有一道"还没选"时两头都疼的两难？用"当然选 A"测试：读者能轻松替他选 → no。
+6. 他的选择落成了具体动作吗？（他做了什么，不是他想了什么）
+7. 章末有没有一件没做完的事？（能抄出原句的、悬着的那件——"夜色深了"式氛围收尾不算）
+8. 有没有提前拆穿禁止拆穿的事？
+9. 对照上章末态，在场角色的身体状态、持有物、位置有矛盾吗？（无末态则 yes）
+10. 上章记下、到这章该响的悬念，这章戏里碰到了吗？（没有到期条目则 yes）
+11. 这章戏里新写出的可见事实，有没有跟上一章已经写死的事实打架？（无末态则 yes）
 
 {VERDICT_SCHEMA}
 """
@@ -246,6 +333,8 @@ def draft_generate(ctx: dict) -> str:
 【戏（设计图，不是文）】{ctx.get("play_text")}
 【契约】{ctx.get("contract_json")}
 【演绎（矿与限知，施工材料）】{ctx.get("deduction_json")}
+【上一章结束时世界变成了什么样】（身体、物件位置、未了的悬念——不得写拧）
+{_state_json(ctx)}
 
 戏是设计图，糙稿是施工。戏里的句子是给创作者看的，不是给读者看的。
 你交付的糙稿必须比戏多出三样东西：
@@ -282,8 +371,10 @@ def draft_judge(ctx: dict) -> str:
 【契约】{ctx.get("contract_json")}
 【演绎（限知与矿）】{ctx.get("deduction_json")}
 【禁止拆穿】{ctx.get("forbidden_reveal") or []}
+【上一章结束时世界变成了什么样】
+{_state_json(ctx)}
 
-八问：
+十一问：
 1. 两难演了吗？能不能在排演里指出"他还没选"的那个瞬间？
 2. 决断落了吗？他选的那边变成了一个具体动作吗（不是"他决定"）？
 3. 代价付了吗？契约里那笔账在排演里真付出了吗？
@@ -293,6 +384,9 @@ def draft_judge(ctx: dict) -> str:
 7. 是连续场面还是概括叙述？
 8. 把糙稿和戏并排放：删掉戏里已有的句子，糙稿还剩实质内容吗？
    （引一处糙稿有而戏没有的对白或感官细节作证据）
+9. 对照上章末态，在场角色的身体状态、持有物、位置有矛盾吗？（无末态则 yes）
+10. 上章记下、到这章该响的悬念，这章碰到了吗？（没有到期条目则 yes）
+11. 这章新写出的可见事实，有没有跟上一章已经写死的事实打架？（无末态则 yes）
 
 {VERDICT_SCHEMA}
 """
@@ -315,6 +409,8 @@ def final_generate(ctx: dict) -> str:
 【上一章正文结尾】{ctx.get("prev_prose_tail") or "（无）"}
 【声纹】{ctx.get("voice_anchor_block") or "（无）"}
 【相关设定】{ctx.get("codex_recall") or "（无）"}
+【上一章结束时世界变成了什么样】（身体、物件位置、未了的悬念——不得写拧）
+{_state_json(ctx)}
 
 打磨什么：
 - 语言：删掉糙话、补上画面的质感与声音。
@@ -336,7 +432,7 @@ def final_generate(ctx: dict) -> str:
 """
 
 
-def final_judge(ctx: dict) -> str:
+def final_judge_v2(ctx: dict) -> str:
     return f"""【正文】{ctx.get("prose_text")}
 【契约核心四件+账】{ctx.get("contract_core_json")}
 【演绎（限知）】{ctx.get("deduction_epistemic")}
@@ -354,14 +450,66 @@ def final_judge(ctx: dict) -> str:
 """
 
 
+def final_judge(ctx: dict) -> str:
+    return f"""【正文】{ctx.get("prose_text")}
+【契约核心四件+账】{ctx.get("contract_core_json")}
+【演绎（限知）】{ctx.get("deduction_epistemic")}
+【禁止拆穿】{ctx.get("forbidden_reveal") or []}
+【禁止清单】{ctx.get("ban_list") or "升华/连续同类比喻/元叙述/泄密"}
+【上一章结束时世界变成了什么样】
+{_state_json(ctx)}
+
+八问，每问先引正文原句作证据：
+1. 契约四件（事/两难/决断/钩子）在正文里都兑现了吗？账（若契约有 cost）仍真付着吗？
+2. 视角守住焦点者限知了吗？
+3. 有没有踩禁令（升华/连续同类比喻/元叙述/泄密）？明喻是否密过每 800 字一个？
+4. 这章读得下去吗？——一口气读下来，有没有哪里你会跳行？
+5. 正文里有没有出现"上一章/这一章/下一章"这类章边界词？（引原句；有则 no）
+6. 对照上章末态，在场角色的身体状态、持有物、位置有矛盾吗？（无末态则 yes）
+7. 上章记下、到这章该响的悬念，这章碰到了吗？（没有到期条目则 yes）
+8. 这章新写出的可见事实，有没有跟上一章已经写死的事实打架？（无末态则 yes）
+
+{VERDICT_SCHEMA}
+"""
+
+
+def state_extract(ctx: dict) -> str:
+    seq = ctx.get("seq") or 0
+    return f"""下面这篇已经过审的正文。你是场记，只抄不编。
+
+你要登记的是：这章写完时，世界变成了什么样。
+不是下一章必须发生什么。
+
+铁律：
+1. 每条人物/物件状态必须带 quote：正文里字面出现的连续原句，10-50 字。找不到原句的状态不许写。
+2. 性别从户口或上章末态抄，禁止根据本章代词改写。
+3. 上一章未了的悬念：对照正文，已经碰到的删掉；还悬着的原样保留；本章新悬的补上。到期章号没写就按开始章+3。
+4. 这是这章结束时的完整快照，不是和上一章的差量。
+
+【户口（含性别）】{_cast_line(ctx)}
+【上一章章末态】
+{_state_json(ctx)}
+【本章正文】
+{ctx.get("source_text") or ""}
+
+输出 JSON（不输出任何别的文字）：
+{{"seq": {seq},
+  "characters": [{{"name": "", "gender": "男或女或空", "state": "", "quote": ""}}],
+  "objects": [{{"name": "", "location": "", "state": "", "quote": ""}}],
+  "open_loops": [{{"text": "", "from_seq": 1, "due_seq": 4}}],
+  "timeline": {{"at": "", "elapsed_from_prev": ""}},
+  "imagery": ["..."]}}
+"""
+
+
 def identity_for(kind: str) -> str:
     if kind == "duty":
         return IDENTITY_DUTY
-    if kind == "contract":
+    if kind in ("contract", "state"):
         return IDENTITY_SCRIBE
     if kind.endswith("_judge") or kind == "judge":
         return IDENTITY_JUDGE
     return IDENTITY_NOVELIST
 
 
-assert PLAYBOOK_VERSION == "playbook.2"
+assert PLAYBOOK_VERSION == "playbook.3"

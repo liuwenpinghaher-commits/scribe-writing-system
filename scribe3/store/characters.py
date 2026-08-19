@@ -15,7 +15,7 @@ class CharactersMixin:
                 "personality_detail=$personality_detail, abilities=$abilities, "
                 "weaknesses=$weaknesses, first_appearance=$first_appearance, "
                 "surface_goal=$surface_goal, deep_need=$deep_need, "
-                "internal_conflict=$internal_conflict, fear=$fear",
+                "internal_conflict=$internal_conflict, fear=$fear, gender=$gender",
                 {"local": local, "name": e.name, "al": e.traits.get("aliases", []),
                  "bs": e.traits.get("backstory"),
                  "pt": e.traits.get("personality_tags", []),
@@ -29,7 +29,8 @@ class CharactersMixin:
                  "surface_goal": e.traits.get("surface_goal"),
                  "deep_need": e.traits.get("deep_need"),
                  "internal_conflict": e.traits.get("internal_conflict"),
-                 "fear": e.traits.get("fear")})
+                 "fear": e.traits.get("fear"),
+                 "gender": e.traits.get("gender") or ""})
         elif e.kind == "place":
             self._execute_write("CREATE type::record('place', $local) SET name=$name",
                                 {"local": local, "name": e.name})
@@ -53,7 +54,7 @@ class CharactersMixin:
         rows = self._query(
             "SELECT meta::id(id) AS local, name, backstory, backstory_secret, aliases, personality_tags, "
             "importance, appearance, personality_detail, abilities, weaknesses, "
-            "first_appearance, surface_goal, deep_need, internal_conflict, fear FROM character "
+            "first_appearance, surface_goal, deep_need, internal_conflict, fear, gender FROM character "
             "WHERE archived = NONE OR archived != true")
         return [Entity(f"role:{r['local']}", "character", r["name"],
                        traits={"backstory": r.get("backstory"),
@@ -69,7 +70,8 @@ class CharactersMixin:
                                "surface_goal": r.get("surface_goal"),
                                "deep_need": r.get("deep_need"),
                                "internal_conflict": r.get("internal_conflict"),
-                               "fear": r.get("fear")}) for r in rows]
+                               "fear": r.get("fear"),
+                               "gender": r.get("gender") or ""}) for r in rows]
 
     def _all_char_states_bulk(self) -> list[dict]:
         """批量查全表所有角色弧光记录,一次往返。

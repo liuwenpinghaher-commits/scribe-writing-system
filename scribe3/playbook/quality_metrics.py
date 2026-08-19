@@ -5,7 +5,12 @@ import re
 from typing import Any
 
 from scribe3.anti_meta_narration import scan_anti_meta
-from scribe3.playbook.structural import _plain, draft_play_overlap, metaphor_per_800
+from scribe3.playbook.structural import (
+    _plain,
+    check_gender_pronoun,
+    draft_play_overlap,
+    metaphor_per_800,
+)
 
 _QUOTE_LINE = re.compile(r"[「」『』“”\"']")
 _BOUNDARY = re.compile(r"上一章|这一章|下一章|前一章|前章|本章")
@@ -75,6 +80,41 @@ def measure_chapter(store: Any, seq: int) -> dict[str, Any]:
     dlg = dialogue_ratio(prose)
     meta = metaphor_per_800(prose)
     draft_n = len(_plain(draft_text))
+    prev_state = store.get_frozen("chapter_state", seq - 1) or {} if seq >= 2 else {}
+    this_state = store.get_frozen("chapter_state", seq) or {}
+    roster = []
+    for ch in (prev_state.get("characters") or []) if isinstance(prev_state, dict) else []:
+        if isinstance(ch, dict) and ch.get("name") and str(ch.get("gender") or "") in ("男", "女"):
+            roster.append({"name": ch["name"], "gender": ch["gender"]})
+    gp = check_gender_pronoun(prose, roster)
+    gender_ok = bool(gp.get("ok"))
+    due_open = []
+    this_loops = {
+        str(x.get("text") or "")
+        for x in (this_state.get("open_loops") or [])
+        if isinstance(x, dict)
+    }
+    for loop in (prev_state.get("open_loops") or []) if isinstance(prev_state, dict) else []:
+        if not isinstance(loop, dict):
+            continue
+        try:
+            due = int(loop.get("due_seq") or 0)
+        except (TypeError, ValueError):
+            due = 0
+        text = str(loop.get("text") or "")
+        if due and due <= seq and text and text in this_loops:
+            due_open.append(loop)
+    loops_ok = not due_open
+    overdue = []
+    for loop in (this_state.get("open_loops") or []) if isinstance(this_state, dict) else []:
+        if not isinstance(loop, dict):
+            continue
+        try:
+            due = int(loop.get("due_seq") or 0)
+        except (TypeError, ValueError):
+            due = 0
+        if due and due < seq:
+            overdue.append(loop)
     ok = (
         overlap <= 0.15
         and m8 == 0
@@ -86,6 +126,8 @@ def measure_chapter(store: Any, seq: int) -> dict[str, Any]:
         and draft_n >= 2000
         and bool(play_text)
         and bool(draft_text)
+        and gender_ok
+        and loops_ok
     )
     return {
         "seq": seq,
@@ -100,5 +142,8 @@ def measure_chapter(store: Any, seq: int) -> dict[str, Any]:
         "draft_chars": draft_n,
         "play_chars": len(_plain(play_text)),
         "prose_chars": len(_plain(prose)),
+        "gender_ok": gender_ok,
+        "due_loops_open": len(due_open),
+        "overdue_loops": len(overdue),
         "ok": ok,
     }

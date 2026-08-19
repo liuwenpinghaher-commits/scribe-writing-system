@@ -7,7 +7,8 @@ from typing import Any, Callable
 from scribe3.playbook.envelope import pass_review
 from scribe3.playbook.errors import FrozenAssetError, StageGone
 from scribe3.playbook.judge import judge, majority_if_disagreed
-from scribe3.playbook.layers import gen_contract, gen_deduce, gen_draft, gen_duty, gen_final, gen_play
+from scribe3.playbook.context import gender_roster
+from scribe3.playbook.layers import gen_contract, gen_deduce, gen_draft, gen_duty, gen_final, gen_play, gen_state
 from scribe3.playbook.memory_store import (
     MemoryPlaybookStore,
     freeze_artifact,
@@ -27,6 +28,7 @@ from scribe3.playbook.stages import (
     reject_gone_stage,
 )
 from scribe3.playbook.structural import (
+    check_chapter_state_struct,
     check_contract_struct,
     check_deduce_struct,
     check_draft_struct,
@@ -43,7 +45,21 @@ _TABLE = {
     "contract": "chapter_contract",
     "deduce": "chapter_deduce",
     "draft": "chapter_draft",
+    "state": "chapter_state",
 }
+
+
+def _roster(ctx: dict[str, Any]) -> list[dict[str, str]]:
+    if ctx.get("gender_roster"):
+        return list(ctx.get("gender_roster") or [])
+    return gender_roster(ctx.get("prev_state"), ctx.get("cast_cards"))
+
+
+def _continuity_judge(ctx: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "prev_state": ctx.get("prev_state"),
+        "imagery": ctx.get("imagery") or "",
+    }
 
 
 def _trace(store: Any, rec: dict[str, Any]) -> None:
@@ -212,6 +228,7 @@ def _run_duty(store, seq, ctx, llm_fn, *, force, persist):
             "volume_outline": ctx.get("volume_outline"),
             "recent_duty_summary": ctx.get("recent_duty_summary"),
             "prev_hook_quote": ctx.get("prev_hook_quote"),
+            **_continuity_judge(ctx),
         },
         llm_fn=llm_fn,
     )
@@ -237,6 +254,7 @@ def _run_design(store, seq, ctx, llm_fn, *, force, rewrite, persist):
             judge_ctx=lambda p: {
                 "duty_json": _json(duty),
                 "play_text": p.get("text") if isinstance(p, dict) else str(p),
+                **_continuity_judge(ctx),
             },
             llm_fn=llm_fn,
         )
@@ -338,6 +356,7 @@ def _run_deduce(store, seq, ctx, llm_fn, *, force, persist):
             "deduction_json": _json(d),
             "characters_epistemic_history": ctx.get("characters_epistemic_history"),
             "forbidden_reveal": ctx.get("forbidden_reveal"),
+            **_continuity_judge(ctx),
         },
         llm_fn=llm_fn,
     )
@@ -379,6 +398,7 @@ def _run_draft(store, seq, ctx, llm_fn, *, force, persist):
             d.get("text") if isinstance(d, dict) else str(d),
             play_text=play_text,
             exempt_quotes=exempt,
+            characters=_roster(ctx),
         ),
         judge_type="draft",
         judge_ctx=lambda d: {
@@ -387,12 +407,28 @@ def _run_draft(store, seq, ctx, llm_fn, *, force, persist):
             "contract_json": _json(contract),
             "deduction_json": _json(deduce),
             "forbidden_reveal": ctx.get("forbidden_reveal"),
+            **_continuity_judge(ctx),
         },
         llm_fn=llm_fn,
     )
     out = _finish(store, "chapter_draft", "chapter_draft.v1", seq, result,
                   persist=persist, rewrite=force, source_sha=play.get("sha") or "")
     out["sha"] = play.get("sha")
+    if out.get("ok") and persist:
+        draft_rec = out.get("artifact") or {}
+        draft_text = draft_rec.get("text") if isinstance(draft_rec, dict) else str(draft_rec or "")
+        state_out = extract_chapter_state(
+            store, seq, draft_text,
+            llm_fn=llm_fn, ctx=ctx, persist=True,
+            source_sha=str(draft_rec.get("sha") or play.get("sha") or ""),
+        )
+        out["chapter_state"] = state_out.get("artifact")
+        if not state_out.get("ok"):
+            out["ok"] = False
+            out["code"] = state_out.get("code") or "chapter_state_extract"
+            out["message"] = state_out.get("message") or "章末态没抽出"
+            out["blockers"] = state_out.get("blockers") or []
+            out["state_struct"] = state_out.get("struct")
     return out
 
 
@@ -425,6 +461,7 @@ def _run_final(store, seq, ctx, llm_fn, *, force, persist):
         struct=lambda d: check_final_last_mile(
             d.get("text") if isinstance(d, dict) else str(d),
             store=store, seq=seq,
+            characters=_roster(ctx),
         ),
         judge_type="final",
         judge_ctx=lambda d: {
@@ -433,14 +470,29 @@ def _run_final(store, seq, ctx, llm_fn, *, force, persist):
             "deduction_epistemic": ctx.get("deduction_epistemic"),
             "forbidden_reveal": ctx.get("forbidden_reveal"),
             "ban_list": "升华/连续同类比喻/元叙述/泄密",
+            **_continuity_judge(ctx),
         },
         llm_fn=llm_fn,
     )
     if result.get("ok") and persist:
         persist_fn = getattr(store, "save_chapter_prose", None)
+        prose = result["artifact"].get("text") if isinstance(result["artifact"], dict) else result["artifact"]
         if callable(persist_fn):
-            persist_fn(seq, result["artifact"].get("text") if isinstance(result["artifact"], dict) else result["artifact"],
-                       play_sha=play.get("sha"), contract_sha=contract.get("sha"))
+            persist_fn(seq, prose, play_sha=play.get("sha"), contract_sha=contract.get("sha"))
+        draft_text = draft.get("text") if isinstance(draft, dict) else str(draft or "")
+        if str(prose or "").strip() and str(prose or "").strip() != str(draft_text or "").strip():
+            from scribe3.playbook.envelope import artifact_sha
+            state_out = extract_chapter_state(
+                store, seq, str(prose or ""),
+                llm_fn=llm_fn, ctx=ctx, persist=True,
+                source_sha=artifact_sha({"text": prose, "seq": seq}),
+            )
+            result["chapter_state"] = state_out.get("artifact")
+            if not state_out.get("ok"):
+                result["ok"] = False
+                result["code"] = state_out.get("code") or "chapter_state_extract"
+                result["message"] = state_out.get("message") or "定稿后章末态没抽出"
+                result["blockers"] = state_out.get("blockers") or []
     if result.get("ok"):
         result["sha"] = play.get("sha")
         result["play"] = play
@@ -448,6 +500,82 @@ def _run_final(store, seq, ctx, llm_fn, *, force, persist):
     else:
         result["sha"] = play.get("sha")
     return result
+
+
+def extract_chapter_state(
+    store: MemoryPlaybookStore,
+    seq: int,
+    source_text: str,
+    *,
+    llm_fn: Callable,
+    ctx: dict[str, Any] | None = None,
+    persist: bool = True,
+    source_sha: str = "",
+) -> dict[str, Any]:
+    """Draft/final 冻结后的场记抽取。失败不静默：落 needs_human，返回 blockers。"""
+    ctx = dict(ctx or {})
+    ctx.setdefault("seq", int(seq))
+    ctx["source_text"] = source_text or ""
+    if int(seq) > 1 and not ctx.get("prev_state"):
+        getter = getattr(store, "get_frozen", None)
+        if callable(getter):
+            ctx["prev_state"] = getter("chapter_state", int(seq) - 1)
+    last_struct: dict[str, Any] = {"ok": False, "code": "no_attempt"}
+    last_art: Any = None
+    infra_fails = 0
+    quality = 0
+    while quality < MAX_QUALITY_ROUNDS:
+        try:
+            art = gen_state(ctx, llm_fn)
+        except InfraError as exc:
+            return {"ok": False, "code": "infra", "message": str(exc), "layer": "chapter_state"}
+        except ParseError as exc:
+            infra_fails += 1
+            last_struct = {"ok": False, "code": "json", "message": str(exc)}
+            if infra_fails >= 3:
+                return {"ok": False, "code": "infra", "message": str(exc), "layer": "chapter_state"}
+            continue
+        last_art = art
+        last_struct = check_chapter_state_struct(art, source_text)
+        if last_struct.get("ok"):
+            if persist:
+                try:
+                    frozen = freeze_artifact(
+                        store, "chapter_state", int(seq), art,
+                        schema="chapter_state.v1",
+                        source_sha=source_sha,
+                        review=pass_review(),
+                        rewrite=True,
+                    )
+                except FrozenAssetError as exc:
+                    return {"ok": False, "code": "frozen", "message": str(exc), "layer": "chapter_state"}
+                return {"ok": True, "artifact": frozen, "rounds": quality + 1}
+            return {"ok": True, "artifact": art, "rounds": quality + 1}
+        quality += 1
+    blockers = [{
+        "detector": "chapter_state",
+        "kind": "sealed",
+        "code": last_struct.get("code") or "chapter_state_extract",
+        "note": last_struct.get("message") or "章末态没抽出",
+    }]
+    if persist and last_art:
+        rec = dict(last_art) if isinstance(last_art, dict) else {"text": last_art}
+        rec["seq"] = int(seq)
+        rec["status"] = "needs_human"
+        rec["version"] = store.next_version("chapter_state", int(seq))
+        rec["schema"] = "chapter_state.v1"
+        rec["playbook_version"] = PLAYBOOK_VERSION
+        store.insert("chapter_state", rec)
+    return {
+        "ok": False,
+        "code": "chapter_state_extract",
+        "message": last_struct.get("message") or "章末态没抽出",
+        "layer": "chapter_state",
+        "struct": last_struct,
+        "blockers": blockers,
+        "artifact": last_art,
+        "rounds": quality,
+    }
 
 
 def _finish(store, table, schema, seq, result, *, persist, rewrite, source_sha=""):
@@ -496,7 +624,7 @@ def review_and_freeze_play(
     try:
         verdict = judge(
             "play", art, PLAYBOOK_VERSION,
-            {"duty_json": _json(duty), "play_text": text},
+            {"duty_json": _json(duty), "play_text": text, "prev_state": ctx.get("prev_state")},
             llm_fn=llm_fn,
         )
     except (InfraError, ParseError) as exc:
@@ -531,4 +659,5 @@ __all__ = [
     "run_stage", "overwrite_play", "freeze_artifact", "MemoryPlaybookStore",
     "normalize_stage", "reject_gone_stage", "GONE_STAGES", "LIVE_STAGES",
     "MIGRATE_HINT", "StageGone", "MAX_QUALITY_ROUNDS", "review_and_freeze_play",
+    "extract_chapter_state",
 ]

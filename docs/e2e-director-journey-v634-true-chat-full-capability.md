@@ -3,7 +3,7 @@
 | 项 | 值 |
 |----|-----|
 | **文档标题** | 铜炉 Director 旅程验收协议 · 全面更新（全能力 · 真书 · 对话驱动+点批） |
-| **版本** | **v6.3.4 rev.13**（写章内核 play-contract 五层 + playbook.2 产物质量。**WCG、SPA 不改**；总 PASS 加 Wave C） |
+| **版本** | **v6.3.4 rev.13.1**（写章内核 play-contract 五层 + playbook.3 跨章连续性。**WCG、SPA 不改**；总 PASS 加 Wave C） |
 | **作者** | Grok Design（待人类审定） |
 | **日期** | 2026-08-19 |
 | **状态** | **Draft rev.13** · 写章验收按新五层冻结。本轮须**新 slug**。宣称 / WCG / SPA **不改** |
@@ -515,8 +515,11 @@ Wave C ⇔ C-Must（机器可测，全过）∧ C-人评（三身份通读，无
 | 对白占比 | 每章 ≥15%（引号行字数比） | 0–8% |
 | 明喻密度 | ≤1 个/800 字 | ~1/160 字 |
 | draft 字数 | ≥2000（防压缩式伪 draft） | ch2 曾压缩 |
+| 主角代词跨章一致 | gender_pronoun 闸不过即 Fail（有户口/上章末态性别才拦） | ch3 柳岸青他→她 |
+| 关键物件位置跨章连续 | 上章末态对账零矛盾（法官；state quote 机器闸） | ch3 断指腕内→地上 |
+| 到期悬念全部回响 | 到期 open_loops 仍挂在本章末态 = Fail | ch1 钩子在 ch2/ch3 蒸发 |
 
-测量必须调用已上线函数（`draft_play_overlap` / `scan_anti_meta` / 契约字段），禁止另写一套对照实现。cost 非空是**验收尺子**，不改系统 schema（戏里没写仍可留空；play 层纪律须先写出可引用的付账场面）。
+测量必须调用已上线函数（`draft_play_overlap` / `scan_anti_meta` / 契约字段 / `check_gender_pronoun`），禁止另写一套对照实现。cost 非空是**验收尺子**，不改系统 schema（戏里没写仍可留空；play 层纪律须先写出可引用的付账场面）。
 
 #### C-人评（机器全绿不豁免）
 
@@ -795,7 +798,7 @@ SSOT：`scribe3/qc_product_keys.py`。深链 `leftTab=review` 仍可达 IssueDir
 | D4 单人责任卡 | Should | S7 | API | duty `who` 只填焦点者 → 法官第 6 问 fail（不改 schema 必填人数） |
 | D5 戏无对手/账 | Should | S7 | API | play 通篇无第二人交互 → play 法官拦；戏里有账而 contract.cost 空 → contract_judge 第 3 问 fail |
 | D6 定稿须有契约 | Must | S7 | API | 无冻结 `chapter_contract` 的 final 必被挡（`no_chapter_contract`）；empty_drama_contract 跳过已死 |
-| D7 playbook.2 | Must | S0 | API | `/health` 或代码断言 `playbook_version = playbook.2` |
+| D7 playbook.3 | Must | S0 | API | `/health` 或代码断言 `playbook_version = playbook.3` |
 | D8 Gate 0 归档 | Must | S0 | 文件 | `00-smoke-result.md` 进证据包 |
 
 ---

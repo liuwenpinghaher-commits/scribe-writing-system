@@ -142,6 +142,7 @@ class CharIn(BaseModel):
     internal_conflict: str | None = None
     fear: str | None = None
     first_appearance: int | None = None
+    gender: str | None = None  # 男 / 女 / 空
 
 
 class FactIn(BaseModel):
@@ -265,6 +266,7 @@ class IntentIn(BaseModel):
     reader_feeling: str = ""
     emotional_arc: str = ""
     red_lines: str = ""
+    imagery: str = ""
     overdue_threshold: int | None = None
     total_word_goal: int | None = None   # 整稿目标字数;None → 前端回退默认 100000
     daily_word_goal: int | None = None   # 每日目标字数;None → 不显示每日进度

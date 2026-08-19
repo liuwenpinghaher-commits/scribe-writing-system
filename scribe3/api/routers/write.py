@@ -179,10 +179,11 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
                     focalizer=foc or None,
                 )
                 try:
+                    from scribe3.playbook.quote import PLAYBOOK_VERSION
                     st.update_chapter_meta(seq, {
                         "play_sha": payload.get("play_sha") or "",
                         "contract_sha": payload.get("contract_sha") or "",
-                        "playbook_version": "playbook.2",
+                        "playbook_version": PLAYBOOK_VERSION,
                     })
                 except Exception:
                     pass

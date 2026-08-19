@@ -122,7 +122,7 @@ class PilotOpsMixin:
         rows = self._query(
             "SELECT meta::id(id) AS local, name, backstory, backstory_secret, aliases, personality_tags, "
             "importance, appearance, personality_detail, abilities, weaknesses, "
-            "first_appearance, surface_goal, deep_need, internal_conflict, fear, archived FROM "
+            "first_appearance, surface_goal, deep_need, internal_conflict, fear, gender, archived FROM "
             "type::record('character',$local) LIMIT 1",
             {"local": local},
         ) or []

@@ -4,7 +4,7 @@ import { api } from './api'
 import { Btn } from './ui.jsx'
 import { ReadOnlyText } from './ui/EditableText.jsx'
 
-const FIELDS = [['reader_feeling', '读者感受'], ['emotional_arc', '情感弧'], ['red_lines', '红线']]
+const FIELDS = [['reader_feeling', '读者感受'], ['emotional_arc', '情感弧'], ['red_lines', '红线'], ['imagery', '这本书摸起来']]
 
 // 顶栏作品意图条(IA KD-IA-3):只读展示 intent:main。写入走主编审批(s3_set_intent)。
 // 与辅助面「评分卡」(scorecard)不是同一物——勿混称「北极星」。
@@ -33,6 +33,7 @@ export function NorthStarBar() {
       '读者感受:压抑中见微光,雪夜仍有灯',
       '情感弧:由怯到决,灰契为代价',
       '红线:不写超自然明机制;不洗白加害;不丑化底层',
+      '这本书摸起来:黑屋/青砖/湿冷/手电；不要赛博霓虹',
       '必须先 s3_get_intent 核实,再用 s3_set_intent 写入。未获批准不得声称已落库。',
     ].join('\n')
     try { sessionStorage.setItem('s3.chief.seed', text) } catch { /* */ }

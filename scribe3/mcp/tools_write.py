@@ -133,6 +133,7 @@ async def s3_add_character(ctx: Context, oid: str, name: str,
                            weaknesses: list[str] | None = None,
                            importance: str | None = None,
                            first_appearance: int | None = None,
+                           gender: str | None = None,
                            work: str | None = None) -> dict:
     """新增角色完整档案(写,待批)。
 
@@ -146,7 +147,7 @@ async def s3_add_character(ctx: Context, oid: str, name: str,
         "surface_goal": surface_goal, "deep_need": deep_need, "fear": fear,
         "internal_conflict": internal_conflict, "abilities": abilities or [],
         "weaknesses": weaknesses or [], "importance": importance,
-        "first_appearance": first_appearance,
+        "first_appearance": first_appearance, "gender": gender or "",
     })
     from scribe3.iceberg import codex_l1_error
     _l1 = codex_l1_error("character", traits)
@@ -166,6 +167,7 @@ async def s3_set_intent(ctx: Context,
                         axis_terms: str | None = None,
                         clock_start: str | None = None,
                         clock_end: str | None = None,
+                        imagery: str | None = None,
                         overdue_threshold: int | None = None,
                         total_word_goal: int | None = None,
                         daily_word_goal: int | None = None,
@@ -191,6 +193,8 @@ async def s3_set_intent(ctx: Context,
         fields["clock_start"] = clock_start
     if clock_end is not None:
         fields["clock_end"] = clock_end
+    if imagery is not None:
+        fields["imagery"] = imagery
     if overdue_threshold is not None:
         fields["overdue_threshold"] = overdue_threshold
     if total_word_goal is not None:
@@ -1155,10 +1159,11 @@ async def s3_patch_contract(
         hit = check_contract_struct(contract, play.get("text") or "")
         if not hit.get("ok"):
             return {"status": "error", "tool": "s3_patch_contract", **hit}
+        from scribe3.playbook.quote import PLAYBOOK_VERSION
         rec = dict(contract)
         rec.update({
             "seq": int(seq), "status": "draft", "play_sha": play.get("sha"),
-            "schema": "chapter_contract.v1", "playbook_version": "playbook.2",
+            "schema": "chapter_contract.v1", "playbook_version": PLAYBOOK_VERSION,
             "version": st.next_version("chapter_contract", int(seq)) if hasattr(st, "next_version") else 1,
         })
         if hasattr(st, "insert"):

@@ -32,6 +32,7 @@ class IntentIn(BaseModel):
     reader_feeling: str = ""
     emotional_arc: str = ""
     red_lines: str = ""
+    imagery: str = ""
     overdue_threshold: int | None = None
     total_word_goal: int | None = None
     daily_word_goal: int | None = None
