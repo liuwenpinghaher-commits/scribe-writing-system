@@ -76,6 +76,14 @@ def test_gender_pronoun_skips_unregistered():
     assert hit["ok"] is True
 
 
+def test_draft_prompt_carries_struct_hint():
+    from scribe3.playbook.prompts import draft_generate
+    t = draft_generate({"play_text": "戏", "bite_quote": "钩", "struct_hint": "明喻 25 处 / 2469 字超过 1"})
+    assert "上一稿没过" in t
+    assert "明喻 25" in t
+    assert "上一稿没过" not in draft_generate({"play_text": "戏", "bite_quote": "钩"})
+
+
 def test_prompts_inject_prev_state():
     ctx = {"seq": 3, "prev_state": _ok_state(), "available_cast": ["柳岸青"]}
     assert "寄在他手腕里面" in duty_generate(ctx)

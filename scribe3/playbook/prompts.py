@@ -328,7 +328,11 @@ def deduce_judge(ctx: dict) -> str:
 
 def draft_generate(ctx: dict) -> str:
     bite = ctx.get("bite_quote") or ctx.get("prev_hook_quote") or "（无）"
-    return f"""按这场戏和演绎，写一遍糙稿（2000-4000 字）。
+    hint = str(ctx.get("struct_hint") or "").strip()
+    hint_block = (
+        f"\n【上一稿没过，照这个改，不要只换词】{hint}\n" if hint else ""
+    )
+    return f"""按这场戏和演绎，写一遍糙稿（2000-4000 字）。{hint_block}
 
 【戏（设计图，不是文）】{ctx.get("play_text")}
 【契约】{ctx.get("contract_json")}

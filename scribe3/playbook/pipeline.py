@@ -391,15 +391,22 @@ def _run_draft(store, seq, ctx, llm_fn, *, force, persist):
     }
     play_text = play.get("text") or ""
     exempt = tuple(q for q in (bite_q, hook_q) if q)
-    result = _quality_loop(
-        name="draft",
-        generate=lambda: gen_draft(ctx, llm_fn),
-        struct=lambda d: check_draft_struct(
+    hint = [""]
+
+    def _draft_struct(d):
+        hit = check_draft_struct(
             d.get("text") if isinstance(d, dict) else str(d),
             play_text=play_text,
             exempt_quotes=exempt,
             characters=_roster(ctx),
-        ),
+        )
+        hint[0] = "" if hit.get("ok") else str(hit.get("message") or hit.get("code") or "")
+        return hit
+
+    result = _quality_loop(
+        name="draft",
+        generate=lambda: gen_draft({**ctx, "struct_hint": hint[0]}, llm_fn),
+        struct=_draft_struct,
         judge_type="draft",
         judge_ctx=lambda d: {
             "draft_text": d.get("text") if isinstance(d, dict) else str(d),
