@@ -63,6 +63,17 @@ def test_ch1_bite_is_null():
     assert duty["bite_from_prev"] is None
 
 
+def test_available_cast_reads_entity_name():
+    from scribe3.ontology import Entity
+    from scribe3.playbook.context import available_cast
+
+    class _St:
+        def characters(self):
+            return [Entity("role:柳岸青", "character", "柳岸青")]
+
+    assert available_cast(_St()) == ["柳岸青"]
+
+
 def test_secret_list_from_red_lines():
     from scribe3.playbook.context import secret_list
 

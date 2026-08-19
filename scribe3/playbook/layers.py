@@ -56,6 +56,15 @@ def gen_duty(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
         secrets = [str(x).strip() for x in (ctx.get("secret_list") or []) if str(x).strip()]
         if secrets:
             raw["forbidden_reveal"] = secrets[:3]
+    ids = []
+    for item in ctx.get("available_lines") or []:
+        if isinstance(item, dict) and item.get("id"):
+            ids.append(str(item["id"]))
+        elif item:
+            ids.append(str(item))
+    line = raw.get("line_to_touch")
+    if line not in (None, "", "null") and ids and str(line) not in ids:
+        raw["line_to_touch"] = None
     return raw
 
 

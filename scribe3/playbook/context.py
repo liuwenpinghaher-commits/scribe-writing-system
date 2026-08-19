@@ -14,15 +14,16 @@ def _clean_name(n: str) -> str:
 def _names(rows: list[Any]) -> list[str]:
     out: list[str] = []
     for r in rows or []:
+        n = ""
         if isinstance(r, dict):
-            n = r.get("name") or r.get("id") or r.get("label")
-            n = _clean_name(n) if n else ""
-            if n:
-                out.append(n)
-        elif r:
-            n = _clean_name(r)
-            if n:
-                out.append(n)
+            n = r.get("name") or r.get("id") or r.get("label") or ""
+        else:
+            n = getattr(r, "name", None) or getattr(r, "id", None) or ""
+            if not n:
+                n = str(r or "")
+        n = _clean_name(n)
+        if n:
+            out.append(n)
     return out
 
 
