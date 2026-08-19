@@ -323,7 +323,10 @@ def _pilot_llm_gen(st, work: str, seq: int, phase: str, ask: str, focalizer: str
     ctx = nullcontext() if nested else write_chain_guard(st, outcome_binding.manifest_trace)
     with ctx:
         stg = (phase or "").strip().lower()
-        if stg in ("duty", "design", "chapter_design", "outline", "plan", "beats", "deduce"):
+        if stg in (
+            "duty", "design", "chapter_design", "outline", "plan", "beats",
+            "deduce", "draft", "final",
+        ):
             from scribe3.stage_generate import planning_system_prompt
             ins = (system or "").strip() or planning_system_prompt()
             from scribe3.deepseek_client import DeepSeekResponseError
