@@ -35,8 +35,8 @@ def smoke_imports() -> list[tuple[str, bool, str]]:
 
     try:
         from scribe3.playbook.structural import check_draft_struct, check_final_last_mile
-        play = "沈烛若把场核碎片按回胸口，四十二度顺着袖口往上爬。" * 20
-        copy = check_draft_struct(play + "他又看了一眼。" * 8, play_text=play)
+        play = "沈烛若把场核碎片按回胸口，四十二度顺着袖口往上爬。" * 80
+        copy = check_draft_struct(play + "他又看了一眼裂口。" * 20, play_text=play)
         add("draft_copy_gate", copy.get("ok") is False and copy.get("code") == "draft_copy_play", copy.get("code") or "")
         meta = check_final_last_mile(("他按回碎片，袖口发烫。" * 120) + "上一章末他就数过。")
         add("chapter_boundary_gate", meta.get("code") == "meta_chapter_ref", meta.get("code") or "")

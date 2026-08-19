@@ -39,8 +39,8 @@ def test_wanjie_ssot_five_layer_not_outline():
 
 def test_playbook2_and_d1_code_is_draft_copy_play():
     assert PLAYBOOK_VERSION == "playbook.2"
-    play = "沈烛若把场核碎片按回胸口，四十二度顺着袖口往上爬。" * 20
-    hit = check_draft_struct(play + "他又看了一眼。" * 8, play_text=play)
+    play = "沈烛若把场核碎片按回胸口，四十二度顺着袖口往上爬。" * 80
+    hit = check_draft_struct(play + "他又看了一眼裂口。" * 20, play_text=play)
     assert hit["code"] == "draft_copy_play"
     assert _normalize({"verdict": "???", "answers": []})["verdict"] == "needs_human"
     prose = ("他按回碎片，袖口发烫。" * 120) + "上一章末他就数过。"

@@ -270,8 +270,8 @@ def check_draft_struct(
     if not text:
         return _fail("draft_empty", "排演是空的")
     n = len(_plain(text))
-    if n < 500:
-        return _fail("draft_len", f"排演字数 {n} 低于 500")
+    if n < 2000:
+        return _fail("draft_len", f"排演字数 {n} 低于 2000")
     meta = _meta_chapter_fail(text)
     if meta:
         return meta

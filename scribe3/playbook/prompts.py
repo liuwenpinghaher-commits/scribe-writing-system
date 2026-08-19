@@ -143,10 +143,14 @@ def contract_extract(ctx: dict) -> str:
 铁律：
 1. 每个字段的 quote 必须是戏里字面出现的连续原句，10-50 字，一个标点都不许改。
    输出前把每个 quote 拿回戏里找一遍：找不到，就换一句能找到的。
+   不许删掉原句中间的「某某说」——删了就对不上。
 2. 戏里没有的东西（人、物、线、账）禁止补。
-3. cost/clock/place 戏里没明写就留空（null），禁止编。
+3. clock/place 戏里没明写才留空（null），禁止编。
+   cost 不同：戏里只要有人当场失去/被拿走的那一句，就必须抄进 fields.cost，
+   禁止仍写 null。编一句不在戏里的账 = 废稿。
 4. beats ≥3 场（通常 3-5 场，按戏的自然台阶走），只有一场 stages_choice=true——
-   他真正站在两难前的那场。
+   他真正站在两难前的那场。那一场的 conflict 必须抄对手与焦点者对上的原句，
+   禁止 null。
 5. choice 的 quote 是他【还没选】时的那句两难，不是选完之后的总结。
 6. decision 的 quote 是他迈出去的那一步（动作句）。
 7. hook 的 quote 是章末那句没做完的事。
@@ -157,10 +161,10 @@ def contract_extract(ctx: dict) -> str:
    "side_a": {{"text": "", "quote": ""}},
    "side_b": {{"text": "", "quote": ""}}}},
  "decision": {{"text": "", "quote": ""}},
- "cost": null,
+ "cost": {{"text": "", "quote": ""}},
  "hook": {{"text": "", "quote": ""}}}},
  "beats": [{{"n": 1, "goal": {{"text": "", "quote": ""}},
-   "conflict": null, "turn": {{"text": "", "quote": ""}},
+   "conflict": {{"text": "", "quote": ""}}, "turn": {{"text": "", "quote": ""}},
    "cost": null, "stages_choice": false}}],
  "lines_touched": [],
  "clock": null,
@@ -269,6 +273,7 @@ def draft_generate(ctx: dict) -> str:
 - 禁止泄露 {ctx.get("forbidden_reveal") or []}。
 - 禁止上帝视角乱跳。
 - 明喻（像/仿佛/似的）全文至多每 800 字一个；能用直陈就不用比喻。
+  写完自己数：去空白不足 2000 字，或「像/仿佛/似的」超标，整篇作废重写。
 """
 
 
