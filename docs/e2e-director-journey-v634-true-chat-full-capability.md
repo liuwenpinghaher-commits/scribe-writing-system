@@ -3,10 +3,10 @@
 | 项 | 值 |
 |----|-----|
 | **文档标题** | 铜炉 Director 旅程验收协议 · 全面更新（全能力 · 真书 · 对话驱动+点批） |
-| **版本** | **v6.3.4 rev.12.1**（写章内核 play-contract 五层；漏改收口。**总 PASS 公式、WCG、SPA 不改**） |
+| **版本** | **v6.3.4 rev.13**（写章内核 play-contract 五层 + playbook.2 产物质量。**WCG、SPA 不改**；总 PASS 加 Wave C） |
 | **作者** | Grok Design（待人类审定） |
 | **日期** | 2026-08-19 |
-| **状态** | **Draft rev.12** · 写章验收按新五层冻结。本轮须**新 slug**。宣称 / WCG / SPA **不改** |
+| **状态** | **Draft rev.13** · 写章验收按新五层冻结。本轮须**新 slug**。宣称 / WCG / SPA **不改** |
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` · 仓库 `/home/admin/projects/scribe-writing-system` |
 | **验收环境** | **仅 demo 已部署栈**（公网主入口 **`https://tonglu.qing.blue`**；`www.qing.blue` / `qing.blue` 301 → 主域） |
 | **禁止** | Grok 运行机全量 `npm ci` / 本机 Surreal / 第二验收栈 / 脚本灌章冒充体验 PASS |
@@ -36,11 +36,12 @@
 | **v6.3.4 rev.9** · 本文 | WAVE-1 增 `goal_off_world`；ASK 末尾【世界合同】压过 extra；`SCRIBE3_PIPELINE_RECORDER` 默认开；F3b/c 分批硬闸标为历史。当时验收书 `book_83584141`（**rev.10 起不再当本轮验收书**）。禁 overlay `book_e415dfeb` / `book_61a7935e`。**不改** WCG 数字、SPA、宣称、GATE-B 80、`GATE_SAVE_MODE`。 | **不替换** SPA 三通道与 WCG 脚本 |
 | **v6.3.4 rev.10** · 本文 | 本轮验收条：必须 **新建 slug** 连写 **第 1–3 章**；每章 OpSeq 一层 `persist=true`（outline→beats→deduce→draft→final）；`SCRIBE3_WORLD_SURFACE=on` 下定稿付清 goal/hook 组（`surface_claim_unpaid` / `claim_paid_by_paraphrase`）；extra 命令语气 → `extra_authors`；ch2 起 `gesture_echo`。质量验收读阶段文 + 记录仪，**HTTP 200 / 字段非空 / 闸绿 ≠ 完全按方案**。禁 overlay `book_83584141` / `book_e415dfeb` / `book_61a7935e` / `book_bdfdcdc4` / `wanjie-fate-r7`。**不改** WCG 数字、SPA、宣称、GATE-B 80、`GATE_SAVE_MODE`。 | **不替换** SPA 三通道与 WCG 脚本 |
 | **v6.3.4 rev.11** · 本文 | **史。** 当时 OpSeq 步数因 design 合并减少。旗 `SCRIBE3_CHAPTER_DESIGN`、旧 design=outline+beats **已不存在**（rev.12 作废）。 | **不替换** SPA 三通道与 WCG 脚本 |
-| **v6.3.4 rev.12** · 本文 | **吸收 play-contract 系统换代：** 旧写章五层（outline/beats/deductions/scene_truth/draft）与 Fate/水面闸全部删除；OpSeq、冰山表、Ice/Fate 矩阵行、KD-25/26 重写。总 PASS 公式、WCG、SPA、宣称不改。 | **不替换** SPA 三通道与 WCG 脚本 |
+| **v6.3.4 rev.12** · 本文 | **吸收 play-contract 系统换代：** 旧写章五层（outline/beats/deductions/scene_truth/draft）与 Fate/水面闸全部删除；OpSeq、冰山表、Ice/Fate 矩阵行、KD-25/26 重写。当时总 PASS 公式、WCG、SPA、宣称不改。 | **不替换** SPA 三通道与 WCG 脚本 |
+| **v6.3.4 rev.13** · 本文 | **协议优化：** 收尾 rev.12 漏改；Gate 0 部署冒烟；窗口版本冻结；traces×冻结对账；产物质量 Wave C 进总 PASS；playbook.2 对抗用例。WCG / SPA / ShouldRate 0.80 **不改**。 | **不替换** SPA 三通道与 WCG 脚本 |
 
-**系统换代声明（rev.12 必读）：** 2026-08-18 起，写章内核换成 play-contract。旧 `stage=outline/beats`、`chapter_spine` / `beats` / Fate / 水面 422 码 **全部作废**。拿 rev.11 条款去验收会误伤 410 或假绿。本文从本节起按新五层验收。
+**系统换代声明（rev.12 必读，rev.13 仍准）：** 2026-08-18 起，写章内核换成 play-contract。旧 `stage=outline/beats`、`chapter_spine` / `beats` / Fate / 水面 422 码 **全部作废**。拿 rev.11 条款去验收会误伤 410 或假绿。本文从本节起按新五层验收。
 
-**为何叫 v6.3.4 而非 v6.4：** 仍是 6.3 家族（对话驱动 · 记忆 · 真书），相对 6.3.3 是「补全能力矩阵 + 拉回 SPA 体验主路径」的修订号。仓库与结案字段钉 **v6.3.4**。rev.12 只换写章验收内核，**不改** WCG 门槛数字、SPA 三通道、总 PASS 公式。**
+**为何叫 v6.3.4 而非 v6.4：** 仍是 6.3 家族（对话驱动 · 记忆 · 真书），相对 6.3.3 是「补全能力矩阵 + 拉回 SPA 体验主路径」的修订号。仓库与结案字段钉 **v6.3.4**。rev.12 换写章验收内核；rev.13 **只加** Wave C 与开跑前置，**不改** WCG 门槛数字、SPA 三通道、ShouldRate 0.80。**
 
 ```text
 6.2 成功 ≈ 对话+点批 → 约 5 万可读好书 + 正典闭环
@@ -267,6 +268,8 @@
 
 **全部信息 ≠ 全部字节**：允许窄红名单（密钥 / Cookie / secret 值）。禁止再用这句话砍掉 `end_hook`、戏/契约/演绎/排演正文、丢掉的段、编译段。
 
+**红名单（rev.13）：** 密钥 / Cookie / secret 值。**禁止**再用旧 Fate/水面词项当红名单。新增必须进卷宗的两类质量事故：**章边界词入文**（上一章/这一章/下一章/本章）、**draft 对 play 高重复**（8 字窗 >15%，钩子豁免段除外）。
+
 ### 主编附属模式（聊 / 选择 / 驾驶）
 
 右栏不再常驻「选择环」「主编驾驶」两个 tab。能力收进主编坞 **模式条**：聊（默认）/ 选择 / 驾驶。切模式 **不换 `thread_id`、不卸对话槽**。作业进行中 `jobBusy` 禁同章发送。REST `/select/*` `/pilot/*` **语义不变**。结果在模式条展示，不伪造聊天气泡。
@@ -290,7 +293,7 @@
 | **主编坞** 发送（discuss / 触发 world_write） | 表单失焦批量改正典 |
 | **主编模式条** 聊 / 选择 / 驾驶（不换会话） | 把选择/驾驶再拆成右栏常驻 tab |
 | **审批卡** 批准/拒绝/过期 | EMERGENCY 世界写 |
-| **戏/契约冻结放行 / 用此版 / 终选 / advisory 接受** | safe_beats / prose_pure / 离线 prose 灌库 |
+| **层法官放行**（duty / design / deduce / draft / final 各层独立放行态）/ 用此版 / 终选 / advisory 接受 | safe_beats / prose_pure / 离线 prose 灌库 |
 | **待确认设定 / 决策收件箱 / pending-claims 点批** | 无 chat 脚本拼 ops |
 | **章工作台** 阶段切换、play/contract 页、戏/契约/演绎点批；五层冻结 | 后台 seed 假记忆；切句充数当戏 |
 | **Issue「让主编处理」** 种子后再聊 | curl **代聊** |
@@ -305,8 +308,23 @@
 
 ## 强制路径（不可协商）
 
+### Gate 0 · 部署冒烟（开跑前必过）
+
+验收开跑前必须完成 Gate 0：在 **已部署 demo** 跑 `python3 -m scribe3.tools.v634_smoke --mode live`（或 `scripts/v634_smoke.py --mode live`）。
+
+假书一章五层全链须同时满足：
+
+- 每层冻结产物存在  
+- 该章 trace 状态为 `ok`（或 `ok` 且笔记写明「链异常但产物已落库」）  
+- 法官 verdict ∈ {pass, fail}（不得默认盖章）  
+- draft–play 8 字重复率 ≤15%（钩子豁免）  
+- 正文无章边界词（上一章/这一章/下一章/本章）
+
+**Gate 0 不过，验收不许开跑。** 产物归档为证据包 `00-smoke-result.md`。部署入口级 `--mode imports` 可作热更钩子，**不能**替代本条 live 全链。
+
 ### 会话铁律
 
+0. **窗口版本冻结。** 开跑时记录后端指纹：`GET /health` 的 `changefeed.started_at`（或等价）+ 部署 commit。**窗口内任何热修/重启 → 已跑章节全部作废，从热修后重跑。** 禁止边修边跑边认账。  
 1. `GET /api/chat/threads?work=<slug>` 有线程；建议作者可见轮次 **≥60** 或覆盖阶段清单（开书/设定/结构/每章开写/探针/中程/改稿）。**数量不是充分条件**——禁止闲聊垫数。  
 2. **硬门（主编线）：每章定稿章（1–5）≥1 条「开写」user message**，thread 导出可对 **seq / 时间戳**；缺任一章 → **主编线 FAIL**。  
 3. 正典落库须可追溯到 **chat 原文或 UI 种子**（world_write 审批或 ChangePack `source=discussion` 等）；禁止无追溯 ops。  
@@ -365,7 +383,7 @@
 
 **三卷：** 囚笼 / 泄露 / 第三条路。**1–5 定稿题：** 华山成核 → 四十二度 → 金縢裂纹 → 灭活边缘 → 牧场主出价。6–10 壳见宇宙 SSOT。
 
-**第 1 章契约必须长这样（可改字，不可改形状）：** duty + contract 的 goal / choice（交碎片给沈烛换活 **vs** 自己按回裂口暴露双权柄）/ decision / cost / hook.quote 非空；`lines` 绑已有 promise/storyline id；钩须可被第 2 章 `duty_bite` 字面对上。禁止把炉灰记「假铜挡眼皮」搬进本章戏。
+**第 1 章金样 = 新五层锚（可改字，不可改形状）：** `duty_card` + `chapter_play` + contract 五字段（goal / choice / decision / cost / hook）+ deduce 五层 + draft + prose/`end_hook`。choice 仍是「交碎片给沈烛换活 **vs** 自己按回裂口暴露双权柄」。`lines` 绑已有 promise/storyline id；钩须可被第 2 章 `duty_bite` 字面对上。禁止 13 槽旧载体，禁止把炉灰记「假铜挡眼皮」搬进本章戏。
 
 ### WCG 可勾选表（与 `v4_world_complete_gate.py` 对齐）
 
@@ -438,11 +456,12 @@ sequenceDiagram
   participant DB as Surreal
 
   A->>C: 开写 user message（硬门）
-  C-->>W: 戏/契约冻结或 world_write 审批
-  A->>W: UI 点批截图（硬门）
-  A->>W: play/contract 页对照
-  A->>W: 演绎（戏/契约已冻结）
-  A->>W: 排演→体检→终选
+  A->>W: duty 责任卡冻结
+  A->>W: design（play + contract）冻结
+  A->>W: deduce 演绎冻结
+  A->>W: draft 排演冻结
+  A->>W: final 定稿
+  Note over A,W: 五层流 duty→design(play+contract)→deduce→draft→final
   Note over A,W: ch≥3：M3；限知章：M5；弧光/图谱可同章打开
   W->>DB: finalize → post_finalize / ingest lease
 ```
@@ -470,13 +489,44 @@ sequenceDiagram
 ### 总 PASS 公式
 
 ```text
-总 PASS ⇔ Wave A ∧ Wave B
+总 PASS ⇔ Wave A ∧ Wave B ∧ Wave C
 Wave A ⇔ 旅程 ∧ 主编(每章开写+UI点批) ∧ 设定(WCG exit0) ∧ 正典闭环
         ∧ 真路径 ∧ 工艺 ∧ 质量底线 ∧ 规模 ∧ 缺陷
         ∧ 记忆(M1∧M3∧M5 且 ≥5/7) ∧ 矩阵 Must 全绿（含 Must-if 规则）
 Wave B ⇔ Should 计分 ≥80%（见下）∧ 证据 schema 合法
+Wave C ⇔ C-Must（机器可测，全过）∧ C-人评（三身份通读，无红旗）
 仅 Wave A → 最高 PARTIAL（可写「Must 旅程完成」），不得总 PASS
+仅 Wave A∧B、Wave C 不过 → 机制绿、书不及格，不得总 PASS
 ```
+
+### Wave C · 产物质量（rev.13）
+
+机制 PASS ≠ 小说高质量。Wave A/B 验「层序/quote/409/410 是否运转」；Wave C 验「打开书像不像一章小说」。
+
+#### C-Must（机器，全过才算）
+
+| 指标 | 判据 | book_7331087b 基线（对照，非本轮书） |
+|------|------|--------------------------------------|
+| play→draft 8 字重复率 | 每章 ≤15%（hook 承接段豁免） | 23% / 57% / 98.92% |
+| 章边界词入正文 | 0 处 | 4 处 |
+| contract.fields.cost 非空 | 每章非空 | 0/3 |
+| stages_choice 拍 conflict | 每章非空 | 0/3 |
+| 第二有意志在场者 | 每章 ≥1（duty 卡 who≥2） | 0/3 |
+| 对白占比 | 每章 ≥15%（引号行字数比） | 0–8% |
+| 明喻密度 | ≤1 个/800 字 | ~1/160 字 |
+| draft 字数 | ≥2000（防压缩式伪 draft） | ch2 曾压缩 |
+
+测量必须调用已上线函数（`draft_play_overlap` / `scan_anti_meta` / 契约字段），禁止另写一套对照实现。cost 非空是**验收尺子**，不改系统 schema（戏里没写仍可留空；play 层纪律须先写出可引用的付账场面）。
+
+#### C-人评（机器全绿不豁免）
+
+三身份通读，每身份一章一票，红旗即 Wave C 不过：
+
+- **作家**：想不想翻页（对话/对手/变化感）  
+- **写模型的人**：有没有模板指纹（同位同招/比喻套路/复述痕迹）  
+- **架构**：契约五字段在正文有没有落点  
+
+「单句还行、整章不像小说」只有人读得出。
 
 ### Should 计分（KD-13）
 
@@ -591,7 +641,7 @@ Wave B ⇔ Should 计分 ≥80%（见下）∧ 证据 schema 合法
 
 | ID | 优先级 | 阶段 | 证据 | 要点 |
 |----|--------|------|------|------|
-| Drm1 契约拍 | Must | S7 | API | contract.beats ≥3；戏/契约冻结后再演绎（与 PB3 同验） |
+| Drm1 契约拍 | Must | S7 | API | contract beats ≥3 且 stages_choice 恰 1（机器硬闸）；戏/契约冻结后再演绎（与 PB3 同验） |
 | Drm2 接地失败纪律 | **Must-if-triggered** | S7 | UI+日志 | **未触发 → N/A + 声明**；触发 → STOP 同路径、**禁 safe_beats** |
 | Drm3 演绎分列 | Must | S7 | API | chapter_deduce 内容不得与 final prose 合并 |
 | Drm4 压力 | Should | S7/S10 | API | findings 路径 |
@@ -717,7 +767,7 @@ SSOT：`scribe3/qc_product_keys.py`。深链 `leftTab=review` 仍可达 IssueDir
 | QL3 无 pad | Must | 人判 |
 | QL4 人盲 | Could | 不挡总 PASS |
 
-### P. play-contract 五层 / 注入 / 设定生成 / 飞行记录仪（rev.12）
+### P. play-contract 五层 / 注入 / 设定生成 / 飞行记录仪（rev.13）
 
 | ID | 优先级 | 阶段 | 证据 | 要点 |
 |----|--------|------|------|------|
@@ -734,9 +784,19 @@ SSOT：`scribe3/qc_product_keys.py`。深链 `leftTab=review` 仍可达 IssueDir
 | Cx1 设定生成不落库 | Must | S3 | API | `/generate-codex` 200 且 L1 未因本次生成新增实体；落地仍 C1 |
 | Cx2 secret 边界 | Must | S3 | API | REST `include_secret` → 4xx |
 | Rec1 运行分析入口 | Must | S7/S11 | UI | **运行时·数据** 可见本书链；非运维·危险 |
-| Rec2 卷宗正文 | Should | S7 ≥1 章 | API | `GET /debug/pipeline-traces/{id}?include=events,artifacts` 有真实工件（记录仪默认开；仅显式关才 N/A） |
+| Rec2 卷宗正文 | Should | S7 ≥1 章 | API | `GET /debug/pipeline-traces/{id}?include=events,artifacts` 有真实工件；单链须返回非空 `item` |
+| Rec3 traces×冻结对账 | Must | S7 每章 | API | 证据 `07-trace-reconciliation.md`：每层 trace 状态 × 冻结产物 × 法官 verdict；不一致 → Wave A 不过 |
+| Ice8 latest-draft 同源 | Must | S7 每章 | API | `GET /latest-draft?work=&seq=` 的 `source` ∈ {`chapter_version`,`chapter_draft`}；**三章同一条路径**；混路径视为 B2 窗口冻结被违反 |
 | Inb1 选择进收件箱 | Should | S7 若跑选择 | UI+API | pending L1/L2 在决策收件箱 |
 | Inb2 Hermes 进收件箱 | Should | S3 若有审批卡 | UI | hermes_approval 项可见 |
+| D1 draft 抄戏 | Must | S7 | API | 故意提交与 play 重复率 >15% 的 draft → `check_draft_struct` 挡，code=`draft_copy_play` |
+| D2 章边界词 | Must | S7 | API | 正文写「上一章他……」→ M8 挡稿（非 advisory） |
+| D3 法官畸形 | Must | S7 | API | 畸形 verdict 且无 evidence → 归一化为 `needs_human`，冻结挂起 |
+| D4 单人责任卡 | Should | S7 | API | duty `who` 只填焦点者 → 法官第 6 问 fail（不改 schema 必填人数） |
+| D5 戏无对手/账 | Should | S7 | API | play 通篇无第二人交互 → play 法官拦；戏里有账而 contract.cost 空 → contract_judge 第 3 问 fail |
+| D6 定稿须有契约 | Must | S7 | API | 无冻结 `chapter_contract` 的 final 必被挡（`no_chapter_contract`）；empty_drama_contract 跳过已死 |
+| D7 playbook.2 | Must | S0 | API | `/health` 或代码断言 `playbook_version = playbook.2` |
+| D8 Gate 0 归档 | Must | S0 | 文件 | `00-smoke-result.md` 进证据包 |
 
 ---
 
@@ -773,6 +833,8 @@ docs/evidence/v634-true-chat-<YYYYMMDD>-<slug>/
 | `04-serialize/ch01…ch05.md` | 导出 | |
 | `05-ledger.md` | 结案 | 十线+分波 |
 | `06-defect-ledger.md` | 全程 | |
+| `00-smoke-result.md` | Gate 0 | live 冒烟输出；不过则不许开跑 |
+| `07-trace-reconciliation.md` | 每章 | 每层：trace 状态 × 冻结产物 × 法官 verdict |
 | `08-wordcount-rollup.md` | 结案 | |
 | `09-final-closure.md` | 结案 | 四问+总裁决 |
 | `11-canon-loop-chat.json` | 审计 | |
@@ -868,6 +930,7 @@ docs/evidence/v634-true-chat-<YYYYMMDD>-<slug>/
 |----|------|------|
 | 路径诚实+UI 截图 | 总 PASS | author-path |
 | 好书底线 | 总 PASS | closure |
+| Wave C 三身份通读 | 总 PASS | C-人评：作家 / 写模型的人 / 架构；红旗即 Wave C 不过；机器全绿不豁免 |
 | 记忆四问 | 记忆 PASS | |
 | 人盲 ≥9.5 | 仅质量冲刺 | 不挡本版总 PASS |
 
@@ -904,7 +967,7 @@ docs/evidence/v634-true-chat-<YYYYMMDD>-<slug>/
 | **做法** | Wave A 先出 PARTIAL（Must+记忆+WCG+5 章）；Wave B 补 Should≥80% 与 Hub/parallel 等 |
 | **利** | 可执行；避免一天内假绿跳项 |
 | **弊** | 总 PASS 变慢 |
-| **与「一次总 PASS 才算数」** | **产品结案仍要求 A∧B**；分波是 **执行节奏**，不是两个独立「总 PASS」。禁止只交付 Wave A 对外宣传总 PASS |
+| **与「一次总 PASS 才算数」** | **产品结案仍要求 A∧B∧C**；分波是 **执行节奏**，不是三个独立「总 PASS」。禁止只交付 Wave A 对外宣传总 PASS |
 | **否决「永久只做 Wave A」** | 会退化回能力不触达 |
 
 ---
@@ -919,7 +982,9 @@ docs/evidence/v634-true-chat-<YYYYMMDD>-<slug>/
 
 threads、capabilities、ingest/lease、coverage、tool_trace_status、Inspector、字数。
 
-**rev.3 飞行记录仪：** `GET /debug/pipeline-traces?work=<slug>&chapter=N` 列链；单链 `include=events,artifacts` 打开事件流与工件正文。作者 UI：运行时·数据 → 运行分析。分析质量时必须读阶段文 **和** 卷宗，禁止只数 `ok`。
+**rev.3 飞行记录仪：** `GET /debug/pipeline-traces?work=<slug>&chapter=N` 列链；单链 `GET /debug/pipeline-traces/{id}?include=events,artifacts` 须返回非空 `item`，打开事件流与工件正文。作者 UI：运行时·数据 → 运行分析。分析质量时必须读阶段文 **和** 卷宗，禁止只数 `ok`。
+
+**rev.13 对账表：** 每章每层一行：trace 状态 × 冻结产物存在性 × 法官 verdict。两者不一致即 Wave A 不通过（不管产物在不在）。归档 `07-trace-reconciliation.md`。
 
 ---
 
@@ -1114,7 +1179,8 @@ Wave B
 | **v6.3.4 Draft rev.11** | 当时 OpSeq 合并为 design 一层（史）。旗与旧 design 语义已不存在。 |
 | **v6.3.4 Draft rev.12** | 写章内核换代 play-contract：新五层 OpSeq、PB 矩阵、quote 保真、咬钩硬闸。Fate/水面/outline/beats 条款作废。总 PASS / WCG / SPA 不改。 |
 | **v6.3.4 Draft rev.12.1** | 漏改收口：Drm1、第 1 章契约金样、万界宇宙字段、白名单/记录仪措辞。 |
+| **v6.3.4 Draft rev.13** | Gate 0 冒烟；窗口版本冻结；traces×冻结对账；Wave C 产物质量进总 PASS；playbook.2 对抗 D1–D8。WCG / SPA / ShouldRate 0.80 不改。 |
 
 ---
 
-*完 · rev.12。宇宙 SSOT：`docs/worlds/wanjie-probability-war-v7.md`。写章 SSOT：`scribe3/playbook/` + `docs/playbook/playbook.1.md`。旧验收书 slug 不 overlay。*
+*完 · rev.13。宇宙 SSOT：`docs/worlds/wanjie-probability-war-v7.md`。写章 SSOT：`scribe3/playbook/`（playbook.2）。旧验收书 slug 不 overlay。*
