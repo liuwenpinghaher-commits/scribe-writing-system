@@ -188,7 +188,10 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
                     pass
             elif "draft" in payload:
                 prose = payload.get("draft") or ""
-                st.save_chapter_draft(seq, prose)
+                try:
+                    st.save_chapter_draft(seq, prose)
+                except Exception:
+                    pass
                 try:
                     st.add_chapter_version(
                         seq, prose, label="generate-stage",

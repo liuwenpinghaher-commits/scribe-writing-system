@@ -369,10 +369,18 @@ class ChaptersMixin:
 
     def save_chapter_draft(self, seq: int, draft: str) -> None:
         """落/覆盖某章草稿(与定稿 prose 分离;UPSERT 不碰 prose/embedding/qc)。
-        刷新恢复读 chapter.draft(最新草稿);留版另走 add_chapter_version(stage='draft')。"""
-        self._execute_write(
-            "UPSERT type::record('chapter',$seq) SET seq=$seq, draft=$draft RETURN NONE",
-            {"seq": seq, "draft": draft})
+        刷新恢复读 chapter.draft(最新草稿);留版另走 add_chapter_version(stage='draft')。
+        147 已删 chapter.draft：失败时改走 chapter_version，不挡排演冻结。"""
+        try:
+            self._execute_write(
+                "UPSERT type::record('chapter',$seq) SET seq=$seq, draft=$draft RETURN NONE",
+                {"seq": seq, "draft": draft})
+        except Exception:
+            self.add_chapter_version(
+                seq, draft, label="chapter-draft",
+                kind="checkpoint", stage="draft",
+                summary="chapter.draft 字段已删，改留版",
+            )
 
     def set_craft_compliance(self, seq: int, report: dict | None) -> None:
         """P2：落 C-Det / 工艺合规摘要（JSON 串；fail-soft 由调用方捕获）。"""
