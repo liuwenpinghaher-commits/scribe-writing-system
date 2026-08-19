@@ -117,6 +117,13 @@ rm -f /tmp/scribe3-hot.tgz
 echo restarted
 REMOTE
   wait_health "$CONTAINER"
+  if [[ "${V634_SMOKE:-1}" != "0" ]]; then
+    echo "==> v634 入口冒烟"
+    if ! "${SSH[@]}" "$REMOTE" "docker exec '$CONTAINER' python3 -m scribe3.tools.v634_smoke --mode imports"; then
+      echo "v634 冒烟失败，禁止宣布可验收" >&2
+      exit 1
+    fi
+  fi
   echo "==> hot deploy 完成（未走 GitHub Actions）"
 }
 
@@ -195,6 +202,13 @@ else
 fi
 REMOTE
   wait_health "$CONTAINER"
+  if [[ "${V634_SMOKE:-1}" != "0" ]]; then
+    echo "==> v634 入口冒烟"
+    if ! "${SSH[@]}" "$REMOTE" "docker exec '$CONTAINER' python3 -m scribe3.tools.v634_smoke --mode imports"; then
+      echo "v634 冒烟失败，禁止宣布可验收" >&2
+      exit 1
+    fi
+  fi
   echo "==> server-git deploy 完成"
 }
 

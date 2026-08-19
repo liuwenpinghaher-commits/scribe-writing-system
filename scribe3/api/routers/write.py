@@ -182,7 +182,7 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
                     st.update_chapter_meta(seq, {
                         "play_sha": payload.get("play_sha") or "",
                         "contract_sha": payload.get("contract_sha") or "",
-                        "playbook_version": "playbook.1",
+                        "playbook_version": "playbook.2",
                     })
                 except Exception:
                     pass

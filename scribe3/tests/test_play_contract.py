@@ -172,13 +172,13 @@ def test_good_contract_passes():
 
 def _pass_llm(kind_text: dict[str, str]):
     def llm_fn(prompt, max_tokens=2048, system="", temperature=0.8):
-        if "你是审稿的" in prompt or "五问" in prompt or "两问" in prompt or "六问" in prompt or "七问" in prompt or "四问" in prompt:
+        if "你是审稿的" in prompt or "五问" in prompt or "两问" in prompt or "六问" in prompt or "七问" in prompt or "四问" in prompt or "八问" in prompt or "三问" in prompt:
             return json.dumps({
                 "answers": [{"q": 1, "evidence": "沈烛若合上五指", "answer": "yes", "reason": "过"}],
                 "verdict": "pass",
                 "opinion": "",
             }, ensure_ascii=False)
-        if "立\"责任\"" in prompt or "立四件事" in prompt:
+        if "立\"责任\"" in prompt or "立四件事" in prompt or "立五件事" in prompt:
             return json.dumps({
                 "must_happen": "沈烛若把碎片按回胸口",
                 "bill": "四十二度成了他的常态",
@@ -570,3 +570,58 @@ def test_catalog_teaches_play_contract_not_old_plan():
     deduce = get_domain("chapter.deduce")
     assert "s3_patch_chapter_plan" not in (deduce.get("write_tools") or ())
     assert "s3_generate_stage" in (deduce.get("write_tools") or ())
+
+
+def test_draft_copy_play_fails_struct():
+    from scribe3.playbook.structural import check_draft_struct
+    play = "沈烛若把场核碎片按回胸口，四十二度顺着袖口往上爬。" * 20
+    draft = play + "他又看了一眼裂口。" * 10
+    hit = check_draft_struct(draft, play_text=play)
+    assert hit["ok"] is False
+    assert hit["code"] == "draft_copy_play"
+
+
+def test_draft_hook_exempt_does_not_trip_overlap():
+    from scribe3.playbook.structural import check_draft_struct
+    hook = "袖口里碳化屏还在滚"
+    play = hook + "。沈烛若把碎片按回胸口。" * 30
+    draft = ("食堂铁皮落下半扇。" * 40) + hook + ("他用指腹压住屏，不让它休眠。" * 40)
+    hit = check_draft_struct(draft, play_text=play, exempt_quotes=(hook,))
+    assert hit["ok"] is True
+
+
+def test_draft_and_final_block_chapter_boundary():
+    from scribe3.playbook.structural import check_draft_struct, check_final_last_mile
+    draft = ("他按回碎片，袖口发烫。" * 60) + "上一章末他就数过。"
+    hit = check_draft_struct(draft, play_text="完全不同的戏文" * 40)
+    assert hit["ok"] is False
+    assert hit["code"] == "meta_chapter_ref"
+    prose = ("他按回碎片，袖口发烫。" * 120) + "这一章里没有人说话。"
+    hit2 = check_final_last_mile(prose)
+    assert hit2["ok"] is False
+    assert hit2["code"] == "meta_chapter_ref"
+
+
+def test_judge_malformed_verdict_is_needs_human():
+    from scribe3.playbook.judge import _normalize
+    out = _normalize({"verdict": "maybe", "answers": [], "opinion": ""})
+    assert out["verdict"] == "needs_human"
+    out2 = _normalize({
+        "verdict": "???",
+        "answers": [{"q": 1, "evidence": "", "answer": "yes", "reason": "空"}],
+    })
+    assert out2["verdict"] == "needs_human"
+    out3 = _normalize({
+        "verdict": "bad",
+        "answers": [{"q": 1, "evidence": "他付了账", "answer": "no", "reason": "旁白"}],
+    })
+    assert out3["verdict"] == "fail"
+
+
+def test_final_without_frozen_contract_blocks():
+    from scribe3.playbook.structural import check_final_last_mile
+    store = MemoryPlaybookStore()
+    prose = "他按回碎片，袖口发烫。" * 120
+    hit = check_final_last_mile(prose, store=store, seq=1)
+    assert hit["ok"] is False
+    assert hit["code"] == "no_chapter_contract"

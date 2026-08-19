@@ -176,6 +176,23 @@ def check_finalize_for_save(
     """
     if skip or not finalize_gate_env_enabled():
         return evaluate_finalize_gate(None, danger_draft=False, skip=True)
+    getter = getattr(st, "get_frozen", None) if st is not None else None
+    if callable(getter):
+        contract = getter("chapter_contract", int(seq or 0))
+        if not contract:
+            return {
+                "allowed": False,
+                "code": "no_chapter_contract",
+                "verdict": "blocking",
+                "triage": {
+                    "verdict": "blocking", "blocking": [], "advisory_count": 0,
+                    "advisory_items": [], "degraded_stages": [], "leaks": [],
+                },
+                "detail": "没有冻结的契约，定稿门不跳过",
+                "blocking": [{"detector": "finalize_gate", "kind": "no_chapter_contract",
+                              "quote": "", "note": "需要 chapter_contract"}],
+                "advisory_items": [],
+            }
     post = collect_deterministic_post_for_prose(
         prose, st=st, seq=seq, focalizer=focalizer or None)
     return evaluate_finalize_gate(post, danger_draft=bool(danger_draft), skip=False)

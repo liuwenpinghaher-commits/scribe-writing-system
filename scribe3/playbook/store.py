@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from scribe3.playbook.quote import PLAYBOOK_VERSION
 from scribe3.store.core_preamble import *  # noqa: F403
 
 TABLES = (
@@ -117,7 +118,7 @@ class PlaybookOpsMixin:
         save = getattr(self, "save_chapter", None)
         if callable(save):
             save(int(seq), prose or "")
-        meta = {"play_sha": play_sha, "contract_sha": contract_sha, "playbook_version": "playbook.1"}
+        meta = {"play_sha": play_sha, "contract_sha": contract_sha, "playbook_version": PLAYBOOK_VERSION}
         upd = getattr(self, "update_chapter_meta", None)
         if callable(upd):
             try:
@@ -153,7 +154,7 @@ class PlaybookOpsMixin:
             sha = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
             rec = {
                 "schema": "chapter_play.v1",
-                "playbook_version": "playbook.1",
+                "playbook_version": PLAYBOOK_VERSION,
                 "seq": int(seq),
                 "version": 1,
                 "text": text,

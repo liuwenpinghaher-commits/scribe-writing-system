@@ -37,13 +37,24 @@ def _call(llm_fn: Callable, prompt: str, *, system: str) -> str:
 
 def _normalize(raw: dict[str, Any]) -> dict[str, Any]:
     verdict = str(raw.get("verdict") or "").strip().lower()
-    if verdict not in ("pass", "fail"):
-        answers = raw.get("answers") or []
+    answers = list(raw.get("answers") or [])
+    if verdict not in ("pass", "fail", "needs_human"):
         nos = [a for a in answers if str((a or {}).get("answer") or "").lower() in ("no", "fail")]
-        verdict = "fail" if nos else "pass"
+        yes_ev = [
+            a for a in answers
+            if str((a or {}).get("answer") or "").lower() in ("yes", "pass")
+            and str((a or {}).get("evidence") or "").strip()
+        ]
+        if nos:
+            verdict = "fail"
+        elif not yes_ev:
+            verdict = "needs_human"
+        else:
+            # 格式坏了不能默认盖章通过
+            verdict = "needs_human"
     return {
         "verdict": verdict,
-        "answers": list(raw.get("answers") or []),
+        "answers": answers,
         "opinion": str(raw.get("opinion") or ""),
         "judge_version": PLAYBOOK_VERSION,
     }
@@ -60,7 +71,7 @@ def judge(
 ) -> dict[str, Any]:
     del artifact  # judges read via context (assembled to match rubric)
     if rubric_version and rubric_version != PLAYBOOK_VERSION:
-        # Old artifacts stay on their own rubric file; v1 only ships playbook.1.
+        # Old artifacts stay on their own rubric file; new writes use playbook.2.
         pass
     if isinstance(prior, dict) and prior.get("verdict") in ("pass", "fail"):
         return _normalize(prior)

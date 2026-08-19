@@ -68,6 +68,9 @@ _M7_MACHINE = re.compile(
     re.I,
 )
 
+# M8 章边界：书中人物不知道自己在章里。字面判定，适合硬闸。
+_M8 = re.compile(r"上一章|这一章|下一章|前一章|前章|本章")
+
 
 def _clip(s: str, n: int = 80) -> str:
     s = (s or "").replace("\n", " ")
@@ -207,6 +210,13 @@ def scan_anti_meta(prose: str) -> dict[str, Any]:
             "M7", m, text, "claim_blocking",
             "提案帧/fallback 机器尾入文，不可宣称可读",
             expand_line=True,
+        ))
+
+    for m in _M8.finditer(text):
+        hits.append(_hit(
+            "M8", m, text, "claim_blocking",
+            "书中人物不知道自己在章里，叙述层出现章边界词即穿帮",
+            expand_line=False,
         ))
 
     # de-dupe by (id, start, end)

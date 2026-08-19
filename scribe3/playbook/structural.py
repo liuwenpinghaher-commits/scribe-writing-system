@@ -1,4 +1,13 @@
-"""Allowlist-only structural gates. Six permitted checks, nothing else."""
+"""Allowlist-only structural gates.
+
+登记过的检查（新增须写理由）：
+- play 非空/字数/禁旧标签行
+- duty 人/事/账/禁揭/户口/线/上章钩
+- contract quote 保真 + beats 场数 + 恰好一场 stages_choice
+- deduce 五层+矿条数
+- draft 非空/字数 + 相对戏的 8 字重复率 + 章边界词
+- final 字数 + 章边界词 + 必须有冻结契约 + finalize 最后一公里
+"""
 from __future__ import annotations
 
 import re
@@ -205,13 +214,71 @@ def check_deduce_struct(deduction: dict[str, Any]) -> dict[str, Any]:
     return _ok()
 
 
-def check_draft_struct(draft_text: str) -> dict[str, Any]:
+def _plain(text: str) -> str:
+    return re.sub(r"\s+", "", text or "")
+
+
+def draft_ngrams(text: str, n: int = 8) -> list[str]:
+    s = _plain(text)
+    if len(s) < n:
+        return []
+    return [s[i : i + n] for i in range(len(s) - n + 1)]
+
+
+def draft_play_overlap(draft_text: str, play_text: str, *, exempt_quotes: tuple[str, ...] = ()) -> float:
+    """draft 相对 play 的 8 字窗命中率。豁免窗（上章/本章钩子）不进分子。"""
+    play_set = set(draft_ngrams(play_text))
+    grams = draft_ngrams(draft_text)
+    if not grams or not play_set:
+        return 0.0
+    exempt: set[str] = set()
+    for q in exempt_quotes or ():
+        exempt.update(draft_ngrams(q))
+    hits = 0
+    denom = 0
+    for g in grams:
+        if g in exempt:
+            continue
+        denom += 1
+        if g in play_set:
+            hits += 1
+    if denom <= 0:
+        return 0.0
+    return hits / denom
+
+
+def _meta_chapter_fail(text: str) -> dict[str, Any] | None:
+    try:
+        from scribe3.anti_meta_narration import scan_anti_meta
+        hits = scan_anti_meta(text or "").get("hits") or []
+    except Exception:
+        return None
+    m8 = [h for h in hits if (h.get("id") == "M8")]
+    if not m8:
+        return None
+    quote = str((m8[0] or {}).get("quote") or "")[:80]
+    return _fail("meta_chapter_ref", f"正文出现章边界词：{quote}")
+
+
+def check_draft_struct(
+    draft_text: str,
+    *,
+    play_text: str = "",
+    exempt_quotes: tuple[str, ...] = (),
+) -> dict[str, Any]:
     text = (draft_text or "").strip()
     if not text:
         return _fail("draft_empty", "排演是空的")
-    n = len(re.sub(r"\s+", "", text))
+    n = len(_plain(text))
     if n < 500:
         return _fail("draft_len", f"排演字数 {n} 低于 500")
+    meta = _meta_chapter_fail(text)
+    if meta:
+        return meta
+    if (play_text or "").strip():
+        rate = draft_play_overlap(text, play_text, exempt_quotes=exempt_quotes)
+        if rate > 0.15:
+            return _fail("draft_copy_play", f"糙稿与戏重复率 {rate:.1%} 超过 15%")
     return _ok()
 
 
@@ -226,12 +293,20 @@ def check_final_struct(prose_text: str) -> dict[str, Any]:
 
 
 def check_final_last_mile(prose_text: str, *, store: Any = None, seq: int | None = None) -> dict[str, Any]:
-    """Length floor + kept finalize_gate (deterministic last mile)."""
+    """Length floor + 章边界 + 冻结契约 + finalize 最后一公里。"""
     hit = check_final_struct(prose_text)
     if not hit.get("ok"):
         return hit
+    meta = _meta_chapter_fail(prose_text)
+    if meta:
+        return meta
     if store is None:
         return hit
+    getter = getattr(store, "get_frozen", None)
+    if callable(getter):
+        contract = getter("chapter_contract", int(seq or 0))
+        if not contract:
+            return _fail("no_chapter_contract", "还没有冻结的契约，不能定稿")
     try:
         from scribe3.finalize_gate import check_finalize_for_save
         fg = check_finalize_for_save(store, int(seq or 0), prose_text or "")

@@ -120,6 +120,17 @@ def _quality_loop(
         last_sha = sha
         if verdict.get("verdict") == "pass":
             return {"ok": True, "artifact": art, "review": verdict, "rounds": quality + 1}
+        if verdict.get("verdict") == "needs_human":
+            return {
+                "ok": False,
+                "code": "needs_human",
+                "status": "needs_human",
+                "layer": name,
+                "struct": last_struct,
+                "review": verdict,
+                "artifact": last_art,
+                "rounds": quality + 1,
+            }
         quality += 1
     return {
         "ok": False,
@@ -348,20 +359,31 @@ def _run_draft(store, seq, ctx, llm_fn, *, force, persist):
         hit["sha"] = play.get("sha")
         return hit
     duty = ctx.get("duty") or store.get_frozen("duty_card", seq) or {}
+    fields = contract.get("fields") if isinstance(contract.get("fields"), dict) else {}
+    hook_q = ((fields.get("hook") or {}) if isinstance(fields.get("hook"), dict) else {}).get("quote")
+    bite_q = ctx.get("prev_hook_quote") or hook_q or ""
     ctx = {
         **ctx, "play": play, "contract": contract, "deduction": deduce,
         "play_text": play.get("text"), "contract_json": _json(contract),
         "deduction_json": _json(deduce),
         "focalizer": duty.get("focalizer") or ctx.get("focalizer") or "",
         "forbidden_reveal": duty.get("forbidden_reveal") or [],
+        "bite_quote": bite_q,
     }
+    play_text = play.get("text") or ""
+    exempt = tuple(q for q in (bite_q, hook_q) if q)
     result = _quality_loop(
         name="draft",
         generate=lambda: gen_draft(ctx, llm_fn),
-        struct=lambda d: check_draft_struct(d.get("text") if isinstance(d, dict) else str(d)),
+        struct=lambda d: check_draft_struct(
+            d.get("text") if isinstance(d, dict) else str(d),
+            play_text=play_text,
+            exempt_quotes=exempt,
+        ),
         judge_type="draft",
         judge_ctx=lambda d: {
             "draft_text": d.get("text") if isinstance(d, dict) else str(d),
+            "play_text": play_text,
             "contract_json": _json(contract),
             "deduction_json": _json(deduce),
             "forbidden_reveal": ctx.get("forbidden_reveal"),

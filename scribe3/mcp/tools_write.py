@@ -1158,7 +1158,7 @@ async def s3_patch_contract(
         rec = dict(contract)
         rec.update({
             "seq": int(seq), "status": "draft", "play_sha": play.get("sha"),
-            "schema": "chapter_contract.v1", "playbook_version": "playbook.1",
+            "schema": "chapter_contract.v1", "playbook_version": "playbook.2",
             "version": st.next_version("chapter_contract", int(seq)) if hasattr(st, "next_version") else 1,
         })
         if hasattr(st, "insert"):

@@ -34,6 +34,12 @@ def test_clean_scene_ok_for_claim():
     assert r["claim_blocking_ids"] == []
 
 
+def test_m8_chapter_boundary_is_claim_blocking():
+    r = scan_anti_meta("上一章末他就数过，这一章里没有人开口。")
+    assert r["ok_for_claim"] is False
+    assert "M8" in r["claim_blocking_ids"]
+
+
 def test_negative_open_dialogue_no_m1_claim():
     r = scan_anti_meta("「Open the door,」灰狸说。他推门进去。")
     assert r["ok_for_claim"] is True
