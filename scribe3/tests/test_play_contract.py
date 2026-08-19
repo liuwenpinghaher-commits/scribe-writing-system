@@ -651,6 +651,31 @@ def test_draft_hook_exempt_does_not_trip_overlap():
     assert hit["ok"] is True
 
 
+def test_draft_metaphor_density_fails_struct():
+    from scribe3.playbook.structural import check_draft_struct
+    play = "沈烛若把场核碎片按回胸口，四十二度顺着袖口往上爬。" * 40
+    draft = ("他按回碎片。像火。仿佛夜。似的冷。袖口发烫。沈烛把盒子推近。" * 80)
+    hit = check_draft_struct(draft, play_text=play)
+    assert hit["ok"] is False
+    assert hit["code"] == "draft_metaphor"
+
+
+def test_final_metaphor_density_fails_last_mile():
+    from scribe3.playbook.structural import check_final_last_mile
+    prose = ("他按回碎片。像火。仿佛夜。袖口发烫。沈烛把盒子推近。" * 80)
+    hit = check_final_last_mile(prose)
+    assert hit["ok"] is False
+    assert hit["code"] == "final_metaphor"
+
+
+def test_sparse_metaphor_still_ok():
+    from scribe3.playbook.structural import check_draft_struct
+    play = "沈烛若把场核碎片按回胸口，四十二度顺着袖口往上爬。" * 40
+    draft = ("他按回碎片，袖口发烫。沈烛把盒子推过来。柳岸青没说话。任务书摊在桌上。" * 80)
+    hit = check_draft_struct(draft, play_text=play)
+    assert hit.get("ok") is True, hit
+
+
 def test_draft_and_final_block_chapter_boundary():
     from scribe3.playbook.structural import check_draft_struct, check_final_last_mile
     draft = ("他按回碎片，袖口发烫。" * 180) + "上一章末他就数过。"

@@ -5,8 +5,8 @@
 - duty 人/事/账/禁揭/户口/线/上章钩
 - contract quote 保真 + beats 场数 + 恰好一场 stages_choice
 - deduce 五层+矿条数
-- draft 非空/字数 + 相对戏的 8 字重复率 + 章边界词
-- final 字数 + 章边界词 + 必须有冻结契约 + finalize 最后一公里
+- draft 非空/字数 + 相对戏的 8 字重复率 + 章边界词 + 明喻密度
+- final 字数 + 章边界词 + 明喻密度 + 必须有冻结契约 + finalize 最后一公里
 """
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from scribe3.playbook.quote import quote_in_play
 _LABEL_HEAD = re.compile(
     r"^(时空|在场|本章要|选择|决断|代价)\s*[：:]",
 )
+_METAPHOR = re.compile(r"像|仿佛|似的")
 CLOCK_SPANS = frozenset({"scene", "day", "days"})
 CORE_FIELDS = ("goal", "choice", "decision", "hook")
 FIVE_LAYERS = ("perceived", "known", "believed", "acted", "blind")
@@ -247,6 +248,23 @@ def draft_play_overlap(draft_text: str, play_text: str, *, exempt_quotes: tuple[
     return hits / denom
 
 
+def metaphor_per_800(text: str) -> float:
+    """与 quality_metrics 同一把尺子：明喻次数 / max(去空白字数/800, 1)。"""
+    n = len(_plain(text))
+    hits = len(_METAPHOR.findall(text or ""))
+    units = max(n / 800.0, 1.0)
+    return hits / units
+
+
+def _metaphor_fail(text: str, *, code: str) -> dict[str, Any] | None:
+    n = len(_plain(text))
+    hits = len(_METAPHOR.findall(text or ""))
+    rate = metaphor_per_800(text)
+    if rate <= 1.0:
+        return None
+    return _fail(code, f"明喻 {hits} 处 / {n} 字 = {rate:.2f} 每800字，超过 1")
+
+
 def _meta_chapter_fail(text: str) -> dict[str, Any] | None:
     try:
         from scribe3.anti_meta_narration import scan_anti_meta
@@ -279,6 +297,9 @@ def check_draft_struct(
         rate = draft_play_overlap(text, play_text, exempt_quotes=exempt_quotes)
         if rate > 0.15:
             return _fail("draft_copy_play", f"糙稿与戏重复率 {rate:.1%} 超过 15%")
+    dens = _metaphor_fail(text, code="draft_metaphor")
+    if dens:
+        return dens
     return _ok()
 
 
@@ -300,6 +321,9 @@ def check_final_last_mile(prose_text: str, *, store: Any = None, seq: int | None
     meta = _meta_chapter_fail(prose_text)
     if meta:
         return meta
+    dens = _metaphor_fail(prose_text, code="final_metaphor")
+    if dens:
+        return dens
     if store is None:
         return hit
     getter = getattr(store, "get_frozen", None)

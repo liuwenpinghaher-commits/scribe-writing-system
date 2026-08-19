@@ -5,10 +5,9 @@ import re
 from typing import Any
 
 from scribe3.anti_meta_narration import scan_anti_meta
-from scribe3.playbook.structural import _plain, draft_play_overlap
+from scribe3.playbook.structural import _plain, draft_play_overlap, metaphor_per_800
 
 _QUOTE_LINE = re.compile(r"[「」『』“”\"']")
-_METAPHOR = re.compile(r"像|仿佛|似的")
 _BOUNDARY = re.compile(r"上一章|这一章|下一章|前一章|前章|本章")
 
 
@@ -27,14 +26,6 @@ def dialogue_ratio(text: str) -> float:
     if total <= 0:
         return 0.0
     return quoted / total
-
-
-def metaphor_per_800(text: str) -> float:
-    """明喻次数 / (去空白字数/800)。字数不足 800 时按 800 计。"""
-    n = len(_plain(text))
-    hits = len(_METAPHOR.findall(text or ""))
-    units = max(n / 800.0, 1.0)
-    return hits / units
 
 
 def chapter_boundary_count(text: str) -> int:
