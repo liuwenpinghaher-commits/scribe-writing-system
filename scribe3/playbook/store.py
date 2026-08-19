@@ -43,16 +43,13 @@ class PlaybookOpsMixin:
         return _row(rows[0]) if rows else None
 
     def next_version(self, table: str, seq: int) -> int:
-        try:
-            rows = self._query(
-                f"SELECT math::max(version) AS v FROM {table} WHERE seq=$seq",
-                {"seq": int(seq)},
-            )
-        except Exception:
-            return 1
-        if not rows or rows[0].get("v") in (None, ""):
-            return 1
-        return int(rows[0]["v"]) + 1
+        # Surreal 3.x math::max(version) 常空/报错；空则退回 1，会 UPSERT 掉已冻的 1 号稿。
+        vers = [int(r.get("version") or 0) for r in self.list_versions(table, seq)]
+        if vers:
+            return max(vers) + 1
+        if self.get_frozen(table, seq):
+            return 2
+        return 1
 
     def list_versions(self, table: str, seq: int) -> list[dict[str, Any]]:
         try:
@@ -65,7 +62,21 @@ class PlaybookOpsMixin:
         return [_row(r) for r in (rows or [])]
 
     def insert(self, table: str, rec: dict[str, Any]) -> dict[str, Any]:
-        rid = f"{int(rec.get('seq') or 0)}_{int(rec.get('version') or 1)}"
+        seq = int(rec.get("seq") or 0)
+        ver = int(rec.get("version") or 1)
+        existing = {int(r.get("version") or 0): r for r in self.list_versions(table, seq)}
+        while ver in existing:
+            old = existing[ver]
+            same_sha = str(old.get("sha") or "") and old.get("sha") == rec.get("sha")
+            if old.get("status") == "frozen" and not (
+                rec.get("status") == "frozen" and same_sha
+            ):
+                ver += 1
+                continue
+            break
+        rec["seq"] = seq
+        rec["version"] = ver
+        rid = f"{seq}_{ver}"
         body = json.dumps(rec, ensure_ascii=False)
         self._execute_write(
             f"UPSERT type::record('{table}', $rid) SET seq=$seq, version=$ver, "

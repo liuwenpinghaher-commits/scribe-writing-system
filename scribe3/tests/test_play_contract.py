@@ -559,6 +559,67 @@ def test_final_last_mile_calls_finalize_gate(monkeypatch):
     assert out.get("ok") is False
 
 
+def test_needs_human_insert_does_not_clobber_frozen_v1():
+    """math::max 失效时，未过审稿不得 UPSERT 掉已冻的 1 号糙稿。"""
+    from scribe3.playbook.envelope import wrap, pass_review
+    from scribe3.playbook.store import PlaybookOpsMixin
+
+    class FakeSQL(PlaybookOpsMixin):
+        def __init__(self):
+            self.recs: list[dict] = []
+
+        def _query(self, sql, params=None):
+            params = params or {}
+            if "math::max" in sql:
+                raise RuntimeError("math::max broken on surreal 3")
+            seq = int(params.get("seq") or 0)
+            rows = [r for r in self.recs if int(r.get("seq") or 0) == seq]
+            if "status='frozen'" in sql:
+                frozen = [r for r in rows if r.get("status") == "frozen"]
+                frozen.sort(key=lambda r: int(r.get("version") or 0), reverse=True)
+                if not frozen:
+                    return []
+                return [{"body": json.dumps(dict(frozen[0]), ensure_ascii=False)}]
+            if "ORDER BY version ASC" in sql:
+                hits = sorted(rows, key=lambda r: int(r.get("version") or 0))
+                return [{"body": json.dumps(dict(r), ensure_ascii=False)} for r in hits]
+            return []
+
+        def _execute_write(self, sql, params=None):
+            params = params or {}
+            if "UPSERT" not in sql:
+                return
+            rec = json.loads(params["body"])
+            ver = int(params.get("ver") or rec.get("version") or 1)
+            rec["version"] = ver
+            rec["seq"] = int(params.get("seq") or rec.get("seq") or 0)
+            rec["status"] = params.get("st") or rec.get("status")
+            self.recs = [
+                r for r in self.recs
+                if not (int(r.get("seq") or 0) == rec["seq"] and int(r.get("version") or 0) == ver)
+            ]
+            self.recs.append(rec)
+
+    st = FakeSQL()
+    frozen = wrap(
+        "chapter_draft.v1",
+        {"seq": 1, "text": "冻稿" * 200},
+        status="frozen",
+        review=pass_review(),
+    )
+    frozen["seq"] = 1
+    frozen["version"] = 1
+    st.insert("chapter_draft", frozen)
+    assert st.get_frozen("chapter_draft", 1)["text"].startswith("冻稿")
+
+    hung = {"seq": 1, "version": 1, "status": "needs_human", "text": "短稿"}
+    st.insert("chapter_draft", hung)
+    still = st.get_frozen("chapter_draft", 1)
+    assert still is not None
+    assert still["text"].startswith("冻稿")
+    assert hung["version"] == 2
+
+
 def test_catalog_teaches_play_contract_not_old_plan():
     from scribe3.orchestration.catalog import get_domain
     design = get_domain("chapter.design")
