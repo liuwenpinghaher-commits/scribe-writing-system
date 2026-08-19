@@ -272,6 +272,15 @@ def test_deleted_old_gate_files_absent():
     assert still == []
 
 
+def test_write_assemble_v1_imports_without_phantom_names():
+    from scribe3.api.services.write_assemble_blocks import strip_codex_pad
+    from scribe3.injection_compact import phase_role_has_substance
+    import scribe3.api.services.write_assemble_v1 as v1
+    assert callable(strip_codex_pad)
+    assert phase_role_has_substance("## 阶段角色(排演)。") is False
+    assert "strip_codex_pad" in dir(v1)
+
+
 def test_production_does_not_import_old_gates():
     root = Path(__file__).resolve().parents[1]
     banned = (

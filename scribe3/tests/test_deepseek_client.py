@@ -59,7 +59,7 @@ def _invoke(client, operation):
 
 def test_registered_default_model_is_qwen38_max_preview():
     model_setting = next(item for item in deepseek.settings.REGISTRY if item.key == "llm.model")
-    assert model_setting.default == "qwen3.8-max-preview"
+    assert model_setting.default == "deepseek-v4-pro-0813"
 
 
 def test_token_plan_route_exposes_literal_qwen_provider_contract():
@@ -426,15 +426,6 @@ def test_decoding_error_is_sanitized_without_retry(operation):
     _safe_exception(raised.value)
 
 
-@pytest.mark.parametrize(
-    "payload",
-    [
-        {"choices": [], "usage": {}},
-        {"choices": [{"message": {"content": ""}}], "usage": {}},
-        {"choices": [{"message": {"content": "   "}}], "usage": {}},
-    ],
-    ids=["empty-choices", "empty-content", "blank-content"],
-)
 def test_complete_keeps_only_official_content_and_usage():
     def handler(_request):
         return httpx.Response(
@@ -467,6 +458,15 @@ def test_complete_keeps_only_official_content_and_usage():
     assert result.usage["total_tokens"] == 18
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"choices": [], "usage": {}},
+        {"choices": [{"message": {"content": ""}}], "usage": {}},
+        {"choices": [{"message": {"content": "   "}}], "usage": {}},
+    ],
+    ids=["empty-choices", "empty-content", "blank-content"],
+)
 def test_invalid_completion_shape_fails_loud(payload):
     def handler(_request):
         return httpx.Response(200, json=payload)

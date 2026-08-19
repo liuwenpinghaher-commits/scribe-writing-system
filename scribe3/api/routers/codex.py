@@ -528,6 +528,9 @@ def _bind_and_register() -> None:
     """Rebind handlers onto app_impl globals so monkeypatch keeps working."""
     from scribe3.api import app_impl as core
     g = globals()
+    # 重绑定后 handler 在 app_impl globals 里找名字；本模块私有 helper 必须先注入。
+    setattr(core, "_codex_l1_http", _codex_l1_http)
+    core.__dict__["_codex_l1_http"] = _codex_l1_http
     _fn = g['facts']
     _re = types.FunctionType(_fn.__code__, core.__dict__, 'facts', _fn.__defaults__, _fn.__closure__)
     if _fn.__annotations__:

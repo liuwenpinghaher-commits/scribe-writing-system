@@ -10,6 +10,24 @@ import os
 import re
 from typing import Any, Optional
 
+_CODEX_PAD_SLOGAN = "这不是口号，是巷里炉灰和铜腥贴在骨头上的实感。"
+
+
+def strip_codex_pad(text: str) -> str:
+    """剥历史垫字口号，并压掉连续重复的同一短句。"""
+    raw = str(text or "")
+    if not raw:
+        return ""
+    cleaned = raw.replace(_CODEX_PAD_SLOGAN, "")
+    cleaned = re.sub(r"[；;]{2,}", "；", cleaned)
+    cleaned = re.sub(r"。{2,}", "。", cleaned)
+    cleaned = re.sub(r"(这不是口号[^。]{0,40}。\s*)+", "", cleaned)
+    # 同一短句连写三遍以上 → 留一遍
+    cleaned = re.sub(r"([^。；\n]{8,40})(?:[；;]\s*\1){2,}", r"\1", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned
+
+
 def _faction_prompt_block(st, row: dict, *, chapter: int, known_ids: set,
                           secret_ids: set, fact_index: dict, for_generation: bool) -> str:
     """单个势力的结构化注入块(CX-Task 6):按注册表 in_prompt 字段拼,secret/chief_only

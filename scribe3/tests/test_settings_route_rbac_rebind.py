@@ -75,3 +75,11 @@ def test_bind_and_register_injects_helpers():
     sg._bind_and_register()
     assert callable(getattr(core, "_request_is_admin", None))
     assert callable(getattr(core, "_require_admin_api", None))
+
+
+def test_codex_bind_injects_l1_helper():
+    """重绑定后 add_char 等必须在 app_impl 里找得到 _codex_l1_http。"""
+    from scribe3.api import app_impl as core
+    from scribe3.api.routers import codex
+    codex._bind_and_register()
+    assert callable(getattr(core, "_codex_l1_http", None))

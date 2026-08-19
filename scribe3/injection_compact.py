@@ -104,6 +104,13 @@ def _containment(a: set[str], b: set[str]) -> float:
     return len(a & b) / len(a)
 
 
+def phase_role_has_substance(text: str) -> bool:
+    """只剩「## 阶段角色(排演)。」这类空壳不算内容。"""
+    t = re.sub(r"\s+", "", text or "")
+    t = re.sub(r"^##阶段角色[（(][^）)]+[）)]。?", "", t)
+    return len(t) >= 8
+
+
 def dedup_phase_role(
     phase_role_text: str,
     *,
@@ -132,6 +139,8 @@ def dedup_phase_role(
         return ""
     # 最多 1 句
     out = kept[0]
+    if not phase_role_has_substance(out):
+        return ""
     if not out.endswith(("。", "！", "？")):
         out += "。"
     return out

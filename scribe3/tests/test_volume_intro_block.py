@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 
-from scribe3.api.services.write_assemble import (
+from scribe3.api.services.write_assemble_context import (
     _VOLUME_INTRO_BUDGET,
     _volume_intro_block,
     _volume_intro_inject_enabled,

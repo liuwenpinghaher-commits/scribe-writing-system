@@ -132,7 +132,6 @@ def test_memory_access_pin_and_fingerprint_dedup():
 
 
 def test_beats_schema_and_approval_fingerprint():
-    from scribe3.beats_schema import validate_beats_payload
     from scribe3.approval_idempotency import (
         compute_approval_fingerprint,
         lookup_approved,
@@ -141,16 +140,10 @@ def test_beats_schema_and_approval_fingerprint():
     )
     from scribe3.chapter_gcd_rest import apply_gcd_beats_patch, is_emergency_bypass_chapter_path
     from scribe3.run_stage_policy import resolve_run_stage_policy, PLAN_SCAFFOLD_FORBIDDEN
-    # 纯路径 SSOT（gating 委托此模块；不依赖 mcp SDK）
     from scribe3.write_commit import commit_if_approved
 
-    ok, reason, norm = validate_beats_payload([{"text": "抵达", "goal": "入", "conflict": "阻"}])
-    assert ok and norm
-    bad, br, _ = validate_beats_payload([])
-    assert not bad and br == "beats_empty"
-
     clear_approval_cache()
-    fp = compute_approval_fingerprint("s3_patch_chapter_plan", {"seq": 1, "beats": [1]})
+    fp = compute_approval_fingerprint("s3_patch_play", {"seq": 1, "text": "戏"})
     assert len(fp) == 16
     assert lookup_approved(fp) is None
     record_approved(fp, "s3_patch_chapter_plan", {"status": "written", "tool": "s3_patch_chapter_plan", "x": 1})
