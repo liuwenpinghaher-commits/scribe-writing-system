@@ -274,6 +274,8 @@ def already_frozen(slug: str, seq: int, stage: str) -> bool:
         if stage == "final":
             ch = st.get_chapter(seq) or {}
             return bool((ch.get("prose") or "").strip())
+        if stage == "design":
+            return bool(st.get_frozen("chapter_play", seq) and st.get_frozen("chapter_contract", seq))
         table = FROZEN_OF.get(stage)
         return bool(table and st.get_frozen(table, seq))
     except Exception:
