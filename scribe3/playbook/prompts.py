@@ -225,7 +225,13 @@ def play_judge(ctx: dict) -> str:
 
 
 def contract_extract(ctx: dict) -> str:
-    return f"""下面这篇戏已经过审冻结。你要从戏里抄出契约。
+    hint = str(ctx.get("struct_hint") or "").strip()
+    hint_block = (
+        f"\n【上一稿没过，照这个改】{hint}\n"
+        "quote 必须是戏里字面连续原句。找不到就换一句能找到的，禁止编。\n"
+        if hint else ""
+    )
+    return f"""下面这篇戏已经过审冻结。你要从戏里抄出契约。{hint_block}
 
 铁律：
 1. 每个字段的 quote 必须是戏里字面出现的连续原句，10-50 字，一个标点都不许改。

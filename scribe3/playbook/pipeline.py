@@ -288,13 +288,19 @@ def _run_design(store, seq, ctx, llm_fn, *, force, rewrite, persist):
         c_hit["play"] = play_frozen
         c_hit["sha"] = play_frozen.get("sha")
         return c_hit
+    hint = [""]
+    play_text = play_frozen.get("text") or ""
+    lines = ctx.get("available_lines") or (ctx.get("duty") or {}).get("available_lines")
+
+    def _contract_struct(c):
+        hit = check_contract_struct(c, play_text, available_lines=lines)
+        hint[0] = "" if hit.get("ok") else str(hit.get("message") or hit.get("code") or "")
+        return hit
+
     result = _quality_loop(
         name="contract",
-        generate=lambda: gen_contract(ctx, llm_fn),
-        struct=lambda c: check_contract_struct(
-            c, play_frozen.get("text") or "",
-            available_lines=ctx.get("available_lines") or (ctx.get("duty") or {}).get("available_lines"),
-        ),
+        generate=lambda: gen_contract({**ctx, "struct_hint": hint[0]}, llm_fn),
+        struct=_contract_struct,
         judge_type="contract",
         judge_ctx=lambda c: {
             "play_text": play_frozen.get("text"),

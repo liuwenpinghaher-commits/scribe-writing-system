@@ -116,6 +116,13 @@ def test_gen_draft_uses_lower_temperature():
     assert seen.get("temperature") == 0.4
 
 
+def test_contract_prompt_carries_struct_hint():
+    from scribe3.playbook.prompts import contract_extract
+    t = contract_extract({"play_text": "戏", "struct_hint": "choice 的 quote 不在戏里"})
+    assert "上一稿没过" in t
+    assert "choice" in t
+
+
 def test_draft_prompt_carries_struct_hint():
     from scribe3.playbook.prompts import draft_generate
     t = draft_generate({"play_text": "戏", "bite_quote": "钩", "struct_hint": "明喻 25 处 / 2469 字超过 1"})
