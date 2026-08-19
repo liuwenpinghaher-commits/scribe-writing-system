@@ -178,27 +178,33 @@ def check_finalize_for_save(
         return evaluate_finalize_gate(None, danger_draft=False, skip=True)
     getter = getattr(st, "get_frozen", None) if st is not None else None
     if callable(getter):
-        lister = getattr(st, "list_versions", None)
-        if callable(lister):
-            try:
-                versions = lister("chapter_state", int(seq or 0)) or []
-            except Exception:
-                versions = []
-            latest = versions[-1] if versions else None
-            if isinstance(latest, dict) and latest.get("status") == "needs_human":
-                return {
-                    "allowed": False,
-                    "code": "chapter_state_extract",
-                    "verdict": "blocking",
-                    "triage": {
-                        "verdict": "blocking", "blocking": [], "advisory_count": 0,
-                        "advisory_items": [], "degraded_stages": [], "leaks": [],
-                    },
-                    "detail": "章末态没抽出，定稿门不放行",
-                    "blocking": [{"detector": "finalize_gate", "kind": "sealed",
-                                  "quote": "", "note": "chapter_state needs_human"}],
-                    "advisory_items": [],
-                }
+        frozen_state = None
+        try:
+            frozen_state = getter("chapter_state", int(seq or 0))
+        except Exception:
+            frozen_state = None
+        if not frozen_state:
+            lister = getattr(st, "list_versions", None)
+            if callable(lister):
+                try:
+                    versions = lister("chapter_state", int(seq or 0)) or []
+                except Exception:
+                    versions = []
+                latest = versions[-1] if versions else None
+                if isinstance(latest, dict) and latest.get("status") == "needs_human":
+                    return {
+                        "allowed": False,
+                        "code": "chapter_state_extract",
+                        "verdict": "blocking",
+                        "triage": {
+                            "verdict": "blocking", "blocking": [], "advisory_count": 0,
+                            "advisory_items": [], "degraded_stages": [], "leaks": [],
+                        },
+                        "detail": "章末态没抽出，定稿门不放行",
+                        "blocking": [{"detector": "finalize_gate", "kind": "sealed",
+                                      "quote": "", "note": "chapter_state needs_human"}],
+                        "advisory_items": [],
+                    }
         contract = getter("chapter_contract", int(seq or 0))
         if not contract:
             return {

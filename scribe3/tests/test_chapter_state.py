@@ -171,6 +171,16 @@ def test_finalize_blocks_needs_human_state(monkeypatch):
     assert fg["code"] == "chapter_state_extract"
 
 
+def test_finalize_keeps_frozen_state_if_later_extract_fails(monkeypatch):
+    monkeypatch.setenv("SCRIBE3_FINALIZE_GATE", "1")
+    store = MemoryPlaybookStore()
+    store.insert("chapter_state", {"seq": 2, "version": 1, "status": "frozen", "sha": "ok"})
+    store.insert("chapter_state", {"seq": 2, "version": 2, "status": "needs_human", "sha": "bad"})
+    store.insert("chapter_contract", {"seq": 2, "version": 1, "status": "frozen", "sha": "c"})
+    fg = check_finalize_for_save(store, 2, "他按回碎片。" * 80, skip=False)
+    assert fg.get("code") != "chapter_state_extract"
+
+
 def test_old_book_without_state_does_not_block():
     store = MemoryPlaybookStore()
     store.insert("chapter_contract", {"seq": 1, "version": 1, "status": "frozen", "sha": "c"})

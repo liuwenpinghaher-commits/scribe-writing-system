@@ -565,7 +565,7 @@ def extract_chapter_state(
         "code": last_struct.get("code") or "chapter_state_extract",
         "note": last_struct.get("message") or "章末态没抽出",
     }]
-    if persist and last_art:
+    if persist and last_art and not store.get_frozen("chapter_state", int(seq)):
         rec = dict(last_art) if isinstance(last_art, dict) else {"text": last_art}
         rec["seq"] = int(seq)
         rec["status"] = "needs_human"
