@@ -61,7 +61,11 @@ def smoke_imports() -> list[tuple[str, bool, str]]:
         add("prompts", False, type(e).__name__)
 
     try:
-        from scribe3.playbook.structural import check_chapter_state_struct, check_gender_pronoun
+        from scribe3.playbook.structural import (
+            check_chapter_state_struct,
+            check_final_last_mile,
+            check_gender_pronoun,
+        )
         flip = check_gender_pronoun(
             "柳岸青她把断指扔在地上，腕上的裂口还在渗。她说这根指头不再跳了。",
             [{"name": "柳岸青", "gender": "男"}],
@@ -79,6 +83,24 @@ def smoke_imports() -> list[tuple[str, bool, str]]:
             "柳岸青把断指按进右腕。它寄在他手腕里面。",
         )
         add("state_quote_gate", fake.get("ok") is False and fake.get("code") == "state_quote", fake.get("code") or "")
+        dense = check_final_last_mile("他按回碎片。像火。仿佛夜。似的冷。" * 80)
+        add(
+            "simile_density_gate",
+            dense.get("ok") is False and dense.get("code") == "final_metaphor",
+            dense.get("code") or "",
+        )
+        good = check_chapter_state_struct(
+            {
+                "seq": 2,
+                "characters": [{"name": "柳岸青", "gender": "男", "state": "右腕内嵌断指", "quote": "寄在他手腕里面"}],
+                "objects": [{"name": "断指", "location": "右腕内", "state": "不再跳", "quote": "按进右腕"}],
+                "open_loops": [],
+                "timeline": {"at": "夜", "elapsed_from_prev": ""},
+                "imagery": ["黑屋"],
+            },
+            "柳岸青把断指按进右腕。它寄在他手腕里面。",
+        )
+        add("state_quote_pass", good.get("ok") is True, good.get("code") or "ok")
     except Exception as e:
         add("continuity_gates", False, type(e).__name__)
 
@@ -114,6 +136,11 @@ def smoke_live(n_chapters: int = 1, slug: str | None = None, title: str | None =
         ))
         if n_chapters > 1:
             rows.append((f"ch{v.get('seq')}_cmust", bool(m.get("ok")), json.dumps(m, ensure_ascii=False)[:240]))
+        rows.append((
+            f"ch{v.get('seq')}_state",
+            bool(v.get("state_ok")),
+            str(v.get("state_detail") or ""),
+        ))
     # persist report next to caller if requested
     out = os.environ.get("V634_LIVE_REPORT")
     if out:

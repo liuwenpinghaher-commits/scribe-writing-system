@@ -7,6 +7,7 @@ from typing import Any
 from scribe3.anti_meta_narration import scan_anti_meta
 from scribe3.playbook.structural import (
     _plain,
+    check_chapter_state_struct,
     check_gender_pronoun,
     draft_play_overlap,
     metaphor_per_800,
@@ -105,6 +106,11 @@ def measure_chapter(store: Any, seq: int) -> dict[str, Any]:
         if due and due <= seq and text and text in this_loops:
             due_open.append(loop)
     loops_ok = not due_open
+    state_present = bool(this_state) and str(this_state.get("status") or "frozen") != "needs_human"
+    state_quote_ok = True
+    if this_state:
+        sq = check_chapter_state_struct(this_state, draft_text or prose)
+        state_quote_ok = bool(sq.get("ok"))
     overdue = []
     for loop in (this_state.get("open_loops") or []) if isinstance(this_state, dict) else []:
         if not isinstance(loop, dict):
@@ -128,6 +134,7 @@ def measure_chapter(store: Any, seq: int) -> dict[str, Any]:
         and bool(draft_text)
         and gender_ok
         and loops_ok
+        and (not this_state or (state_present and state_quote_ok))
     )
     return {
         "seq": seq,
@@ -145,5 +152,7 @@ def measure_chapter(store: Any, seq: int) -> dict[str, Any]:
         "gender_ok": gender_ok,
         "due_loops_open": len(due_open),
         "overdue_loops": len(overdue),
+        "state_present": state_present,
+        "state_quote_ok": state_quote_ok,
         "ok": ok,
     }

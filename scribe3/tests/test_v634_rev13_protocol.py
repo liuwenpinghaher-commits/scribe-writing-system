@@ -28,8 +28,22 @@ def test_protocol_is_rev13_and_wave_c():
     assert "窗口版本冻结" in text
     assert "13 槽" in text
     assert "主角代词跨章一致" in text
-    assert "关键物件位置跨章连续" in text
-    assert "到期悬念全部回响" in text
+    assert "关键物件位置连续" in text or "关键物件位置跨章连续" in text
+    assert "到期 open_loops 回响" in text or "到期悬念全部回响" in text
+    assert "chapter_state 产物存在且保真" in text
+    assert "连续性回读" in text
+    assert "D9 代词翻转" in text
+    assert "D10 状态造假" in text
+    assert "D11 悬念超期" in text
+    assert "D12 意象域断裂" in text
+    assert "08-chapter-states.md" in text
+    assert "09-state-reconciliation.md" in text
+    assert "backfill=true" in text
+    assert "simile_density" in text
+    assert "≤15%" in text
+    assert "≥15%" in text
+    assert "1/800" in text or "≤1 个/800" in text
+    assert "0.80" in text
 
 
 def test_wanjie_ssot_five_layer_not_outline():
@@ -38,6 +52,16 @@ def test_wanjie_ssot_five_layer_not_outline():
     assert "duty_card + chapter_play" in text or "duty_card" in text
     assert "13 槽" in text
     assert "第 1 章五层金样" in text
+
+
+def test_gate0_imports_continuity_adversaries():
+    from scribe3.tools.v634_smoke import smoke_imports
+    rows = {n: (ok, detail) for n, ok, detail in smoke_imports()}
+    assert rows["playbook_version"][0] is True
+    assert rows["gender_pronoun_gate"][0] is True
+    assert rows["state_quote_gate"][0] is True
+    assert rows["simile_density_gate"][0] is True
+    assert rows["state_quote_pass"][0] is True
 
 
 def test_playbook2_and_d1_code_is_draft_copy_play():

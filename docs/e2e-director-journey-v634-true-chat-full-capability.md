@@ -3,10 +3,10 @@
 | 项 | 值 |
 |----|-----|
 | **文档标题** | 铜炉 Director 旅程验收协议 · 全面更新（全能力 · 真书 · 对话驱动+点批） |
-| **版本** | **v6.3.4 rev.13.1**（写章内核 play-contract 五层 + playbook.3 跨章连续性。**WCG、SPA 不改**；总 PASS 加 Wave C） |
+| **版本** | **v6.3.4 rev.13.1**（写章内核 play-contract 五层 + story-state 跨章连续性（章末态产物 + open_loops 账期 + 代词/明喻机器闸）。**WCG、SPA 不改**；总 PASS 加 Wave C） |
 | **作者** | Grok Design（待人类审定） |
-| **日期** | 2026-08-19 |
-| **状态** | **Draft rev.13** · 写章验收按新五层冻结。本轮须**新 slug**。宣称 / WCG / SPA **不改** |
+| **日期** | 2026-08-20 |
+| **状态** | **Draft rev.13.1** · 写章验收按新五层冻结。本轮须**新 slug**。宣称 / WCG / SPA **不改** |
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` · 仓库 `/home/admin/projects/scribe-writing-system` |
 | **验收环境** | **仅 demo 已部署栈**（公网主入口 **`https://tonglu.qing.blue`**；`www.qing.blue` / `qing.blue` 301 → 主域） |
 | **禁止** | Grok 运行机全量 `npm ci` / 本机 Surreal / 第二验收栈 / 脚本灌章冒充体验 PASS |
@@ -38,10 +38,11 @@
 | **v6.3.4 rev.11** · 本文 | **史。** 当时 OpSeq 步数因 design 合并减少。旗 `SCRIBE3_CHAPTER_DESIGN`、旧 design=outline+beats **已不存在**（rev.12 作废）。 | **不替换** SPA 三通道与 WCG 脚本 |
 | **v6.3.4 rev.12** · 本文 | **吸收 play-contract 系统换代：** 旧写章五层（outline/beats/deductions/scene_truth/draft）与 Fate/水面闸全部删除；OpSeq、冰山表、Ice/Fate 矩阵行、KD-25/26 重写。当时总 PASS 公式、WCG、SPA、宣称不改。 | **不替换** SPA 三通道与 WCG 脚本 |
 | **v6.3.4 rev.13** · 本文 | **协议优化：** 收尾 rev.12 漏改；Gate 0 部署冒烟；窗口版本冻结；traces×冻结对账；产物质量 Wave C 进总 PASS；playbook.2 对抗用例。WCG / SPA / ShouldRate 0.80 **不改**。 | **不替换** SPA 三通道与 WCG 脚本 |
+| **v6.3.4 rev.13.1** · 本文 | **跨章连续性进验收：** 章末态（`chapter_state`）入新五层验收锚；Wave C 补连续性四判据；对抗用例 D9–D12；playbook.3 指针。WCG / SPA / ShouldRate 0.80 **不改**。 | **不替换** SPA 三通道与 WCG 脚本 |
 
-**系统换代声明（rev.12 必读，rev.13 仍准）：** 2026-08-18 起，写章内核换成 play-contract。旧 `stage=outline/beats`、`chapter_spine` / `beats` / Fate / 水面 422 码 **全部作废**。拿 rev.11 条款去验收会误伤 410 或假绿。本文从本节起按新五层验收。
+**系统换代声明（rev.12 必读，rev.13 / rev.13.1 仍准）：** 2026-08-18 起，写章内核换成 play-contract。旧 `stage=outline/beats`、`chapter_spine` / `beats` / Fate / 水面 422 码 **全部作废**。拿 rev.11 条款去验收会误伤 410 或假绿。本文从本节起按新五层验收。
 
-**为何叫 v6.3.4 而非 v6.4：** 仍是 6.3 家族（对话驱动 · 记忆 · 真书），相对 6.3.3 是「补全能力矩阵 + 拉回 SPA 体验主路径」的修订号。仓库与结案字段钉 **v6.3.4**。rev.12 换写章验收内核；rev.13 **只加** Wave C 与开跑前置，**不改** WCG 门槛数字、SPA 三通道、ShouldRate 0.80。**
+**为何叫 v6.3.4 而非 v6.4：** 仍是 6.3 家族（对话驱动 · 记忆 · 真书），相对 6.3.3 是「补全能力矩阵 + 拉回 SPA 体验主路径」的修订号。仓库与结案字段钉 **v6.3.4**。rev.12 换写章验收内核；rev.13 **只加** Wave C 与开跑前置，**不改** WCG 门槛数字、SPA 三通道、ShouldRate 0.80。rev.13.1 **只加** 跨章连续性维度，**不改** rev.13 全部已有判据阈值。**
 
 ```text
 6.2 成功 ≈ 对话+点批 → 约 5 万可读好书 + 正典闭环
@@ -163,15 +164,20 @@
 > **不改** 上文 SPA 三通道，**不改** `scripts/v4_world_complete_gate.py` 为结构 SSOT。  
 > 工程对照：`docs/plans/2026-08-14-iceberg-complete.md`、`2026-08-14-antiflood-blast-radius.md`、`2026-08-14-codex-generation-chain.md`、`2026-08-14-pipeline-runtime-analysis.md`、`2026-08-14-chief-mode-fusion.md`。
 
-### 新五层产物与验收锚（rev.12 · 替代旧写章冰山）
+### 新五层产物与验收锚（rev.12 · 替代旧写章冰山；rev.13.1 加章末态）
 
-| 层 | 产物（146 五表） | 验收锚（Must） | 作者动作 |
+第 N 章金样 = `duty_card` + `chapter_play` + `contract` + `deduce` + `draft` + **`chapter_state`**（+ `prose` / `end_hook`）。`chapter_state` 是冻结糙稿（或定稿若与糙稿实质不同）的抽取副产品，不是第六生产层。每条人物/物件状态必须带正文锚句（`quote` 字面 ∈ 冻稿）。
+
+| 层 | 产物（146 五表 + 148 章末态） | 验收锚（Must） | 作者动作 |
 |----|------------------|----------------|----------|
 | duty 责任卡 | `duty_card` | 法官 PASS + 结构闸；ch≥2 时 `bite_from_prev` == 上章 contract `hook.quote` | `POST /generate-stage stage=duty persist=true` |
 | design 戏+契约 | `chapter_play` + `chapter_contract` | 所有 quote ∈ play（`quote_in_play`）；`stages_choice=true` 恰 1 场；法官 PASS 才冻结 | `stage=design persist=true`；`GET /chapters/{seq}/play` 与 `/contract` 回读 |
 | deduce 演绎 | `chapter_deduce` | 法官 PASS；不得与 final prose 合并 | `stage=deduce persist=true` |
 | draft 排演 | `chapter_draft` | 法官 PASS；`GET /latest-draft` 非空 | `stage=draft persist=true` |
+| 章末态（抽取） | `chapter_state` | 冻结；每条人物/物件 `quote` ∈ 冻稿（`state_quote`）；供下一章 `prev_state` | draft 冻结后自动抽取；失败不静默 |
 | final 定稿 | `prose` + `narrative_drive.end_hook` | 法官 PASS（含账是否付了）→「用此版」/ `/save-chapter` | `stage=final persist=true` |
+
+**过渡：** 凡 playbook.2 老书续跑，首跑章的上一章 state 必须补登，补登产物标 `backfill=true`。不补则下一章 `prev_state` 为空，跨章连续性无从验收。不要求回填全书历史。
 
 **层序铁律：** 上一层未冻结 → 409 `stage_not_ready`。旧 stage 名（outline / beats / chapter_design / plan）→ **410 Gone**，不得当产品 bug 上报。`s3_patch_chapter_plan` 已废，改 `s3_generate_stage` 或人工 `s3_patch_play` / `s3_patch_contract`（仍需法官复审才能冻结）。
 
@@ -319,6 +325,7 @@
 - 法官 verdict ∈ {pass, fail}（不得默认盖章）  
 - draft–play 8 字重复率 ≤15%（钩子豁免）  
 - 正文无章边界词（上一章/这一章/下一章/本章）
+- **chapter_state 产物生成** ∧ 每条 quote 保真 ∧ `gender_pronoun` / `state_quote` / `simile_density` 三闸在岗（各注入一次对抗样本断言拦截）。冒烟书的 state 归档进 `00-smoke-result.md`
 
 **Gate 0 不过，验收不许开跑。** 产物归档为证据包 `00-smoke-result.md`。部署入口级 `--mode imports` 可作热更钩子，**不能**替代本条 live 全链。
 
@@ -499,37 +506,41 @@ Wave C ⇔ C-Must（机器可测，全过）∧ C-人评（三身份通读，无
 仅 Wave A∧B、Wave C 不过 → 机制绿、书不及格，不得总 PASS
 ```
 
-### Wave C · 产物质量（rev.13）
+### Wave C · 产物质量（rev.13；rev.13.1 补跨章连续性）
 
-机制 PASS ≠ 小说高质量。Wave A/B 验「层序/quote/409/410 是否运转」；Wave C 验「打开书像不像一章小说」。
+机制 PASS ≠ 小说高质量。Wave A/B 验「层序/quote/409/410 是否运转」；Wave C 验「打开书像不像一章小说」。rev.13.1 补一句：**章章合格 ≠ 成书合格**。
 
 #### C-Must（机器，全过才算）
 
-| 指标 | 判据 | book_7331087b 基线（对照，非本轮书） |
-|------|------|--------------------------------------|
-| play→draft 8 字重复率 | 每章 ≤15%（hook 承接段豁免） | 23% / 57% / 98.92% |
-| 章边界词入正文 | 0 处 | 4 处 |
-| contract.fields.cost 非空 | 每章非空 | 0/3 |
-| stages_choice 拍 conflict | 每章非空 | 0/3 |
-| 第二有意志在场者 | 每章 ≥1（duty 卡 who≥2） | 0/3 |
-| 对白占比 | 每章 ≥15%（引号行字数比） | 0–8% |
-| 明喻密度 | ≤1 个/800 字 | ~1/160 字 |
-| draft 字数 | ≥2000（防压缩式伪 draft） | ch2 曾压缩 |
-| 主角代词跨章一致 | gender_pronoun 闸不过即 Fail（有户口/上章末态性别才拦） | ch3 柳岸青他→她 |
-| 关键物件位置跨章连续 | 上章末态对账零矛盾（法官；state quote 机器闸） | ch3 断指腕内→地上 |
-| 到期悬念全部回响 | 到期 open_loops 仍挂在本章末态 = Fail | ch1 钩子在 ch2/ch3 蒸发 |
+| 指标 | 判据 | book_7331087b 基线 | book_3b6d91bd 基线 |
+|------|------|--------------------|--------------------|
+| play→draft 8 字重复率 | 每章 ≤15%（hook 承接段豁免） | 23% / 57% / 98.92% | 15.04% / 2.69% / 5.76% |
+| 章边界词入正文 | 0 处 | 4 处 | — |
+| contract.fields.cost 非空 | 每章非空 | 0/3 | — |
+| stages_choice 拍 conflict | 每章非空 | 0/3 | — |
+| 第二有意志在场者 | 每章 ≥1（duty 卡 who≥2） | 0/3 | — |
+| 对白占比 | 每章 ≥15%（引号行字数比） | 0–8% | — |
+| 明喻密度 | ≤1 个/800 字（1/800）。已由系统闸 `simile_density` 硬拦（draft/final 落库）；本行作为协议兜底复测 | ~1/160 字 | 1/96～1/206 |
+| draft 字数 | ≥2000（防压缩式伪 draft） | ch2 曾压缩 | — |
+| 主角代词跨章一致 | 每章 `gender_pronoun` 闸零冲突（角色名±30 字窗口代词与 `state.characters[].gender` 一致率 100%） | — | ch3 翻转：他×101→她×64 |
+| 关键物件位置连续 | 相邻章 `chapter_state` 对账零矛盾（同名物件 `objects[].location`/`state` 跳变须有本章新锚句） | — | 断指 ch2 末腕内 → ch3 开篇地上 |
+| 到期 open_loops 回响 | `state.open_loops` 中 `due_seq` ≤ 本章的条目不得仍挂在本章清单（回响后从清单删掉） | — | 锁扣钩子 ch2 零回响；「没有门」ch3 零交代 |
+| chapter_state 产物存在且保真 | 每章 frozen ∧ 每条人物/物件 quote ∈ 冻稿正文（机器闸 `state_quote`） | 产物类型尚不存在 | 产物类型尚不存在 |
 
-测量必须调用已上线函数（`draft_play_overlap` / `scan_anti_meta` / 契约字段 / `check_gender_pronoun`），禁止另写一套对照实现。cost 非空是**验收尺子**，不改系统 schema（戏里没写仍可留空；play 层纪律须先写出可引用的付账场面）。
+测量必须调用已上线函数（`draft_play_overlap` / `scan_anti_meta` / 契约字段 / `check_gender_pronoun` / `check_chapter_state_struct`），禁止另写一套对照实现。cost 非空是**验收尺子**，不改系统 schema（戏里没写仍可留空；play 层纪律须先写出可引用的付账场面）。
+
+**语义判不进 C-Must：** 意象域一致性、新设定与前章事实矛盾——这两条是法官语义判，归 C-人评与层法官。C-Must 只收机器全量可测项。
 
 #### C-人评（机器全绿不豁免）
 
 三身份通读，每身份一章一票，红旗即 Wave C 不过：
 
 - **作家**：想不想翻页（对话/对手/变化感）  
+- **作家 · 连续性回读**：每章读完翻回上一章末段，核对三件事：人称代词没换、东西还在原处、上章结尾的悬念这章有着落（或明说搁置）。红旗即 Wave C 不过。性别翻转与物件瞬移在单章通读中都不显眼（章内自洽），只有回读才暴露。  
 - **写模型的人**：有没有模板指纹（同位同招/比喻套路/复述痕迹）  
 - **架构**：契约五字段在正文有没有落点  
 
-「单句还行、整章不像小说」只有人读得出。
+「单句还行、整章不像小说」只有人读得出。「单章 8 分、拼起来不是一本书」只有回读读得出。
 
 ### Should 计分（KD-13）
 
@@ -800,6 +811,10 @@ SSOT：`scribe3/qc_product_keys.py`。深链 `leftTab=review` 仍可达 IssueDir
 | D6 定稿须有契约 | Must | S7 | API | 无冻结 `chapter_contract` 的 final 必被挡（`no_chapter_contract`）；empty_drama_contract 跳过已死 |
 | D7 playbook.3 | Must | S0 | API | `/health` 或代码断言 `playbook_version = playbook.3` |
 | D8 Gate 0 归档 | Must | S0 | 文件 | `00-smoke-result.md` 进证据包 |
+| D9 代词翻转 | Must | S7 | API | 前章 state 记「男」，本章正文该角色窗口内出现「她」多于「他」→ `gender_pronoun` 闸拦 |
+| D10 状态造假 | Must | S7 | API | 提交带虚构 quote（不在冻稿正文）的 chapter_state → `state_quote` 保真闸拦 |
+| D11 悬念超期 | Should | S7 | API | open_loop `due_seq` 到期未回响（仍挂在本章 open_loops）→ play 法官 fail 或 run-card 警告 |
+| D12 意象域断裂 | Should | S7 | API | duty 的意象域与 `intent.imagery` 冲突且无桥接意象 → duty 法官 fail |
 
 ---
 
@@ -836,9 +851,11 @@ docs/evidence/v634-true-chat-<YYYYMMDD>-<slug>/
 | `04-serialize/ch01…ch05.md` | 导出 | |
 | `05-ledger.md` | 结案 | 十线+分波 |
 | `06-defect-ledger.md` | 全程 | |
-| `00-smoke-result.md` | Gate 0 | live 冒烟输出；不过则不许开跑 |
-| `07-trace-reconciliation.md` | 每章 | 每层：trace 状态 × 冻结产物 × 法官 verdict |
+| `00-smoke-result.md` | Gate 0 | live 冒烟输出；不过则不许开跑。须含冒烟书 chapter_state 全文 |
+| `07-trace-reconciliation.md` | 每章 | 每层：trace 状态 × 冻结产物 × 法官 verdict（流程对账） |
 | `08-wordcount-rollup.md` | 结案 | |
+| `08-chapter-states.md` | 执行者 | 三章 state 产物全文归档（含 quote 锚句）——连续性的审计依据 |
+| `09-state-reconciliation.md` | 执行者 | 相邻章 state 对账表（每对相邻章一节：characters/objects/open_loops 逐项 一致/变化/新增/关闭）——事实对账，与 B3 traces 对账表同构 |
 | `09-final-closure.md` | 结案 | 四问+总裁决 |
 | `11-canon-loop-chat.json` | 审计 | |
 | `11-canon-loop-body-ch*.json` | 审计 | |
@@ -1183,7 +1200,8 @@ Wave B
 | **v6.3.4 Draft rev.12** | 写章内核换代 play-contract：新五层 OpSeq、PB 矩阵、quote 保真、咬钩硬闸。Fate/水面/outline/beats 条款作废。总 PASS / WCG / SPA 不改。 |
 | **v6.3.4 Draft rev.12.1** | 漏改收口：Drm1、第 1 章契约金样、万界宇宙字段、白名单/记录仪措辞。 |
 | **v6.3.4 Draft rev.13** | Gate 0 冒烟；窗口版本冻结；traces×冻结对账；Wave C 产物质量进总 PASS；playbook.2 对抗 D1–D8。WCG / SPA / ShouldRate 0.80 不改。 |
+| **v6.3.4 Draft rev.13.1** | 跨章连续性：`chapter_state` 验收锚；C-Must 四行；C-人评连续性回读；D9–D12；Gate 0 三闸对抗；证据 08/09 状态对账；playbook.3。**不改** rev.13 已有阈值、WCG、SPA、ShouldRate 0.80。 |
 
 ---
 
-*完 · rev.13。宇宙 SSOT：`docs/worlds/wanjie-probability-war-v7.md`。写章 SSOT：`scribe3/playbook/`（playbook.2）。旧验收书 slug 不 overlay。*
+*完 · rev.13.1。宇宙 SSOT：`docs/worlds/wanjie-probability-war-v7.md`。写章 SSOT：`scribe3/playbook/`（playbook.3）。旧验收书 slug 不 overlay。*

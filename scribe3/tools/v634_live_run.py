@@ -12,6 +12,7 @@ from typing import Any
 from scribe3.ontology import Entity, Fact
 from scribe3.playbook.quality_metrics import measure_chapter
 from scribe3.playbook.quote import PLAYBOOK_VERSION
+from scribe3.playbook.structural import check_chapter_state_struct
 from scribe3.store.surreal import SurrealStore
 
 FOCAL = "role:柳岸青"
@@ -101,6 +102,7 @@ def seed_world(st: SurrealStore) -> None:
         "axis_terms": "大遮蔽/成核点/指针态/场核",
         "clock_start": "大泄露当夜",
         "clock_end": "十八个月深渊碰撞前",
+        "imagery": "准：黑屋、青砖、湿冷、手电、碳化标价、腕内体温。禁：赛博霓虹、星舰甲板。若要跨到志怪质感，须先在场上放一个同时属于两个世界的物件作桥。",
         "total_word_goal": 45000,
     })
     try:
@@ -109,37 +111,38 @@ def seed_world(st: SurrealStore) -> None:
     except Exception:
         pass
     chars = [
-        ("柳岸青", "protagonist", "黑发湿贴额角，腕上有旧烫疤。",
+        ("柳岸青", "protagonist", "男", "黑发湿贴额角，腕上有旧烫疤。",
          "他同时握着守望者权柄和意识之海。",
          "在成核点扩开前把场核碎片按回裂口。",
          "不想被标成移动真真空泡。",
          "怕一观测就把身边的人写成样本。",
          "他要活，也要让母亲活。"),
-        ("沈烛", "major", "灰袍档案员，眼底不热。",
+        ("沈烛", "major", "男", "灰袍档案员，眼底不热。",
          "守火人要切断观测耦合。",
          "切断柳岸青与场核的观测耦合。",
          "档案完整比一个人的命更干净。",
          "怕档案被海改写。",
          "他把人当成条目。"),
-        ("赫斯", "major", "神权祭司，令牌贴在掌心。",
+        ("赫斯", "major", "男", "神权祭司，令牌贴在掌心。",
          "天龙座买办要做一次非法观测。",
          "用令牌锁定柳岸青带走交差。",
          "交差比弄懂成核点更要紧。",
          "怕令牌熄火。",
          "他不知道成核点机制。"),
-        ("兰因", "minor", "相位锚工程师，说话短。",
+        ("兰因", "minor", "女", "相位锚工程师，说话短。",
          "同盟要民用穿越器活下来。",
          "把相位锚焊在能走的人身上。",
          "工程能交差。",
          "怕第一次死人是她的锅。",
          "她还没进华山这一夜。"),
     ]
-    for name, imp, ap, pd, sg, dn, fear, bs in chars:
+    for name, imp, gender, ap, pd, sg, dn, fear, bs in chars:
         eid = f"role:{name}"
         if st.entity(eid) is None:
             try:
                 st.add_entity(Entity(eid, "character", name, traits={
                     "importance": imp,
+                    "gender": gender,
                     "appearance": pad(ap, 40),
                     "personality_detail": pad(pd, 200),
                     "surface_goal": pad(sg, 80),
@@ -156,9 +159,11 @@ def seed_world(st: SurrealStore) -> None:
             try:
                 st._execute_write(
                     "UPDATE type::record('character', $local) SET importance=$i, appearance=$a, "
-                    "personality_detail=$pd, surface_goal=$sg, deep_need=$dn, fear=$fr, backstory=$bs",
+                    "personality_detail=$pd, surface_goal=$sg, deep_need=$dn, fear=$fr, backstory=$bs, "
+                    "gender=$g",
                     {"local": name, "i": imp, "a": pad(ap, 40), "pd": pad(pd, 200),
-                     "sg": pad(sg, 80), "dn": pad(dn, 80), "fr": pad(fear, 80), "bs": pad(bs, 200)},
+                     "sg": pad(sg, 80), "dn": pad(dn, 80), "fr": pad(fear, 80), "bs": pad(bs, 200),
+                     "g": gender},
                 )
             except Exception:
                 pass
@@ -358,6 +363,7 @@ def run_live(*, n_chapters: int = 1, title: str | None = None, slug: str | None 
             contract = st.get_frozen("chapter_contract", seq) or {}
             duty = st.get_frozen("duty_card", seq) or {}
             draft = st.get_frozen("chapter_draft", seq) or {}
+            state = st.get_frozen("chapter_state", seq) or {}
         finally:
             try:
                 st.close()
@@ -365,6 +371,10 @@ def run_live(*, n_chapters: int = 1, title: str | None = None, slug: str | None 
                 pass
         code, ld = http(cookie, "GET", f"/latest-draft?seq={seq}&work={slug}")
         source = ld.get("source") if isinstance(ld, dict) else None
+        draft_text = str(draft.get("text") or "")
+        state_hit = check_chapter_state_struct(state, draft_text) if state else {
+            "ok": False, "code": "no_chapter_state",
+        }
         verify.append({
             "seq": seq,
             "play_n": len(play.get("text") or ""),
@@ -373,6 +383,18 @@ def run_live(*, n_chapters: int = 1, title: str | None = None, slug: str | None 
             "contract": bool(contract),
             "latest_source": source,
             "metrics": metrics,
+            "state_ok": bool(state) and bool(state_hit.get("ok")),
+            "state_detail": state_hit.get("code") or ("ok" if state else "missing"),
+            "state": {
+                "seq": state.get("seq"),
+                "sha": state.get("sha"),
+                "status": state.get("status"),
+                "characters": state.get("characters") or [],
+                "objects": state.get("objects") or [],
+                "open_loops": state.get("open_loops") or [],
+                "timeline": state.get("timeline") or {},
+                "imagery": state.get("imagery") or [],
+            } if state else {},
         })
         print(json.dumps({"step": "verified", "seq": seq, "source": source, "metrics_ok": metrics.get("ok")},
                          ensure_ascii=False), flush=True)
