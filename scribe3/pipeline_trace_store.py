@@ -14,6 +14,7 @@ from scribe3.pipeline_trace import (
     bind_trace_buffer,
     current_trace_buffer,
     headline_from_spans,
+    label_playbook_fail,
     pipeline_trace_enabled,
     public_chain,
     public_log,
@@ -44,6 +45,15 @@ def remember_buffer(buf: TraceBuffer) -> None:
         return
     with _LOCK:
         _BUFFERS[buf.trace_id] = buf
+        while len(_BUFFERS) > 32:
+            _BUFFERS.pop(next(iter(_BUFFERS)), None)
+
+
+def evict_buffer(trace_id: str | None) -> None:
+    if not trace_id:
+        return
+    with _LOCK:
+        _BUFFERS.pop(trace_id, None)
 
 
 def buffer_for(trace_id: str | None) -> TraceBuffer | None:
@@ -141,6 +151,18 @@ def flush_spans(st: Any, buf: TraceBuffer | None, *, cursor: str | None = None) 
             st.insert_pipeline_spans(rows)
         if logs and st is not None and hasattr(st, "insert_pipeline_logs"):
             st.insert_pipeline_logs(logs)
+        rec = getattr(buf, "recorder", None)
+        if rec is not None:
+            try:
+                evs, arts = rec.drain()
+                if arts and hasattr(st, "insert_pipeline_artifacts"):
+                    st.insert_pipeline_artifacts(arts)
+                if evs and hasattr(st, "insert_pipeline_events"):
+                    st.insert_pipeline_events(evs)
+            except Exception as e:
+                _log.warning("flush recorder fail-soft: %s", e)
+                if "flush_failed" not in buf.notes:
+                    buf.notes.append("flush_failed")
         if st is not None and hasattr(st, "update_pipeline_chain"):
             st.update_pipeline_chain(buf.trace_id, buf.snapshot_chain_patch())
     except Exception as e:
@@ -244,7 +266,14 @@ def finish_chain(
             buf.status = status
             buf.ended_ns = int(time.time_ns())
             pubs = [s.as_public(work=buf.work, chapter=buf.chapter, kind=buf.kind) for s in buf.spans]
-            buf.headline = headline_from_spans(pubs)
+            hl = headline_from_spans(pubs, phase=getattr(buf, "phase", None))
+            fr = list((extra or {}).get("fail_reasons") or [])
+            if fr:
+                labels = [label_playbook_fail(c) for c in fr if c]
+                hl = "检查没过：" + "、".join(labels[:3])
+            elif not hl:
+                hl = "过了" if status == "ok" else "没过"
+            buf.headline = hl
             patch = buf.snapshot_chain_patch()
             started = buf.started_ns or 0
             dur = max(0.0, (buf.ended_ns - started) / 1e6) if started else None
@@ -262,6 +291,8 @@ def finish_chain(
             st.update_pipeline_chain(tid, patch)
     except Exception as e:
         _log.warning("finish_chain fail-soft: %s", e)
+    finally:
+        evict_buffer(tid)
 
 
 def maybe_purge_pipeline_traces(st: Any, *, work: str = "main") -> None:

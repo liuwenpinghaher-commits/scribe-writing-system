@@ -27,6 +27,12 @@ from scribe3.playbook.stages import (
     parse_rewrite,
     reject_gone_stage,
 )
+from scribe3.pipeline_trace_hooks import (
+    playbook_note_gate,
+    playbook_note_out,
+    playbook_span_end,
+    playbook_span_start,
+)
 from scribe3.playbook.structural import (
     check_chapter_state_struct,
     check_contract_struct,
@@ -112,13 +118,33 @@ def _quality_loop(
             continue
         last_art = art
         target = extract(art) if extract else art
+        text = target if isinstance(target, str) else (
+            str((target or {}).get("text") or "") if isinstance(target, dict) else str(target or "")
+        )
+        sid_g = playbook_span_start("playbook.generate")
+        playbook_note_out(
+            sid_g, name=f"{name}.out.{quality + 1}", body=text,
+            summary=f"第{quality + 1}稿 {len(text)} 字",
+        )
+        playbook_span_end(sid_g, status="ok", actual="present")
         last_struct = struct(target)
+        sid_s = playbook_span_start("playbook.struct")
+        code = str(last_struct.get("code") or "")
+        playbook_note_gate(
+            sid_s, ok=bool(last_struct.get("ok")),
+            code=code, message=str(last_struct.get("message") or ""),
+        )
+        playbook_span_end(
+            sid_s,
+            status="ok" if last_struct.get("ok") else "failed",
+            actual="present" if last_struct.get("ok") else "failed",
+            actual_reason=code or None,
+            verdict="green" if last_struct.get("ok") else "red",
+        )
         if not last_struct.get("ok"):
-            code = str(last_struct.get("code") or "")
             if code and code not in fail_reasons:
                 fail_reasons.append(code)
             quality += 1
-            _trace(None, {})  # no-op; caller traces
             continue
         try:
             verdict = judge(judge_type, art if isinstance(art, dict) else {"text": art},
@@ -139,6 +165,20 @@ def _quality_loop(
             verdict = majority_if_disagreed(last_verdict, verdict, third)
         last_verdict = verdict
         last_sha = sha
+        sid_j = playbook_span_start("playbook.judge")
+        vcode = str(verdict.get("verdict") or "")
+        playbook_note_gate(
+            sid_j, ok=vcode == "pass",
+            code="" if vcode == "pass" else (vcode or "needs_human"),
+            message=str(verdict.get("opinion") or vcode),
+        )
+        playbook_span_end(
+            sid_j,
+            status="ok" if vcode == "pass" else "failed",
+            actual="present" if vcode == "pass" else "failed",
+            actual_reason=None if vcode == "pass" else vcode,
+            verdict="green" if vcode == "pass" else "red",
+        )
         if verdict.get("verdict") == "pass":
             return {
                 "ok": True, "artifact": art, "review": verdict,
@@ -665,13 +705,17 @@ def _finish(store, table, schema, seq, result, *, persist, rewrite, source_sha="
         return result
     art = result["artifact"]
     if persist:
+        sid_p = playbook_span_start("playbook.persist")
         try:
             frozen = freeze_artifact(
                 store, table, seq, art if isinstance(art, dict) else {"text": art, "seq": seq},
                 schema=schema, source_sha=source_sha, review=pass_review(), rewrite=rewrite,
             )
         except FrozenAssetError as exc:
+            playbook_span_end(sid_p, status="failed", actual="failed", actual_reason="frozen", verdict="red")
             return {"ok": False, "code": "frozen", "message": str(exc)}
+        playbook_note_out(sid_p, name=f"{table}.frozen", body=str(frozen.get("sha") or ""), summary="已冻")
+        playbook_span_end(sid_p, status="ok", actual="present")
         result["artifact"] = frozen
     return result
 

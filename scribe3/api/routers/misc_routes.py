@@ -1397,6 +1397,11 @@ def get_debug_pipeline_trace(trace_id: str, work: str = "main", include: str | N
     out["surface"] = "debug.pipeline_trace"
     out["item"] = dict(out)
     out["ok"] = True
+    try:
+        from scribe3.pipeline_recorder import pipeline_recorder_enabled
+        out["recorder_enabled"] = pipeline_recorder_enabled()
+    except Exception:
+        out["recorder_enabled"] = True
     want = {p.strip() for p in str(include or "").split(",") if p.strip()}
     if "events" in want and hasattr(st, "list_pipeline_events"):
         ev = st.list_pipeline_events(work=work, trace_id=trace_id, limit=2048)

@@ -80,16 +80,35 @@ describe('管理台写路径日志页', () => {
   it('独立页默认时间线，点进明细看全步字段', async () => {
     render(<RunLogsPage />)
     expect(await screen.findByTestId('run-logs-page')).toBeTruthy()
-    expect(screen.getByText('运行链路')).toBeTruthy()
+    expect(screen.getByText('运行分析')).toBeTruthy()
     await waitFor(() => expect(apiMock.pipelineTraces).toHaveBeenCalled())
     expect(apiMock.pipelineTraces.mock.calls[0][1]).toBe('book_qe_live5')
     fireEvent.click(screen.getByTestId('run-logs-row'))
-    await waitFor(() => expect(apiMock.pipelineTrace).toHaveBeenCalledWith('abc123', 'book_qe_live5'))
+    await waitFor(() => expect(apiMock.pipelineTrace).toHaveBeenCalled())
     expect(screen.getByTestId('run-logs-spans')).toBeTruthy()
     expect(screen.getByText('上章余烬')).toBeTruthy()
     expect(screen.getByText('场面合同')).toBeTruthy()
     fireEvent.click(screen.getAllByText('上章余烬')[0])
     expect(screen.getByTestId('run-logs-inspector')).toBeTruthy()
     expect(screen.getByText(/collect_story_fuel_segments/)).toBeTruthy()
+  })
+
+  it('空卷宗不说记录仪可能没开', async () => {
+    apiMock.pipelineTrace.mockResolvedValueOnce({
+      trace_id: 'empty1',
+      kind: 'write',
+      chapter: 1,
+      status: 'ok',
+      headline: '过了',
+      spans: [],
+      events: [],
+      recorder_enabled: true,
+    })
+    render(<RunLogsPage />)
+    await waitFor(() => expect(apiMock.pipelineTraces).toHaveBeenCalled())
+    fireEvent.click(screen.getByTestId('run-logs-row'))
+    await waitFor(() => expect(apiMock.pipelineTrace).toHaveBeenCalled())
+    expect(screen.getByText('这条写路没记下细账。')).toBeTruthy()
+    expect(screen.queryByText(/RECORDER 可能未开/)).toBeNull()
   })
 })

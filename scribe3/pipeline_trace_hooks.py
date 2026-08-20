@@ -14,6 +14,7 @@ from scribe3.pipeline_trace import (
     current_trace_buffer,
     digest_text,
     l2_events_from_dropped,
+    label_playbook_fail,
     pipeline_trace_enabled,
     prepare_emit_body,
     resolve_assemble_request_id,
@@ -31,6 +32,65 @@ from scribe3.pipeline_trace_store import (
 from scribe3.run_card import classify_actual, expected_for, public_card, row_verdict
 
 _log = logging.getLogger("scribe3.pipeline_trace")
+
+
+def playbook_span_start(step_key: str) -> str:
+    buf = current_trace_buffer()
+    if buf is None:
+        return ""
+    try:
+        return buf.start_span(step_key) or ""
+    except Exception:
+        return ""
+
+
+def playbook_span_end(span_id: str, **fields: Any) -> None:
+    buf = current_trace_buffer()
+    if buf is None or not span_id:
+        return
+    try:
+        buf.end_span(span_id, **fields)
+    except Exception:
+        return
+
+
+def playbook_note_out(span_id: str, *, name: str, body: str, summary: str) -> None:
+    if not span_id:
+        return
+    try:
+        from scribe3.pipeline_recorder import current_recorder
+        rec = current_recorder()
+        if rec is None:
+            return
+        aid = rec.put_artifact(
+            kind="segment", name=name, body=str(body or "")[:8000],
+            span_id=span_id, redact="secrets",
+        )
+        rec.emit(
+            span_id, "produce",
+            summary=str(summary or "")[:240],
+            artifact_ids=[aid] if aid else None,
+        )
+    except Exception:
+        return
+
+
+def playbook_note_gate(span_id: str, *, ok: bool, code: str = "", message: str = "") -> None:
+    if not span_id:
+        return
+    try:
+        from scribe3.pipeline_recorder import current_recorder
+        rec = current_recorder()
+        if rec is None:
+            return
+        human = label_playbook_fail(code) if code else ("过了" if ok else "没过")
+        rec.emit(
+            span_id, "gate",
+            summary=str(message or human)[:240],
+            payload={"got": bool(ok), "tag": code or None, "reason": human},
+        )
+    except Exception:
+        return
 
 
 def open_write_chain(
@@ -359,7 +419,14 @@ def note_llm_output(text: str | None) -> None:
         pass
 
 
-def finish_ok(st: Any, manifest_trace: dict | None, *, outcome=None, extra: dict | None = None) -> None:
+def finish_ok(
+    st: Any,
+    manifest_trace: dict | None,
+    *,
+    outcome=None,
+    extra: dict | None = None,
+    status: str = "ok",
+) -> None:
     rid = str((manifest_trace or {}).get("request_id") or "")
     extra = dict(extra or {})
     if outcome is not None:
@@ -381,7 +448,10 @@ def finish_ok(st: Any, manifest_trace: dict | None, *, outcome=None, extra: dict
         note = "fail_reasons:" + ",".join(str(x) for x in fr if x)
         if note not in buf.notes:
             buf.notes.append(note)
-    finish_chain(st, trace_id=rid or None, status="ok", extra=extra or None)
+    stt = str(status or "ok")
+    if stt not in ("ok", "failed", "abandoned"):
+        stt = "ok"
+    finish_chain(st, trace_id=rid or None, status=stt, extra=extra or None)
 
 
 def finish_failed(st: Any, manifest_trace: dict | None, err: BaseException | None = None) -> None:

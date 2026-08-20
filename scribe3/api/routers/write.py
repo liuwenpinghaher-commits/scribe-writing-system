@@ -226,7 +226,11 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
         stc = out.get("struct") if isinstance(out.get("struct"), dict) else {}
         if stc.get("code") and not stc.get("ok") and str(stc.get("code")) not in fr:
             fr.append(str(stc.get("code")))
-        finish_ok(st, mt, extra={"fail_reasons": fr} if fr else None)
+        finish_ok(
+            st, mt,
+            extra={"fail_reasons": fr} if fr else None,
+            status="ok" if out.get("ok") else "failed",
+        )
     except RuntimeError as exc:
         try:
             finish_failed(st, mt, err=exc)

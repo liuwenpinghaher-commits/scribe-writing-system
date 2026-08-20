@@ -1,6 +1,6 @@
 /**
- * 管理台 · 运行链路（时间线主界面）。
- * 一次写/存/宣称一条链；点一步看结构化全字段。不回传提示词。
+ * 管理台 · 运行分析（飞行记录仪卷宗）。
+ * 一次写/存/宣称一条链；默认按步看事件 + 可展开工件正文。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
@@ -59,6 +59,66 @@ function statusChip(status, verdict) {
   )
 }
 
+function Dossier({ sel }) {
+  const events = Array.isArray(sel?.events) ? sel.events : []
+  const arts = Array.isArray(sel?.artifacts) ? sel.artifacts : []
+  const byId = Object.fromEntries(arts.map((a) => [a.artifact_id || a.id, a]))
+  const groups = []
+  const seen = new Map()
+  events.forEach((ev) => {
+    const key = ev.step_key || ev.span_id || '—'
+    if (!seen.has(key)) {
+      seen.set(key, groups.length)
+      groups.push({ key, title: ev.step_title || ev.step_key || key, items: [] })
+    }
+    groups[seen.get(key)].items.push(ev)
+  })
+  const evN = events.length
+  const logHint = (sel?.log_count || 0) > 0 && evN === 0
+  const incomplete = evN > 0 && !events.some((e) => e.kind === 'join') && !arts.some((a) => a.kind === 'segment' || a.kind === 'joined_meta')
+  return (
+    <div className="space-y-2" data-testid="run-logs-dossier">
+      {logHint && <div className="text-f12 text-faint">旧账·模板日志</div>}
+      {incomplete && <div className="text-f12 text-amber-700">本链记录不完整</div>}
+      {evN === 0 && !logHint && (
+        <div className="text-f12 text-faint py-6 text-center">
+          {sel?.recorder_enabled === false
+            ? '记录仪关了。'
+            : '这条写路没记下细账。'}
+        </div>
+      )}
+      <ul className="rounded-md border border-line max-h-[32rem] overflow-auto">
+        {groups.map((g) => (
+          <li key={g.key} className="px-2 py-2 border-t border-line">
+            <div className="text-f13 font-medium">{g.title}</div>
+            <div className="text-f12 text-faint">{g.key}</div>
+            {g.items.map((ev) => {
+              const ids = ev.artifact_ids || (ev.from_artifact_id ? [ev.from_artifact_id] : [])
+              return (
+                <div key={ev.event_id || ev.seq} className="mt-1 text-f12" data-testid="run-log-event">
+                  <span className="text-faint">{ev.kind}</span>
+                  {ev.summary ? <span> · {ev.summary}</span> : null}
+                  {ev.empty != null ? <span> · empty={String(ev.empty)}</span> : null}
+                  {ids.map((id) => {
+                    const art = byId[id]
+                    if (!art) return null
+                    return (
+                      <pre key={id} className="mt-1 whitespace-pre-wrap break-words bg-soft/50 rounded px-2 py-1.5 max-h-48 overflow-auto" data-testid="run-log-body">
+                        {art.body}
+                        {art.truncated ? <span className="text-red-600">{`\n已截断，原 ${art.chars_full} 字`}</span> : null}
+                      </pre>
+                    )
+                  })}
+                </div>
+              )
+            })}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 export function RunLogsPage({ defaultWork = '' }) {
   const [works, setWorks] = useState([])
   const [work, setWork] = useState(defaultWork || '')
@@ -70,7 +130,7 @@ export function RunLogsPage({ defaultWork = '' }) {
   const [items, setItems] = useState([])
   const [sel, setSel] = useState(null)
   const [pick, setPick] = useState(null)
-  const [tab, setTab] = useState('logs')
+  const [tab, setTab] = useState('dossier')
   const [logs, setLogs] = useState([])
   const [onlyBad, setOnlyBad] = useState(false)
   const [layerOrder, setLayerOrder] = useState(false)
@@ -138,10 +198,10 @@ export function RunLogsPage({ defaultWork = '' }) {
     setBusy(true)
     setError(null)
     try {
-      const card = await api.pipelineTrace(traceId, work)
+      const card = await api.pipelineTrace(traceId, work, 'events,artifacts')
       setSel(card)
       setPick(null)
-      setTab('logs')
+      setTab('dossier')
       try {
         const lr = await api.pipelineLogs({ trace_id: traceId, limit: 400 }, work)
         setLogs(lr.items || [])
@@ -198,9 +258,9 @@ export function RunLogsPage({ defaultWork = '' }) {
   return (
     <div className="space-y-3" data-testid="run-logs-page">
       <div>
-        <div className="text-f14 font-semibold">运行链路</div>
+        <div className="text-f14 font-semibold">运行分析</div>
         <div className="text-f12 text-faint mt-0.5">
-          系统运行分析：每一步叫什么、从哪来、算了什么、产出结构、耗时、和上下游怎么连。不是账号审计，不展示提示词。
+          飞行记录仪：每一步读了什么、发出什么、丢掉哪段正文。运行分析，不是提示词浏览器。
         </div>
       </div>
 
@@ -280,7 +340,7 @@ export function RunLogsPage({ defaultWork = '' }) {
             ))}
             {items.length === 0 && (
               <li className="px-3 py-8 text-center text-faint text-f12">
-                {work ? '这本书还没有运行链路。去写作台走一轮后再回来。' : '请先选一本书。'}
+                {work ? '这本书还没有运行分析。去写作台走一轮后再回来。' : '请先选一本书。'}
               </li>
             )}
           </ul>
@@ -304,13 +364,17 @@ export function RunLogsPage({ defaultWork = '' }) {
                 {sel.outcome_status && <div>模型 {sel.outcome_status}</div>}
               </div>
               <div className="flex flex-wrap gap-2">
-                <button type="button" className={tab === 'logs' ? btnPrimary : btnCls} onClick={() => setTab('logs')}>分析日志</button>
+                <button type="button" className={tab === 'dossier' ? btnPrimary : btnCls} onClick={() => setTab('dossier')}>卷宗</button>
+                <button type="button" className={tab === 'logs' ? btnPrimary : btnCls} onClick={() => setTab('logs')}>旧账</button>
                 <button type="button" className={tab === 'timeline' ? btnPrimary : btnCls} onClick={() => setTab('timeline')}>步骤树</button>
                 <button type="button" className={tab === 'contrast' ? btnPrimary : btnCls} onClick={() => setTab('contrast')}>更多</button>
                 <button type="button" className={btnCls} disabled={!sel.prev_trace_id} onClick={() => sel.prev_trace_id && openChain(sel.prev_trace_id)}>同章上一写</button>
                 <button type="button" className={btnCls} disabled={!sel.next_trace_id} onClick={() => sel.next_trace_id && openChain(sel.next_trace_id)}>同章下一写</button>
               </div>
 
+              {tab === 'dossier' && (
+                <Dossier sel={sel} />
+              )}
               {tab === 'logs' && (
                 <ul className="rounded-md border border-line max-h-[28rem] overflow-auto" data-testid="run-logs-lines">
                   {logs.map((lg) => (

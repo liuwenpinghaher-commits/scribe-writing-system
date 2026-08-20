@@ -31,6 +31,7 @@ PUBLIC_CHAIN_KEYS = frozenset({
     "outcome_id", "outcome_status", "outcome_usage", "contrast_run_id",
     "contrast_summary", "notes", "schema_ver", "created_at",
     "prev_trace_id", "next_trace_id", "spans", "tree",
+    "event_count", "artifact_count", "log_count",
 })
 SPAN_CAP = 128
 SPAN_JSON_SOFT = 4000
@@ -237,6 +238,7 @@ class TraceBuffer:
         self.contrast_summary: dict | None = None
         self.headline: str | None = None
         self.obs_on: bool = True
+        self.recorder = None
 
     def start_chain(
         self,
@@ -259,6 +261,14 @@ class TraceBuffer:
         self.status = "in_progress"
         self.obs_on = True
         self.cursor = "assemble.precompute"
+        try:
+            from scribe3.pipeline_recorder import FlightRecorder
+            self.recorder = FlightRecorder(
+                work=self.work, chapter=self.chapter, kind=self.kind,
+                trace_id=self.trace_id,
+            )
+        except Exception:
+            self.recorder = None
 
     def _cap_hit(self) -> bool:
         return len(self.spans) >= SPAN_CAP
@@ -296,6 +306,12 @@ class TraceBuffer:
         self._by_id[sid] = rec
         self._by_key[meta.step_key] = sid
         self.cursor = meta.step_key
+        rec_buf = getattr(self, "recorder", None)
+        if rec_buf is not None:
+            try:
+                rec_buf.remember_span(sid, meta.step_key)
+            except Exception:
+                pass
         try:
             self.append_log(sid, "step.start")
         except Exception:
@@ -377,6 +393,10 @@ class TraceBuffer:
             "contrast_run_id": self.contrast_run_id,
             "contrast_summary": self.contrast_summary,
             "headline": self.headline,
+            "event_count": (getattr(self, "recorder", None).counts()[0]
+                            if getattr(self, "recorder", None) is not None else 0),
+            "artifact_count": (getattr(self, "recorder", None).counts()[1]
+                               if getattr(self, "recorder", None) is not None else 0),
         }
 
     def red_count(self) -> int:
@@ -415,6 +435,11 @@ class TraceBuffer:
         return rec["log_id"]
 
     def drain_logs(self) -> list[dict[str, Any]]:
+        rec_buf = getattr(self, "recorder", None)
+        if rec_buf is not None and getattr(rec_buf, "has_real_artifact", lambda: False)():
+            for rec in self.logs:
+                rec["_flushed"] = True
+            return []
         out = []
         for rec in self.logs:
             if rec.get("_flushed"):
@@ -474,11 +499,40 @@ def public_chain(chain: dict | None) -> dict | None:
     return out
 
 
+_THICKEN_PHASES = frozenset({
+    "outline", "beats", "design", "chapter_design", "deduce", "draft", "plan", "scaffold", "meta",
+    "duty", "play", "contract", "final",
+})
+
+PLAYBOOK_FAIL_LABEL = {
+    "dialogue_floor": "对白不够",
+    "draft_len": "字数不够",
+    "prose_len": "字数不够",
+    "pov_consistency": "人称翻了",
+    "state_quote": "原句对不上",
+    "quote_not_in_play": "原句不在戏里",
+    "quote_edited": "原句改过字",
+    "draft_copy_play": "抄了戏",
+    "gender_pronoun": "代词翻了",
+    "draft_metaphor": "像字太多",
+    "final_metaphor": "像字太多",
+    "needs_human": "要人看",
+    "play_empty": "戏是空的",
+    "draft_empty": "糙稿是空的",
+}
+
+
+def label_playbook_fail(code: str) -> str:
+    c = str(code or "").strip()
+    return PLAYBOOK_FAIL_LABEL.get(c, c)
+
+
 def headline_from_spans(
     spans: list[dict] | list[SpanRec],
     *,
     cursor: str | None = None,
     running_s: float | None = None,
+    phase: str | None = None,
 ) -> str:
     pubs: list[dict] = []
     for s in spans:
@@ -491,10 +545,13 @@ def headline_from_spans(
         return f"卡在 {title}（进行中 {int(running_s)}s）"[:80]
     bits: list[str] = []
     for s in pubs:
-        if s.get("verdict") == "red":
+        if s.get("verdict") == "red" or s.get("status") == "failed":
+            reason = str(s.get("actual_reason") or "")
+            if "skip" in reason:
+                continue
             title = s.get("step_title") or s.get("step_key") or "步骤"
-            reason = s.get("actual_reason") or ""
-            bits.append(f"{title}{('（' + reason + '）') if reason else ''}")
+            human = PLAYBOOK_FAIL_LABEL.get(reason, reason)
+            bits.append(f"{title}{('（' + human + '）') if human else ''}")
         if len(bits) >= 3:
             break
     for s in pubs:
@@ -517,14 +574,36 @@ def headline_from_spans(
     for s in pubs:
         reason = str(s.get("actual_reason") or "")
         key = str(s.get("step_key") or "")
-        if reason in ("skipped_by_flag", "skip_finalize_gate") or "skip" in reason:
-            if "finalize" in key or "finalize" in reason or "skip" in reason:
+        is_finalize_skip = (
+            "finalize" in key
+            or "finalize" in reason
+            or reason == "skip_finalize_gate"
+        )
+        if is_finalize_skip:
+            ph = str(phase or "").strip().lower()
+            if ph not in _THICKEN_PHASES:
                 bits.insert(0, "定稿门跳过")
-                break
+            break
         if reason in ("readable_red", "unreadble", "may_not_claim_readable"):
             bits.insert(0, "可读未宣称")
             break
-    text = " · ".join(bits) if bits else "步骤完成"
+    text = " · ".join(bits) if bits else ""
+    try:
+        from scribe3.pipeline_recorder import current_recorder
+        rec = current_recorder()
+        arts = getattr(rec, "artifacts", None) if rec is not None else None
+        if arts:
+            for a in arts:
+                kind = a.get("kind") if isinstance(a, dict) else getattr(a, "kind", "")
+                if kind != "fate_delta":
+                    continue
+                body = a.get("body") if isinstance(a, dict) else getattr(a, "body", "")
+                first = str(body or "").strip().splitlines()[0] if body else ""
+                if first:
+                    text = first
+                break
+    except Exception:
+        pass
     if "对照齐全" in text:
         text = text.replace("对照齐全", "步骤完成")
     return text[:80]
