@@ -338,7 +338,7 @@ def run_live(*, n_chapters: int = 1, title: str | None = None, slug: str | None 
     cookie = login()
     if not slug:
         title = title or (
-            "万界概率战争·v6.3.4rev13.2·" +
+            "万界概率战争·v6.3.4rev13.4·" +
             ("冒烟" if n_chapters == 1 else "三章验收") + "·" +
             datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
         )

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v6.3.4 / playbook.3.1 部署冒烟。默认只做入口级检查，不烧模型。"""
+"""v6.3.4 / playbook.3.2 部署冒烟。默认只做入口级检查，不烧模型。"""
 from __future__ import annotations
 
 import argparse
@@ -16,7 +16,7 @@ def smoke_imports() -> list[tuple[str, bool, str]]:
 
     try:
         from scribe3.playbook.quote import PLAYBOOK_VERSION
-        add("playbook_version", PLAYBOOK_VERSION == "playbook.3.1", PLAYBOOK_VERSION)
+        add("playbook_version", PLAYBOOK_VERSION == "playbook.3.2", PLAYBOOK_VERSION)
     except Exception as e:
         add("playbook_version", False, type(e).__name__)
 
@@ -142,6 +142,33 @@ def smoke_imports() -> list[tuple[str, bool, str]]:
         )
     except Exception as e:
         add("playbook31_gates", False, type(e).__name__)
+
+    try:
+        from scribe3.playbook.structural import check_syntax_tics
+        two = check_syntax_tics("这不是明火，是碳粉。袖口发烫。那不是灯火是磷光。他站着。")
+        add(
+            "d15_syntax_tics",
+            two.get("ok") is False and two.get("code") == "syntax_tics",
+            two.get("code") or "",
+        )
+        dlg = check_syntax_tics("「这不是明火，是碳粉。」他说。\n「那不是灯火是磷光。」柳岸青说。")
+        add("d15_dialogue_skip", dlg.get("ok") is True, dlg.get("code") or "ok")
+        from scribe3.playbook.diagnose import sentence_rhythm
+        rh = sentence_rhythm("他走了。门响。灯灭了。夜还在。然后他在走廊里把盒子按回胸口，听见最后一下。")
+        add(
+            "craft_rhythm",
+            "short_ratio" in rh and "long_ratio" in rh and "short_bursts" in rh,
+            str(rh),
+        )
+        from scribe3.playbook.prompts import draft_generate, final_generate, final_judge
+        d = draft_generate({"play_text": "戏", "bite_quote": "钩"})
+        add("draft_no_tactile_quota", "可听可触" not in d and "摸到或听到" in d, "")
+        f = final_generate({})
+        add("final_no_texture_patch", "补上画面的质感与声音" not in f and "宁可糙着" in f, "")
+        j = final_judge({})
+        add("final_judge_read_aloud", "念出声" in j and "在使劲" in j, "")
+    except Exception as e:
+        add("playbook32_gates", False, type(e).__name__)
 
     return rows
 

@@ -40,8 +40,12 @@ def test_protocol_is_rev13_and_wave_c():
     assert "D14" in text
     assert "pov_consistency" in text
     assert "playbook.3.1" in text
+    assert "playbook.3.2" in text
     assert "rev.13.2" in text
     assert "rev.13.3" in text
+    assert "rev.13.4" in text
+    assert "D15" in text
+    assert "syntax_tics" in text
     assert "冻稿正文" in text
     assert "定稿" in text
     assert "引号行字数比" in text
@@ -80,10 +84,12 @@ def test_gate0_imports_continuity_adversaries():
     assert rows["dialogue_floor_gate"][0] is True
     assert rows["thin_unlike_is"][0] is True
     assert rows["d14_residue"][0] is True
+    assert rows["d15_syntax_tics"][0] is True
+    assert rows["craft_rhythm"][0] is True
 
 
 def test_playbook2_and_d1_code_is_draft_copy_play():
-    assert PLAYBOOK_VERSION == "playbook.3.1"
+    assert PLAYBOOK_VERSION == "playbook.3.2"
     play = "沈烛若把场核碎片按回胸口，四十二度顺着袖口往上爬。" * 80
     hit = check_draft_struct(play + "他又看了一眼裂口。" * 20, play_text=play)
     assert hit["code"] == "draft_copy_play"

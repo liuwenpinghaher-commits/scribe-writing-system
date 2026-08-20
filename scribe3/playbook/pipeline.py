@@ -33,6 +33,7 @@ from scribe3.pipeline_trace_hooks import (
     playbook_span_end,
     playbook_span_start,
 )
+from scribe3.playbook.diagnose import craft_diagnostic, style_judge_fields
 from scribe3.playbook.structural import (
     check_chapter_state_struct,
     check_contract_struct,
@@ -528,15 +529,23 @@ def _run_final(store, seq, ctx, llm_fn, *, force, persist):
         "contract_core_json": _json({k: fields.get(k) for k in ("goal", "choice", "decision", "hook", "cost")}),
         "deduction_epistemic": _json((deduce or {}).get("characters")),
     }
-    result = _quality_loop(
-        name="final",
-        generate=lambda: gen_final(ctx, llm_fn),
-        struct=lambda d: check_final_last_mile(
-            d.get("text") if isinstance(d, dict) else str(d),
+    hint = [""]
+
+    def _final_struct(d):
+        text = d.get("text") if isinstance(d, dict) else str(d)
+        hit = check_final_last_mile(
+            text,
             store=store, seq=seq,
             characters=_roster(ctx),
             expected_pov=((ctx.get("prev_state") or {}).get("narrative_pov") if int(seq) > 1 else None),
-        ),
+        )
+        hint[0] = "" if hit.get("ok") else str(hit.get("message") or hit.get("code") or "")
+        return hit
+
+    result = _quality_loop(
+        name="final",
+        generate=lambda: gen_final({**ctx, "struct_hint": hint[0]}, llm_fn),
+        struct=_final_struct,
         judge_type="final",
         judge_ctx=lambda d: {
             "prose_text": d.get("text") if isinstance(d, dict) else str(d),
@@ -544,6 +553,7 @@ def _run_final(store, seq, ctx, llm_fn, *, force, persist):
             "deduction_epistemic": ctx.get("deduction_epistemic"),
             "forbidden_reveal": ctx.get("forbidden_reveal"),
             "ban_list": "升华/连续同类比喻/元叙述/泄密",
+            **style_judge_fields(d.get("text") if isinstance(d, dict) else str(d)),
             **_continuity_judge(ctx),
         },
         llm_fn=llm_fn,
@@ -570,6 +580,30 @@ def _run_final(store, seq, ctx, llm_fn, *, force, persist):
         result["sha"] = play.get("sha")
         result["play"] = play
         result["prose"] = (result.get("artifact") or {}).get("text") if isinstance(result.get("artifact"), dict) else result.get("artifact")
+        prose = result.get("prose") or ""
+        try:
+            diag = craft_diagnostic(str(prose))
+            result["craft_diagnostic"] = diag
+            if persist:
+                sid_d = playbook_span_start("playbook.persist")
+                rhythm = diag.get("sentence_rhythm") or {}
+                playbook_note_out(
+                    sid_d,
+                    name="craft_diagnostic",
+                    body=json.dumps(diag, ensure_ascii=False),
+                    summary=(
+                        f"短句{rhythm.get('short_ratio', 0):.0%} "
+                        f"长句{rhythm.get('long_ratio', 0):.0%} "
+                        f"连击{rhythm.get('short_bursts', 0)}"
+                    ),
+                )
+                playbook_span_end(sid_d, status="ok", actual="present")
+        except Exception as exc:
+            result["craft_diagnostic"] = {
+                "kind": "craft_diagnostic",
+                "blocking": False,
+                "notes": [f"诊断失败（不阻塞）: {exc}"],
+            }
     else:
         result["sha"] = play.get("sha")
     return result

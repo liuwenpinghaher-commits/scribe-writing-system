@@ -12,6 +12,7 @@
 - simile_density：明喻密度（draft/final 已有；对白内与豁免原句不计入）
 - pov_consistency：叙述人称沿用首章（剥对白后数「我」）
 - dialogue_floor：糙稿对白行字数比 ≥15%
+- syntax_tics：叙述层「不是A是B」/毒句式 ≥2 处拦住（对白不计；1 处不拦）
 """
 from __future__ import annotations
 
@@ -360,6 +361,47 @@ def detect_narrative_pov(text: str) -> str:
     return "third"
 
 
+def list_syntax_tics(text: str) -> list[dict[str, Any]]:
+    """剥对白后的装腔句：否定翻转 + 现成毒句式。不重写正则。"""
+    from scribe3.critique import find_negation_flips
+    from scribe3.critique._common import _TOXIC_PATTERNS
+
+    narr = narration_layer(text)
+    hits: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for h in find_negation_flips(narr):
+        phrase = str(h.get("phrase") or "").strip()
+        if not phrase or phrase in seen:
+            continue
+        seen.add(phrase)
+        hits.append({
+            "kind": "not_a_but_b",
+            "phrase": phrase,
+            "variant": h.get("variant"),
+        })
+    for name, pat in _TOXIC_PATTERNS:
+        for m in pat.finditer(narr):
+            phrase = m.group(0)
+            if not phrase or phrase in seen:
+                continue
+            seen.add(phrase)
+            hits.append({"kind": "toxic_pattern", "phrase": phrase, "pattern": name})
+    return hits
+
+
+def check_syntax_tics(text: str) -> dict[str, Any]:
+    """叙述里两处及以上装腔句才拦。一处交给法官看。"""
+    hits = list_syntax_tics(text)
+    if len(hits) < 2:
+        return _ok()
+    quoted = "；".join(f"「{h['phrase'][:40]}」" for h in hits[:4])
+    return _fail(
+        "syntax_tics",
+        f"叙述里有 {len(hits)} 处在装腔，不是人在做事：{quoted}。"
+        "用他此刻正在做的事重写这些句子。",
+    )
+
+
 def check_pov_consistency(text: str, expected_pov: str | None = None) -> dict[str, Any]:
     want = str(expected_pov or "").strip()
     if want not in ("first", "third"):
@@ -525,6 +567,9 @@ def check_draft_struct(
     dlg = dialogue_ratio(text)
     if dlg < 0.15:
         return _fail("dialogue_floor", f"对白占比 {dlg:.1%} 低于 15%")
+    tics = check_syntax_tics(text)
+    if not tics.get("ok"):
+        return tics
     return _ok()
 
 
@@ -563,6 +608,9 @@ def check_final_last_mile(
     gp = check_gender_pronoun(prose_text, characters)
     if not gp.get("ok"):
         return gp
+    tics = check_syntax_tics(prose_text)
+    if not tics.get("ok"):
+        return tics
     if store is None:
         return hit
     getter = getattr(store, "get_frozen", None)

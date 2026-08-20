@@ -1,4 +1,4 @@
-"""playbook.3.1 identity + generate/judge prompts. Changing this file requires a version bump."""
+"""playbook.3.2 identity + generate/judge prompts. Changing this file requires a version bump."""
 from __future__ import annotations
 
 import json
@@ -366,7 +366,7 @@ def draft_generate(ctx: dict) -> str:
 戏是设计图，糙稿是施工。戏里的句子是给创作者看的，不是给读者看的。
 你交付的糙稿必须比戏多出三样东西：
 1. 对白——戏里"谁说了什么"的概括，在糙稿里落成带引号的原话。
-2. 感官施工——从演绎的矿里取料，把场面写成此刻可听可触的现在。
+2. 感官施工——从演绎的矿里取料。这一场要有此刻能摸到或听到的东西；没有，就还是说明书。
 3. 内心电阻——焦点者在两难前的具体迟疑（动作化的，不是"他想"）。
 
 增量纪律：
@@ -424,7 +424,11 @@ def final_generate(ctx: dict) -> str:
     cost_line = ""
     if ctx.get("cost_text"):
         cost_line = f"- 要付的账：{ctx.get('cost_text')}\n"
-    return f"""把这份糙稿打磨成正文（面向读者的最终文本）。
+    hint = str(ctx.get("struct_hint") or "").strip()
+    hint_block = (
+        f"\n【上一稿没过，照这个改，不要只换词】{hint}\n" if hint else ""
+    )
+    return f"""把这份糙稿打磨成正文（面向读者的最终文本）。{hint_block}
 
 【糙稿（蓝本，结构照此）】{ctx.get("draft_text")}
 【本章必须兑现的】
@@ -441,7 +445,7 @@ def final_generate(ctx: dict) -> str:
 {_state_json(ctx)}
 
 打磨什么：
-- 语言：删掉糙话、补上画面的质感与声音。
+- 语言：删掉糙话。画面和声音要自己立起来；立不起来宁可糙着。
 - 对话：贴每个角色的声纹。
 - 节奏：场面内部该快的快该慢的慢（不设字数配额）。
 
@@ -486,13 +490,17 @@ def final_judge(ctx: dict) -> str:
 【禁止清单】{ctx.get("ban_list") or "升华/连续同类比喻/元叙述/泄密"}
 【上一章结束时世界变成了什么样】
 {_state_json(ctx)}
+【机器先检出的装腔原句（给法官当底，不必点名这些词才能过）】
+{ctx.get("syntax_tics_block") or "无"}
+【这一章句子长短（只给人看，不据此判过不过）】
+{ctx.get("rhythm_block") or "无"}
 
 八问，每问先引正文原句作证据：
 1. 契约四件（事/两难/决断/钩子）在正文里都兑现了吗？账（若契约有 cost）仍真付着吗？
 2. 视角守住焦点者限知了吗？
-3. 有没有踩禁令（升华/连续同类比喻/元叙述/泄密）？明喻是否密过每 800 字一个？
-4. 这章读得下去吗？——一口气读下来，有没有哪里你会跳行？
-5. 正文里有没有出现"上一章/这一章/下一章"这类章边界词？（引原句；有则 no）
+3. 有没有踩禁令（升华/连续同类比喻/元叙述/泄密）？明喻是否密过每 800 字一个？正文里有没有出现"上一章/这一章/下一章"这类章边界词？（有则 no）
+4. 把开头念出声。第一处让你卡住的句子引出来。没有就说没有。
+5. 有没有哪句是作者在使劲，不是人在做事？引出来。没有就说没有。
 6. 对照上章末态，在场角色的身体状态、持有物、位置有矛盾吗？（无末态则 yes）
 7. 上章记下、到这章该响的悬念，这章碰到了吗？（没有到期条目则 yes）
 8. 这章新写出的可见事实，有没有跟上一章已经写死的事实打架？（无末态则 yes）
@@ -542,4 +550,4 @@ def identity_for(kind: str) -> str:
     return IDENTITY_NOVELIST
 
 
-assert PLAYBOOK_VERSION == "playbook.3.1"
+assert PLAYBOOK_VERSION == "playbook.3.2"
