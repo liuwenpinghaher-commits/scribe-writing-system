@@ -389,15 +389,20 @@ def dialogue_ratio(text: str) -> float:
 
 
 def check_gender_pronoun(text: str, characters: list[Any] | None = None) -> dict[str, Any]:
-    """角色名 ±30 字窗口内，对已登记男/女的角色统计他/她。反向上位则拦。"""
+    """角色名 ±30 字窗口内，对已登记男/女的角色统计他/她。反向上位则拦。
+
+    同窗里出现另一个户口名字时跳过该窗：对手同框时「他」常指对方，不是把她写成男的。
+    """
     blob = text or ""
+    roster: list[tuple[str, str]] = []
     for ch in characters or []:
         if not isinstance(ch, dict):
             continue
         name = str(ch.get("name") or "").strip()
         gender = str(ch.get("gender") or "").strip()
-        if not name or gender not in ("男", "女"):
-            continue
+        if name and gender in ("男", "女"):
+            roster.append((name, gender))
+    for name, gender in roster:
         windows: list[str] = []
         start = 0
         while True:
@@ -406,8 +411,11 @@ def check_gender_pronoun(text: str, characters: list[Any] | None = None) -> dict
                 break
             lo = max(0, i - 30)
             hi = min(len(blob), i + len(name) + 30)
-            windows.append(blob[lo:hi])
+            win = blob[lo:hi]
             start = i + len(name)
+            if any(other != name and other in win for other, _ in roster):
+                continue
+            windows.append(win)
         if not windows:
             continue
         joined = "".join(windows)

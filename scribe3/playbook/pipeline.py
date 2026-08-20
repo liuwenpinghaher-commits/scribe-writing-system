@@ -38,7 +38,7 @@ from scribe3.playbook.structural import (
     check_play_struct,
 )
 
-MAX_QUALITY_ROUNDS = 5
+MAX_QUALITY_ROUNDS = 8
 _TABLE = {
     "duty": "duty_card",
     "play": "chapter_play",

@@ -77,6 +77,20 @@ def test_gender_pronoun_skips_unregistered():
     assert hit["ok"] is True
 
 
+def test_gender_pronoun_skips_mixed_window():
+    hit = check_gender_pronoun(
+        "兰因看着柳岸青。他没抬头。兰因把盒子推过去，他仍不接。",
+        [{"name": "柳岸青", "gender": "男"}, {"name": "兰因", "gender": "女"}],
+    )
+    assert hit["ok"] is True
+    still = check_gender_pronoun(
+        "柳岸青她把断指扔在地上，腕上的裂口还在渗。她说这根指头不再跳了。",
+        [{"name": "柳岸青", "gender": "男"}, {"name": "兰因", "gender": "女"}],
+    )
+    assert still["ok"] is False
+    assert still["code"] == "gender_pronoun"
+
+
 def test_thin_metaphors_drops_narrative_similes_keeps_dialogue():
     from scribe3.playbook.structural import check_draft_struct, metaphor_per_800, thin_metaphors
 
