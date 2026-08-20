@@ -268,11 +268,16 @@ def finish_chain(
             pubs = [s.as_public(work=buf.work, chapter=buf.chapter, kind=buf.kind) for s in buf.spans]
             hl = headline_from_spans(pubs, phase=getattr(buf, "phase", None))
             fr = list((extra or {}).get("fail_reasons") or [])
-            if fr:
-                labels = [label_playbook_fail(c) for c in fr if c]
+            labels = [label_playbook_fail(c) for c in fr if c]
+            if status == "ok":
+                if labels:
+                    hl = "过了（中间拦过：" + "、".join(labels[:3]) + "）"
+                else:
+                    hl = "过了"
+            elif labels:
                 hl = "检查没过：" + "、".join(labels[:3])
             elif not hl:
-                hl = "过了" if status == "ok" else "没过"
+                hl = "没过"
             buf.headline = hl
             patch = buf.snapshot_chain_patch()
             started = buf.started_ns or 0

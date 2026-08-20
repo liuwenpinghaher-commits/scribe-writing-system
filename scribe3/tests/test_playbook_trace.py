@@ -95,6 +95,14 @@ def test_flush_drains_recorder_and_failed_headline():
         chain = st.chains[tid]
         assert chain["status"] == "failed"
         assert "对白不够" in str(chain.get("headline") or "")
+        st.create_only_pipeline_chain(tid + "ok", {"status": "in_progress"})
+        buf2 = TraceBuffer()
+        buf2.start_chain(work="w", chapter=1, kind="write", phase="draft", trace_id=tid + "ok")
+        remember_buffer(buf2)
+        st.chains[tid + "ok"]["status"] = "in_progress"
+        finish_chain(st, trace_id=tid + "ok", status="ok", extra={"fail_reasons": ["draft_len"]})
+        assert "过了" in str(st.chains[tid + "ok"].get("headline") or "")
+        assert "字数不够" in str(st.chains[tid + "ok"].get("headline") or "")
     finally:
         reset_trace_buffer(tok)
 
