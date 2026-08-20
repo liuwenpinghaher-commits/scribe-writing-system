@@ -290,6 +290,16 @@ def finish_chain(
             })
         else:
             patch = {"status": status, "ended_at": datetime.now(timezone.utc)}
+            fr = list((extra or {}).get("fail_reasons") or [])
+            labels = [label_playbook_fail(c) for c in fr if c]
+            if status == "ok":
+                patch["headline"] = (
+                    "过了（中间拦过：" + "、".join(labels[:3]) + "）" if labels else "过了"
+                )
+            elif labels:
+                patch["headline"] = "检查没过：" + "、".join(labels[:3])
+            else:
+                patch["headline"] = "没过"
         if extra:
             patch.update(extra)
         if st is not None and hasattr(st, "update_pipeline_chain"):
@@ -405,12 +415,31 @@ def _elapsed_s(started) -> float | None:
     return max(0.0, now - ts)
 
 
+def _fail_reasons_from_chain(chain: dict) -> list[str]:
+    extra = chain.get("fail_reasons")
+    if isinstance(extra, list) and extra:
+        return [str(x) for x in extra if x]
+    for n in chain.get("notes") or []:
+        s = str(n)
+        if s.startswith("fail_reasons:"):
+            return [p for p in s.split(":", 1)[1].split(",") if p]
+    return []
+
+
 def live_headline(chain: dict) -> str:
     if chain.get("status") == "in_progress":
         cursor = chain.get("cursor_step_key")
         secs = _elapsed_s(chain.get("started_at") or chain.get("created_at"))
+        base = ""
         if cursor:
-            return headline_from_spans([], cursor=cursor, running_s=secs or 0)
+            base = headline_from_spans([], cursor=cursor, running_s=secs or 0)
+        fr = _fail_reasons_from_chain(chain)
+        if fr:
+            tag = "、".join(label_playbook_fail(c) for c in fr[:3])
+            if base:
+                return f"{base}：{tag}"[:80]
+            return tag
+        return base
     return str(chain.get("headline") or "")
 
 

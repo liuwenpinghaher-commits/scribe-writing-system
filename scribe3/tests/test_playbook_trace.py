@@ -41,6 +41,18 @@ class _FakeStore:
     def create_only_pipeline_chain(self, tid, fields):
         self.chains[tid] = {"trace_id": tid, **(fields or {}), "status": "in_progress"}
 
+    def list_pipeline_chains(self, *, chapter=None, kind=None, status=None, since=None, until=None, limit=20):
+        out = []
+        for rec in self.chains.values():
+            if chapter is not None and int(rec.get("chapter") or 0) != int(chapter):
+                continue
+            if kind and rec.get("kind") != kind:
+                continue
+            if status and rec.get("status") != status:
+                continue
+            out.append(rec)
+        return out[: int(limit or 20)]
+
 
 def _short_llm(prompt, **kw):
     return "短。" * 10
@@ -120,3 +132,25 @@ def test_headline_empty_is_not_placeholder():
         },
     ])
     assert "对白不够" in h2
+
+
+def test_stale_in_progress_closed_when_retry_opens():
+    from scribe3.pipeline_trace_hooks import open_write_chain
+    enable_pipeline_trace()
+    st = _FakeStore()
+    old = "ee" * 16
+    st.create_only_pipeline_chain(old, {
+        "status": "in_progress", "work": "w", "chapter": 1,
+        "kind": "write", "phase": "draft",
+        "notes": ["fail_reasons:draft_len,draft_copy_play"],
+    })
+    mt: dict = {}
+    try:
+        rid = open_write_chain(st, mt, work="w", chapter=1, kind="write", phase="draft")
+        assert rid
+        assert rid != old
+        assert st.chains[old]["status"] == "failed"
+        hl = str(st.chains[old].get("headline") or "")
+        assert "字数不够" in hl or "抄了戏" in hl
+    finally:
+        reset_trace_buffer(None)

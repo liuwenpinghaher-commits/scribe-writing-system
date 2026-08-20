@@ -75,6 +75,21 @@ def playbook_note_out(span_id: str, *, name: str, body: str, summary: str) -> No
         return
 
 
+def playbook_note_reasons(reasons: list[str]) -> None:
+    """进行中就把没过的原因写在链上，避免卡片空白。"""
+    buf = current_trace_buffer()
+    if buf is None:
+        return
+    fr = [str(x) for x in (reasons or []) if x]
+    if not fr:
+        return
+    note = "fail_reasons:" + ",".join(fr)
+    if note not in buf.notes:
+        buf.notes.append(note)
+    labels = [label_playbook_fail(c) for c in fr]
+    buf.headline = "检查没过：" + "、".join(labels[:3])
+
+
 def playbook_note_gate(span_id: str, *, ok: bool, code: str = "", message: str = "") -> None:
     if not span_id:
         return
@@ -91,6 +106,37 @@ def playbook_note_gate(span_id: str, *, ok: bool, code: str = "", message: str =
         )
     except Exception:
         return
+
+
+def _close_stale_write_chains(
+    st: Any,
+    *,
+    chapter: int,
+    kind: str,
+    phase: str,
+    keep_id: str,
+) -> None:
+    lister = getattr(st, "list_pipeline_chains", None)
+    if not callable(lister):
+        return
+    rows = lister(chapter=int(chapter or 0), kind=kind, status="in_progress", limit=20) or []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("phase") or "") != str(phase or ""):
+            continue
+        old = str(row.get("trace_id") or "")
+        if not old or old == keep_id:
+            continue
+        fr: list[str] = []
+        for n in row.get("notes") or []:
+            s = str(n)
+            if s.startswith("fail_reasons:"):
+                fr = [p for p in s.split(":", 1)[1].split(",") if p]
+                break
+        if not fr:
+            fr = ["retry_replaced"]
+        finish_chain(st, trace_id=old, status="failed", extra={"fail_reasons": fr})
 
 
 def open_write_chain(
@@ -111,6 +157,13 @@ def open_write_chain(
         if not rid:
             rid = uuid.uuid4().hex
             manifest_trace["request_id"] = rid
+        try:
+            _close_stale_write_chains(
+                st, chapter=int(chapter or 0), kind=kind, phase=phase or "draft",
+                keep_id=rid,
+            )
+        except Exception:
+            pass
         start_chain(
             st, work=work, chapter=int(chapter or 0),
             kind=kind, phase=phase or "draft", trace_id=rid,

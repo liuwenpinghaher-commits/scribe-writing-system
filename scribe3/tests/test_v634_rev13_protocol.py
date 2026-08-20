@@ -44,8 +44,10 @@ def test_protocol_is_rev13_and_wave_c():
     assert "rev.13.2" in text
     assert "rev.13.3" in text
     assert "rev.13.4" in text
+    assert "rev.13.4.1" in text
     assert "D15" in text
     assert "syntax_tics" in text
+    assert "book_8777aad8" in text
     assert "冻稿正文" in text
     assert "定稿" in text
     assert "引号行字数比" in text

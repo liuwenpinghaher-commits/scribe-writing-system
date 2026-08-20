@@ -30,8 +30,8 @@ def test_two_narration_flips_block():
     assert "装腔" in hit["message"]
     assert "拆掉" not in hit["message"]
     draft = check_draft_struct(_draft(text), play_text=PLAY)
-    assert draft["ok"] is False
-    assert draft["code"] == "syntax_tics"
+    assert draft.get("code") != "syntax_tics"
+    assert draft.get("ok") is True
     final = check_final_last_mile(("他按回碎片，袖口发烫。" * 120) + text)
     assert final["ok"] is False
     assert final["code"] == "syntax_tics"
@@ -70,6 +70,35 @@ def test_sentence_rhythm_three_numbers():
     report = craft_diagnostic(text)
     assert report["blocking"] is False
     assert report["sentence_rhythm"]["short_bursts"] >= 1
+
+
+def test_draft_hint_combines_len_and_copy():
+    from scribe3.playbook.pipeline import COMBINED_LEN_COPY, draft_struct_hint
+    h = draft_struct_hint(["draft_len"], last_message="排演字数 1800 低于 2000")
+    assert "1800" in h
+    h2 = draft_struct_hint(["draft_len", "draft_copy_play"], last_message="糙稿与戏重复率 21%")
+    assert COMBINED_LEN_COPY == h2 or COMBINED_LEN_COPY in h2
+    assert "写够两千字" in h2
+    assert "不要原样搬" in h2
+    h3 = draft_struct_hint(
+        ["draft_len", "draft_copy_play"],
+        last_message="x",
+        tic_phrases=["不是慢慢冷，是抽", "不是往外走，是折回来"],
+    )
+    assert "写够两千字" in h3
+    assert "装腔" in h3
+    assert "不是慢慢冷" in h3
+
+
+def test_live_headline_shows_fail_reasons_while_running():
+    from scribe3.pipeline_trace_store import live_headline
+    h = live_headline({
+        "status": "in_progress",
+        "cursor_step_key": "playbook.struct",
+        "notes": ["fail_reasons:draft_len,draft_copy_play"],
+    })
+    assert "字数不够" in h
+    assert "抄了戏" in h
 
 
 def test_playbook_does_not_mount_voice_anchor():

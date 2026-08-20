@@ -3,10 +3,10 @@
 | 项 | 值 |
 |----|-----|
 | **文档标题** | 铜炉 Director 旅程验收协议 · 全面更新（全能力 · 真书 · 对话驱动+点批） |
-| **版本** | **v6.3.4 rev.13.4**（写章内核 play-contract 五层 + story-state 跨章连续性 + 叙事人称一致性 + 句子层装腔闸。**冻稿正文=定稿**；对白口径为引号行字数比。**WCG、SPA 不改**；总 PASS 维持 Wave C） |
+| **版本** | **v6.3.4 rev.13.4.1**（写章内核 play-contract 五层 + story-state 跨章连续性 + 叙事人称一致性 + 句子层装腔闸。**冻稿正文=定稿**；对白口径为引号行字数比。**WCG、SPA 不改**；总 PASS 维持 Wave C） |
 | **作者** | Grok Design（待人类审定） |
 | **日期** | 2026-08-20 |
-| **状态** | **Draft rev.13.4** · 写章验收按新五层冻结。本轮须**新 slug**（不 overlay `book_20bab124`）。宣称 / WCG / SPA **不改** |
+| **状态** | **Draft rev.13.4.1** · 写章验收按新五层冻结。本轮同 slug `book_8777aad8` 第一章。宣称 / WCG / SPA **不改** |
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` · 仓库 `/home/admin/projects/scribe-writing-system` |
 | **验收环境** | **仅 demo 已部署栈**（公网主入口 **`https://tonglu.qing.blue`**；`www.qing.blue` / `qing.blue` 301 → 主域） |
 | **禁止** | Grok 运行机全量 `npm ci` / 本机 Surreal / 第二验收栈 / 脚本灌章冒充体验 PASS |
@@ -42,10 +42,11 @@
 | **v6.3.4 rev.13.2** · 本文 | **人称一致进验收：** state.narrative_pov 确立与传承；C-Must 补人称行；对抗 D13–D14；Gate 0 三闸升四闸；state/duty 读端点入验收对账；窗口冻结硬化（git tag）。WCG / SPA / ShouldRate 0.80 **不改**。不追溯修旧书人称。 | **不替换** SPA 三通道与 WCG 脚本 |
 | **v6.3.4 rev.13.3** · 本文 | **保真精修：** C-Must「冻稿正文」澄清为定稿；对白行注明口径（引号行字数比）；state 锚句 final 后校正；契约 quote 禁编辑；run-card fail_reasons；冒烟书 slug 保留。WCG / SPA / ShouldRate 0.80 **不改**。 | **不替换** SPA 三通道与 WCG 脚本 |
 | **v6.3.4 rev.13.4** · 本文 | **句子层：** 叙述装腔闸 `syntax_tics`（≥2 处「不是 A 是 B」/毒句式才拦，对白不计）；节奏三个数字只记账；定稿法官改成念开头 + 有没有在使劲（仍八问）；playbook.3.2。**不改** 明喻 1/800、对白 15%、重复率 15%、WCG、SPA、ShouldRate 0.80。不 overlay `book_20bab124`。 | **不替换** SPA 三通道与 WCG 脚本 |
+| **v6.3.4 rev.13.4.1** · 本文 | **糙稿提示：** 字数不够与跟戏太像交替时合着说，门槛数字不动。装腔硬拦只留定稿，糙稿只点名原句。卡住的卡片写出原因，重发关掉上一张空白进行中。验收同 slug `book_8777aad8` 第一章。不 overlay `book_20bab124`。 | **不替换** SPA 三通道与 WCG 脚本 |
 
 **系统换代声明（rev.12 必读，rev.13 / rev.13.1 / rev.13.2 / rev.13.3 / rev.13.4 仍准）：** 2026-08-18 起，写章内核换成 play-contract。旧 `stage=outline/beats`、`chapter_spine` / `beats` / Fate / 水面 422 码 **全部作废**。拿 rev.11 条款去验收会误伤 410 或假绿。本文从本节起按新五层验收。
 
-**为何叫 v6.3.4 而非 v6.4：** 仍是 6.3 家族（对话驱动 · 记忆 · 真书），相对 6.3.3 是「补全能力矩阵 + 拉回 SPA 体验主路径」的修订号。仓库与结案字段钉 **v6.3.4**。rev.12 换写章验收内核；rev.13 **只加** Wave C 与开跑前置，**不改** WCG 门槛数字、SPA 三通道、ShouldRate 0.80。rev.13.1 **只加** 跨章连续性维度，**不改** rev.13 全部已有判据阈值。rev.13.2 **只加** 人称闸、对白硬闸、清洗器与读端点，**不改** 已有阈值、WCG、SPA。rev.13.3 **只加** 保真精修。rev.13.4 **只加** 句子层装腔闸与节奏记账，**不改** 已有数字门槛、WCG、SPA。**
+**为何叫 v6.3.4 而非 v6.4：** 仍是 6.3 家族（对话驱动 · 记忆 · 真书），相对 6.3.3 是「补全能力矩阵 + 拉回 SPA 体验主路径」的修订号。仓库与结案字段钉 **v6.3.4**。rev.12 换写章验收内核；rev.13 **只加** Wave C 与开跑前置，**不改** WCG 门槛数字、SPA 三通道、ShouldRate 0.80。rev.13.1 **只加** 跨章连续性维度，**不改** rev.13 全部已有判据阈值。rev.13.2 **只加** 人称闸、对白硬闸、清洗器与读端点，**不改** 已有阈值、WCG、SPA。rev.13.3 **只加** 保真精修。rev.13.4 **只加** 句子层装腔闸与节奏记账，**不改** 已有数字门槛、WCG、SPA。rev.13.4.1 **只改** 糙稿重写提示与装腔拦的层、卡片原因，**不改** 门槛数字。**
 
 ```text
 6.2 成功 ≈ 对话+点批 → 约 5 万可读好书 + 正典闭环
@@ -823,7 +824,7 @@ SSOT：`scribe3/qc_product_keys.py`。深链 `leftTab=review` 仍可达 IssueDir
 | D12 意象域断裂 | Should | S7 | API | duty 的意象域与 `intent.imagery` 冲突且无桥接意象 → duty 法官 fail |
 | D13 人称翻转 | Must | S7 | API | 前章 state 记 `third`，本章 draft 叙述层「我」≥10 且 >他÷3 → `pov_consistency` 闸拦，fail 原因含 `pov` |
 | D14 删像残渣 | Must | S7 | API | draft 含残渣模式（`不似乎`/`，又[烧冻碎压]`/三连叠字）→ 清洗后校验拦，该句回退局部重写，禁止机械删直接落库 |
-| D15 叙述装腔 | Must | S7 | API | 叙述层两处及以上「不是 A 是 B」或毒句式 → `syntax_tics` 闸拦；对白里同样句式不拦；一处不拦。定稿冻住后 `craft_diagnostic` 记下短句率/长句率/连击段数，`blocking=False` |
+| D15 叙述装腔 | Must | S7 | API | 定稿叙述层两处及以上「不是 A 是 B」或毒句式 → `syntax_tics` 硬拦；糙稿只点名原句不硬拦；对白里同样句式不拦；一处不拦。定稿冻住后 `craft_diagnostic` 记下短句率/长句率/连击段数，`blocking=False` |
 
 ---
 
@@ -1213,7 +1214,8 @@ Wave B
 | **v6.3.4 Draft rev.13.2** | 人称一致：state.narrative_pov、pov_consistency 闸、C-Must 人称行、D13；删像残渣校验 D14；state/duty 读端点对账；窗口硬冻结 tag；对白闸入链+override 留痕；playbook.3.1。**不改** rev.13/13.1 已有阈值、WCG、SPA、ShouldRate 0.80。不追溯修旧书人称。 |
 | **v6.3.4 Draft rev.13.3** | 保真精修：冻稿正文=定稿；对白口径=引号行字数比；state 锚句 final 后校正；契约 quote 禁编辑；run-card fail_reasons；冒烟书 slug 保留。**不改** 已有阈值、WCG、SPA、ShouldRate 0.80。 |
 | **v6.3.4 Draft rev.13.4** | 句子层：`syntax_tics`、节奏记账进证据、定稿法官念开头+在使劲、playbook.3.2。**不改** 1/800、对白 15%、重复率 15%、WCG、SPA、ShouldRate 0.80。不 overlay `book_20bab124`。 |
+| **v6.3.4 Draft rev.13.4.1** | 糙稿提示合写「写够 / 别搬戏」；装腔硬拦只留定稿；卡住卡片写出原因。验收 `book_8777aad8` 第一章。**不改** 门槛数字。不 overlay `book_20bab124`。 |
 
 ---
 
-*完 · rev.13.4。宇宙 SSOT：`docs/worlds/wanjie-probability-war-v7.md`。写章 SSOT：`scribe3/playbook/`（playbook.3.2）。旧验收书 slug 不 overlay。*
+*完 · rev.13.4.1。宇宙 SSOT：`docs/worlds/wanjie-probability-war-v7.md`。写章 SSOT：`scribe3/playbook/`（playbook.3.2）。旧验收书 slug 不 overlay。*

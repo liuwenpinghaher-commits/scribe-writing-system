@@ -30,6 +30,7 @@ from scribe3.playbook.stages import (
 from scribe3.pipeline_trace_hooks import (
     playbook_note_gate,
     playbook_note_out,
+    playbook_note_reasons,
     playbook_span_end,
     playbook_span_start,
 )
@@ -43,8 +44,34 @@ from scribe3.playbook.structural import (
     check_final_last_mile,
     check_final_struct,
     check_play_struct,
+    list_syntax_tics,
     realign_state_quotes,
 )
+
+COMBINED_LEN_COPY = (
+    "写够两千字；每句都是这场里新发生的动作和对白；"
+    "戏里连续的字不要原样搬进来凑。"
+)
+
+
+def draft_struct_hint(
+    seen_codes: list[str],
+    *,
+    last_message: str = "",
+    tic_phrases: list[str] | None = None,
+) -> str:
+    """糙稿重写提示：字数和搬戏交替时合着说；装腔只点名原句。"""
+    parts: list[str] = []
+    codes = [str(c) for c in seen_codes if c]
+    if "draft_len" in codes and "draft_copy_play" in codes:
+        parts.append(COMBINED_LEN_COPY)
+    elif str(last_message or "").strip():
+        parts.append(str(last_message).strip())
+    if tic_phrases:
+        quoted = "；".join(f"「{p[:40]}」" for p in tic_phrases[:4] if p)
+        if quoted:
+            parts.append(f"叙述里有几处在装腔：{quoted}。用他此刻正在做的事重写这些句子。")
+    return " ".join(parts)
 
 MAX_QUALITY_ROUNDS = 8
 _TABLE = {
@@ -145,6 +172,7 @@ def _quality_loop(
         if not last_struct.get("ok"):
             if code and code not in fail_reasons:
                 fail_reasons.append(code)
+            playbook_note_reasons(fail_reasons)
             quality += 1
             continue
         try:
@@ -186,6 +214,7 @@ def _quality_loop(
                 "rounds": quality + 1, "fail_reasons": fail_reasons,
             }
         if verdict.get("verdict") == "needs_human":
+            playbook_note_reasons(fail_reasons)
             return {
                 "ok": False,
                 "code": "needs_human",
@@ -200,6 +229,7 @@ def _quality_loop(
         quality += 1
     if last_struct.get("code") and str(last_struct.get("code")) not in fail_reasons:
         fail_reasons.append(str(last_struct.get("code")))
+    playbook_note_reasons(fail_reasons)
     return {
         "ok": False,
         "code": "needs_human",
@@ -451,17 +481,28 @@ def _run_draft(store, seq, ctx, llm_fn, *, force, persist):
     play_text = play.get("text") or ""
     exempt = tuple(q for q in (bite_q, hook_q) if q)
     hint = [""]
+    seen: list[str] = []
 
     def _draft_struct(d):
         prev = ctx.get("prev_state") or {}
+        text = d.get("text") if isinstance(d, dict) else str(d)
         hit = check_draft_struct(
-            d.get("text") if isinstance(d, dict) else str(d),
+            text,
             play_text=play_text,
             exempt_quotes=exempt,
             characters=_roster(ctx),
             expected_pov=(prev.get("narrative_pov") if int(seq) > 1 else None),
         )
-        hint[0] = "" if hit.get("ok") else str(hit.get("message") or hit.get("code") or "")
+        code = str(hit.get("code") or "") if not hit.get("ok") else ""
+        if code and code not in seen:
+            seen.append(code)
+        tics = list_syntax_tics(text)
+        phrases = [str(h.get("phrase") or "") for h in tics if h.get("phrase")]
+        hint[0] = draft_struct_hint(
+            seen,
+            last_message="" if hit.get("ok") else str(hit.get("message") or ""),
+            tic_phrases=phrases if len(tics) >= 2 else None,
+        )
         return hit
 
     result = _quality_loop(

@@ -519,6 +519,8 @@ PLAYBOOK_FAIL_LABEL = {
     "needs_human": "要人看",
     "play_empty": "戏是空的",
     "draft_empty": "糙稿是空的",
+    "syntax_tics": "装腔",
+    "retry_replaced": "上一笔没写完，重试了",
 }
 
 

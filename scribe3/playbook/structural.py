@@ -12,7 +12,7 @@
 - simile_density：明喻密度（draft/final 已有；对白内与豁免原句不计入）
 - pov_consistency：叙述人称沿用首章（剥对白后数「我」）
 - dialogue_floor：糙稿对白行字数比 ≥15%
-- syntax_tics：叙述层「不是A是B」/毒句式 ≥2 处拦住（对白不计；1 处不拦）
+- syntax_tics：叙述层「不是A是B」/毒句式 ≥2 处在定稿拦住（对白不计；糙稿只记账不硬拦）
 """
 from __future__ import annotations
 
@@ -567,9 +567,6 @@ def check_draft_struct(
     dlg = dialogue_ratio(text)
     if dlg < 0.15:
         return _fail("dialogue_floor", f"对白占比 {dlg:.1%} 低于 15%")
-    tics = check_syntax_tics(text)
-    if not tics.get("ok"):
-        return tics
     return _ok()
 
 
