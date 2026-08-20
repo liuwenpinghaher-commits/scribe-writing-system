@@ -100,8 +100,11 @@ def measure_chapter(store: Any, seq: int) -> dict[str, Any]:
     state_present = bool(this_state) and str(this_state.get("status") or "frozen") != "needs_human"
     state_quote_ok = True
     if this_state:
-        sq = check_chapter_state_struct(this_state, draft_text or prose)
+        src = prose.strip() and prose or draft_text
+        sq = check_chapter_state_struct(this_state, src)
         state_quote_ok = bool(sq.get("ok"))
+        if not state_quote_ok and prose and draft_text and src != draft_text:
+            state_quote_ok = bool(check_chapter_state_struct(this_state, draft_text).get("ok"))
     overdue = []
     for loop in (this_state.get("open_loops") or []) if isinstance(this_state, dict) else []:
         if not isinstance(loop, dict):

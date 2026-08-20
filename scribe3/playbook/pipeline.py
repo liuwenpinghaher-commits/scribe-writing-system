@@ -36,6 +36,7 @@ from scribe3.playbook.structural import (
     check_final_last_mile,
     check_final_struct,
     check_play_struct,
+    realign_state_quotes,
 )
 
 MAX_QUALITY_ROUNDS = 8
@@ -97,6 +98,7 @@ def _quality_loop(
     last_art: Any = None
     quality = 0
     infra_fails = 0
+    fail_reasons: list[str] = []
     while quality < MAX_QUALITY_ROUNDS:
         try:
             art = generate()
@@ -112,6 +114,9 @@ def _quality_loop(
         target = extract(art) if extract else art
         last_struct = struct(target)
         if not last_struct.get("ok"):
+            code = str(last_struct.get("code") or "")
+            if code and code not in fail_reasons:
+                fail_reasons.append(code)
             quality += 1
             _trace(None, {})  # no-op; caller traces
             continue
@@ -135,7 +140,10 @@ def _quality_loop(
         last_verdict = verdict
         last_sha = sha
         if verdict.get("verdict") == "pass":
-            return {"ok": True, "artifact": art, "review": verdict, "rounds": quality + 1}
+            return {
+                "ok": True, "artifact": art, "review": verdict,
+                "rounds": quality + 1, "fail_reasons": fail_reasons,
+            }
         if verdict.get("verdict") == "needs_human":
             return {
                 "ok": False,
@@ -146,8 +154,11 @@ def _quality_loop(
                 "review": verdict,
                 "artifact": last_art,
                 "rounds": quality + 1,
+                "fail_reasons": fail_reasons,
             }
         quality += 1
+    if last_struct.get("code") and str(last_struct.get("code")) not in fail_reasons:
+        fail_reasons.append(str(last_struct.get("code")))
     return {
         "ok": False,
         "code": "needs_human",
@@ -157,6 +168,7 @@ def _quality_loop(
         "review": last_verdict,
         "artifact": last_art,
         "rounds": quality,
+        "fail_reasons": fail_reasons,
     }
 
 
@@ -437,6 +449,12 @@ def _run_draft(store, seq, ctx, llm_fn, *, force, persist):
             llm_fn=llm_fn, ctx=ctx, persist=True,
             source_sha=str(draft_rec.get("sha") or play.get("sha") or ""),
         )
+        if state_out.get("ok"):
+            state_out = _realign_state_to_source(
+                store, seq, draft_text, state_out.get("artifact") or {},
+                llm_fn=llm_fn, ctx=ctx,
+                source_sha=str(draft_rec.get("sha") or play.get("sha") or ""),
+            )
         out["chapter_state"] = state_out.get("artifact")
         if not state_out.get("ok"):
             out["ok"] = False
@@ -495,20 +513,19 @@ def _run_final(store, seq, ctx, llm_fn, *, force, persist):
         prose = result["artifact"].get("text") if isinstance(result["artifact"], dict) else result["artifact"]
         if callable(persist_fn):
             persist_fn(seq, prose, play_sha=play.get("sha"), contract_sha=contract.get("sha"))
-        draft_text = draft.get("text") if isinstance(draft, dict) else str(draft or "")
-        if str(prose or "").strip() and str(prose or "").strip() != str(draft_text or "").strip():
-            from scribe3.playbook.envelope import artifact_sha
-            state_out = extract_chapter_state(
-                store, seq, str(prose or ""),
-                llm_fn=llm_fn, ctx=ctx, persist=True,
-                source_sha=artifact_sha({"text": prose, "seq": seq}),
-            )
-            result["chapter_state"] = state_out.get("artifact")
-            if not state_out.get("ok"):
-                result["ok"] = False
-                result["code"] = state_out.get("code") or "chapter_state_extract"
-                result["message"] = state_out.get("message") or "定稿后章末态没抽出"
-                result["blockers"] = state_out.get("blockers") or []
+        from scribe3.playbook.envelope import artifact_sha
+        frozen = store.get_frozen("chapter_state", seq) or {}
+        state_out = _realign_state_to_source(
+            store, seq, str(prose or ""), frozen,
+            llm_fn=llm_fn, ctx=ctx,
+            source_sha=artifact_sha({"text": prose, "seq": seq}),
+        )
+        result["chapter_state"] = state_out.get("artifact")
+        if not state_out.get("ok"):
+            result["ok"] = False
+            result["code"] = state_out.get("code") or "chapter_state_extract"
+            result["message"] = state_out.get("message") or "定稿后章末态没抽出"
+            result["blockers"] = state_out.get("blockers") or []
     if result.get("ok"):
         result["sha"] = play.get("sha")
         result["play"] = play
@@ -516,6 +533,48 @@ def _run_final(store, seq, ctx, llm_fn, *, force, persist):
     else:
         result["sha"] = play.get("sha")
     return result
+
+
+def _realign_state_to_source(
+    store,
+    seq: int,
+    source: str,
+    state: dict[str, Any],
+    *,
+    llm_fn: Callable,
+    ctx: dict[str, Any],
+    source_sha: str = "",
+) -> dict[str, Any]:
+    """定稿/清洗后：原句对不上的条用正文原位替换；还对不上再整份重抽。"""
+    aligned, misses = realign_state_quotes(state or {}, source)
+    if misses:
+        extracted = extract_chapter_state(
+            store, seq, source, llm_fn=llm_fn, ctx=ctx, persist=True, source_sha=source_sha,
+        )
+        if not extracted.get("ok"):
+            return extracted
+        aligned, misses = realign_state_quotes(extracted.get("artifact") or {}, source)
+        if misses:
+            return {
+                "ok": False,
+                "code": "state_quote",
+                "message": "定稿后原句对不上：" + ",".join(misses[:6]),
+                "artifact": aligned,
+            }
+    hit = check_chapter_state_struct(aligned, source)
+    if not hit.get("ok"):
+        return {"ok": False, "code": hit.get("code") or "state_quote", "message": hit.get("message"), "artifact": aligned}
+    try:
+        frozen = freeze_artifact(
+            store, "chapter_state", int(seq), aligned,
+            schema="chapter_state.v1",
+            source_sha=source_sha,
+            review=pass_review(),
+            rewrite=True,
+        )
+    except FrozenAssetError as exc:
+        return {"ok": False, "code": "frozen", "message": str(exc), "artifact": aligned}
+    return {"ok": True, "artifact": frozen}
 
 
 def extract_chapter_state(

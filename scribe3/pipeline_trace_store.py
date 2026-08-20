@@ -424,6 +424,7 @@ def publicize_chain_list_item(raw: dict) -> dict[str, Any]:
         "red_count": raw.get("red_count"),
         "outcome_status": raw.get("outcome_status"),
         "stuck": stuck or None,
+        "fail_reasons": raw.get("fail_reasons") or [],
     }
 
 

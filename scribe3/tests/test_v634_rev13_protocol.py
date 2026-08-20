@@ -41,6 +41,10 @@ def test_protocol_is_rev13_and_wave_c():
     assert "pov_consistency" in text
     assert "playbook.3.1" in text
     assert "rev.13.2" in text
+    assert "rev.13.3" in text
+    assert "冻稿正文" in text
+    assert "定稿" in text
+    assert "引号行字数比" in text
     assert "book_be4343e4" in text
     assert "GET /chapters/{seq}/state" in text
     assert "06-defect-ledger.md" in text

@@ -8,7 +8,7 @@
 
 | 项 | 值 |
 |----|-----|
-| **总 PASS 协议** | **v6.3.4 rev.13.2** · [`e2e-director-journey-v634-true-chat-full-capability.md`](./e2e-director-journey-v634-true-chat-full-capability.md)（写章内核 play-contract 五层 + playbook.3.1 人称/对白硬闸 + Wave C） |
+| **总 PASS 协议** | **v6.3.4 rev.13.3** · [`e2e-director-journey-v634-true-chat-full-capability.md`](./e2e-director-journey-v634-true-chat-full-capability.md)（写章内核 play-contract 五层 + playbook.3.1 + 定稿原句校正 + Wave C） |
 | **WCG SSOT** | `scripts/v4_world_complete_gate.py`（exit 0 / `pass=true`） |
 | **体验路径** | SPA 对话驱动 + 点批/工作台裁决；**禁止**脚本灌章 / EMERGENCY / fabric-off 刷绿冒充总 PASS |
 | **工程对照** | `scripts/v632_true_chat_journey.py` · v6.3.2 记忆子集 · v6.3.3 变更复验 → **≠** 体验总 PASS |

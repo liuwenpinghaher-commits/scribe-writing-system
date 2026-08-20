@@ -28,6 +28,37 @@ def test_quote_must_be_verbatim():
     assert quote_in_play("交出碎片换母亲生机", PLAY) is False
 
 
+def test_quote_slice_rejects_prefix_trim_and_punct_swap():
+    from scribe3.playbook.quote import quote_is_slice
+    play = "我希望你今晚睡着的时候，别再把碳条压在膝盖底下。"
+    assert quote_is_slice("我希望你今晚睡着的时候", play) is True
+    assert quote_is_slice("你今晚睡着的时候", play) is False
+    play2 = "一条路，留下数字，另一条路撕掉贴条。"
+    assert quote_is_slice("一条路。留下数字", play2) is False
+    hit = check_contract_struct(
+        {
+            "fields": {
+                "goal": {"text": "睡", "quote": "你今晚睡着的时候"},
+                "choice": {
+                    "text": "两难", "quote": "我希望你今晚睡着的时候",
+                    "side_a": {"text": "a", "quote": "我希望你今晚睡着的时候"},
+                    "side_b": {"text": "b", "quote": "别再把碳条压在膝盖底下"},
+                },
+                "decision": {"text": "走", "quote": "你今晚睡着的时候"},
+                "hook": {"text": "钩", "quote": "我希望你今晚睡着的时候"},
+            },
+            "beats": [
+                {"n": 1, "goal": {"text": "g", "quote": "我希望你今晚睡着的时候"}, "turn": {"text": "t", "quote": "别再把碳条压在膝盖底下"}, "stages_choice": True, "conflict": {"text": "c", "quote": "我希望你今晚睡着的时候"}},
+                {"n": 2, "goal": {"text": "g", "quote": "我希望你今晚睡着的时候"}, "turn": {"text": "t", "quote": "别再把碳条压在膝盖底下"}},
+                {"n": 3, "goal": {"text": "g", "quote": "我希望你今晚睡着的时候"}, "turn": {"text": "t", "quote": "别再把碳条压在膝盖底下"}},
+            ],
+        },
+        play,
+    )
+    assert hit["ok"] is False
+    assert hit["code"] in ("quote_edited", "quote_not_in_play")
+
+
 def test_norm_strips_punct_and_space_only():
     assert _norm("交 出 去，娘就有一线生机。") == _norm("交出去娘就有一线生机")
     assert quote_in_play("交出去，娘就有一线生机", "交出去娘就有一线生机") is True
@@ -211,9 +242,9 @@ def _pass_llm(kind_text: dict[str, str]):
                 "ore": ["掌心发烫", "药面热气", "门外呼吸"],
             }, ensure_ascii=False)
         if "打磨成正文" in prompt:
-            return "正文。" * 600
+            return ("「按回去。」沈烛说。\n正文正文正文正文。\n" * 120)
         if "糙稿" in prompt:
-            return "场面。" * 800
+            return ("「按回去。」沈烛说。\n场面场面场面场面场面场面。\n" * 120)
         return PLAY * 8
     return llm_fn
 

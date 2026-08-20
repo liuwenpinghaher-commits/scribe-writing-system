@@ -219,7 +219,14 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
         )
         from scribe3.stage_generate import _emit_fate_artifacts
         _emit_fate_artifacts(stage, out, dict(out or {}), {**(ch or {}), **(out or {})})
-        finish_ok(st, mt)
+        fr: list[str] = []
+        for x in out.get("fail_reasons") or []:
+            if x and str(x) not in fr:
+                fr.append(str(x))
+        stc = out.get("struct") if isinstance(out.get("struct"), dict) else {}
+        if stc.get("code") and not stc.get("ok") and str(stc.get("code")) not in fr:
+            fr.append(str(stc.get("code")))
+        finish_ok(st, mt, extra={"fail_reasons": fr} if fr else None)
     except RuntimeError as exc:
         try:
             finish_failed(st, mt, err=exc)

@@ -242,6 +242,7 @@ def summarize_verdict(rows: list[RunCardRow]) -> dict[str, Any]:
         "red": red,
         "unexpected_present": unexpected,
         "missing_required": missing,
+        "fail_reasons": [],
     }
 
 
@@ -679,6 +680,8 @@ def build_gate_run_card(
     q.setdefault("flags", [])
     q.setdefault("notes", [])
     summary = summarize_verdict(rows)
+    if isinstance(q.get("fail_reasons"), list) and q.get("fail_reasons"):
+        summary["fail_reasons"] = [str(x) for x in q["fail_reasons"] if x]
     rid = hashlib.sha256(
         f"{work}\0{kind}\0{request_id}\0{chapter}\0{created_ns or 0}".encode()
     ).hexdigest()[:24]

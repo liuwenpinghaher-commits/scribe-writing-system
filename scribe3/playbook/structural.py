@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from typing import Any  # store is duck-typed; finalize_gate is optional last mile
 
-from scribe3.playbook.quote import quote_in_play
+from scribe3.playbook.quote import quote_in_play, quote_is_slice, snap_quote
 from scribe3.playbook.schema import check_chapter_state_schema
 
 _LABEL_HEAD = re.compile(
@@ -134,7 +134,9 @@ def _need_quote(node: Any, play_text: str, field: str, *, required: bool) -> dic
         return _fail("quote_missing", f"{field} 缺 text/quote", field)
     if (text or quote) and not quote:
         return _fail("quote_missing", f"{field} 有 text 无 quote", field)
-    if quote and not quote_in_play(quote, play_text):
+    if quote and not quote_is_slice(quote, play_text):
+        if quote_in_play(quote, play_text):
+            return _fail("quote_edited", f"{field} 的 quote 改过字（裁了前缀或动了标点）", field)
         return _fail("quote_not_in_play", f"{field} 的 quote 不在戏里", field)
     return None
 
@@ -193,8 +195,9 @@ def check_contract_struct(
         if ids and lid and lid not in ids:
             return _fail("line_unknown", f"编了不存在的线: {lid}", f"lines_touched[{i}]")
         q = str(line.get("quote") or "")
-        if q and not quote_in_play(q, play_text):
-            return _fail("quote_not_in_play", "线的 quote 不在戏里", f"lines_touched[{i}]")
+        if q and not quote_is_slice(q, play_text):
+            code = "quote_edited" if quote_in_play(q, play_text) else "quote_not_in_play"
+            return _fail(code, "线的 quote 不在戏里或改过字", f"lines_touched[{i}]")
     clock = contract.get("clock")
     if isinstance(clock, dict) and clock:
         span = clock.get("span")
@@ -451,6 +454,29 @@ def check_chapter_state_struct(state: dict[str, Any], source_text: str) -> dict[
         if q and not quote_in_play(q, src):
             return _fail("state_quote", f"objects[{i}] 的 quote 不在正文里", f"objects[{i}].quote")
     return _ok()
+
+
+def realign_state_quotes(state: dict[str, Any], source: str) -> tuple[dict[str, Any], list[str]]:
+    """把人物/物件 quote 对回 source 的字面切片。对不上的路径进 misses。"""
+    import copy
+
+    out = copy.deepcopy(state) if isinstance(state, dict) else {}
+    misses: list[str] = []
+    src = source or ""
+    for kind in ("characters", "objects"):
+        rows = out.get(kind) if isinstance(out.get(kind), list) else []
+        for i, row in enumerate(rows):
+            if not isinstance(row, dict):
+                continue
+            q = str(row.get("quote") or "").strip()
+            if not q:
+                continue
+            snapped = snap_quote(q, src)
+            if snapped and quote_in_play(snapped, src):
+                row["quote"] = snapped
+            else:
+                misses.append(f"{kind}[{i}].quote")
+    return out, misses
 
 
 def _meta_chapter_fail(text: str) -> dict[str, Any] | None:

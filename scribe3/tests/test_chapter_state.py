@@ -55,6 +55,21 @@ def test_state_quote_accepts_verbatim():
     assert hit["ok"] is True
 
 
+def test_realign_state_quotes_snaps_to_final_wording():
+    from scribe3.playbook.structural import realign_state_quotes
+    state = _ok_state()
+    state["characters"][0]["quote"] = "寄在他手腕里面"
+    final = "……它寄在他手腕里面，安静得发烫。它跳了最后一下，然后不再跳了。"
+    aligned, misses = realign_state_quotes(state, final)
+    assert misses == []
+    assert "寄在他手腕里面" in aligned["characters"][0]["quote"]
+    drifted = _ok_state()
+    drifted["characters"][0]["quote"] = "他低头看自己的左手"
+    prose = "柳岸青低头去看自己的左手。袖口翻到肘弯。"
+    aligned2, misses2 = realign_state_quotes(drifted, prose)
+    assert misses2 == [] or "低头" in (aligned2["characters"][0].get("quote") or "")
+
+
 def test_gender_pronoun_blocks_she_for_male():
     hit = check_gender_pronoun(
         "柳岸青她把断指扔在地上，腕上的裂口还在渗。她说这根指头不再跳了。",

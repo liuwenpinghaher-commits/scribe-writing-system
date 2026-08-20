@@ -359,14 +359,12 @@ def note_llm_output(text: str | None) -> None:
         pass
 
 
-def finish_ok(st: Any, manifest_trace: dict | None, *, outcome=None) -> None:
+def finish_ok(st: Any, manifest_trace: dict | None, *, outcome=None, extra: dict | None = None) -> None:
     rid = str((manifest_trace or {}).get("request_id") or "")
-    extra = {}
+    extra = dict(extra or {})
     if outcome is not None:
-        extra = {
-            "outcome_id": getattr(outcome, "outcome_id", None) or (outcome.get("outcome_id") if isinstance(outcome, dict) else None),
-            "outcome_status": getattr(outcome, "status", None) or (outcome.get("status") if isinstance(outcome, dict) else None),
-        }
+        extra["outcome_id"] = getattr(outcome, "outcome_id", None) or (outcome.get("outcome_id") if isinstance(outcome, dict) else None)
+        extra["outcome_status"] = getattr(outcome, "status", None) or (outcome.get("status") if isinstance(outcome, dict) else None)
         buf = buffer_for(rid)
         if buf:
             sid = buf.span_id_for("llm.generate")
@@ -376,8 +374,14 @@ def finish_ok(st: Any, manifest_trace: dict | None, *, outcome=None) -> None:
                 except Exception:
                     pass
             oid = buf.start_span("persist.outcome")
-            buf.end_span(oid, status="ok", links=extra)
-    finish_chain(st, trace_id=rid or None, status="ok", extra=extra)
+            buf.end_span(oid, status="ok", links={k: extra.get(k) for k in ("outcome_id", "outcome_status") if k in extra})
+    fr = extra.get("fail_reasons") if isinstance(extra.get("fail_reasons"), list) else []
+    buf = buffer_for(rid)
+    if buf is not None and fr:
+        note = "fail_reasons:" + ",".join(str(x) for x in fr if x)
+        if note not in buf.notes:
+            buf.notes.append(note)
+    finish_chain(st, trace_id=rid or None, status="ok", extra=extra or None)
 
 
 def finish_failed(st: Any, manifest_trace: dict | None, err: BaseException | None = None) -> None:
