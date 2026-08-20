@@ -338,7 +338,7 @@ def run_live(*, n_chapters: int = 1, title: str | None = None, slug: str | None 
     cookie = login()
     if not slug:
         title = title or (
-            "万界概率战争·v6.3.4rev13·" +
+            "万界概率战争·v6.3.4rev13.2·" +
             ("冒烟" if n_chapters == 1 else "三章验收") + "·" +
             datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
         )
@@ -387,6 +387,8 @@ def run_live(*, n_chapters: int = 1, title: str | None = None, slug: str | None 
         state_hit = check_chapter_state_struct(state, draft_text) if state else {
             "ok": False, "code": "no_chapter_state",
         }
+        sc, state_api = http(cookie, "GET", f"/chapters/{seq}/state?work={slug}")
+        dc, duty_api = http(cookie, "GET", f"/chapters/{seq}/duty?work={slug}")
         verify.append({
             "seq": seq,
             "play_n": len(play.get("text") or ""),
@@ -397,6 +399,8 @@ def run_live(*, n_chapters: int = 1, title: str | None = None, slug: str | None 
             "metrics": metrics,
             "state_ok": bool(state) and bool(state_hit.get("ok")),
             "state_detail": state_hit.get("code") or ("ok" if state else "missing"),
+            "state_api": sc,
+            "duty_api": dc,
             "state": {
                 "seq": state.get("seq"),
                 "sha": state.get("sha"),
@@ -421,8 +425,15 @@ def run_live(*, n_chapters: int = 1, title: str | None = None, slug: str | None 
         and (v.get("metrics") or {}).get("boundary_hits", 1) == 0
         for v in verify
     ) and bool(verify)
+    povs = [str((v.get("state") or {}).get("narrative_pov") or (v.get("metrics") or {}).get("narrative_pov") or "") for v in verify]
+    pov_consistent = (not povs) or (n_chapters == 1) or (len({p for p in povs if p in ("first", "third")}) <= 1)
+    api_ok = all(int(v.get("state_api") or 0) == 200 and int(v.get("duty_api") or 0) == 200 for v in verify) if n_chapters > 1 else True
+    batch_ok = all((v.get("metrics") or {}).get("ok") for v in verify) and pov_consistent and api_ok
     return {
-        "ok": all_ok and (gate0 if n_chapters == 1 else all((v.get("metrics") or {}).get("ok") for v in verify)),
+        "ok": all_ok and (gate0 if n_chapters == 1 else batch_ok),
+        "pov_consistent": pov_consistent,
+        "povs": povs,
+        "state_api_ok": api_ok,
         "slug": slug,
         "title": title,
         "fingerprint": fp,

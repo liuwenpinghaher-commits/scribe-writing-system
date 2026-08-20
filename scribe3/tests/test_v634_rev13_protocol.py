@@ -37,9 +37,14 @@ def test_protocol_is_rev13_and_wave_c():
     assert "D11 悬念超期" in text
     assert "D12 意象域断裂" in text
     assert "D13" in text
+    assert "D14" in text
     assert "pov_consistency" in text
     assert "playbook.3.1" in text
     assert "rev.13.2" in text
+    assert "book_be4343e4" in text
+    assert "GET /chapters/{seq}/state" in text
+    assert "06-defect-ledger.md" in text
+    assert "叙事人称跨章一致" in text
     assert "08-chapter-states.md" in text
     assert "09-state-reconciliation.md" in text
     assert "backfill=true" in text
@@ -70,6 +75,7 @@ def test_gate0_imports_continuity_adversaries():
     assert rows["d13_draft_pov"][0] is True
     assert rows["dialogue_floor_gate"][0] is True
     assert rows["thin_unlike_is"][0] is True
+    assert rows["d14_residue"][0] is True
 
 
 def test_playbook2_and_d1_code_is_draft_copy_play():

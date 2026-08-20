@@ -9,9 +9,12 @@ from scribe3.playbook.structural import (
     _plain,
     check_chapter_state_struct,
     check_gender_pronoun,
+    check_pov_consistency,
+    detect_narrative_pov,
     dialogue_ratio,
     draft_play_overlap,
     metaphor_per_800,
+    residue_hits,
 )
 
 _BOUNDARY = re.compile(r"上一章|这一章|下一章|前一章|前章|本章")
@@ -72,6 +75,11 @@ def measure_chapter(store: Any, seq: int) -> dict[str, Any]:
             roster.append({"name": ch["name"], "gender": ch["gender"]})
     gp = check_gender_pronoun(prose, roster)
     gender_ok = bool(gp.get("ok"))
+    expected_pov = str((prev_state or {}).get("narrative_pov") or "").strip()
+    pov_hit = check_pov_consistency(draft_text or prose, expected_pov if seq > 1 else None)
+    pov_ok = bool(pov_hit.get("ok"))
+    detected_pov = detect_narrative_pov(draft_text or prose)
+    residues = residue_hits(draft_text or prose)
     due_open = []
     this_loops = {
         str(x.get("text") or "")
@@ -116,6 +124,7 @@ def measure_chapter(store: Any, seq: int) -> dict[str, Any]:
         and bool(play_text)
         and bool(draft_text)
         and gender_ok
+        and pov_ok
         and loops_ok
         and (not this_state or (state_present and state_quote_ok))
     )
@@ -133,6 +142,10 @@ def measure_chapter(store: Any, seq: int) -> dict[str, Any]:
         "play_chars": len(_plain(play_text)),
         "prose_chars": len(_plain(prose)),
         "gender_ok": gender_ok,
+        "pov_ok": pov_ok,
+        "narrative_pov": detected_pov,
+        "expected_pov": expected_pov or "",
+        "residue_hits": residues[:8],
         "due_loops_open": len(due_open),
         "overdue_loops": len(overdue),
         "state_present": state_present,

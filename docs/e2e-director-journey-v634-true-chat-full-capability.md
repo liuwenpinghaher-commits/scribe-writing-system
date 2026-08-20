@@ -3,7 +3,7 @@
 | 项 | 值 |
 |----|-----|
 | **文档标题** | 铜炉 Director 旅程验收协议 · 全面更新（全能力 · 真书 · 对话驱动+点批） |
-| **版本** | **v6.3.4 rev.13.2**（写章内核 play-contract 五层 + story-state 跨章连续性（章末态产物 + open_loops 账期 + 代词/人称/明喻/对白机器闸）。**WCG、SPA 不改**；总 PASS 加 Wave C） |
+| **版本** | **v6.3.4 rev.13.2**（写章内核 play-contract 五层 + story-state 跨章连续性 + **叙事人称一致性**（state.narrative_pov + pov_consistency 闸）+ **观测补齐**（state/duty 读端点、对白闸入链、窗口硬冻结）。**WCG、SPA 不改**；总 PASS 维持 Wave C） |
 | **作者** | Grok Design（待人类审定） |
 | **日期** | 2026-08-20 |
 | **状态** | **Draft rev.13.2** · 写章验收按新五层冻结。本轮须**新 slug**。宣称 / WCG / SPA **不改** |
@@ -39,7 +39,7 @@
 | **v6.3.4 rev.12** · 本文 | **吸收 play-contract 系统换代：** 旧写章五层（outline/beats/deductions/scene_truth/draft）与 Fate/水面闸全部删除；OpSeq、冰山表、Ice/Fate 矩阵行、KD-25/26 重写。当时总 PASS 公式、WCG、SPA、宣称不改。 | **不替换** SPA 三通道与 WCG 脚本 |
 | **v6.3.4 rev.13** · 本文 | **协议优化：** 收尾 rev.12 漏改；Gate 0 部署冒烟；窗口版本冻结；traces×冻结对账；产物质量 Wave C 进总 PASS；playbook.2 对抗用例。WCG / SPA / ShouldRate 0.80 **不改**。 | **不替换** SPA 三通道与 WCG 脚本 |
 | **v6.3.4 rev.13.1** · 本文 | **跨章连续性进验收：** 章末态（`chapter_state`）入新五层验收锚；Wave C 补连续性四判据；对抗用例 D9–D12；playbook.3 指针。WCG / SPA / ShouldRate 0.80 **不改**。 | **不替换** SPA 三通道与 WCG 脚本 |
-| **v6.3.4 rev.13.2** · 本文 | **playbook.3.1 增量：** 人称闸 `pov_consistency`；清洗器否定前缀+残渣回退；state/duty 读端点；对白占比入硬闸 `dialogue_floor`；Gate 0 git tag 硬冻结；traces 卡死时长基准。WCG / SPA / ShouldRate 0.80 **不改**。不追溯修旧书人称。 | **不替换** SPA 三通道与 WCG 脚本 |
+| **v6.3.4 rev.13.2** · 本文 | **人称一致进验收：** state.narrative_pov 确立与传承；C-Must 补人称行；对抗 D13–D14；Gate 0 三闸升四闸；state/duty 读端点入验收对账；窗口冻结硬化（git tag）。WCG / SPA / ShouldRate 0.80 **不改**。不追溯修旧书人称。 | **不替换** SPA 三通道与 WCG 脚本 |
 
 **系统换代声明（rev.12 必读，rev.13 / rev.13.1 / rev.13.2 仍准）：** 2026-08-18 起，写章内核换成 play-contract。旧 `stage=outline/beats`、`chapter_spine` / `beats` / Fate / 水面 422 码 **全部作废**。拿 rev.11 条款去验收会误伤 410 或假绿。本文从本节起按新五层验收。
 
@@ -326,14 +326,14 @@
 - 法官 verdict ∈ {pass, fail}（不得默认盖章）  
 - draft–play 8 字重复率 ≤15%（钩子豁免）  
 - 正文无章边界词（上一章/这一章/下一章/本章）
-- **chapter_state 产物生成** ∧ 每条 quote 保真 ∧ `gender_pronoun` / `state_quote` / `simile_density` / `pov_consistency` / `dialogue_floor` 闸在岗（各注入一次对抗样本断言拦截，含 D13 人称翻转）。冒烟书的 state 归档进 `00-smoke-result.md`
-- **硬冻结：** 冒烟 PASS 后打 `git tag gate0-YYYYMMDD`。跑批（三章）启动须 `HEAD` 对上该 tag（容器内用 `SCRIBE3_GATE0_SHA`），否则拒跑。窗口内检测到新提交 → 本批次作废。
+- **chapter_state 产物生成** ∧ 每条 quote 保真 ∧ `gender_pronoun` / `state_quote` / `simile_density` / `pov_consistency` **四闸**在岗（各注入一次对抗样本断言拦截，含 D13 人称翻转、D14 删像残渣）。冒烟书的 state 归档进 `00-smoke-result.md`
+- **硬冻结：** Gate 0 PASS 后立即 `git tag gate0-YYYYMMDD`；跑批启动脚本校验 `HEAD==tag` 否则拒跑（容器内用 `SCRIBE3_GATE0_SHA`）。窗口内检测到新提交 → 该批次标「作废」，协议免责。连续三批跨版本混账（rev.12 热修窗、playbook.3 双进程、本批进程 A/B 横跨）后此项由纪律升级为工具强制。
 
 **Gate 0 不过，验收不许开跑。** 产物归档为证据包 `00-smoke-result.md`。部署入口级 `--mode imports` 可作热更钩子，**不能**替代本条 live 全链。
 
 ### 会话铁律
 
-0. **窗口版本冻结。** 开跑时记录后端指纹：`GET /health` 的 `changefeed.started_at`（或等价）+ 部署 commit。**窗口内任何热修/重启 → 已跑章节全部作废，从热修后重跑。** 禁止边修边跑边认账。  
+0. **窗口版本冻结。** 开跑时记录后端指纹：`GET /health` 的 `changefeed.started_at`（或等价）+ 部署 commit。**窗口内任何热修/重启 → 已跑章节全部作废，从热修后重跑。** 禁止边修边跑边认账。Gate 0 PASS 后立即 `git tag gate0-YYYYMMDD`；跑批启动脚本校验 `HEAD==tag` 否则拒跑。窗口内新提交 → 该批次标「作废」，协议免责。连续三批跨版本混账后此项由纪律升级为工具强制。  
 1. `GET /api/chat/threads?work=<slug>` 有线程；建议作者可见轮次 **≥60** 或覆盖阶段清单（开书/设定/结构/每章开写/探针/中程/改稿）。**数量不是充分条件**——禁止闲聊垫数。  
 2. **硬门（主编线）：每章定稿章（1–5）≥1 条「开写」user message**，thread 导出可对 **seq / 时间戳**；缺任一章 → **主编线 FAIL**。  
 3. 正典落库须可追溯到 **chat 原文或 UI 种子**（world_write 审批或 ChangePack `source=discussion` 等）；禁止无追溯 ops。  
@@ -514,21 +514,21 @@ Wave C ⇔ C-Must（机器可测，全过）∧ C-人评（三身份通读，无
 
 #### C-Must（机器，全过才算）
 
-| 指标 | 判据 | book_7331087b 基线 | book_3b6d91bd 基线 |
-|------|------|--------------------|--------------------|
-| play→draft 8 字重复率 | 每章 ≤15%（hook 承接段豁免） | 23% / 57% / 98.92% | 15.04% / 2.69% / 5.76% |
-| 章边界词入正文 | 0 处 | 4 处 | — |
-| contract.fields.cost 非空 | 每章非空 | 0/3 | — |
-| stages_choice 拍 conflict | 每章非空 | 0/3 | — |
-| 第二有意志在场者 | 每章 ≥1（duty 卡 who≥2） | 0/3 | — |
-| 对白占比 | 每章 ≥15%（引号行字数比）。已由系统闸 `dialogue_floor` 硬拦（draft 落库）；场景豁免只走人工留痕，闸不猜「这一章该不该少说话」 | 0–8% | — |
-| 明喻密度 | ≤1 个/800 字（1/800）。已由系统闸 `simile_density` 硬拦（draft/final 落库）；本行作为协议兜底复测 | ~1/160 字 | 1/96～1/206 |
-| draft 字数 | ≥2000（防压缩式伪 draft） | ch2 曾压缩 | — |
-| 主角代词跨章一致 | 每章 `gender_pronoun` 闸零冲突（角色名±30 字窗口代词与 `state.characters[].gender` 一致率 100%） | — | ch3 翻转：他×101→她×64 |
-| 人称一致 | 第2章起叙述人称与首章 `narrative_pov` 一致（机器闸 `pov_consistency`；剥对白后数「我」。判定不进法官） | — | ch2 翻成第一人称 |
-| 关键物件位置连续 | 相邻章 `chapter_state` 对账零矛盾（同名物件 `objects[].location`/`state` 跳变须有本章新锚句） | — | 断指 ch2 末腕内 → ch3 开篇地上 |
-| 到期 open_loops 回响 | `state.open_loops` 中 `due_seq` ≤ 本章的条目不得仍挂在本章清单（回响后从清单删掉） | — | 锁扣钩子 ch2 零回响；「没有门」ch3 零交代 |
-| chapter_state 产物存在且保真 | 每章 frozen ∧ 每条人物/物件 quote ∈ 冻稿正文（机器闸 `state_quote`） | 产物类型尚不存在 | 产物类型尚不存在 |
+| 指标 | 判据 | book_7331087b 基线 | book_3b6d91bd 基线 | book_be4343e4 基线 |
+|------|------|--------------------|--------------------|---------------------|
+| play→draft 8 字重复率 | 每章 ≤15%（hook 承接段豁免） | 23% / 57% / 98.92% | 15.04% / 2.69% / 5.76% | 15.0% / 8.7% / 11.2% |
+| 章边界词入正文 | 0 处 | 4 处 | — | 0 |
+| contract.fields.cost 非空 | 每章非空 | 0/3 | — | — |
+| stages_choice 拍 conflict | 每章非空 | 0/3 | — | — |
+| 第二有意志在场者 | 每章 ≥1（duty 卡 who≥2） | 0/3 | — | — |
+| 对白占比 | 每章 ≥15%（引号行字数比）。由 `dialogue_floor` 硬闸执行（playbook.3.1 入链）；孤场景低对话走人工 override，override 记录进 `06-defect-ledger.md`。闸不猜「这一章该不该少说话」 | 0–8% | — | 8% / 20% / 19%（ch1 未愈） |
+| 明喻密度 | ≤1 个/800 字（1/800）。已由系统闸 `simile_density` 硬拦（draft/final 落库）；本行作为协议兜底复测 | ~1/160 字 | 1/96～1/206 | 0 / 0 / 0 |
+| draft 字数 | ≥2000（防压缩式伪 draft） | ch2 曾压缩 | — | — |
+| 主角代词跨章一致 | 每章 `gender_pronoun` 闸零冲突（角色名±30 字窗口代词与 `state.characters[].gender` 一致率 100%） | — | ch3 翻转：他×101→她×64 | 他×97 她×0 |
+| 叙事人称跨章一致 | 每章 `pov_consistency` 闸零冲突（剥对白后叙述层「我」密度与 `state.narrative_pov` 一致；ch1 确立、后续章传承）。判定不进法官 | — | ch2 翻成第一人称 | **人称 ch1 三→ch2 一→ch3 三（翻转实证）**；ch2 我×45 叙述层 |
+| 关键物件位置连续 | 相邻章 `chapter_state` 对账零矛盾（同名物件 `objects[].location`/`state` 跳变须有本章新锚句） | — | 断指 ch2 末腕内 → ch3 开篇地上 | 承接链零断点 |
+| 到期 open_loops 回响 | `state.open_loops` 中 `due_seq` ≤ 本章的条目不得仍挂在本章清单（回响后从清单删掉） | — | 锁扣钩子 ch2 零回响；「没有门」ch3 零交代 | — |
+| chapter_state 产物存在且保真 | 每章 frozen ∧ 每条人物/物件 quote ∈ 冻稿正文（机器闸 `state_quote`） | 产物类型尚不存在 | 产物类型尚不存在 | 有产物；须经 `GET /chapters/{seq}/state` 直读归档 |
 
 测量必须调用已上线函数（`draft_play_overlap` / `scan_anti_meta` / 契约字段 / `check_gender_pronoun` / `check_chapter_state_struct` / `check_pov_consistency` / `dialogue_ratio`），禁止另写一套对照实现。cost 非空是**验收尺子**，不改系统 schema（戏里没写仍可留空；play 层纪律须先写出可引用的付账场面）。
 
@@ -818,7 +818,8 @@ SSOT：`scribe3/qc_product_keys.py`。深链 `leftTab=review` 仍可达 IssueDir
 | D10 状态造假 | Must | S7 | API | 提交带虚构 quote（不在冻稿正文）的 chapter_state → `state_quote` 保真闸拦 |
 | D11 悬念超期 | Should | S7 | API | open_loop `due_seq` 到期未回响（仍挂在本章 open_loops）→ play 法官 fail 或 run-card 警告 |
 | D12 意象域断裂 | Should | S7 | API | duty 的意象域与 `intent.imagery` 冲突且无桥接意象 → duty 法官 fail |
-| D13 人称翻转 | Must | S7 | API | 第1章三人称确立后，第2章糙稿叙述层翻成「我」→ `pov_consistency` 闸拦，fail 原因含 pov |
+| D13 人称翻转 | Must | S7 | API | 前章 state 记 `third`，本章 draft 叙述层「我」≥10 且 >他÷3 → `pov_consistency` 闸拦，fail 原因含 `pov` |
+| D14 删像残渣 | Must | S7 | API | draft 含残渣模式（`不似乎`/`，又[烧冻碎压]`/三连叠字）→ 清洗后校验拦，该句回退局部重写，禁止机械删直接落库 |
 
 ---
 
@@ -858,7 +859,7 @@ docs/evidence/v634-true-chat-<YYYYMMDD>-<slug>/
 | `00-smoke-result.md` | Gate 0 | live 冒烟输出；不过则不许开跑。须含冒烟书 chapter_state 全文 |
 | `07-trace-reconciliation.md` | 每章 | 每层：trace 状态 × 冻结产物 × 法官 verdict（流程对账） |
 | `08-wordcount-rollup.md` | 结案 | |
-| `08-chapter-states.md` | 执行者 | 三章 state 产物全文归档（含 quote 锚句）——连续性的审计依据 |
+| `08-chapter-states.md` | 执行者 | 三章 state 产物全文归档（含 quote 锚句）——连续性的审计依据。**state 须经 API 端点直读（GET /chapters/{seq}/state）归档，禁止 DB 直查替代——端点缺失本身即验收阻断项（观测面完整性进验收）** |
 | `09-state-reconciliation.md` | 执行者 | 相邻章 state 对账表（每对相邻章一节：characters/objects/open_loops 逐项 一致/变化/新增/关闭）——事实对账，与 B3 traces 对账表同构 |
 | `09-final-closure.md` | 结案 | 四问+总裁决 |
 | `11-canon-loop-chat.json` | 审计 | |
@@ -1205,7 +1206,7 @@ Wave B
 | **v6.3.4 Draft rev.12.1** | 漏改收口：Drm1、第 1 章契约金样、万界宇宙字段、白名单/记录仪措辞。 |
 | **v6.3.4 Draft rev.13** | Gate 0 冒烟；窗口版本冻结；traces×冻结对账；Wave C 产物质量进总 PASS；playbook.2 对抗 D1–D8。WCG / SPA / ShouldRate 0.80 不改。 |
 | **v6.3.4 Draft rev.13.1** | 跨章连续性：`chapter_state` 验收锚；C-Must 四行；C-人评连续性回读；D9–D12；Gate 0 三闸对抗；证据 08/09 状态对账；playbook.3。**不改** rev.13 已有阈值、WCG、SPA、ShouldRate 0.80。 |
-| **v6.3.4 Draft rev.13.2** | playbook.3.1：人称闸 `pov_consistency`；D13 对抗；对白硬闸 `dialogue_floor`；清洗器否定前缀+残渣回退；state/duty 读端点；Gate 0 git tag 硬冻结；traces 卡死时长。**不改** 已有阈值、WCG、SPA、ShouldRate 0.80。不追溯修旧书人称。 |
+| **v6.3.4 Draft rev.13.2** | 人称一致：state.narrative_pov、pov_consistency 闸、C-Must 人称行、D13；删像残渣校验 D14；state/duty 读端点对账；窗口硬冻结 tag；对白闸入链+override 留痕；playbook.3.1。**不改** rev.13/13.1 已有阈值、WCG、SPA、ShouldRate 0.80。不追溯修旧书人称。 |
 
 ---
 

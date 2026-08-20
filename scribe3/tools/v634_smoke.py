@@ -133,6 +133,13 @@ def smoke_imports() -> list[tuple[str, bool, str]]:
         )
         cleaned = thin_metaphors("那温度不像是他自己的了。袖口发烫。" * 120)
         add("thin_unlike_is", "不似乎" not in cleaned and "不似" in cleaned, cleaned[40:80])
+        from scribe3.playbook.structural import residue_hits
+        rolled = thin_metaphors("它裂开，像又烧过的骨片。袖口发烫。" * 120)
+        add(
+            "d14_residue",
+            "不似乎" not in rolled and "像又烧过" in rolled and bool(residue_hits("裂开，又烧过的骨片。")),
+            rolled[20:80],
+        )
     except Exception as e:
         add("playbook31_gates", False, type(e).__name__)
 
@@ -168,11 +175,18 @@ def smoke_live(n_chapters: int = 1, slug: str | None = None, title: str | None =
         ))
         if n_chapters > 1:
             rows.append((f"ch{v.get('seq')}_cmust", bool(m.get("ok")), json.dumps(m, ensure_ascii=False)[:240]))
+            rows.append((f"ch{v.get('seq')}_pov", bool(m.get("pov_ok", True)), str(m.get("narrative_pov") or "")))
+            rows.append((f"ch{v.get('seq')}_state_api", int(v.get("state_api") or 0) == 200, str(v.get("state_api"))))
+            res = [x for x in (m.get("residue_hits") or []) if x == "不似乎" or str(x).startswith("，又")]
+            rows.append((f"ch{v.get('seq')}_residue", not res, str(res)))
         rows.append((
             f"ch{v.get('seq')}_state",
             bool(v.get("state_ok")),
             str(v.get("state_detail") or ""),
         ))
+    if n_chapters > 1:
+        rows.append(("pov_cross_chapter", bool(rep.get("pov_consistent", True)), str(rep.get("povs"))))
+        rows.append(("state_api_ok", bool(rep.get("state_api_ok", True)), ""))
     # persist report next to caller if requested
     out = os.environ.get("V634_LIVE_REPORT")
     if out:
