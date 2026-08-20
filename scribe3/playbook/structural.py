@@ -10,6 +10,8 @@
 - gender_pronoun：上章末态/户口有性别的角色，正文名旁代词不得翻转
 - state_quote：章末态每条人物/物件 quote 必须字面存在于冻稿
 - simile_density：明喻密度（draft/final 已有；对白内与豁免原句不计入）
+- pov_consistency：叙述人称沿用首章（剥对白后数「我」）
+- dialogue_floor：糙稿对白行字数比 ≥15%
 """
 from __future__ import annotations
 
@@ -26,6 +28,11 @@ _METAPHOR = re.compile(r"像|仿佛|似的")
 _DIALOGUE = re.compile(r"[「『“\"].*?[」』”\"]", re.DOTALL)
 _HE = re.compile(r"(?<![其])他(?![们人处日乡后])")
 _SHE = re.compile(r"她(?![们])")
+_QUOTE_LINE = re.compile(r"[「」『』“”\"']")
+_STRAIGHT_Q = re.compile(r'"[^"]*"|\'[^\']*\'')
+_NEG_LIKE = re.compile(r"并不像是|并不像|不像是|不像似|不像")
+_RESIDUE = re.compile(r"不似乎|，又[烧冻碎压]|确实[一-龥]{2}[^的]|([一-龥])\1\1")
+_SENT_SPLIT = re.compile(r"(?<=[。！？\n])")
 CLOCK_SPANS = frozenset({"scene", "day", "days"})
 CORE_FIELDS = ("goal", "choice", "decision", "hook")
 FIVE_LAYERS = ("perceived", "known", "believed", "acted", "blind")
@@ -286,9 +293,24 @@ def _metaphor_fail(
 
 
 def _thin_narr(s: str) -> str:
-    s = (s or "").replace("好像", "似乎").replace("像是", "似乎是")
+    s = _NEG_LIKE.sub("不似", s or "")
+    s = s.replace("好像", "似乎").replace("像是", "似乎是")
     s = s.replace("仿佛", "").replace("似的", "")
     return re.sub(r"(?<![其])像", "", s)
+
+
+def _thin_narr_keep_clean(s: str) -> str:
+    """逐句清洗；洗出残渣的句子退回原句。"""
+    parts = _SENT_SPLIT.split(s or "")
+    out: list[str] = []
+    for p in parts:
+        t = _thin_narr(p)
+        out.append(p if _RESIDUE.search(t) else t)
+    return "".join(out)
+
+
+def residue_hits(text: str) -> list[str]:
+    return [m.group(0) for m in _RESIDUE.finditer(text or "")]
 
 
 def thin_metaphors(text: str, *, exempt_quotes: tuple[str, ...] = ()) -> str:
@@ -309,14 +331,61 @@ def thin_metaphors(text: str, *, exempt_quotes: tuple[str, ...] = ()) -> str:
     out: list[str] = []
     last = 0
     for m in _DIALOGUE.finditer(work):
-        out.append(_thin_narr(work[last:m.start()]))
+        out.append(_thin_narr_keep_clean(work[last:m.start()]))
         out.append(m.group())
         last = m.end()
-    out.append(_thin_narr(work[last:]))
+    out.append(_thin_narr_keep_clean(work[last:]))
     work = "".join(out)
     for i, chunk in enumerate(held):
         work = work.replace(f"\x00H{i}\x00", chunk)
     return work
+
+
+def narration_layer(text: str) -> str:
+    """剥配对引号后的叙述层。"""
+    s = _DIALOGUE.sub("", text or "")
+    return _STRAIGHT_Q.sub("", s)
+
+
+def detect_narrative_pov(text: str) -> str:
+    """first if 叙述层「我」≥10 且 > 「他」÷3，否则 third。"""
+    narr = narration_layer(text)
+    wo = narr.count("我")
+    ta = len(_HE.findall(narr))
+    if wo >= 10 and wo > (ta / 3.0):
+        return "first"
+    return "third"
+
+
+def check_pov_consistency(text: str, expected_pov: str | None = None) -> dict[str, Any]:
+    want = str(expected_pov or "").strip()
+    if want not in ("first", "third"):
+        return _ok()
+    got = detect_narrative_pov(text)
+    if got == want:
+        return _ok()
+    return _fail(
+        "pov_consistency",
+        f"叙述人称应为{'第一' if want == 'first' else '第三'}人称，测得{got}",
+        "narrative_pov",
+    )
+
+
+def dialogue_ratio(text: str) -> float:
+    """引号行字数 / 全文去空白字数。"""
+    lines = (text or "").splitlines()
+    total = 0
+    quoted = 0
+    for ln in lines:
+        n = len(_plain(ln))
+        if n <= 0:
+            continue
+        total += n
+        if _QUOTE_LINE.search(ln):
+            quoted += n
+    if total <= 0:
+        return 0.0
+    return quoted / total
 
 
 def check_gender_pronoun(text: str, characters: list[Any] | None = None) -> dict[str, Any]:
@@ -395,6 +464,7 @@ def check_draft_struct(
     play_text: str = "",
     exempt_quotes: tuple[str, ...] = (),
     characters: list[Any] | None = None,
+    expected_pov: str | None = None,
 ) -> dict[str, Any]:
     text = (draft_text or "").strip()
     if not text:
@@ -415,16 +485,25 @@ def check_draft_struct(
     gp = check_gender_pronoun(text, characters)
     if not gp.get("ok"):
         return gp
+    pov = check_pov_consistency(text, expected_pov)
+    if not pov.get("ok"):
+        return pov
+    dlg = dialogue_ratio(text)
+    if dlg < 0.15:
+        return _fail("dialogue_floor", f"对白占比 {dlg:.1%} 低于 15%")
     return _ok()
 
 
-def check_final_struct(prose_text: str) -> dict[str, Any]:
+def check_final_struct(prose_text: str, *, expected_pov: str | None = None) -> dict[str, Any]:
     text = (prose_text or "").strip()
     if not text:
         return _fail("prose_empty", "正文是空的")
     n = len(re.sub(r"\s+", "", text))
     if n < 1000:
         return _fail("prose_len", f"正文字数 {n} 低于 1000")
+    pov = check_pov_consistency(text, expected_pov)
+    if not pov.get("ok"):
+        return pov
     return _ok()
 
 
@@ -435,9 +514,10 @@ def check_final_last_mile(
     seq: int | None = None,
     characters: list[Any] | None = None,
     exempt_quotes: tuple[str, ...] = (),
+    expected_pov: str | None = None,
 ) -> dict[str, Any]:
-    """Length floor + 章边界 + 冻结契约 + 代词连续 + finalize 最后一公里。"""
-    hit = check_final_struct(prose_text)
+    """Length floor + 章边界 + 冻结契约 + 代词/人称连续 + finalize 最后一公里。"""
+    hit = check_final_struct(prose_text, expected_pov=expected_pov)
     if not hit.get("ok"):
         return hit
     meta = _meta_chapter_fail(prose_text)

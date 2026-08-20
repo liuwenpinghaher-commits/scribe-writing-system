@@ -36,6 +36,10 @@ def test_protocol_is_rev13_and_wave_c():
     assert "D10 状态造假" in text
     assert "D11 悬念超期" in text
     assert "D12 意象域断裂" in text
+    assert "D13" in text
+    assert "pov_consistency" in text
+    assert "playbook.3.1" in text
+    assert "rev.13.2" in text
     assert "08-chapter-states.md" in text
     assert "09-state-reconciliation.md" in text
     assert "backfill=true" in text
@@ -62,10 +66,14 @@ def test_gate0_imports_continuity_adversaries():
     assert rows["state_quote_gate"][0] is True
     assert rows["simile_density_gate"][0] is True
     assert rows["state_quote_pass"][0] is True
+    assert rows["d13_pov_gate"][0] is True
+    assert rows["d13_draft_pov"][0] is True
+    assert rows["dialogue_floor_gate"][0] is True
+    assert rows["thin_unlike_is"][0] is True
 
 
 def test_playbook2_and_d1_code_is_draft_copy_play():
-    assert PLAYBOOK_VERSION == "playbook.3"
+    assert PLAYBOOK_VERSION == "playbook.3.1"
     play = "沈烛若把场核碎片按回胸口，四十二度顺着袖口往上爬。" * 80
     hit = check_draft_struct(play + "他又看了一眼裂口。" * 20, play_text=play)
     assert hit["code"] == "draft_copy_play"

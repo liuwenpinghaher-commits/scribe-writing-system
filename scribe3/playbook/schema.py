@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 SCHEMA_NAME = "chapter_state.v1"
-FACT_KEYS = ("seq", "characters", "objects", "open_loops", "timeline", "imagery")
+FACT_KEYS = ("seq", "characters", "objects", "open_loops", "timeline", "imagery", "narrative_pov")
 _GENDER_OK = frozenset({"", "男", "女"})
 
 
@@ -92,5 +92,9 @@ def check_chapter_state_schema(state: dict[str, Any]) -> dict[str, Any]:
         state["imagery"] = []
     elif not isinstance(imagery, list):
         return {"ok": False, "code": "state_imagery", "message": "imagery 必须是列表"}
+
+    pov = str(state.get("narrative_pov") or "").strip()
+    if pov and pov not in ("first", "third"):
+        return {"ok": False, "code": "state_pov", "message": "narrative_pov 只许 first/third/空", "field": "narrative_pov"}
 
     return {"ok": True}

@@ -341,16 +341,38 @@ def list_spans(st: Any, **kw) -> list[dict[str, Any]]:
         return []
 
 
+_PROC_START = time.time()
+
+
+def _elapsed_s(started) -> float | None:
+    """进行中时长：用本进程启动之后的时间，避免跨重启把旧链累成九小时。"""
+    now = time.time()
+    ts = None
+    try:
+        if hasattr(started, "timestamp"):
+            ts = float(started.timestamp())
+        elif isinstance(started, (int, float)):
+            ts = float(started)
+            if ts > 1e12:
+                ts = ts / 1000.0
+        elif isinstance(started, str) and started:
+            raw = started.replace("Z", "+00:00")
+            ts = datetime.fromisoformat(raw).timestamp()
+    except Exception:
+        ts = None
+    if ts is None:
+        return None
+    if ts < _PROC_START - 5:
+        ts = _PROC_START
+    if ts > now + 60:
+        return None
+    return max(0.0, now - ts)
+
+
 def live_headline(chain: dict) -> str:
     if chain.get("status") == "in_progress":
         cursor = chain.get("cursor_step_key")
-        started = chain.get("started_at")
-        secs = None
-        try:
-            if hasattr(started, "timestamp"):
-                secs = max(0.0, time.time() - started.timestamp())
-        except Exception:
-            secs = None
+        secs = _elapsed_s(chain.get("started_at") or chain.get("created_at"))
         if cursor:
             return headline_from_spans([], cursor=cursor, running_s=secs or 0)
     return str(chain.get("headline") or "")
@@ -380,12 +402,9 @@ def publicize_chain_list_item(raw: dict) -> dict[str, Any]:
     hl = live_headline(raw)
     dur = raw.get("duration_ms")
     if raw.get("status") == "in_progress" and dur is None:
-        started = raw.get("started_at")
-        try:
-            if hasattr(started, "timestamp"):
-                dur = max(0.0, (time.time() - started.timestamp()) * 1000)
-        except Exception:
-            pass
+        secs = _elapsed_s(raw.get("started_at") or raw.get("created_at"))
+        if secs is not None:
+            dur = secs * 1000.0
     stuck = ""
     if raw.get("status") == "in_progress" and isinstance(dur, (int, float)) and dur > 10 * 60 * 1000:
         title = lookup(str(raw.get("cursor_step_key") or "")).step_title

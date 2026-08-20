@@ -400,11 +400,13 @@ def _run_draft(store, seq, ctx, llm_fn, *, force, persist):
     hint = [""]
 
     def _draft_struct(d):
+        prev = ctx.get("prev_state") or {}
         hit = check_draft_struct(
             d.get("text") if isinstance(d, dict) else str(d),
             play_text=play_text,
             exempt_quotes=exempt,
             characters=_roster(ctx),
+            expected_pov=(prev.get("narrative_pov") if int(seq) > 1 else None),
         )
         hint[0] = "" if hit.get("ok") else str(hit.get("message") or hit.get("code") or "")
         return hit
@@ -475,6 +477,7 @@ def _run_final(store, seq, ctx, llm_fn, *, force, persist):
             d.get("text") if isinstance(d, dict) else str(d),
             store=store, seq=seq,
             characters=_roster(ctx),
+            expected_pov=((ctx.get("prev_state") or {}).get("narrative_pov") if int(seq) > 1 else None),
         ),
         judge_type="final",
         judge_ctx=lambda d: {

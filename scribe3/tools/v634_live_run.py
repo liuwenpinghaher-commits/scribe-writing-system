@@ -324,6 +324,16 @@ def gen_stage(cookie: str, slug: str, seq: int, stage: str) -> tuple[str, dict[s
 
 def run_live(*, n_chapters: int = 1, title: str | None = None, slug: str | None = None) -> dict[str, Any]:
     n_chapters = max(1, min(3, int(n_chapters)))
+    from scribe3.tools.gate0 import check_gate0_freeze
+    freeze = check_gate0_freeze(require=n_chapters > 1)
+    if not freeze.get("ok"):
+        return {
+            "ok": False,
+            "error": freeze.get("code") or "gate0_freeze",
+            "message": freeze.get("message") or "Gate 0 未冻结，拒跑",
+            "gate0_freeze": freeze,
+            "n_chapters": n_chapters,
+        }
     fp = health_fingerprint()
     cookie = login()
     if not slug:
@@ -391,6 +401,7 @@ def run_live(*, n_chapters: int = 1, title: str | None = None, slug: str | None 
                 "seq": state.get("seq"),
                 "sha": state.get("sha"),
                 "status": state.get("status"),
+                "narrative_pov": state.get("narrative_pov") or "",
                 "characters": state.get("characters") or [],
                 "objects": state.get("objects") or [],
                 "open_loops": state.get("open_loops") or [],
@@ -421,5 +432,6 @@ def run_live(*, n_chapters: int = 1, title: str | None = None, slug: str | None 
         "latest_sources": sources,
         "source_consistent": len({s for s in sources if s}) <= 1,
         "gate0": gate0,
+        "gate0_freeze": freeze,
         "playbook": PLAYBOOK_VERSION,
     }

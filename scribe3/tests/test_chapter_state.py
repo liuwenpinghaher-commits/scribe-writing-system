@@ -35,8 +35,9 @@ def _ok_state(seq: int = 2) -> dict:
 
 
 def test_playbook_version_is_3():
-    assert PLAYBOOK_VERSION == "playbook.3"
+    assert PLAYBOOK_VERSION == "playbook.3.1"
     assert "playbook.3" in VERSIONED_RUBRICS
+    assert "playbook.3.1" in VERSIONED_RUBRICS
     assert SCHEMA_NAME == "chapter_state.v1"
     assert "chapter_state" in TABLES
 
@@ -88,7 +89,9 @@ def test_thin_metaphors_drops_narrative_similes_keeps_dialogue():
     kept = thin_metaphors(talk)
     assert "像火一样" in kept
     play = "完全另一场戏，沈烛若没有按回碎片。" * 40
-    long = thin_metaphors(("他按回碎片。像火。仿佛夜。似的冷。袖口发烫。沈烛把盒子推过来。" * 80))
+    long = thin_metaphors(
+        ("「按回去。」沈烛说。\n他按回碎片。像火。仿佛夜。似的冷。袖口发烫。沈烛把盒子推过来。\n" * 80)
+    )
     hit = check_draft_struct(long, play_text=play)
     assert hit.get("code") != "draft_metaphor", hit
 
@@ -206,3 +209,131 @@ def test_cast_cards_read_gender():
     assert cards == [{"name": "柳岸青", "gender": "男"}]
     roster = gender_roster({"characters": [{"name": "柳岸青", "gender": "女"}]}, cards)
     assert roster == [{"name": "柳岸青", "gender": "男"}]
+
+
+def test_detect_pov_three_cases():
+    from scribe3.playbook.structural import detect_narrative_pov
+
+    ch1 = "他把断指按进右腕。它寄在他手腕里面，安静得发烫。他听见最后一下。" * 8
+    assert detect_narrative_pov(ch1) == "third"
+    ch2 = "我把断指按进右腕。它寄在我手腕里面。我听见最后一下。我没松手。" * 12
+    assert detect_narrative_pov(ch2) == "first"
+    ch3 = ("「我不要这根指头。」柳岸青说。「我听见它跳了。」沈烛说。" * 14) + (
+        "他把盒子推过去。他没再看腕上的裂口。" * 10
+    )
+    assert detect_narrative_pov(ch3) == "third"
+
+
+def test_pov_gate_blocks_flip_after_ch1_third():
+    from scribe3.playbook.structural import check_draft_struct, check_pov_consistency
+
+    first = ("「按回去。」我说。\n我把盒子按进胸口，听见最后一下。袖口发烫。\n" * 80)
+    hit = check_pov_consistency(first, "third")
+    assert hit["ok"] is False
+    assert hit["code"] == "pov_consistency"
+    play = "完全另一场戏，沈烛若没有按回碎片。" * 40
+    draft_hit = check_draft_struct(first, play_text=play, expected_pov="third")
+    assert draft_hit["ok"] is False
+    assert draft_hit["code"] == "pov_consistency"
+    assert check_pov_consistency(first, "first")["ok"] is True
+    third = ("「按回去。」沈烛说。\n他把盒子按进胸口，听见最后一下。袖口发烫。\n" * 80)
+    assert check_pov_consistency(third, "third")["ok"] is True
+
+
+def test_thin_unlike_is_not_broken_and_residue_rolls_back():
+    from scribe3.playbook.structural import residue_hits, thin_metaphors
+
+    unlike = "那温度不像是他自己的了。袖口发烫。" * 120
+    out = thin_metaphors(unlike)
+    assert "不似乎" not in out
+    assert "不似" in out
+    assert "不像是" not in out
+    residue_src = "它裂开，像又烧过的骨片。袖口发烫。" * 120
+    kept = thin_metaphors(residue_src)
+    assert "不似乎" not in kept
+    assert "像又烧过" in kept
+    assert residue_hits("不似乎是他自己的了") == ["不似乎"]
+    assert residue_hits("裂开，又烧过的骨片。")
+
+
+def test_dialogue_floor_blocks_low_quote_share():
+    from scribe3.playbook.structural import check_draft_struct, dialogue_ratio
+
+    play = "完全另一场戏，沈烛若没有按回碎片。" * 40
+    silent = ("他按回碎片，袖口发烫。沈烛把盒子推过来。柳岸青没说话。任务书摊在桌上。\n" * 80)
+    assert dialogue_ratio(silent) < 0.15
+    hit = check_draft_struct(silent, play_text=play)
+    assert hit["ok"] is False
+    assert hit["code"] == "dialogue_floor"
+    talked = (
+        "「按回去。」沈烛说。\n他按回碎片，袖口发烫。沈烛把盒子推过来。柳岸青没说话。任务书摊在桌上。\n" * 80
+    )
+    assert dialogue_ratio(talked) >= 0.15
+    ok = check_draft_struct(talked, play_text=play)
+    assert ok.get("ok") is True, ok
+
+
+def test_prompts_inject_pov_line():
+    ctx = {"seq": 2, "prev_state": {**_ok_state(), "narrative_pov": "third"}, "available_cast": ["柳岸青"]}
+    d = duty_generate(ctx)
+    p = play_generate({"seq": 2, "duty": {}, "prev_state": ctx["prev_state"]})
+    from scribe3.playbook.prompts import draft_generate
+    r = draft_generate({"play_text": "戏", "bite_quote": "钩", "prev_state": ctx["prev_state"]})
+    for blob in (d, p, r):
+        assert "第三人称" in blob
+        assert "叙述里禁止出现「我」" in blob
+
+
+def test_extract_sets_narrative_pov_from_source():
+    store = MemoryPlaybookStore()
+
+    def llm_fn(prompt, **kwargs):
+        return json.dumps(_ok_state(seq=1), ensure_ascii=False)
+
+    src = "他把断指按进右腕。它寄在他手腕里面。它跳了最后一下，然后不再跳了。"
+    out = extract_chapter_state(store, 1, src, llm_fn=llm_fn, persist=True)
+    assert out["ok"] is True
+    frozen = store.get_frozen("chapter_state", 1)
+    assert frozen["narrative_pov"] == "third"
+
+
+def test_state_and_duty_read_routes_exist():
+    from pathlib import Path
+
+    from scribe3.api.routers import chapters as ch
+
+    text = (Path(__file__).resolve().parents[1] / "api" / "routers" / "chapters.py").read_text(encoding="utf-8")
+    assert "/chapters/{seq}/state" in text
+    assert "/chapters/{seq}/duty" in text
+    assert callable(ch.get_chapter_state)
+    assert callable(ch.get_chapter_duty)
+
+
+def test_elapsed_caps_pre_process_start():
+    from datetime import datetime, timedelta, timezone
+
+    from scribe3.pipeline_trace_store import _elapsed_s
+
+    old = datetime.now(timezone.utc) - timedelta(hours=9)
+    secs = _elapsed_s(old)
+    assert secs is not None
+    assert secs < 600
+
+
+def test_gate0_freeze_mismatch_and_skip(monkeypatch):
+    from scribe3.tools.gate0 import check_gate0_freeze
+
+    monkeypatch.setenv("SCRIBE3_GATE0_SHA", "deadbeef")
+    monkeypatch.setenv("SCRIBE3_GIT_SHA", "cafebabe")
+    monkeypatch.delenv("SCRIBE3_REQUIRE_GATE0", raising=False)
+    hit = check_gate0_freeze(require=True)
+    assert hit["ok"] is False
+    assert hit["code"] == "gate0_mismatch"
+    monkeypatch.setenv("SCRIBE3_GIT_SHA", "deadbeefabc")
+    ok = check_gate0_freeze(require=True)
+    assert ok["ok"] is True
+    monkeypatch.delenv("SCRIBE3_GATE0_SHA", raising=False)
+    monkeypatch.delenv("SCRIBE3_GIT_SHA", raising=False)
+    skipped = check_gate0_freeze(require=False)
+    assert skipped["ok"] is True
+    assert skipped.get("skipped") is True or skipped.get("tag")

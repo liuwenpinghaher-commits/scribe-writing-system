@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v6.3.4 / playbook.3 部署冒烟。默认只做入口级检查，不烧模型。"""
+"""v6.3.4 / playbook.3.1 部署冒烟。默认只做入口级检查，不烧模型。"""
 from __future__ import annotations
 
 import argparse
@@ -16,7 +16,7 @@ def smoke_imports() -> list[tuple[str, bool, str]]:
 
     try:
         from scribe3.playbook.quote import PLAYBOOK_VERSION
-        add("playbook_version", PLAYBOOK_VERSION == "playbook.3", PLAYBOOK_VERSION)
+        add("playbook_version", PLAYBOOK_VERSION == "playbook.3.1", PLAYBOOK_VERSION)
     except Exception as e:
         add("playbook_version", False, type(e).__name__)
 
@@ -103,6 +103,38 @@ def smoke_imports() -> list[tuple[str, bool, str]]:
         add("state_quote_pass", good.get("ok") is True, good.get("code") or "ok")
     except Exception as e:
         add("continuity_gates", False, type(e).__name__)
+
+    try:
+        from scribe3.playbook.structural import (
+            check_draft_struct,
+            check_pov_consistency,
+            thin_metaphors,
+        )
+        first = ("「按回去。」我说。\n我把盒子按进胸口，听见最后一下。袖口发烫。\n" * 80)
+        d13 = check_pov_consistency(first, "third")
+        add(
+            "d13_pov_gate",
+            d13.get("ok") is False and d13.get("code") == "pov_consistency",
+            d13.get("code") or "",
+        )
+        play = "完全另一场戏，沈烛若没有按回碎片。" * 40
+        draft_flip = check_draft_struct(first, play_text=play, expected_pov="third")
+        add(
+            "d13_draft_pov",
+            draft_flip.get("ok") is False and draft_flip.get("code") == "pov_consistency",
+            draft_flip.get("code") or "",
+        )
+        silent = ("他按回碎片，袖口发烫。沈烛把盒子推过来。柳岸青没说话。任务书摊在桌上。\n" * 80)
+        floor = check_draft_struct(silent, play_text=play)
+        add(
+            "dialogue_floor_gate",
+            floor.get("ok") is False and floor.get("code") == "dialogue_floor",
+            floor.get("code") or "",
+        )
+        cleaned = thin_metaphors("那温度不像是他自己的了。袖口发烫。" * 120)
+        add("thin_unlike_is", "不似乎" not in cleaned and "不似" in cleaned, cleaned[40:80])
+    except Exception as e:
+        add("playbook31_gates", False, type(e).__name__)
 
     return rows
 

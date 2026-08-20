@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from scribe3.playbook.parse import parse_json_with_retry
-from scribe3.playbook.structural import thin_metaphors
+from scribe3.playbook.structural import detect_narrative_pov, thin_metaphors
 from scribe3.playbook.prompts import (
     IDENTITY_NOVELIST,
     IDENTITY_SCRIBE,
@@ -186,4 +186,10 @@ def gen_state(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
         raw["timeline"] = {"at": "", "elapsed_from_prev": ""}
     if not isinstance(raw.get("imagery"), list):
         raw["imagery"] = []
+    detected = detect_narrative_pov(str(ctx.get("source_text") or ""))
+    inherited = str((ctx.get("prev_state") or {}).get("narrative_pov") or "").strip()
+    if int(seq) <= 1 or inherited not in ("first", "third"):
+        raw["narrative_pov"] = detected
+    else:
+        raw["narrative_pov"] = inherited
     return raw

@@ -1,4 +1,4 @@
-"""playbook.3 identity + generate/judge prompts. Changing this file requires a version bump."""
+"""playbook.3.1 identity + generate/judge prompts. Changing this file requires a version bump."""
 from __future__ import annotations
 
 import json
@@ -59,6 +59,18 @@ def _imagery_line(ctx: dict) -> str:
     return v or "（未设全书意象域）"
 
 
+def _pov_line(ctx: dict) -> str:
+    rec = (ctx or {}).get("prev_state") if isinstance(ctx, dict) else None
+    pov = ""
+    if isinstance(rec, dict):
+        pov = str(rec.get("narrative_pov") or "").strip()
+    if pov not in ("first", "third"):
+        return "【叙事人称】第1章确立。这一章写完后系统会登记；后续章沿用，不得自己改口。"
+    if pov == "first":
+        return "【叙事人称】第一人称（沿用首章）。叙述里禁止用「他」指主角；对白里不受限。"
+    return "【叙事人称】第三人称（沿用首章）。叙述里禁止出现「我」；对白里不受限。"
+
+
 def duty_generate(ctx: dict) -> str:
     return f"""你在为第 {ctx.get("seq")} 章立"责任"——这一章必须办成的事。
 这份责任卡直接驱动下游写戏：写戏的严格按你立的来，立歪了整章歪。
@@ -76,6 +88,7 @@ def duty_generate(ctx: dict) -> str:
 【可绑的线】{ctx.get("available_lines") or []}
 【上一章结束时世界变成了什么样】
 {_state_json(ctx)}
+{_pov_line(ctx)}
 【全书意象域】{_imagery_line(ctx)}
 【相关设定】{ctx.get("codex_recall") or "（无）"}
 【全书秘密清单】{ctx.get("secret_list") or []}
@@ -152,6 +165,7 @@ def play_generate(ctx: dict) -> str:
 【可用的人】{_cast_line({**ctx, "available_cast": d.get("available_cast") or ctx.get("available_cast")})}（编造户口外的人 = 废稿）
 【上一章结束时世界变成了什么样】（身体、物件位置、未了的悬念——不得写拧）
 {_state_json(ctx)}
+{_pov_line(ctx)}
 【相关设定】{ctx.get("codex_recall") or "（无）"}（设定以外的东西不许发明）
 【近 3 章戏的场面类型】{ctx.get("recent_scene_summary") or "（无）"}（避免连着写同类型的戏）
 
@@ -345,6 +359,7 @@ def draft_generate(ctx: dict) -> str:
 【演绎（矿与限知，施工材料）】{ctx.get("deduction_json")}
 【上一章结束时世界变成了什么样】（身体、物件位置、未了的悬念——不得写拧）
 {_state_json(ctx)}
+{_pov_line(ctx)}
 
 戏是设计图，糙稿是施工。戏里的句子是给创作者看的，不是给读者看的。
 你交付的糙稿必须比戏多出三样东西：
@@ -496,6 +511,7 @@ def state_extract(ctx: dict) -> str:
 2. 性别从户口或上章末态抄，禁止根据本章代词改写。
 3. 上一章未了的悬念：对照正文，已经碰到的删掉；还悬着的原样保留；本章新悬的补上。到期章号没写就按开始章+3。
 4. 这是这章结束时的完整快照，不是和上一章的差量。
+5. narrative_pov 不要自己编，系统会按叙述层的「我」测定；你可抄上章的值。
 
 【户口（含性别）】{_cast_line(ctx)}
 【上一章章末态】
@@ -509,7 +525,8 @@ def state_extract(ctx: dict) -> str:
   "objects": [{{"name": "", "location": "", "state": "", "quote": ""}}],
   "open_loops": [{{"text": "", "from_seq": 1, "due_seq": 4}}],
   "timeline": {{"at": "", "elapsed_from_prev": ""}},
-  "imagery": ["..."]}}
+  "imagery": ["..."],
+  "narrative_pov": "first 或 third"}}
 """
 
 
@@ -523,4 +540,4 @@ def identity_for(kind: str) -> str:
     return IDENTITY_NOVELIST
 
 
-assert PLAYBOOK_VERSION == "playbook.3"
+assert PLAYBOOK_VERSION == "playbook.3.1"

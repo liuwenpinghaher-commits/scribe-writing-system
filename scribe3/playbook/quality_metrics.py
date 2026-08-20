@@ -9,29 +9,12 @@ from scribe3.playbook.structural import (
     _plain,
     check_chapter_state_struct,
     check_gender_pronoun,
+    dialogue_ratio,
     draft_play_overlap,
     metaphor_per_800,
 )
 
-_QUOTE_LINE = re.compile(r"[「」『』“”\"']")
 _BOUNDARY = re.compile(r"上一章|这一章|下一章|前一章|前章|本章")
-
-
-def dialogue_ratio(text: str) -> float:
-    """引号行字数 / 全文去空白字数。"""
-    lines = (text or "").splitlines()
-    total = 0
-    quoted = 0
-    for ln in lines:
-        n = len(_plain(ln))
-        if n <= 0:
-            continue
-        total += n
-        if _QUOTE_LINE.search(ln):
-            quoted += n
-    if total <= 0:
-        return 0.0
-    return quoted / total
 
 
 def chapter_boundary_count(text: str) -> int:

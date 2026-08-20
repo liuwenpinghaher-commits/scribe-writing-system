@@ -655,9 +655,11 @@ def test_draft_hook_exempt_does_not_trip_overlap():
     from scribe3.playbook.structural import check_draft_struct
     hook = "袖口里碳化屏还在滚"
     play = hook + "。沈烛若把碎片按回胸口。" * 30
-    draft = ("食堂铁皮落下半扇。" * 100) + hook + ("他用指腹压住屏，不让它休眠。" * 80)
+    draft = ("「铁皮还在响。」柳岸青说。\n食堂铁皮落下半扇。\n" * 80) + hook + (
+        "他用指腹压住屏，不让它休眠。\n" * 80
+    )
     hit = check_draft_struct(draft, play_text=play, exempt_quotes=(hook,))
-    assert hit["ok"] is True
+    assert hit["ok"] is True, hit
 
 
 def test_draft_metaphor_density_fails_struct():
@@ -680,7 +682,9 @@ def test_final_metaphor_density_fails_last_mile():
 def test_sparse_metaphor_still_ok():
     from scribe3.playbook.structural import check_draft_struct
     play = "沈烛若把场核碎片按回胸口，四十二度顺着袖口往上爬。" * 40
-    draft = ("他按回碎片，袖口发烫。沈烛把盒子推过来。柳岸青没说话。任务书摊在桌上。" * 80)
+    draft = (
+        "「按回去。」沈烛说。\n他按回碎片，袖口发烫。沈烛把盒子推过来。柳岸青没说话。任务书摊在桌上。\n" * 80
+    )
     hit = check_draft_struct(draft, play_text=play)
     assert hit.get("ok") is True, hit
 
