@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v6.3.4 / playbook.3.2 部署冒烟。默认只做入口级检查，不烧模型。"""
+"""v6.3.4 / playbook.3.2.1 部署冒烟。默认只做入口级检查，不烧模型。"""
 from __future__ import annotations
 
 import argparse
@@ -16,7 +16,7 @@ def smoke_imports() -> list[tuple[str, bool, str]]:
 
     try:
         from scribe3.playbook.quote import PLAYBOOK_VERSION
-        add("playbook_version", PLAYBOOK_VERSION == "playbook.3.2", PLAYBOOK_VERSION)
+        add("playbook_version", PLAYBOOK_VERSION == "playbook.3.2.1", PLAYBOOK_VERSION)
     except Exception as e:
         add("playbook_version", False, type(e).__name__)
 
@@ -160,13 +160,19 @@ def smoke_imports() -> list[tuple[str, bool, str]]:
             "short_ratio" in rh and "long_ratio" in rh and "short_bursts" in rh,
             str(rh),
         )
-        from scribe3.playbook.prompts import draft_generate, final_generate, final_judge
+        from scribe3.playbook.prompts import draft_generate, final_generate, final_judge, play_generate
         d = draft_generate({"play_text": "戏", "bite_quote": "钩"})
         add("draft_no_tactile_quota", "可听可触" not in d and "摸到或听到" in d, "")
         f = final_generate({})
         add("final_no_texture_patch", "补上画面的质感与声音" not in f and "宁可糙着" in f, "")
         j = final_judge({})
         add("final_judge_read_aloud", "念出声" in j and "在使劲" in j, "")
+        p = play_generate({"seq": 1, "duty": {}})
+        add(
+            "play_is_design",
+            "800-2000" not in p and "400-900" in p and "留给糙稿" in p,
+            "",
+        )
     except Exception as e:
         add("playbook32_gates", False, type(e).__name__)
 

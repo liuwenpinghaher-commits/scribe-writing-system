@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from scribe3.playbook.diagnose import craft_diagnostic, sentence_rhythm, style_judge_fields
 from scribe3.playbook.judge import VERSIONED_RUBRICS
-from scribe3.playbook.prompts import draft_generate, final_generate, final_judge
+from scribe3.playbook.prompts import draft_generate, final_generate, final_judge, play_generate
 from scribe3.playbook.quote import PLAYBOOK_VERSION
 from scribe3.playbook.structural import check_draft_struct, check_final_last_mile, check_syntax_tics, list_syntax_tics
 
@@ -17,8 +17,9 @@ PLAY = "完全另一场戏，没有盒子也没有袖口。" * 40
 
 
 def test_version_is_32():
-    assert PLAYBOOK_VERSION == "playbook.3.2"
+    assert PLAYBOOK_VERSION == "playbook.3.2.1"
     assert "playbook.3.2" in VERSIONED_RUBRICS
+    assert "playbook.3.2.1" in VERSIONED_RUBRICS
     assert "playbook.3.1" in VERSIONED_RUBRICS
 
 
@@ -107,6 +108,14 @@ def test_playbook_does_not_mount_voice_anchor():
     assert "voice_anchor_block" not in src
     f = final_generate({})
     assert "【声纹】（无）" in f
+
+
+def test_play_is_design_not_prose():
+    p = play_generate({"seq": 1, "duty": {}})
+    assert "800-2000" not in p
+    assert "400-900" in p
+    assert "留给糙稿" in p
+    assert "设计图" in p
 
 
 def test_prompts_drop_quota_verbs_and_keep_eight_questions():

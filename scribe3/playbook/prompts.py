@@ -1,4 +1,4 @@
-"""playbook.3.2 identity + generate/judge prompts. Changing this file requires a version bump."""
+"""playbook.3.2.1 identity + generate/judge prompts. Changing this file requires a version bump."""
 from __future__ import annotations
 
 import json
@@ -12,6 +12,11 @@ IDENTITY_NOVELIST = (
     "读完这章，要能说出发生了什么、谁付出了什么、还想不想翻下一页。"
 )
 IDENTITY_DUTY = "你是这本书的主编剧，管整本书的账房：每章办什么事、付什么账，你说了算。"
+IDENTITY_PLAY = (
+    "你是这本书的场记导演。你写的是给剧组看的一场戏："
+    "谁在场、发生哪一件事、两难落在哪个动作、账怎么付、章末悬着什么。"
+    "你不写给读者的正文。完整对白和此刻能摸到的东西留给糙稿。"
+)
 IDENTITY_SCRIBE = "你是剧组里最较真的场记。你只抄，不写。戏里没有的一个字都不许添。"
 IDENTITY_JUDGE = (
     "你是最苛刻的文学编辑，毙过的稿子比过稿多十倍。你只认纸面上的东西："
@@ -170,22 +175,25 @@ def play_generate(ctx: dict) -> str:
 【近 3 章戏的场面类型】{ctx.get("recent_scene_summary") or "（无）"}（避免连着写同类型的戏）
 
 怎么写：
-1. 800-2000 字，自然语言。不写标签、不写表格、不分场标题。
-2. 写成戏，不写成梗概：至少要有一个具体场面。
-3. 两难是这章的心脏：他还没选的时候，两头都让他疼。
+1. 400-900 字。这是设计图，不是给读者朗读的一章。不写标签、不写表格、不分场标题。
+2. 点出一个具体场面：两难落成哪个动作、账当场怎么付、章末悬着哪一件没做完的事。
+   每件留一句能被契约原样引用的钉子。不要把场面铺成正文。
+3. 对白最多一两句关键的。完整声口和对白留给糙稿。
+4. 两难是这章的心脏：他还没选的时候，两头都让他疼。
    检验：如果读者能说"这还用想？当然选 A"，这道两难就死了，重写。
-4. 他最后必须选，选要落成动作（他做了什么），不是态度（他想了什么）。
-5. 账要当场付：责任卡上那笔账，必须兑成一个可引用原句的具体场面
+5. 他最后必须选，选要落成动作（他做了什么），不是态度（他想了什么）。
+6. 账要当场付：责任卡上那笔账，必须兑成一个可引用原句的具体动作
    （谁拿走了什么/谁失去了什么），不许用旁白概括。
-6. 章末留一件没做完的事——让读者想翻页的那件。
-7. 禁止拆穿 {d.get("forbidden_reveal")}。
-8. 必须有对手拍：第二个有意志的人与焦点者发生正面交互
+7. 章末留一件没做完的事——让读者想翻页的那件。
+8. 禁止拆穿 {d.get("forbidden_reveal")}。
+9. 必须有对手拍：第二个有意志的人与焦点者发生正面交互
    （对话/对抗/交易/回避都算，远远看着不算）。
-9. 禁止元叙述。元叙述包括：提及"章"本身（上一章/这一章/下一章/前章——
+10. 禁止元叙述。元叙述包括：提及"章"本身（上一章/这一章/下一章/前章——
    书中人物不知道自己在章里）、谈论写作行为、主题词说教（命运/选择/代价，
    除非角色说出口）。
 
 写完自己读一遍：
+- 如果这页已经能当正文交给读者 → 删到只剩钉子，重写。
 - 如果你只能用"他想通了/他决定了"来概括这章 → 重写。
 - 如果删掉任何一个在场的人这章照样成立 → 那个人就不该在场。
 """
@@ -543,6 +551,8 @@ def state_extract(ctx: dict) -> str:
 def identity_for(kind: str) -> str:
     if kind == "duty":
         return IDENTITY_DUTY
+    if kind == "play":
+        return IDENTITY_PLAY
     if kind in ("contract", "state"):
         return IDENTITY_SCRIBE
     if kind.endswith("_judge") or kind == "judge":
@@ -550,4 +560,4 @@ def identity_for(kind: str) -> str:
     return IDENTITY_NOVELIST
 
 
-assert PLAYBOOK_VERSION == "playbook.3.2"
+assert PLAYBOOK_VERSION == "playbook.3.2.1"

@@ -7,6 +7,7 @@ from scribe3.playbook.parse import parse_json_with_retry
 from scribe3.playbook.structural import detect_narrative_pov, thin_metaphors
 from scribe3.playbook.prompts import (
     IDENTITY_NOVELIST,
+    IDENTITY_PLAY,
     IDENTITY_SCRIBE,
     contract_extract,
     deduce_generate,
@@ -74,7 +75,7 @@ def gen_duty(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
 
 def gen_play(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
     text = generate_text(
-        llm_fn, play_generate(ctx), system=IDENTITY_NOVELIST, max_tokens=4096,
+        llm_fn, play_generate(ctx), system=IDENTITY_PLAY, max_tokens=4096,
     )
     duty = ctx.get("duty") or {}
     return {
