@@ -419,11 +419,12 @@ def _fail_reasons_from_chain(chain: dict) -> list[str]:
     extra = chain.get("fail_reasons")
     if isinstance(extra, list) and extra:
         return [str(x) for x in extra if x]
+    found: list[str] = []
     for n in chain.get("notes") or []:
         s = str(n)
         if s.startswith("fail_reasons:"):
-            return [p for p in s.split(":", 1)[1].split(",") if p]
-    return []
+            found = [p for p in s.split(":", 1)[1].split(",") if p]
+    return found
 
 
 def live_headline(chain: dict) -> str:

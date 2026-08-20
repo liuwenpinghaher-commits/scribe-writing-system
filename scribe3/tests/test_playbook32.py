@@ -95,7 +95,7 @@ def test_live_headline_shows_fail_reasons_while_running():
     h = live_headline({
         "status": "in_progress",
         "cursor_step_key": "playbook.struct",
-        "notes": ["fail_reasons:draft_len,draft_copy_play"],
+        "notes": ["fail_reasons:draft_len", "fail_reasons:draft_len,draft_copy_play"],
     })
     assert "字数不够" in h
     assert "抄了戏" in h
