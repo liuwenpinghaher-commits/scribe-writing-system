@@ -645,6 +645,58 @@ def _assert_invariants(profile: str, merged: dict) -> list[str]:
     return violations
 
 
+def _hermes_venv_python(hermes_home: Path) -> Path:
+    return hermes_home / "hermes-agent" / "venv" / "bin" / "python"
+
+
+def _assert_mcp_sdk(hermes_home: Path) -> None:
+    """venv 存在则必须能 import mcp。测试夹具无 venv 则跳过。"""
+    py = _hermes_venv_python(hermes_home)
+    if not py.is_file():
+        return
+    r = subprocess.run([str(py), "-c", "import mcp"], capture_output=True, text=True)
+    if r.returncode != 0:
+        raise SystemExit(
+            "Hermes venv 缺少 MCP SDK，缺手禁止 provision --commit。"
+            "用 systemd ExecStart 同一个 pip 安装 mcp extra，不要 cd 进 src 跑 ./venv。"
+            f" stderr={(r.stderr or '')[-200:]}"
+        )
+
+
+def _imported_mcp_tool_path(hermes_home: Path) -> Path | None:
+    py = _hermes_venv_python(hermes_home)
+    if not py.is_file():
+        return None
+    r = subprocess.run(
+        [str(py), "-c", "import tools.mcp_tool as m; print(m.__file__)"],
+        capture_output=True, text=True,
+    )
+    path = (r.stdout or "").strip()
+    if r.returncode != 0 or not path:
+        return None
+    p = Path(path)
+    return p if p.is_file() else None
+
+
+def _sync_mcp_discovery_error_log(hermes_home: Path, *, commit: bool) -> int:
+    """发现失败必须 ERROR，补丁打 import 到的 mcp_tool.py。"""
+    target = _imported_mcp_tool_path(hermes_home)
+    if target is None:
+        return 0
+    before = target.read_text(encoding="utf-8")
+    old = 'logger.debug("MCP SDK not available -- skipping MCP tool discovery")'
+    new = 'logger.error("MCP SDK not available -- skipping MCP tool discovery")'
+    if old not in before:
+        return 0
+    print("  · [MCP discovery log] debug→error" + ("" if commit else " (dry-run)"))
+    if not commit:
+        return 1
+    backup = target.with_name(target.name + f".bak.scribe3-mcp-log-{int(time.time() * 1000)}")
+    shutil.copy2(target, backup)
+    target.write_text(before.replace(old, new, 1), encoding="utf-8")
+    return 1
+
+
 def _diff_keys(before: dict, after: dict, prefix="") -> list[str]:
     """只报 scribe3 关心的键的变化(平铺路径),不刷屏整份 config。"""
     changes = []
@@ -721,8 +773,11 @@ def provision(hermes_home: Path, repo: Path, *, commit: bool,
     unknown_profiles = sorted(set(selected_profiles) - set(_PROFILES))
     if unknown_profiles:
         raise ValueError(f"未知 Hermes profile: {', '.join(unknown_profiles)}")
+    if commit:
+        _assert_mcp_sdk(hermes_home)
     # 先验证/应用 Hermes 上游补丁；否则不开始修改 profile 配置，避免 TOCTOU。
     total_changes = 0
+    total_changes += _sync_mcp_discovery_error_log(hermes_home, commit=commit)
     if install_xml_tool_call_bridge:
         _sync_xml_tool_call_bridge(hermes_home, repo, commit=False)
     if install_mcp_closed_resource_recovery:

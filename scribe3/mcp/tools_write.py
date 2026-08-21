@@ -1070,11 +1070,12 @@ async def s3_patch_chapter_meta(
     volume_id: str | None = None,
     clear_volume: bool = False,
     prose_lock: bool | None = None,
+    synopsis: str | None = None,
     work: str | None = None,
 ) -> dict:
-    """改章身份元数据(标题/标签/卷归属/定稿锁;写,待批)。不改 synopsis/beats/prose。
+    """改章身份元数据(标题/标签/卷归属/定稿锁/梗概;写,待批)。不改 beats/prose。
 
-    clear_volume=True 时清空卷归属(volume=None);否则 volume_id 非 None 时设归属。
+    synopsis=None 表示不改;空白字符串拒绝。clear_volume=True 时清空卷归属。
     章不存在 → status=error。"""
     fields: dict = {}
     if title is not None:
@@ -1087,9 +1088,17 @@ async def s3_patch_chapter_meta(
         fields["volume"] = volume_id
     if prose_lock is not None:
         fields["prose_lock"] = bool(prose_lock)
+    if synopsis is not None:
+        syn = str(synopsis)
+        if not syn.strip():
+            return {
+                "status": "error", "tool": "s3_patch_chapter_meta",
+                "code": "synopsis_blank", "error": "梗概不能是空白",
+            }
+        fields["synopsis"] = syn
     if not fields:
         return {"status": "noop", "tool": "s3_patch_chapter_meta", "reason": "no fields"}
-    ok = await _ask(ctx, f"改第{seq}章 meta {list(fields)}")
+    ok = await _ask(ctx, f"改第{seq}章 {list(fields)}")
 
     def _write():
         st = _store_for(work)
@@ -1206,12 +1215,14 @@ async def s3_generate_stage(
     brief_only: bool = False,
     force: bool = False,
     rewrite: bool = False,
+    focalizer: str | None = None,
 ) -> dict:
     """五层管线：duty / design / deduce / draft / final。"""
     from scribe3.stage_generate import (
         STAGE_MAX_TOKENS,
         dispatch_design_stage,
         normalize_stage,
+        resolve_stage_focalizer,
         thicken_stage,
     )
     from scribe3.playbook.stages import extra_authors, reject_gone_stage
@@ -1227,6 +1238,7 @@ async def s3_generate_stage(
         extra = ((extra or "") + " rewrite=1").strip()
     st = _store_for(work)
     ch = st.get_chapter(int(seq)) or {}
+    foc = resolve_stage_focalizer(focalizer, ch)
     if persist and stg == "final" and bool((ch or {}).get("prose_lock")) and not brief_only:
         return {
             "status": "error",
@@ -1285,7 +1297,7 @@ async def s3_generate_stage(
         out = thicken_stage(
             stg, ch, llm_fn=llm_fn, persist_fn=persist_fn,
             seq=int(seq), extra=extra or "",
-            st=st, work=work, focalizer="",
+            st=st, work=work, focalizer=foc,
         )
     except Exception as exc:
         try:

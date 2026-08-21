@@ -287,7 +287,7 @@ CATALOG: list[dict[str, Any]] = [
     {
         "domain": "structure.chapter",
         "label": "章节结构",
-        "match_keywords": ("建章", "新章节", "s3_add_chapter", "s3_patch_chapter_meta", "章标题"),
+        "match_keywords": ("建章", "新章节", "s3_add_chapter", "s3_patch_chapter_meta", "章标题", "梗概", "synopsis"),
         "match_force": ("s3_add_chapter", "s3_patch_chapter_meta"),
         "read_tools": ("s3_list_chapters", "s3_get_chapter"),
         "write_tools": ("s3_add_chapter", "s3_patch_chapter_meta"),

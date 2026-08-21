@@ -37,7 +37,8 @@ sudo -u "$DEPLOY_USER" bash -lc "
   python3 -m venv venv
   ./venv/bin/pip install -U pip wheel
   if [ -f requirements.txt ]; then ./venv/bin/pip install -r requirements.txt; fi
-  if [ -f pyproject.toml ]; then ./venv/bin/pip install -e .; fi
+  if [ -f pyproject.toml ]; then ./venv/bin/pip install -e '.[mcp]'; fi
+  git rev-parse HEAD > '$HERMES_HOME/hermes-agent.gitrev' || true
 "
 
 echo "==> 写 systemd units"
@@ -85,9 +86,8 @@ if [ -d "$REPO_DIR/scribe3" ]; then
     cd '$REPO_DIR'
     python3 -m venv /opt/scribe3/venv-provision 2>/dev/null || true
     /opt/scribe3/venv-provision/bin/pip -q install -r scribe3/requirements.txt || true
-    HERMES_HOME='$HERMES_HOME' /opt/scribe3/venv-provision/bin/python -m scribe3.scripts.provision_hermes --commit || \
-      python3 -m scribe3.scripts.provision_hermes --commit || true
-  " || echo "provision 跳过/失败：可稍后手动跑"
+    HERMES_HOME='$HERMES_HOME' /opt/scribe3/venv-provision/bin/python -m scribe3.scripts.provision_hermes --commit
+  "
 fi
 
 echo "==> enable + start core gateways"

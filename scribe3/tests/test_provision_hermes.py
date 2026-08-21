@@ -696,6 +696,19 @@ def test_guard_clean_after_provision(home):
     assert A._gateway_security_violations(home=home) == []
 
 
+def test_assert_mcp_sdk_blocks_when_venv_cannot_import(home, tmp_path):
+    venv_py = home / "hermes-agent" / "venv" / "bin" / "python"
+    venv_py.parent.mkdir(parents=True)
+    venv_py.write_text("#!/bin/sh\nexit 1\n")
+    venv_py.chmod(0o755)
+    with pytest.raises(SystemExit, match="缺少 MCP SDK"):
+        P._assert_mcp_sdk(home)
+
+
+def test_assert_mcp_sdk_skips_without_venv(home):
+    P._assert_mcp_sdk(home)
+
+
 def test_guard_silent_when_config_absent(home):
     """全新机器还没 provision(config 读不到)→ 不误报(交给部署流程/运行时门禁)。"""
     import scribe3.app as A

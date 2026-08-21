@@ -182,6 +182,44 @@ def _issue(severity: str, code: str, message: str) -> dict:
     return {"severity": severity, "code": code, "message": message}
 
 
+_WRITE_GW_MCP_CACHE: dict[str, Any] = {"t": 0.0, "v": None}
+
+
+def write_gateway_mcp_view(*, timeout: float = 2.0) -> dict[str, Any]:
+    """写网关运行时工具面。失败只填字段，调用方不得据此改 /health.ok。"""
+    now = time.monotonic()
+    cached = _WRITE_GW_MCP_CACHE.get("v")
+    if cached is not None and now - float(_WRITE_GW_MCP_CACHE.get("t") or 0) < 30:
+        return cached
+    out: dict[str, Any] = {
+        "mcp_ok": False,
+        "mcp_runtime_tool_count": 0,
+        "error": None,
+    }
+    try:
+        from scribe3.hermes_runtime import HermesRuntime
+        from scribe3.llm import HERMES_RUNS, HERMES_RUNS_PROFILE
+        rt = HermesRuntime(api_base=HERMES_RUNS, profile=HERMES_RUNS_PROFILE)
+        probe = rt.probe(timeout=timeout)
+        tools = probe.get("toolsets") or []
+        n = 0
+        if isinstance(tools, list):
+            for row in tools:
+                if isinstance(row, dict):
+                    names = row.get("tools") or []
+                    n += len(names) if isinstance(names, list) else 0
+                elif isinstance(row, str):
+                    n += 1
+        out["mcp_runtime_tool_count"] = n
+        out["mcp_ok"] = n > 0
+        out["gateway_ok"] = bool(probe.get("ok"))
+    except Exception as exc:
+        out["error"] = str(exc)[:120]
+    _WRITE_GW_MCP_CACHE["t"] = now
+    _WRITE_GW_MCP_CACHE["v"] = out
+    return out
+
+
 def _summarize_hermes_runtime(profiles: list[dict], *, profile_configs: dict | None = None,
                               cron: dict | None = None) -> dict:
     configs = profile_configs or {}

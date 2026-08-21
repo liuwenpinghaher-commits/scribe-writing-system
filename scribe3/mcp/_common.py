@@ -60,7 +60,7 @@ WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_kno
                 # Task 3–6:结构写(卷/章 meta/章 plan/弧光锚)
                 "s3_add_volume", "s3_patch_volume",
                 "s3_add_chapter", "s3_patch_chapter_meta",
-                "s3_patch_chapter_plan", "s3_patch_play", "s3_patch_contract",
+                "s3_patch_play", "s3_patch_contract",
                 "s3_generate_stage", "s3_save_chapter_draft",
                 "s3_set_char_anchors",
                 # P0:结构运维 + 母题(默认 emergency REST 关时的作者主路径)

@@ -899,6 +899,16 @@ def speech_chapters(volume_ids: list[str]) -> str:
     return "\n".join(lines)
 
 
+def speech_synopses() -> str:
+    lines = [
+        "必须调用 s3_patch_chapter_meta 写入落库，需我审批。十条梗概按原文，不要改写成空话，不要凑字。",
+        "",
+    ]
+    for ch in CHAPTERS:
+        lines.append(f"seq={ch['seq']} title={ch['title']} synopsis={ch['synopsis']}")
+    return "\n".join(lines)
+
+
 def speech_stage(seq: int, stage: str) -> str:
     return (
         f"主编，给第 {seq} 章跑 {stage} 层，焦点者 {FOCALIZER}，落库。\n"

@@ -139,8 +139,23 @@ def test_s3_patch_chapter_meta_title_and_label(store):
 # ===== Task 5: chapter plan =====
 
 def test_patch_chapter_plan_in_write_gated():
-    assert "s3_patch_chapter_plan" in M.WRITE_GATED
-    assert M.requires_approval("s3_patch_chapter_plan") is True
+    assert "s3_patch_chapter_plan" not in M.WRITE_GATED
+
+
+def test_s3_patch_chapter_meta_synopsis_signature():
+    sig = inspect.signature(M.s3_patch_chapter_meta)
+    assert "synopsis" in sig.parameters
+
+
+def test_s3_generate_stage_focalizer_signature():
+    sig = inspect.signature(M.s3_generate_stage)
+    assert "focalizer" in sig.parameters
+
+
+def test_s3_patch_chapter_meta_blank_synopsis_errors():
+    out = asyncio.run(M.s3_patch_chapter_meta(_AcceptCtx(), 1, synopsis="   "))
+    assert out.get("status") == "error"
+    assert out.get("code") == "synopsis_blank"
 
 
 def test_s3_patch_chapter_plan_signatures():

@@ -37,6 +37,7 @@ from scripts.humanrun_wanjie_seed import (  # noqa: E402
     speech_relations,
     speech_rules,
     speech_stage,
+    speech_synopses,
     speech_volumes,
 )
 
@@ -405,16 +406,8 @@ def s4(r: Runner) -> None:
         r.world_write("B8-ch", speech_chapters(ids))
         r.save_state(s4_done=list(set(r.state.get("s4_done") or []) | {"B8-ch"}))
     chs = r.chapters()
-    # 稿纸通道写十条真梗概（MCP 大纲已废，与 UI 改章信息同一条 PATCH）
     if "B8-syn" not in (r.state.get("s4_done") or []):
-        print("  PATCH 10 synopses via manuscript meta", flush=True)
-        syn_out = []
-        for spec in CHAPTERS:
-            payload = {"title": spec["title"], "synopsis": spec["synopsis"]}
-            code, res = curl("PATCH", f"/api/chapters/{spec['seq']}", payload, work=r.slug)
-            syn_out.append({"seq": spec["seq"], "http": code, "res": res})
-            print(f"    ch{spec['seq']} {code} {spec['title']}", flush=True)
-        dump(r.evid / "03-synopsis-patch.json", syn_out)
+        r.world_write("B8-syn", speech_synopses())
         r.save_state(s4_done=list(set(r.state.get("s4_done") or []) | {"B8-syn"}))
     structure = {
         "volumes": r.volumes(),

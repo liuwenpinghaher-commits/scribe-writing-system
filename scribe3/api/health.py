@@ -61,6 +61,12 @@ def health(request: Request):
         }
     except Exception:
         out["locks"] = out.get("locks") or {}
+    # 写网关是否空手：附加字段，绝不翻转 ok / HTTP
+    try:
+        from scribe3.api.services.hermes_status import write_gateway_mcp_view
+        out["write_gateway"] = write_gateway_mcp_view()
+    except Exception as e:
+        out["write_gateway"] = {"mcp_ok": False, "error": str(e)[:80]}
     return out
 
 
