@@ -236,16 +236,21 @@ class Runner:
             calls = (tr or {}).get("tool_calls") if isinstance(tr, dict) else []
             effects = (tr or {}).get("write_effects") if isinstance(tr, dict) else []
             approvals = (tr or {}).get("approvals") if isinstance(tr, dict) else []
+            ok_calls, bad_calls = _s3_call_split(calls)
             dump(self.evid / f"run-{tag}.json", {
                 "run_id": run_id, "status": st, "pkg": pkg, "attempt": attempt,
                 "n_tool_calls": len(calls or []), "n_approvals": len(approvals or []),
                 "n_write_effects": len(effects or []),
+                "n_s3_ok": len(ok_calls), "n_s3_bad": len(bad_calls),
             })
             last = (run_id, st)
-            if calls or approvals or effects:
+            if approvals or effects or ok_calls:
                 return run_id, st
-            print(f"  WARN {tag} attempt {attempt} 无工具调用/审批卡，模型可能只写了假 XML", flush=True)
-        raise RuntimeError(f"{tag} 两次主编 Run 都没有真正调用写入工具")
+            if bad_calls:
+                print(f"  WARN {tag} attempt {attempt} 工具调用失败/超时 {len(bad_calls)} 次", flush=True)
+            else:
+                print(f"  WARN {tag} attempt {attempt} 无工具调用/审批卡，模型可能只写了假 XML", flush=True)
+        raise RuntimeError(f"{tag} 两次主编 Run 都没有真正写入")
 
     # —— 只读回读 ——
     def intent(self):
@@ -494,6 +499,69 @@ def s5(r: Runner) -> None:
     r.save_state(phase="s5")
 
 
+def _s3_call_split(calls):
+    ok, bad = [], []
+    for c in calls or []:
+        if not isinstance(c, dict):
+            continue
+        name = str(c.get("name") or c.get("tool") or c.get("tool_name") or "")
+        if "s3_" not in name:
+            continue
+        blob = json.dumps(c, ensure_ascii=False).lower()
+        if (
+            c.get("error")
+            or c.get("is_error")
+            or "timed out" in blob
+            or "closedresourceerror" in blob
+            or '"status": "error"' in blob
+            or '"status":"error"' in blob
+        ):
+            bad.append(c)
+        else:
+            ok.append(c)
+    return ok, bad
+
+
+def _missing_code(obj) -> str:
+    if isinstance(obj, dict) and isinstance(obj.get("detail"), dict):
+        return str(obj["detail"].get("code") or "")
+    return ""
+
+
+def _stage_live(r: "Runner", seq: int, stg: str) -> tuple[bool, object]:
+    """书里这一层是不是真有东西（不是主编口头答应）。"""
+    if stg == "duty":
+        _, duty = getj(f"/api/chapters/{seq}/duty", work=r.slug)
+        dump(r.evid / f"10-ch{seq}-duty.json", duty)
+        live = isinstance(duty, dict) and not _missing_code(duty)
+        return bool(live), duty
+    if stg == "design":
+        _, play = getj(f"/api/chapters/{seq}/play", work=r.slug)
+        _, contract = getj(f"/api/chapters/{seq}/contract", work=r.slug)
+        dump(r.evid / f"11-ch{seq}-play.json", play)
+        dump(r.evid / f"12-ch{seq}-contract.json", contract)
+        play_ok = isinstance(play, dict) and not _missing_code(play)
+        con_ok = isinstance(contract, dict) and not _missing_code(contract)
+        return bool(play_ok and con_ok), {"play": play, "contract": contract}
+    if stg == "deduce":
+        _, d = getj(f"/api/chapters/{seq}/deduce", work=r.slug)
+        dump(r.evid / f"13-ch{seq}-deduce.json", d)
+        return bool(isinstance(d, dict) and not _missing_code(d)), d
+    if stg == "draft":
+        _, d = getj(f"/api/latest-draft?seq={seq}", work=r.slug)
+        dump(r.evid / f"14-ch{seq}-draft.json", d)
+        text = ""
+        if isinstance(d, dict):
+            text = str(d.get("draft") or d.get("text") or d.get("prose") or "")
+        return bool(text.strip()), d
+    if stg == "final":
+        _, ch = getj(f"/api/chapter?seq={seq}", work=r.slug)
+        dump(r.evid / f"15-ch{seq}-final.json", ch)
+        prose = (ch or {}).get("prose") if isinstance(ch, dict) else ""
+        return bool(str(prose or "").strip()), ch
+    return False, None
+
+
 def s6(r: Runner) -> None:
     print("\n==== S6 五层 ×", r.n, "====", flush=True)
     stages = ["duty", "design", "deduce", "draft", "final"]
@@ -502,9 +570,14 @@ def s6(r: Runner) -> None:
         done = set(r.state.get("s6_done") or [])
         for stg in stages:
             tag = f"{key}-{stg}"
-            if tag in done:
+            live, payload = _stage_live(r, seq, stg)
+            if tag in done and live:
                 print("  skip", tag, flush=True)
                 continue
+            if tag in done and not live:
+                print(f"  redo {tag}（上次记完成但书里没有）", flush=True)
+                done.discard(tag)
+                r.save_state(s6_done=sorted(done))
             phase = "" if stg in ("duty", "design") else stg
             r.world_write(
                 tag,
@@ -513,10 +586,10 @@ def s6(r: Runner) -> None:
                 chapter=seq,
                 phase=phase,
             )
-            # 回读
+            live, payload = _stage_live(r, seq, stg)
+            if not live:
+                raise RuntimeError(f"{tag} 主编跑完但书里没有这一层")
             if stg == "duty":
-                _, duty = getj(f"/api/chapters/{seq}/duty", work=r.slug)
-                dump(r.evid / f"10-ch{seq}-duty.json", duty)
                 _, arts = getj("/api/debug/pipeline-artifacts?kind=prompt&limit=20", work=r.slug)
                 dump(r.evid / f"18-ch{seq}-prompt-in.json", arts)
                 body = json.dumps(arts, ensure_ascii=False) if arts is not None else ""
@@ -532,20 +605,6 @@ def s6(r: Runner) -> None:
                         encoding="utf-8",
                     )
                     raise SystemExit(f"M3 FAIL duty.in empty {empty_cols}")
-            elif stg == "design":
-                _, play = getj(f"/api/chapters/{seq}/play", work=r.slug)
-                _, contract = getj(f"/api/chapters/{seq}/contract", work=r.slug)
-                dump(r.evid / f"11-ch{seq}-play.json", play)
-                dump(r.evid / f"12-ch{seq}-contract.json", contract)
-            elif stg == "deduce":
-                _, d = getj(f"/api/chapters/{seq}/deduce", work=r.slug)
-                dump(r.evid / f"13-ch{seq}-deduce.json", d)
-            elif stg == "draft":
-                _, d = getj(f"/api/latest-draft?seq={seq}", work=r.slug)
-                dump(r.evid / f"14-ch{seq}-draft.json", d)
-            elif stg == "final":
-                _, ch = getj(f"/api/chapter?seq={seq}", work=r.slug)
-                dump(r.evid / f"15-ch{seq}-final.json", ch)
             done.add(tag)
             r.save_state(s6_done=sorted(done))
         # save-chapter
@@ -602,6 +661,7 @@ def main():
     ap.add_argument("--n", type=int, default=N_DEFAULT)
     ap.add_argument("--slug", default=os.environ.get("HUMANRUN_SLUG") or "")
     ap.add_argument("--stop-after", default="s7", help="s0..s7")
+    ap.add_argument("--start-from", default="s0", help="s0..s7，跳过更早阶段")
     ap.add_argument("--evid", default="")
     args = ap.parse_args()
     if args.n < 1 or args.n > 10:
@@ -614,7 +674,14 @@ def main():
     order = ["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7"]
     fns = {"s0": s0, "s1": s1, "s2": s2, "s3": s3, "s4": s4, "s5": s5, "s6": s6, "s7": s7}
     stop = args.stop_after
+    start = args.start_from
+    started = False
     for name in order:
+        if not started:
+            if name != start:
+                print("  skip", name, "(start-from)", flush=True)
+                continue
+            started = True
         # 建书后把证据目录改成带 slug
         if name == "s1":
             fns[name](r)

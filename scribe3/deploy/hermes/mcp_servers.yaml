@@ -60,6 +60,9 @@ scribe3_read:
 scribe3_write:
   command: "{{RUN_MCP}}"
   enabled: true
+  # s3_generate_stage 在 MCP 里跑模型；默认 300s 会被掐断，keepalive 还会在长调用中途重连。
+  timeout: 1800
+  keepalive_interval: 1800
   tools:
     include:
       - s3_save_chapter
@@ -137,6 +140,8 @@ scribe3_deduce_read:
 scribe3_deduce_write:
   command: "{{RUN_MCP}}"
   enabled: true
+  timeout: 1800
+  keepalive_interval: 1800
   tools:
     include:
       - s3_generate_stage
@@ -160,6 +165,8 @@ scribe3_plan_read:
 scribe3_plan_write:
   command: "{{RUN_MCP}}"
   enabled: true
+  timeout: 1800
+  keepalive_interval: 1800
   tools:
     include:
       - s3_patch_chapter_meta
@@ -186,6 +193,8 @@ scribe3_draft_read:
 scribe3_draft_write:
   command: "{{RUN_MCP}}"
   enabled: true
+  timeout: 1800
+  keepalive_interval: 1800
   tools:
     include:
       - s3_save_chapter
