@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from scribe3.playbook.parse import parse_json_with_retry
+from scribe3.playbook.stages import STAGE_MAX_TOKENS
 from scribe3.playbook.structural import detect_narrative_pov, thin_metaphors
 from scribe3.playbook.prompts import (
     IDENTITY_NOVELIST,
@@ -54,7 +55,7 @@ def generate_text(
 
 def gen_duty(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
     raw = generate_json(
-        llm_fn, duty_generate(ctx), system=identity_for("duty"), max_tokens=2048,
+        llm_fn, duty_generate(ctx), system=identity_for("duty"), max_tokens=STAGE_MAX_TOKENS["duty"],
     )
     raw["seq"] = int(ctx.get("seq") or 0)
     raw["focalizer"] = ctx.get("focalizer") or raw.get("focalizer") or ""

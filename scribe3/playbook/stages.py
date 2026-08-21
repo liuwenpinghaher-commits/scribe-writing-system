@@ -12,7 +12,7 @@ MIGRATE_HINT = (
     "请改用 duty → design → deduce → draft → final。"
 )
 STAGE_MAX_TOKENS = {
-    "duty": 2048,
+    "duty": 8192,
     "design": 4096,
     "deduce": 8192,
     "draft": 16384,

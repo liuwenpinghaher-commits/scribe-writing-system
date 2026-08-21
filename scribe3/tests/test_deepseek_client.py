@@ -240,6 +240,43 @@ def test_complete_disabled_thinking_sends_enable_thinking_false_for_tokenplan():
     assert observed_body["enable_thinking"] is False
 
 
+def test_complete_retries_when_thinking_fills_max_tokens():
+    calls = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        calls.append(body.get("max_tokens"))
+        if len(calls) == 1:
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [{
+                        "finish_reason": "length",
+                        "message": {
+                            "role": "assistant",
+                            "content": "",
+                            "reasoning_content": "x" * 100,
+                        },
+                    }],
+                },
+            )
+        return httpx.Response(
+            200,
+            json={"choices": [{"finish_reason": "stop", "message": {"content": "落库"}}]},
+        )
+
+    with _client(handler) as transport:
+        result = deepseek.DeepSeekClient(client=transport).complete(
+            [{"role": "user", "content": "写"}],
+            max_tokens=256,
+            thinking="disabled",
+            retry_count=1,
+        )
+
+    assert result.content == "落库"
+    assert calls == [256, 4352]
+
+
 @pytest.mark.parametrize("operation", ["complete", "stream"])
 def test_call_timeout_overrides_setting_for_each_outbound_path(operation):
     observed_timeout = None

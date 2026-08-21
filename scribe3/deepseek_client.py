@@ -221,6 +221,32 @@ class DeepSeekClient:
         return float(value)
 
     @staticmethod
+    def _truncated_empty_bump(response: httpx.Response, body: Mapping[str, Any]) -> int | None:
+        """思考占满 max_tokens、可见正文为空时，把额度放大再试一次。"""
+        try:
+            payload = response.json()
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(payload, Mapping):
+            return None
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], Mapping):
+            return None
+        first = choices[0]
+        if str(first.get("finish_reason") or "") != "length":
+            return None
+        message = first.get("message")
+        from scribe3.llm_visible import PROVIDER_MAX_TOKENS_HARD, visible_message_text
+        if visible_message_text(message if isinstance(message, Mapping) else None):
+            return None
+        current = int(body.get("max_tokens") or 2048)
+        bumped = min(PROVIDER_MAX_TOKENS_HARD, max(current * 4, current + 4096))
+        if bumped <= current:
+            return None
+        _log.warning("qwen complete truncated empty; retry max_tokens %s -> %s", current, bumped)
+        return bumped
+
+    @staticmethod
     def _apply_thinking(body: dict[str, Any], thinking: str | None) -> None:
         """DeepSeek 原生 thinking.type + TokenPlan/DashScope 的 enable_thinking。
 
@@ -381,8 +407,18 @@ class DeepSeekClient:
                     if response.status_code >= 400:
                         failure = self._safe_http_error(response.status_code, identity)
                     else:
-                        failure = None
-                        break
+                        bump = self._truncated_empty_bump(response, body)
+                        if bump is not None:
+                            body["max_tokens"] = bump
+                            failure = DeepSeekResponseError(
+                                "Qwen 官方服务接口返回无效补全结构",
+                                identity=identity,
+                                status="empty_truncated",
+                                retryable=True,
+                            )
+                        else:
+                            failure = None
+                            break
 
                 if failure.retryable and attempt < retries:
                     response = None

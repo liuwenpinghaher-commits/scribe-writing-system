@@ -1297,13 +1297,12 @@ async def s3_generate_stage(
             }
         return {"status": "ok", "tool": "s3_generate_stage", **hit}
 
-    def llm_fn(prompt, max_tokens=STAGE_MAX_TOKENS.get(stg, 4096)):
-        try:
-            from scribe3.api.services.misc_helpers import _pilot_llm_gen
-            return _pilot_llm_gen(st, work or "main", int(seq), stg, prompt, max_tokens=max_tokens)
-        except Exception:
-            from scribe3.llm import hermes_complete
-            return hermes_complete(prompt, max_tokens=max_tokens) or ""
+    def llm_fn(prompt, max_tokens=STAGE_MAX_TOKENS.get(stg, 4096), **kwargs):
+        from scribe3.api.services.misc_helpers import _pilot_llm_gen
+        return _pilot_llm_gen(
+            st, work or "main", int(seq), stg, prompt,
+            max_tokens=max_tokens, system=kwargs.get("system"),
+        )
 
     persist_fn = None
     if persist and stg == "draft":
@@ -1358,13 +1357,12 @@ async def s3_generate_stage(
 
 
 def _codex_llm_fn(st, work: str | None, kind: str):
-    def llm_fn(prompt, max_tokens=4096):
-        try:
-            from scribe3.api.services.misc_helpers import _pilot_llm_gen
-            return _pilot_llm_gen(st, work or "main", 1, kind, prompt, max_tokens=max_tokens)
-        except Exception:
-            from scribe3.llm import hermes_complete
-            return hermes_complete(prompt, max_tokens=max_tokens) or ""
+    def llm_fn(prompt, max_tokens=4096, **kwargs):
+        from scribe3.api.services.misc_helpers import _pilot_llm_gen
+        return _pilot_llm_gen(
+            st, work or "main", 1, kind, prompt,
+            max_tokens=max_tokens, system=kwargs.get("system"),
+        )
     return llm_fn
 
 
