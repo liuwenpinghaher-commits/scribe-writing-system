@@ -32,9 +32,9 @@ PUBLIC_CHAIN_KEYS = frozenset({
     "contrast_summary", "notes", "schema_ver", "created_at",
     "prev_trace_id", "next_trace_id", "spans", "tree",
     "event_count", "artifact_count", "log_count",
-    "fail_reasons",
+    "fail_reasons", "retry_of",
 })
-# 140+142+150 允许 PATCH 的列。不含 created_at（READONLY）、trace_id（CREATE 强制补，UPDATE 只进 WHERE）。
+# 140+142+150+151 允许 PATCH 的列。不含 created_at（READONLY）、trace_id（CREATE 强制补，UPDATE 只进 WHERE）。
 CHAIN_PATCH_KEYS = frozenset({
     "work", "chapter", "kind", "phase", "status",
     "cursor_step_key", "headline", "started_at", "ended_at", "duration_ms",
@@ -42,7 +42,7 @@ CHAIN_PATCH_KEYS = frozenset({
     "outcome_id", "outcome_status", "outcome_usage",
     "contrast_run_id", "contrast_summary", "notes", "schema_ver",
     "event_count", "artifact_count", "log_count",
-    "fail_reasons",
+    "fail_reasons", "retry_of",
 })
 SPAN_CAP = 128
 SPAN_JSON_SOFT = 4000
@@ -261,6 +261,7 @@ class TraceBuffer:
         self.obs_on: bool = True
         self.recorder = None
         self.last_prompt: str = ""
+        self.retry_of: str | None = None
 
     def start_chain(
         self,
@@ -421,6 +422,7 @@ class TraceBuffer:
                                if getattr(self, "recorder", None) is not None else 0),
             "log_count": len(self.logs),
             "fail_reasons": list(self.fail_reasons),
+            "retry_of": self.retry_of,
         }
 
     def red_count(self) -> int:
@@ -459,11 +461,6 @@ class TraceBuffer:
         return rec["log_id"]
 
     def drain_logs(self) -> list[dict[str, Any]]:
-        rec_buf = getattr(self, "recorder", None)
-        if rec_buf is not None and getattr(rec_buf, "has_real_artifact", lambda: False)():
-            for rec in self.logs:
-                rec["_flushed"] = True
-            return []
         out = []
         for rec in self.logs:
             if rec.get("_flushed"):

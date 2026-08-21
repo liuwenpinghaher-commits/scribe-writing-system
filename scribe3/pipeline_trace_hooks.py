@@ -117,10 +117,11 @@ def _close_stale_write_chains(
     kind: str,
     phase: str,
     keep_id: str,
-) -> None:
+) -> list[str]:
     lister = getattr(st, "list_pipeline_chains", None)
+    closed: list[str] = []
     if not callable(lister):
-        return
+        return closed
     rows = lister(chapter=int(chapter or 0), kind=kind, status="in_progress", limit=20) or []
     for row in rows:
         if not isinstance(row, dict):
@@ -139,6 +140,8 @@ def _close_stale_write_chains(
         if not fr:
             fr = ["retry_replaced"]
         finish_chain(st, trace_id=old, status="failed", extra={"fail_reasons": fr})
+        closed.append(old)
+    return closed
 
 
 def open_write_chain(
@@ -159,17 +162,27 @@ def open_write_chain(
         if not rid:
             rid = uuid.uuid4().hex
             manifest_trace["request_id"] = rid
+        closed: list[str] = []
         try:
-            _close_stale_write_chains(
+            closed = _close_stale_write_chains(
                 st, chapter=int(chapter or 0), kind=kind, phase=phase or "draft",
                 keep_id=rid,
-            )
+            ) or []
         except Exception:
-            pass
+            closed = []
         start_chain(
             st, work=work, chapter=int(chapter or 0),
             kind=kind, phase=phase or "draft", trace_id=rid,
         )
+        if closed:
+            buf = buffer_for(rid)
+            if buf is not None:
+                buf.retry_of = closed[0]
+                try:
+                    if st is not None and hasattr(st, "update_pipeline_chain"):
+                        st.update_pipeline_chain(rid, {"retry_of": closed[0]})
+                except Exception:
+                    pass
         return rid
     except Exception:
         _log.warning("open_write_chain fail-soft", exc_info=True)
@@ -292,7 +305,6 @@ def note_push(name: str, text: str | None, *, skip: str | None = None, attempted
                 sid, "emit.shape",
                 shape="block", chars=int(chars),
                 status=str(actual or "ok"),
-                body=text or "",
                 name=str(name or ""),
             )
     except Exception:
@@ -339,6 +351,28 @@ def after_join(st: Any, bud_rep: dict | None) -> None:
         events=l2_events_from_dropped(o1d),
         output={"dropped": o1d},
     )
+    tags = [str(x) for x in dropped + o1d]
+    if any("prompt_hard" in t for t in tags):
+        cap = l2.get("prompt_hard") or bud.get("prompt_hard")
+        used = l2.get("l2_est") or te.get("used") or te.get("est")
+        try:
+            buf.append_log(
+                sid2 or sid, "budget.cap",
+                cap=int(cap or 0), used=int(used or 0),
+            )
+        except Exception:
+            pass
+        try:
+            from scribe3.pipeline_recorder import current_recorder
+            rec = current_recorder()
+            if rec is not None:
+                rec.emit(
+                    sid2 or sid, "budget",
+                    summary="帽子命中",
+                    payload={"tag": "prompt_hard", "cap": cap, "used": used},
+                )
+        except Exception:
+            pass
     flush_spans(st, buf, cursor="compile.manifest")
 
 
@@ -360,6 +394,32 @@ def after_compile(st: Any, compiled) -> None:
         links={"manifest_id": buf.manifest_id},
         output={"manifest_id": buf.manifest_id, "actual_input_hash": buf.actual_input_hash},
     )
+    omitted: list[dict] = []
+    try:
+        env = getattr(compiled, "envelope", None)
+        omitted = list(getattr(env, "omitted", None) or [])
+    except Exception:
+        omitted = []
+    if omitted:
+        rows = []
+        for o in omitted:
+            if not isinstance(o, dict):
+                continue
+            rows.append({
+                "source_id": o.get("source_id"),
+                "reason": o.get("reason"),
+                "block": o.get("block"),
+            })
+        if rows:
+            import json as _json
+            sid_d = buf.start_span("assemble.dropped")
+            playbook_note_out(
+                sid_d, name="assemble.dropped",
+                body=_json.dumps(rows, ensure_ascii=False),
+                summary=f"丢掉 {len(rows)} 段",
+                kind="dropped",
+            )
+            playbook_span_end(sid_d, status="ok", actual="present")
     flush_spans(st, buf, cursor="guard.epistemic")
 
 
@@ -563,6 +623,25 @@ def note_discuss_step(step_key: str, *, name: str, body: str, summary: str,
         playbook_span_end(
             sid, status="ok",
             actual="present" if str(body or "").strip() else "empty",
+        )
+    except Exception:
+        return
+
+
+def note_guide_missing(name: str) -> None:
+    """上游引导抛错时落一笔，不含正文。"""
+    try:
+        sid = playbook_span_start("playbook.upstream_guide")
+        from scribe3.pipeline_recorder import current_recorder
+        rec = current_recorder()
+        if rec is not None:
+            rec.emit(
+                sid, "flag",
+                summary=f"上游空 {name}",
+                payload={"tag": "upstream_guide_missing", "name": str(name)[:64]},
+            )
+        playbook_span_end(
+            sid, status="ok", actual="empty", actual_reason=str(name)[:64],
         )
     except Exception:
         return

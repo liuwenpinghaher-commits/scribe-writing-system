@@ -543,54 +543,31 @@ def build_ctx(
     foc = str(focalizer or "").strip() or str(row.get("focalizer") or "").strip()
     cards = cast_cards(world)
     prev_state = prev_chapter_state(frozen, seq)
-    volume_outline = ""
-    north_star = ""
-    chapter_duty = ""
-    recent_duty = ""
-    recent_scene = ""
-    codex = ""
-    epistemic = ""
-    prose_tail = ""
-    try:
-        volume_outline = playbook_volume_outline(world, seq, rows)
-    except Exception as exc:
-        _log.warning("volume_outline failed: %s", exc)
-        guide_fail.append("volume_outline")
-    try:
-        north_star = playbook_north_star(world)
-    except Exception as exc:
-        _log.warning("north_star failed: %s", exc)
-        guide_fail.append("north_star")
-    try:
-        chapter_duty = playbook_chapter_duty(seq, rows)
-    except Exception as exc:
-        _log.warning("chapter_duty failed: %s", exc)
-        guide_fail.append("chapter_duty")
-    try:
-        recent_duty = playbook_recent_duty_summary(frozen, seq)
-    except Exception as exc:
-        _log.warning("recent_duty_summary failed: %s", exc)
-        guide_fail.append("recent_duty_summary")
-    try:
-        recent_scene = playbook_recent_scene_summary(frozen, seq)
-    except Exception as exc:
-        _log.warning("recent_scene_summary failed: %s", exc)
-        guide_fail.append("recent_scene_summary")
-    try:
-        codex = playbook_codex_recall(world, seq, foc, rows=rows)
-    except Exception as exc:
-        _log.warning("codex_recall failed: %s", exc)
-        guide_fail.append("codex_recall")
-    try:
-        epistemic = playbook_epistemic_history(frozen, seq)
-    except Exception as exc:
-        _log.warning("epistemic_history failed: %s", exc)
-        guide_fail.append("characters_epistemic_history")
-    try:
-        prose_tail = playbook_prev_prose_tail(world, seq)
-    except Exception as exc:
-        _log.warning("prev_prose_tail failed: %s", exc)
-        guide_fail.append("prev_prose_tail")
+    def _slot(name: str, fn):
+        try:
+            return fn()
+        except Exception as exc:
+            from scribe3.soft_fail import soft_fail
+            soft_fail(f"build_ctx.{name}", exc, logger=_log)
+            guide_fail.append(name)
+            try:
+                from scribe3.pipeline_trace_hooks import note_guide_missing
+                note_guide_missing(name)
+            except Exception:
+                pass
+            return ""
+
+    volume_outline = _slot("volume_outline", lambda: playbook_volume_outline(world, seq, rows))
+    north_star = _slot("north_star", lambda: playbook_north_star(world))
+    chapter_duty = _slot("chapter_duty", lambda: playbook_chapter_duty(seq, rows))
+    recent_duty = _slot("recent_duty_summary", lambda: playbook_recent_duty_summary(frozen, seq))
+    recent_scene = _slot("recent_scene_summary", lambda: playbook_recent_scene_summary(frozen, seq))
+    codex = _slot("codex_recall", lambda: playbook_codex_recall(world, seq, foc, rows=rows))
+    epistemic = _slot(
+        "characters_epistemic_history",
+        lambda: playbook_epistemic_history(frozen, seq),
+    )
+    prose_tail = _slot("prev_prose_tail", lambda: playbook_prev_prose_tail(world, seq))
     ctx: dict[str, Any] = {
         "seq": int(seq),
         "focalizer": foc,

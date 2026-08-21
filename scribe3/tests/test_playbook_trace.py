@@ -1,6 +1,8 @@
 """写章五层细账：检查没过必须留下原因，落库必须刷进记录仪。"""
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from scribe3.pipeline_trace import (
     TraceBuffer,
     bind_trace_buffer,
@@ -18,6 +20,7 @@ class _FakeStore:
         self.events = []
         self.artifacts = []
         self.spans = []
+        self.logs = []
         self.chains = {}
 
     def insert_pipeline_events(self, rows):
@@ -28,6 +31,9 @@ class _FakeStore:
 
     def insert_pipeline_spans(self, rows):
         self.spans.extend(rows or [])
+
+    def insert_pipeline_logs(self, rows):
+        self.logs.extend(rows or [])
 
     def update_pipeline_chain(self, tid, patch):
         rec = dict(self.chains.get(tid) or {})
@@ -119,17 +125,21 @@ def test_begin_discuss_trace_kind():
     )
     enable_pipeline_trace()
     st = _FakeStore()
-    mt = begin_discuss_trace(st, work="w", chapter=0)
-    assert mt.get("request_id")
-    note_discuss_step(
-        "discuss.assemble", name="discuss.assemble.in",
-        body="系统提示含柳岸青", summary="前置",
-        kind="prompt",
-    )
-    end_discuss_trace(st, mt, ok=True)
-    row = st.get_pipeline_chain(mt["request_id"])
-    assert row and row.get("kind") == "discuss"
-    assert any("柳岸青" in str(a.get("body") or "") for a in st.artifacts)
+    tok = bind_trace_buffer(TraceBuffer())
+    try:
+        mt = begin_discuss_trace(st, work="w", chapter=0)
+        assert mt.get("request_id")
+        note_discuss_step(
+            "discuss.assemble", name="discuss.assemble.in",
+            body="系统提示含柳岸青", summary="前置",
+            kind="prompt",
+        )
+        end_discuss_trace(st, mt, ok=True)
+        row = st.get_pipeline_chain(mt["request_id"])
+        assert row and row.get("kind") == "discuss"
+        assert any("柳岸青" in str(a.get("body") or "") for a in st.artifacts)
+    finally:
+        reset_trace_buffer(tok)
 
 
 def test_quality_loop_records_struct_fail_reason():
@@ -329,3 +339,90 @@ def test_note_reasons_lives_on_buffer_snapshot():
         assert snap.get("fail_reasons") == ["draft_len", "draft_copy_play"]
     finally:
         reset_trace_buffer(tok)
+
+
+def test_after_compile_records_dropped_without_body():
+    from scribe3.pipeline_trace_hooks import after_compile
+    enable_pipeline_trace()
+    st = _FakeStore()
+    buf = TraceBuffer()
+    tid = "dd" * 16
+    buf.start_chain(work="w", chapter=1, kind="write", phase="draft", trace_id=tid)
+    tok = bind_trace_buffer(buf)
+    remember_buffer(buf)
+    try:
+        env = SimpleNamespace(omitted=[{
+            "source_id": "mem:1", "reason": "token_budget", "block": "recent",
+            "text": "秘密正文不该进丢掉清单",
+        }])
+        compiled = SimpleNamespace(
+            envelope=env,
+            manifest=SimpleNamespace(manifest_hash="mh", actual_input_hash="ah"),
+        )
+        after_compile(st, compiled)
+        dropped = [a for a in st.artifacts if a.get("name") == "assemble.dropped"]
+        assert dropped and dropped[0].get("kind") == "dropped"
+        body = str(dropped[0].get("body") or "")
+        assert "token_budget" in body and "mem:1" in body
+        assert "秘密正文" not in body
+    finally:
+        reset_trace_buffer(tok)
+
+
+def test_after_join_notes_prompt_hard_cap():
+    from scribe3.pipeline_trace_hooks import after_join
+    enable_pipeline_trace()
+    st = _FakeStore()
+    buf = TraceBuffer()
+    tid = "ee" * 16
+    buf.start_chain(work="w", chapter=1, kind="write", phase="draft", trace_id=tid)
+    tok = bind_trace_buffer(buf)
+    remember_buffer(buf)
+    try:
+        after_join(st, {
+            "l2": {
+                "dropped": ["codex:prompt_hard_drop"],
+                "prompt_hard": 48000,
+                "l2_est": 50000,
+            },
+            "total_enforce": {"dropped": []},
+            "prompt_hard": 48000,
+        })
+        assert any((e.get("payload") or {}).get("tag") == "prompt_hard" for e in st.events)
+        assert any(lg.get("code") == "budget.cap" for lg in st.logs)
+    finally:
+        reset_trace_buffer(tok)
+
+
+def test_retry_of_and_stale_flag():
+    from scribe3.pipeline_trace_hooks import open_write_chain
+    from scribe3.pipeline_trace_store import publicize_chain_list_item
+    enable_pipeline_trace()
+    st = _FakeStore()
+    tok = bind_trace_buffer(TraceBuffer())
+    try:
+        mt1 = {"request_id": "11" * 16}
+        open_write_chain(st, mt1, work="w", chapter=1, kind="write", phase="draft")
+        mt2 = {"request_id": "22" * 16}
+        open_write_chain(st, mt2, work="w", chapter=1, kind="write", phase="draft")
+        row = st.get_pipeline_chain("22" * 16)
+        assert row and row.get("retry_of") == "11" * 16
+        item = publicize_chain_list_item({
+            "status": "in_progress",
+            "duration_ms": 11 * 60 * 1000,
+            "cursor_step_key": "assemble.precompute",
+            "retry_of": "11" * 16,
+        })
+        assert item.get("stale") is True
+        assert item.get("retry_of") == "11" * 16
+    finally:
+        reset_trace_buffer(tok)
+
+
+def test_build_ctx_uses_soft_fail():
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "playbook/context.py").read_text(encoding="utf-8")
+    assert "soft_fail" in src
+    assert "note_guide_missing" in src
+    mig = (Path(__file__).resolve().parents[1] / "migrations/151_pipeline_chain_discuss_retry.surql").read_text()
+    assert "discuss" in mig and "retry_of" in mig

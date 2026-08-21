@@ -133,6 +133,7 @@ def start_chain(
                 "artifact_count": 0,
                 "log_count": 0,
                 "fail_reasons": [],
+                "retry_of": getattr(buf, "retry_of", None),
             })
     except Exception as e:
         _log.warning("start_chain fail-soft: %s", e)
@@ -503,7 +504,9 @@ def publicize_chain_list_item(raw: dict) -> dict[str, Any]:
         "red_count": raw.get("red_count"),
         "outcome_status": raw.get("outcome_status"),
         "stuck": stuck or None,
+        "stale": bool(stuck),
         "fail_reasons": _fail_reasons_from_chain(raw),
+        "retry_of": raw.get("retry_of"),
     }
 
 

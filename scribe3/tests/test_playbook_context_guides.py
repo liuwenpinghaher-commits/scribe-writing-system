@@ -183,6 +183,8 @@ def test_guide_fail_only_on_throw_not_natural_empty():
         boom = build_ctx(_World(), 1, playbook=_FrozenOnly())
         assert "volume_outline" in (boom.get("_guide_fail") or [])
         assert boom.get("volume_outline") == ""
+        src_ctx = (Path(__file__).resolve().parents[1] / "playbook/context.py").read_text()
+        assert "soft_fail" in src_ctx
     finally:
         ctxmod.playbook_volume_outline = orig
 
