@@ -161,9 +161,10 @@ HERMES = os.environ.get("HERMES_API", "http://127.0.0.1:8642/v1")
 # 主编 agentic 走 scribe3 profile 专属网关 :8643(挂 scribe3 MCP);与 default :8642 隔离。
 HERMES_RESPONSES = os.environ.get("HERMES_RESPONSES_API", "http://127.0.0.1:8643/v1")
 HERMES_RESPONSES_PROFILE = os.environ.get("HERMES_RESPONSES_PROFILE", "scribe3")
-# 讨论查阅：零 MCP。默认打 :8642 空工具面；provision 起 :8649 后改 HERMES_DISCUSS_API。
-# 禁止默认落到 :8643（会注册 scribe3_read 全表）。
-HERMES_DISCUSS = os.environ.get("HERMES_DISCUSS_API", "http://127.0.0.1:8642/v1")
+# 讨论查阅：零 MCP。未设 HERMES_DISCUSS_API 时跟随速答网关 HERMES（空工具面）。
+# 禁止默认落到 :8643（会注册 scribe3_read 全表）。容器内 HERMES 常是 docker 桥，
+# 不能写死 127.0.0.1 否则打到容器自己。
+HERMES_DISCUSS = os.environ.get("HERMES_DISCUSS_API") or HERMES
 HERMES_DISCUSS_PROFILE = os.environ.get("HERMES_DISCUSS_PROFILE", "scribe3_discuss")
 # 会改状态的长任务 Runs 走独立写 profile。Hermes Runs 不支持 per-run tools 裁剪,
 # 工具面必须靠 gateway profile/platform_toolsets 隔离。
