@@ -118,6 +118,7 @@ def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None
     }
 
 
+@mcp.tool(annotations=_RW)
 async def s3_add_character(ctx: Context, oid: str, name: str,
                            aliases: list[str] | None = None,
                            appearance: str | None = None,
@@ -159,6 +160,7 @@ async def s3_add_character(ctx: Context, oid: str, name: str,
                                   Entity(oid, "character", name, traits=traits)))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_set_intent(ctx: Context,
                         reader_feeling: str | None = None,
                         emotional_arc: str | None = None,
@@ -218,6 +220,7 @@ async def s3_set_intent(ctx: Context,
                               lambda: _store_for(work).set_intent(fields))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_patch_character(ctx: Context, character_id: str,
                              appearance: str | None = None,
                              personality_detail: str | None = None,
@@ -267,6 +270,7 @@ async def s3_patch_character(ctx: Context, character_id: str,
     return commit_if_approved("s3_patch_character", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_add_fact(ctx: Context, oid: str, entity: str, attribute: str, value: str,
                       valid_from: int, secret: bool = False,
                       work: str | None = None) -> dict:
@@ -298,6 +302,7 @@ async def s3_add_fact(ctx: Context, oid: str, entity: str, attribute: str, value
     return commit_if_approved("s3_add_fact", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_add_event(ctx: Context, oid: str, etype: str, valid_from: int,
                        motivated_by_goal: str | None = None,
                        participants: list[dict] | None = None,
@@ -337,6 +342,7 @@ async def s3_add_event(ctx: Context, oid: str, etype: str, valid_from: int,
                                         narrative_position=narrative_position)))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_add_character_relation(ctx: Context, src_oid: str, dst_oid: str,
                                      relation: str, since_chapter: int,
                                      note: str | None = None,
@@ -360,6 +366,7 @@ async def s3_add_character_relation(ctx: Context, src_oid: str, dst_oid: str,
                                   src_oid, dst_oid, relation, since_chapter, note))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_evolve_relation(ctx: Context, src_oid: str, dst_oid: str,
                               new_relation: str, since_chapter: int,
                               note: str | None = None,
@@ -377,6 +384,7 @@ async def s3_evolve_relation(ctx: Context, src_oid: str, dst_oid: str,
                                   src_oid, dst_oid, new_relation, since_chapter, note))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_add_world_rule(ctx: Context, name: str, category: str,
                              source: str | None = None,
                              capabilities: list | None = None,
@@ -406,6 +414,7 @@ async def s3_add_world_rule(ctx: Context, name: str, category: str,
                                   limitations, exceptions, scope, established_chapter, note))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_add_faction(ctx: Context, name: str,
                           status: str = _mcp_unset_field(),
                           ideology: str | None = _mcp_unset_field(),
@@ -534,6 +543,7 @@ def _list_entity_relations_impl(entity: str | None, chapter: int | None,
     return _jsonable(result)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_add_entity_relation(ctx: Context, a: str, b: str, relation_type: str,
                                  perception_a: str | None = None,
                                  perception_b: str | None = None,
@@ -651,6 +661,7 @@ async def s3_delete_arc_beat(ctx: Context, beat_id: str,
         lambda: _store_for(work).delete_arc_beat(beat_id))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_set_voice_profile(ctx: Context, character_id: str,
                                 style_summary: str,
                                 catchphrases: list | None = None,
@@ -677,6 +688,7 @@ async def s3_set_voice_profile(ctx: Context, character_id: str,
                               lambda: _store_for(work).set_voice_profile(character_id, profile))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_add_item(ctx: Context, name: str,
                        category: str | None = None,
                        description: str | None = None,
@@ -702,6 +714,7 @@ async def s3_add_item(ctx: Context, name: str,
                                   first_chapter))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_add_term(ctx: Context, name: str,
                        category: str | None = None,
                        definition: str | None = None,
@@ -719,6 +732,7 @@ async def s3_add_term(ctx: Context, name: str,
                                   name, category, definition, aliases, first_mention_chapter))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_plant_promise(ctx: Context, text: str, setup_chapter: int,
                            kind: str = "promise", tier: str = "chapter",
                            resolution: str = "", work: str | None = None) -> dict:
@@ -745,6 +759,7 @@ async def s3_plant_promise(ctx: Context, text: str, setup_chapter: int,
                                                resolution=resolution))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_register_purpose(ctx: Context, chapter: int, purpose_text: str,
                               deltas_json: str = "[]", work: str | None = None) -> dict:
     """登记章节目的合同(写,待批)——北极星任务6(蓝图 §3-④):与作者聊定本章目的后,
@@ -786,6 +801,7 @@ async def s3_register_purpose(ctx: Context, chapter: int, purpose_text: str,
     return commit_if_approved("s3_register_purpose", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_advance_promise(ctx: Context, pid: str, payoff_chapter: int,
                              work: str | None = None) -> dict:
     """兑现/回收伏笔(写,待批):status→closed + payoff_chapter。
@@ -795,6 +811,7 @@ async def s3_advance_promise(ctx: Context, pid: str, payoff_chapter: int,
                               lambda: _store_for(work).advance_promise(pid, payoff_chapter))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_add_clue(ctx: Context, pid: str, note: str, chapter: int,
                       work: str | None = None) -> dict:
     """追加草蛇灰线中途线索到某条伏笔(写,待批)。
@@ -808,6 +825,7 @@ async def s3_add_clue(ctx: Context, pid: str, note: str, chapter: int,
                               lambda: _store_for(work).add_promise_clue(pid, note, chapter))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_mark_herring(ctx: Context, pid: str,
                           work: str | None = None) -> dict:
     """标为障眼法 red_herring(写,待批)。kind 变更,status 仍可为 open;
@@ -822,6 +840,7 @@ async def s3_mark_herring(ctx: Context, pid: str,
     return commit_if_approved("s3_mark_herring", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_touch_promise(ctx: Context, pid: str, chapter: int,
                            evidence: str = "", work: str | None = None) -> dict:
     """手工登记章触及 promise_touch(写,待批):推进/呼应证据,不改变 status。
@@ -838,6 +857,7 @@ async def s3_touch_promise(ctx: Context, pid: str, chapter: int,
     return commit_if_approved("s3_touch_promise", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_abandon_promise(ctx: Context, pid: str,
                              work: str | None = None) -> dict:
     """弃置伏笔(写,待批):status→abandoned。账本结案,不再催收/不进 A6 open。
@@ -852,6 +872,7 @@ async def s3_abandon_promise(ctx: Context, pid: str,
     return commit_if_approved("s3_abandon_promise", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_resolve_voice_flag(ctx: Context, flag_id: str, work: str | None = None) -> dict:
     """关闭声音演变 flag(status: open → done;写,待批)。
     更新声音库后调用此工具标记已处理。flag_id 从 s3_list_voice_flags 获取。"""
@@ -860,6 +881,7 @@ async def s3_resolve_voice_flag(ctx: Context, flag_id: str, work: str | None = N
                               lambda: _store_for(work).resolve_voice_flag(flag_id))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_fold_voice_flags(ctx: Context, character_id: str, work: str | None = None) -> dict:
     """半自动声音演变折叠(写,待批):把角色的 open voice_evolution_flag 用 LLM 折叠进 voice_profile。
     声音随情节演变的真闭环——flag 由 ingest/add_char_state 自动创建(affects_voice=True),
@@ -943,6 +965,7 @@ def s3_ingest_chapter(seq: int, work: str | None = None, force: bool = False,
     }
 
 
+@mcp.tool(annotations=_RW)
 async def s3_record_knowledge(ctx: Context, knower: str, proposition: str,
                               since_chapter: int, acquired_via: str = "saw",
                               work: str | None = None) -> dict:
@@ -963,6 +986,7 @@ async def s3_record_knowledge(ctx: Context, knower: str, proposition: str,
                                                 acquired_via=acquired_via)))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_supersede_fact(ctx: Context, entity_id: str, attribute: str, value: str,
                              since_chapter: int, secret: bool = False,
                              work: str | None = None) -> dict:
@@ -978,6 +1002,7 @@ async def s3_supersede_fact(ctx: Context, entity_id: str, attribute: str, value:
                                   entity_id, attribute, value, since_chapter, secret=secret))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_forget_knowledge(ctx: Context, knower_id: str, proposition_id: str,
                                until_chapter: int, work: str | None = None) -> dict:
     """令知识遗忘:设置知识边的 until_chapter,使其在该章起失效(写,待批)。
@@ -989,6 +1014,7 @@ async def s3_forget_knowledge(ctx: Context, knower_id: str, proposition_id: str,
                                   knower_id, proposition_id, until_chapter))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_craft_rule_add(ctx: Context, kind: str, pattern: str, note: str = "",
                             work: str | None = None) -> dict:
     """加一条本书题材 craft 规则(写,待批)。kind=purple_regex|artifact_craft|allow_pattern|allow_word。"""
@@ -997,6 +1023,7 @@ async def s3_craft_rule_add(ctx: Context, kind: str, pattern: str, note: str = "
                               lambda: _store_for(work).add_craft_rule(kind, pattern, note))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_author_pref_add(ctx: Context, text: str, work: str | None = None) -> dict:
     """记一条【作者跨书偏好】到 USER.md(写,待批)。只收人级风格倾向(如"偏短句""不煽情"
     "叙事距离偏远");**书内设定/人物/世界观/情节一律禁止**(那是正典,走设定工具)——
@@ -1006,6 +1033,7 @@ async def s3_author_pref_add(ctx: Context, text: str, work: str | None = None) -
     return commit_if_approved("s3_author_pref_add", ok, lambda: append_pref(text))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_craft_rule_remove(ctx: Context, rule_id: str, work: str | None = None) -> dict:
     """删一条本书题材 craft 规则(写,待批)。"""
     ok = await _ask(ctx, f"删题材规则 {rule_id}")
@@ -1013,6 +1041,7 @@ async def s3_craft_rule_remove(ctx: Context, rule_id: str, work: str | None = No
                               lambda: _store_for(work).delete_craft_rule(rule_id))
 
 
+@mcp.tool(annotations=_RW)
 async def s3_add_volume(ctx: Context, title: str, sort_order: int = 0,
                         intro: str | None = None, color: str | None = None,
                         work: str | None = None) -> dict:
@@ -1027,6 +1056,7 @@ async def s3_add_volume(ctx: Context, title: str, sort_order: int = 0,
     return commit_if_approved("s3_add_volume", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_patch_volume(ctx: Context, volume_id: str,
                           title: str | None = None,
                           sort_order: int | None = None,
@@ -1051,6 +1081,7 @@ async def s3_patch_volume(ctx: Context, volume_id: str,
     return commit_if_approved("s3_patch_volume", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_add_chapter(ctx: Context, title: str = "",
                          volume_id: str | None = None,
                          work: str | None = None) -> dict:
@@ -1063,6 +1094,7 @@ async def s3_add_chapter(ctx: Context, title: str = "",
     return commit_if_approved("s3_add_chapter", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_patch_chapter_meta(
     ctx: Context, seq: int,
     title: str | None = None,
@@ -1409,6 +1441,7 @@ async def s3_generate_codex_batch(
     return {"tool": "s3_generate_codex_batch", **out}
 
 
+@mcp.tool(annotations=_RW)
 async def s3_set_char_anchors(
     ctx: Context, character_id: str,
     want: str | None = None,
@@ -1438,6 +1471,7 @@ async def s3_set_char_anchors(
     return commit_if_approved("s3_set_char_anchors", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_reorder_chapters(ctx: Context, volume_id: str | None = None,
                               order: list[int] | None = None,
                               work: str | None = None) -> dict:
@@ -1456,6 +1490,7 @@ async def s3_reorder_chapters(ctx: Context, volume_id: str | None = None,
     return commit_if_approved("s3_reorder_chapters", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_delete_volume(ctx: Context, volume_id: str,
                            work: str | None = None) -> dict:
     """删除卷(写,待批)。该卷下章 volume 置空,不删章正文。"""
@@ -1472,6 +1507,7 @@ async def s3_delete_volume(ctx: Context, volume_id: str,
     return commit_if_approved("s3_delete_volume", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_add_motif(ctx: Context, name: str, theme: str = "",
                        echoes: str = "", unfolding: str = "",
                        work: str | None = None) -> dict:
@@ -1495,6 +1531,7 @@ async def s3_add_motif(ctx: Context, name: str, theme: str = "",
     return commit_if_approved("s3_add_motif", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_patch_faction(ctx: Context, name: str,
                            ideology: str | None = None,
                            leader: str | None = None,
@@ -1527,6 +1564,7 @@ async def s3_patch_faction(ctx: Context, name: str,
     return commit_if_approved("s3_patch_faction", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_patch_item(ctx: Context, name: str,
                         description: str | None = None,
                         category: str | None = None,
@@ -1557,6 +1595,7 @@ async def s3_patch_item(ctx: Context, name: str,
     return commit_if_approved("s3_patch_item", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_patch_term(ctx: Context, name: str,
                         definition: str | None = None,
                         category: str | None = None,
@@ -1582,6 +1621,7 @@ async def s3_patch_term(ctx: Context, name: str,
     return commit_if_approved("s3_patch_term", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_patch_world_rule(ctx: Context, name: str,
                               category: str | None = None,
                               cost: str | None = None,
@@ -1611,6 +1651,7 @@ async def s3_patch_world_rule(ctx: Context, name: str,
     return commit_if_approved("s3_patch_world_rule", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_patch_codex(ctx: Context, kind: str, name: str, fields: dict[str, Any],
                          work: str | None = None) -> dict:
     """按 Codex 注册表更正完整设定档案(写,待批)。
@@ -1676,6 +1717,7 @@ async def s3_patch_codex(ctx: Context, kind: str, name: str, fields: dict[str, A
     return commit_if_approved("s3_patch_codex", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_patch_motif(ctx: Context, motif_id: str,
                          name: str | None = None,
                          theme: str | None = None,
@@ -1712,6 +1754,7 @@ async def s3_patch_motif(ctx: Context, motif_id: str,
     return commit_if_approved("s3_patch_motif", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_patch_promise(ctx: Context, promise_id: str,
                            text: str | None = None,
                            resolution: str | None = None,
@@ -1766,6 +1809,7 @@ async def s3_patch_promise(ctx: Context, promise_id: str,
     return commit_if_approved("s3_patch_promise", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
 async def s3_delete_codex(ctx: Context, object_type: str, object_id: str,
                           archive: bool = True,
                           work: str | None = None) -> dict:
