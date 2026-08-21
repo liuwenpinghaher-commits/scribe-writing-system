@@ -234,6 +234,7 @@ class TestToolFreeOfficialRouting:
                 "stream": False,
                 "max_tokens": 123,
                 "thinking": {"type": "disabled"},
+                "enable_thinking": False,
                 "temperature": 0,
             },
         }

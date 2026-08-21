@@ -215,8 +215,29 @@ def test_complete_forwards_supported_optional_parameters():
         "max_tokens": 321 + 4096,
         "temperature": 0.4,
         "thinking": {"type": "enabled"},
+        "enable_thinking": True,
     }
     assert result.identity.model == "deepseek-reasoner"
+
+
+def test_complete_disabled_thinking_sends_enable_thinking_false_for_tokenplan():
+    observed_body = {}
+
+    def handler(request):
+        observed_body.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]},
+        )
+
+    with _client(handler) as transport:
+        deepseek.DeepSeekClient(client=transport).complete(
+            [{"role": "user", "content": "hello"}],
+            thinking="disabled",
+        )
+
+    assert observed_body["thinking"] == {"type": "disabled"}
+    assert observed_body["enable_thinking"] is False
 
 
 @pytest.mark.parametrize("operation", ["complete", "stream"])

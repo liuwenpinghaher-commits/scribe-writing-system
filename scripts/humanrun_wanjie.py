@@ -236,7 +236,8 @@ class Runner:
             calls = (tr or {}).get("tool_calls") if isinstance(tr, dict) else []
             effects = (tr or {}).get("write_effects") if isinstance(tr, dict) else []
             approvals = (tr or {}).get("approvals") if isinstance(tr, dict) else []
-            ok_calls, bad_calls = _s3_call_split(calls)
+            outputs = (tr or {}).get("tool_outputs") if isinstance(tr, dict) else []
+            ok_calls, bad_calls = _s3_call_split(calls, outputs)
             dump(self.evid / f"run-{tag}.json", {
                 "run_id": run_id, "status": st, "pkg": pkg, "attempt": attempt,
                 "n_tool_calls": len(calls or []), "n_approvals": len(approvals or []),
@@ -499,7 +500,13 @@ def s5(r: Runner) -> None:
     r.save_state(phase="s5")
 
 
-def _s3_call_split(calls):
+def _s3_call_split(calls, outputs=None):
+    errored = set()
+    for o in outputs or []:
+        if not isinstance(o, dict):
+            continue
+        if (o.get("completion") or {}).get("error"):
+            errored.add(str(o.get("tool") or ""))
     ok, bad = [], []
     for c in calls or []:
         if not isinstance(c, dict):
@@ -509,7 +516,8 @@ def _s3_call_split(calls):
             continue
         blob = json.dumps(c, ensure_ascii=False).lower()
         if (
-            c.get("error")
+            name in errored
+            or c.get("error")
             or c.get("is_error")
             or "timed out" in blob
             or "closedresourceerror" in blob

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -15,9 +16,12 @@ import httpx
 
 from scribe3 import settings
 
+_log = logging.getLogger("scribe3.deepseek")
+_THINKING_OFF = {"disabled", "none", "off", "false", "0"}
+
 
 OFFICIAL_PROVIDER = "qwen"
-DEFAULT_MODEL = "deepseek-v4-flash-0731"
+DEFAULT_MODEL = "deepseek-v4-pro-0813"
 OFFICIAL_API_BASE = "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
 _CHAT_COMPLETIONS_URL = f"{OFFICIAL_API_BASE}/chat/completions"
 _RETRYABLE_REQUEST_ERRORS = (
@@ -217,6 +221,19 @@ class DeepSeekClient:
         return float(value)
 
     @staticmethod
+    def _apply_thinking(body: dict[str, Any], thinking: str | None) -> None:
+        """DeepSeek 原生 thinking.type + TokenPlan/DashScope 的 enable_thinking。
+
+        V4 默认开思考。只传 thinking.type=disabled 时，兼容网关会把 max_tokens
+        烧进 reasoning，可见正文为空，被当成无效补全。
+        """
+        if thinking is None:
+            return
+        kind = str(thinking).strip().lower()
+        body["thinking"] = {"type": kind}
+        body["enable_thinking"] = kind not in _THINKING_OFF
+
+    @staticmethod
     def _safe_http_error(status_code: int, identity: ProviderIdentity) -> DeepSeekHTTPError:
         return DeepSeekHTTPError(
             f"Qwen 官方服务接口返回 HTTP {status_code}",
@@ -339,8 +356,7 @@ class DeepSeekClient:
             body["max_tokens"] = send_max
         if temperature is not None:
             body["temperature"] = temperature
-        if thinking is not None:
-            body["thinking"] = {"type": thinking}
+        self._apply_thinking(body, thinking)
         if response_format is not None:
             body["response_format"] = response_format
 
@@ -398,6 +414,13 @@ class DeepSeekClient:
         from scribe3.llm_visible import visible_message_text, visible_usage
         content = visible_message_text(message)
         if not content:
+            reasoning = message.get("reasoning_content") if isinstance(message, Mapping) else None
+            _log.warning(
+                "qwen complete empty visible content finish=%s msg_keys=%s reasoning_len=%s",
+                first.get("finish_reason") if isinstance(first, Mapping) else None,
+                list(message.keys()) if isinstance(message, Mapping) else [],
+                len(reasoning) if isinstance(reasoning, str) else 0,
+            )
             raise self._safe_response_error(identity)
 
         response_model = payload.get("model")
@@ -571,8 +594,7 @@ class DeepSeekClient:
         send_max = with_thinking_headroom(max_tokens, thinking=thinking)
         if send_max is not None:
             body["max_tokens"] = send_max
-        if thinking is not None:
-            body["thinking"] = {"type": thinking}
+        self._apply_thinking(body, thinking)
         headers = self._headers(api_key)
         retries = self._retry_count(retry_count)
         timeout = self._timeout(timeout_seconds)
