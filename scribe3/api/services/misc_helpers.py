@@ -316,9 +316,9 @@ def _pilot_llm_gen(st, work: str, seq: int, phase: str, ask: str, focalizer: str
     from contextlib import nullcontext
 
     from scribe3.pipeline_trace_hooks import write_chain_guard
+    from scribe3.api.services.write_stream import _WriteOutcomeBinding, bind_pilot_trace
 
     outcome_binding = _WriteOutcomeBinding(st)
-    from scribe3.api.services.write_stream import bind_pilot_trace
     nested = bind_pilot_trace(outcome_binding, st, work, seq, phase)
     ctx = nullcontext() if nested else write_chain_guard(st, outcome_binding.manifest_trace)
     with ctx:
