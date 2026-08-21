@@ -164,11 +164,11 @@ class Runner:
         return runs or []
 
     def approve(self, run_id: str, approval_id: str | None):
-        payload = {"approved": True, "decision": "approve"}
+        payload = {"decision": "approve"}
         if approval_id:
             payload["approval_id"] = approval_id
         code, res = curl("POST", f"/api/ai/runs/{run_id}/approval", payload, work=self.slug, timeout=60)
-        print(f"  APPROVE {run_id} {approval_id} -> {code}", flush=True)
+        print(f"  APPROVE {run_id} {approval_id} -> {code} {str(res)[:400]}", flush=True)
         return code, res
 
     def run_status(self, run_id: str):

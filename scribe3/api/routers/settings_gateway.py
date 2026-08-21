@@ -1127,9 +1127,12 @@ def _bind_and_register() -> None:
     router.add_api_route('/ai/runs/{run_id}/events', _re, methods=['GET'], name='ai_run_events')
 
     _fn = g['ai_run_approval']
-    _re = types.FunctionType(_fn.__code__, core.__dict__, 'ai_run_approval', _fn.__defaults__, _fn.__closure__)
-    if _fn.__annotations__:
-        _re.__annotations__ = dict(_fn.__annotations__)
+    _src = getattr(_fn, '__wrapped__', _fn)
+    _re = types.FunctionType(_src.__code__, core.__dict__, 'ai_run_approval', _src.__defaults__, _src.__closure__)
+    if _src.__annotations__:
+        _re.__annotations__ = dict(_src.__annotations__)
+    from scribe3.api.services.ai_run_runtime import _serialize_ai_run_approval
+    _re = _serialize_ai_run_approval(_re)
     setattr(core, 'ai_run_approval', _re)
     g['ai_run_approval'] = _re
     router.add_api_route('/ai/runs/{run_id}/approval', _re, methods=['POST'], name='ai_run_approval')
