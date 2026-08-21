@@ -1227,6 +1227,13 @@ async def s3_generate_stage(
         extra = ((extra or "") + " rewrite=1").strip()
     st = _store_for(work)
     ch = st.get_chapter(int(seq)) or {}
+    if persist and stg == "final" and bool((ch or {}).get("prose_lock")) and not brief_only:
+        return {
+            "status": "error",
+            "tool": "s3_generate_stage",
+            "code": "prose_locked",
+            "error": "本章定稿已锁，禁止覆盖正文。",
+        }
     if extra_authors(extra or ""):
         return {
             "status": "error",
@@ -1288,7 +1295,18 @@ async def s3_generate_stage(
         raise
     try:
         _emit_fate_artifacts(stg, out, dict(out or {}), {**(ch or {}), **(out or {})})
-        finish_ok(st, mt)
+        fr: list[str] = []
+        for x in (out or {}).get("fail_reasons") or []:
+            if x and str(x) not in fr:
+                fr.append(str(x))
+        ok = bool((out or {}).get("ok") or (out or {}).get("skipped"))
+        if not ok and not fr:
+            fr = [str((out or {}).get("code") or "needs_human")]
+        finish_ok(
+            st, mt,
+            extra={"fail_reasons": fr} if fr else None,
+            status="ok" if ok else "failed",
+        )
     except Exception:
         pass
     status = "ok" if out.get("ok") or out.get("skipped") else "error"

@@ -80,14 +80,15 @@ def test_draft_hint_combines_len_and_copy():
     assert "1800" in h
     h2 = draft_struct_hint(["draft_len", "draft_copy_play"], last_message="糙稿与戏重复率 21%")
     assert COMBINED_LEN_COPY == h2 or COMBINED_LEN_COPY in h2
-    assert "写够两千字" in h2
-    assert "不要原样搬" in h2
+    assert "还没演完" in h2
+    assert "不能靠搬戏凑" in h2
+    assert "写够两千字" not in h2
     h3 = draft_struct_hint(
         ["draft_len", "draft_copy_play"],
         last_message="x",
         tic_phrases=["不是慢慢冷，是抽", "不是往外走，是折回来"],
     )
-    assert "写够两千字" in h3
+    assert "还没演完" in h3
     assert "装腔" in h3
     assert "不是慢慢冷" in h3
 
@@ -101,6 +102,23 @@ def test_live_headline_shows_fail_reasons_while_running():
     })
     assert "字数不够" in h
     assert "抄了戏" in h
+
+
+def test_chapter_has_prose_missing_key_is_unknown():
+    from scribe3.playbook.pipeline import _chapter_has_prose
+
+    class Lite:
+        def chapters_lite(self):
+            return [{"seq": 1}]
+
+    assert _chapter_has_prose(Lite(), 1, {}) is False
+    assert _chapter_has_prose(Lite(), 1, {"has_prose": True}) is True
+
+    class LiteTrue:
+        def chapters_lite(self):
+            return [{"seq": 1, "has_prose": True}]
+
+    assert _chapter_has_prose(LiteTrue(), 1, {}) is True
 
 
 def test_playbook_does_not_mount_voice_anchor():

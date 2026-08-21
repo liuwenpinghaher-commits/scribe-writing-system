@@ -1,19 +1,12 @@
 """SurrealStore mixin: pipeline_chain / pipeline_span。"""
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+from scribe3.pipeline_trace import CHAIN_PATCH_KEYS
 
-_CHAIN_SET = (
-    "trace_id=$trace_id, work=$work, chapter=$chapter, kind=$kind, phase=$phase, "
-    "status=$status, cursor_step_key=$cursor_step_key, headline=$headline, "
-    "started_at=$started_at, ended_at=$ended_at, duration_ms=$duration_ms, "
-    "span_count=$span_count, red_count=$red_count, manifest_id=$manifest_id, "
-    "actual_input_hash=$actual_input_hash, outcome_id=$outcome_id, "
-    "outcome_status=$outcome_status, outcome_usage=$outcome_usage, "
-    "contrast_run_id=$contrast_run_id, contrast_summary=$contrast_summary, "
-    "notes=$notes, schema_ver=$schema_ver"
-)
+_log = logging.getLogger("scribe3.pipeline_trace")
 
 _SPAN_SET = (
     "span_id=$span_id, parent_span_id=$parent_span_id, trace_id=$trace_id, "
@@ -27,13 +20,78 @@ _SPAN_SET = (
 )
 
 
+def _intersect_chain_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for k, v in (fields or {}).items():
+        if k in CHAIN_PATCH_KEYS:
+            out[k] = v
+        elif k != "trace_id":
+            _log.warning("pipeline_chain drop unknown key %s", k)
+    return out
+
+
+def _rejected_column(exc: BaseException, keys: list[str]) -> str | None:
+    msg = str(exc)
+    for k in sorted(keys, key=len, reverse=True):
+        if k and k in msg:
+            return k
+    if "fail_reasons" in keys:
+        return "fail_reasons"
+    return None
+
+
 class PipelineTraceOpsMixin:
+    def _exec_chain_write(
+        self, payload: dict[str, Any], *, create: bool, trace_id: str,
+    ) -> None:
+        remaining = dict(payload)
+        if create:
+            if not str(trace_id or "").strip():
+                raise ValueError("trace_id required")
+            remaining["trace_id"] = str(trace_id)
+        dropped: set[str] = set()
+        while remaining:
+            if create:
+                remaining["trace_id"] = str(trace_id)
+                keys = list(remaining.keys())
+                sets = ", ".join(f"{k}=${k}" for k in keys)
+                sql = (
+                    "CREATE ONLY type::record('pipeline_chain', $trace_id) SET "
+                    + sets
+                )
+                params = dict(remaining)
+            else:
+                keys = [k for k in remaining if k != "trace_id"]
+                if not keys:
+                    return
+                sets = ", ".join(f"{k}=${k}" for k in keys)
+                sql = f"UPDATE pipeline_chain SET {sets} WHERE trace_id=$trace_id"
+                params = {"trace_id": trace_id, **{k: remaining[k] for k in keys}}
+            try:
+                self._execute_write(sql, params)
+                return
+            except Exception as e:
+                candidates = [k for k in keys if k != "trace_id"]
+                drop = _rejected_column(e, candidates)
+                if drop is None or drop == "trace_id" or drop in dropped:
+                    raise
+                dropped.add(drop)
+                remaining.pop(drop, None)
+                _log.warning(
+                    "pipeline_chain column rejected, retry without %s: %s", drop, e,
+                )
+                if create and "trace_id" not in remaining:
+                    remaining["trace_id"] = str(trace_id)
+                if create and set(remaining.keys()) <= {"trace_id"}:
+                    raise
+
     def create_only_pipeline_chain(self, trace_id: str, fields: dict[str, Any]) -> None:
-        payload = {"trace_id": trace_id, **fields}
-        self._execute_write(
-            "CREATE ONLY type::record('pipeline_chain', $trace_id) SET " + _CHAIN_SET,
-            payload,
-        )
+        tid = str(trace_id or "").strip()
+        if not tid:
+            raise ValueError("trace_id required")
+        payload = _intersect_chain_fields(fields)
+        payload["trace_id"] = tid
+        self._exec_chain_write(payload, create=True, trace_id=tid)
 
     def insert_pipeline_logs(self, rows: list[dict[str, Any]]) -> None:
         for row in rows or []:
@@ -103,13 +161,11 @@ class PipelineTraceOpsMixin:
             )
 
     def update_pipeline_chain(self, trace_id: str, fields: dict[str, Any]) -> None:
-        if not fields:
+        payload = _intersect_chain_fields(fields)
+        payload.pop("trace_id", None)
+        if not payload:
             return
-        sets = ", ".join(f"{k}=${k}" for k in fields)
-        self._execute_write(
-            f"UPDATE pipeline_chain SET {sets} WHERE trace_id=$trace_id",
-            {"trace_id": trace_id, **fields},
-        )
+        self._exec_chain_write(payload, create=False, trace_id=str(trace_id))
 
     def update_pipeline_span(self, span_id: str, fields: dict[str, Any]) -> None:
         if not fields:

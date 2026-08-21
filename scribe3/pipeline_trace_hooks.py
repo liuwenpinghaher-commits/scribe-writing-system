@@ -76,13 +76,14 @@ def playbook_note_out(span_id: str, *, name: str, body: str, summary: str) -> No
 
 
 def playbook_note_reasons(reasons: list[str]) -> None:
-    """进行中就把没过的原因写在链上，避免卡片空白。"""
+    """只改进程内 buffer。关链时才落库，不在此 flush。"""
     buf = current_trace_buffer()
     if buf is None:
         return
     fr = [str(x) for x in (reasons or []) if x]
     if not fr:
         return
+    buf.fail_reasons = list(fr)
     note = "fail_reasons:" + ",".join(fr)
     if note not in buf.notes:
         buf.notes.append(note)

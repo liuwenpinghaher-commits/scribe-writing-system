@@ -275,18 +275,37 @@ def seed_world(st: SurrealStore) -> None:
             print(f"update_chapter_meta seq={seq} failed: {exc}", flush=True)
 
 
-def already_frozen(slug: str, seq: int, stage: str) -> bool:
+def already_frozen(slug: str, seq: int, stage: str) -> bool | None:
+    """True=已冻；False=未冻；None=未知（缺键/查询失败）。未知不得当未冻去 force。"""
     st = SurrealStore(ns="scribe3", db=slug)
     try:
         if stage == "final":
-            ch = st.get_chapter(seq) or {}
-            return bool((ch.get("prose") or "").strip())
+            lite = getattr(st, "chapters_lite", None)
+            if not callable(lite):
+                return None
+            rows = lite() or []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                try:
+                    if int(row.get("seq") or 0) != int(seq):
+                        continue
+                except (TypeError, ValueError):
+                    continue
+                if "has_prose" not in row:
+                    return None
+                return bool(row.get("has_prose") is True)
+            return None
         if stage == "design":
-            return bool(st.get_frozen("chapter_play", seq) and st.get_frozen("chapter_contract", seq))
+            play = st.get_frozen("chapter_play", seq)
+            contract = st.get_frozen("chapter_contract", seq)
+            return bool(play and contract)
         table = FROZEN_OF.get(stage)
-        return bool(table and st.get_frozen(table, seq))
+        if not table:
+            return False
+        return bool(st.get_frozen(table, seq))
     except Exception:
-        return False
+        return None
     finally:
         try:
             st.close()
@@ -295,16 +314,16 @@ def already_frozen(slug: str, seq: int, stage: str) -> bool:
 
 
 def gen_stage(cookie: str, slug: str, seq: int, stage: str) -> tuple[str, dict[str, Any]]:
-    if already_frozen(slug, seq, stage):
+    frozen = already_frozen(slug, seq, stage)
+    if frozen is True:
         return cookie, {"seq": seq, "stage": stage, "ok": True, "status": "already_frozen", "http": 200}
     timeout = {"duty": 300, "design": 600, "deduce": 600, "draft": 900, "final": 900}.get(stage, 600)
+    payload = {"seq": seq, "stage": stage, "persist": True, "focalizer": FOCAL}
     t0 = time.time()
-    code, body = http(cookie, "POST", f"/generate-stage?work={slug}",
-                      {"seq": seq, "stage": stage, "persist": True, "focalizer": FOCAL}, timeout=timeout)
+    code, body = http(cookie, "POST", f"/generate-stage?work={slug}", payload, timeout=timeout)
     if code == 401:
         cookie = login()
-        code, body = http(cookie, "POST", f"/generate-stage?work={slug}",
-                          {"seq": seq, "stage": stage, "persist": True, "focalizer": FOCAL}, timeout=timeout)
+        code, body = http(cookie, "POST", f"/generate-stage?work={slug}", payload, timeout=timeout)
     rec = {
         "seq": seq, "stage": stage, "http": code,
         "ok": bool(isinstance(body, dict) and body.get("ok")),
@@ -312,20 +331,56 @@ def gen_stage(cookie: str, slug: str, seq: int, stage: str) -> tuple[str, dict[s
         "code": body.get("code") if isinstance(body, dict) else None,
         "sec": round(time.time() - t0, 1),
     }
-    need_retry = rec["status"] == "needs_human" or code in (0, 500, 502, 503, 401)
-    if need_retry and not rec["ok"]:
-        cookie = login()
-        t1 = time.time()
-        code2, body2 = http(cookie, "POST", f"/generate-stage?work={slug}",
-                            {"seq": seq, "stage": stage, "persist": True, "focalizer": FOCAL,
-                             "force": True, "extra": "force=1"}, timeout=timeout)
-        rec["retry"] = {"http": code2, "ok": bool(isinstance(body2, dict) and body2.get("ok")),
-                        "status": body2.get("status") if isinstance(body2, dict) else None,
-                        "sec": round(time.time() - t1, 1)}
-        if rec["retry"]["ok"]:
-            rec["ok"] = True
-            rec["status"] = rec["retry"]["status"]
     rec["ok"] = rec["ok"] or rec.get("status") in ("frozen", "skipped", "ok", "already_frozen")
+    if rec["ok"]:
+        return cookie, rec
+    if rec["status"] == "needs_human":
+        rec["code"] = rec.get("code") or "needs_human"
+        return cookie, rec
+    if code == 401:
+        cookie = login()
+        code, body = http(cookie, "POST", f"/generate-stage?work={slug}", payload, timeout=timeout)
+        rec["retry"] = {
+            "http": code,
+            "ok": bool(isinstance(body, dict) and body.get("ok")),
+            "status": body.get("status") if isinstance(body, dict) else None,
+            "force": False,
+        }
+        rec["ok"] = rec["retry"]["ok"] or rec["retry"].get("status") in (
+            "frozen", "skipped", "ok", "already_frozen",
+        )
+        rec["status"] = rec["retry"].get("status") or rec.get("status")
+        return cookie, rec
+    if code in (500, 502, 503):
+        code2, body2 = http(cookie, "POST", f"/generate-stage?work={slug}", payload, timeout=timeout)
+        rec["retry"] = {
+            "http": code2,
+            "ok": bool(isinstance(body2, dict) and body2.get("ok")),
+            "status": body2.get("status") if isinstance(body2, dict) else None,
+            "force": False,
+        }
+        if rec["retry"]["ok"] or rec["retry"].get("status") in ("frozen", "skipped", "ok", "already_frozen"):
+            rec["ok"] = True
+            rec["status"] = rec["retry"].get("status")
+        elif already_frozen(slug, seq, stage) is True:
+            rec["ok"] = True
+            rec["status"] = "already_frozen"
+        return cookie, rec
+    if code == 0:
+        deadline = time.time() + timeout
+        wait = 30
+        while time.time() < deadline:
+            time.sleep(min(wait, max(1, deadline - time.time())))
+            hit = already_frozen(slug, seq, stage)
+            if hit is True:
+                rec["ok"] = True
+                rec["status"] = "already_frozen"
+                rec["code"] = None
+                return cookie, rec
+            wait = min(wait * 2, 60)
+        rec["code"] = "client_timeout"
+        rec["ok"] = False
+        return cookie, rec
     return cookie, rec
 
 

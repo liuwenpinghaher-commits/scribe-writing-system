@@ -9,12 +9,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 from scribe3.pipeline_trace import (
+    CHAIN_PATCH_KEYS,
     SCHEMA_VER,
     TraceBuffer,
     bind_trace_buffer,
     current_trace_buffer,
     headline_from_spans,
     label_playbook_fail,
+    norm_fail_reasons,
     pipeline_trace_enabled,
     public_chain,
     public_log,
@@ -127,6 +129,10 @@ def start_chain(
                 "contrast_summary": None,
                 "notes": [],
                 "schema_ver": SCHEMA_VER,
+                "event_count": 0,
+                "artifact_count": 0,
+                "log_count": 0,
+                "fail_reasons": [],
             })
     except Exception as e:
         _log.warning("start_chain fail-soft: %s", e)
@@ -267,7 +273,7 @@ def finish_chain(
             buf.ended_ns = int(time.time_ns())
             pubs = [s.as_public(work=buf.work, chapter=buf.chapter, kind=buf.kind) for s in buf.spans]
             hl = headline_from_spans(pubs, phase=getattr(buf, "phase", None))
-            fr = list((extra or {}).get("fail_reasons") or [])
+            fr = norm_fail_reasons((extra or {}).get("fail_reasons")) or list(buf.fail_reasons)
             labels = [label_playbook_fail(c) for c in fr if c]
             if status == "ok":
                 if labels:
@@ -279,6 +285,7 @@ def finish_chain(
             elif not hl:
                 hl = "没过"
             buf.headline = hl
+            buf.fail_reasons = list(fr)
             patch = buf.snapshot_chain_patch()
             started = buf.started_ns or 0
             dur = max(0.0, (buf.ended_ns - started) / 1e6) if started else None
@@ -287,10 +294,11 @@ def finish_chain(
                 "ended_at": datetime.now(timezone.utc),
                 "duration_ms": dur,
                 "headline": buf.headline,
+                "fail_reasons": list(fr),
             })
         else:
             patch = {"status": status, "ended_at": datetime.now(timezone.utc)}
-            fr = list((extra or {}).get("fail_reasons") or [])
+            fr = norm_fail_reasons((extra or {}).get("fail_reasons"))
             labels = [label_playbook_fail(c) for c in fr if c]
             if status == "ok":
                 patch["headline"] = (
@@ -300,8 +308,13 @@ def finish_chain(
                 patch["headline"] = "检查没过：" + "、".join(labels[:3])
             else:
                 patch["headline"] = "没过"
+            patch["fail_reasons"] = list(fr)
         if extra:
-            patch.update(extra)
+            for k, v in extra.items():
+                if k == "fail_reasons":
+                    continue
+                if k in CHAIN_PATCH_KEYS:
+                    patch[k] = v
         if st is not None and hasattr(st, "update_pipeline_chain"):
             st.update_pipeline_chain(tid, patch)
     except Exception as e:
@@ -490,7 +503,7 @@ def publicize_chain_list_item(raw: dict) -> dict[str, Any]:
         "red_count": raw.get("red_count"),
         "outcome_status": raw.get("outcome_status"),
         "stuck": stuck or None,
-        "fail_reasons": raw.get("fail_reasons") or [],
+        "fail_reasons": _fail_reasons_from_chain(raw),
     }
 
 

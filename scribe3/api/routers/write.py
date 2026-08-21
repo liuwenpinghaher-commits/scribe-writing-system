@@ -134,7 +134,12 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
     if req.rewrite and "rewrite=1" not in extra:
         extra = (extra + " rewrite=1").strip()
     ch = st.get_chapter(seq) or {}
-    _reject_stage_not_ready(st, seq, stage, skip=False)
+    skip_ready = (
+        stage == "final"
+        and not req.force
+        and bool(str((ch or {}).get("prose") or "").strip())
+    )
+    _reject_stage_not_ready(st, seq, stage, skip=skip_ready)
 
     foc = resolve_stage_focalizer(req.focalizer, ch)
 
@@ -226,10 +231,13 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
         stc = out.get("struct") if isinstance(out.get("struct"), dict) else {}
         if stc.get("code") and not stc.get("ok") and str(stc.get("code")) not in fr:
             fr.append(str(stc.get("code")))
+        ok = bool(out.get("ok") or out.get("skipped"))
+        if not ok and not fr:
+            fr = [str(out.get("code") or "needs_human")]
         finish_ok(
             st, mt,
             extra={"fail_reasons": fr} if fr else None,
-            status="ok" if out.get("ok") else "failed",
+            status="ok" if ok else "failed",
         )
     except RuntimeError as exc:
         try:

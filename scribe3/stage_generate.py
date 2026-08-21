@@ -13,8 +13,9 @@ from scribe3.playbook.stages import (
 )
 from scribe3.playbook.pipeline import run_stage
 from scribe3.playbook.parse import strip_fence as _strip_fence
-from scribe3.playbook.context import build_ctx
+from scribe3.playbook.context import GUIDE_SLOT_KEYS, build_ctx
 from scribe3.playbook.memory_store import MemoryPlaybookStore
+from scribe3.playbook.stages import parse_force
 
 LlmFn = Callable[..., str]
 PersistFn = Callable[[dict], Any]
@@ -166,6 +167,25 @@ def _as_playbook_store(st):
     return mem
 
 
+def _emit_upstream_guide_span(ctx: Mapping[str, Any] | None) -> None:
+    from scribe3.pipeline_trace_hooks import playbook_span_end, playbook_span_start
+    ctx = ctx or {}
+    failed = [str(x) for x in (ctx.get("_guide_fail") or []) if x]
+    payload = {k: len(str(ctx.get(k) or "")) for k in GUIDE_SLOT_KEYS}
+    payload["failed"] = failed
+    sid = playbook_span_start("playbook.upstream_guide")
+    if not sid:
+        return
+    missing = bool(failed)
+    playbook_span_end(
+        sid,
+        status="failed" if missing else "ok",
+        actual="missing" if missing else "present",
+        actual_reason="upstream_guide_missing" if missing else None,
+        compute=payload,
+    )
+
+
 def thicken_stage(
     stage: str,
     ch: Mapping[str, Any] | None,
@@ -181,10 +201,17 @@ def thicken_stage(
         return gone
     store = _as_playbook_store(st)
     n = int(seq or 1)
+    if normalize_stage(stage) == "final" and not parse_force(extra):
+        if str((ch or {}).get("prose") or "").strip():
+            return {"ok": True, "skipped": True, "status": "already_frozen"}
     world = st if st is not None else store
     ctx = build_ctx(world, n, focalizer=focalizer, playbook=store)
+    if str((ch or {}).get("prose") or "").strip():
+        ctx["has_prose"] = True
+        ctx["existing_prose"] = str((ch or {}).get("prose") or "")
+    _emit_upstream_guide_span(ctx)
     out = run_stage(store, n, normalize_stage(stage), extra=extra, llm_fn=llm_fn, ctx=ctx, persist=persist_fn is not None or st is not None)
-    if persist_fn and out.get("ok"):
+    if persist_fn and out.get("ok") and not out.get("skipped"):
         fields: dict[str, Any] = {}
         if out.get("prose"):
             fields["prose"] = out["prose"]

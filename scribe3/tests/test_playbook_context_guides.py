@@ -159,3 +159,40 @@ def test_voice_anchor_still_not_in_context_module():
     from pathlib import Path
     src = (Path(__file__).resolve().parents[1] / "playbook/context.py").read_text(encoding="utf-8")
     assert "voice_anchor_block" not in src
+
+
+def test_guide_fail_only_on_throw_not_natural_empty():
+    from scribe3.playbook.prompts import draft_generate
+    from pathlib import Path
+    ctx = build_ctx(_World(), 1, playbook=_FrozenOnly())
+    assert ctx.get("_guide_fail") == []
+    assert not ctx.get("recent_duty_summary")
+    assert not ctx.get("prev_prose_tail")
+
+    class BoomLite(_World):
+        def chapters_lite(self):
+            raise RuntimeError("lite boom")
+
+    boom_lite = build_ctx(BoomLite(), 1, playbook=_FrozenOnly())
+    assert "chapters_lite" in (boom_lite.get("_guide_fail") or [])
+
+    import scribe3.playbook.context as ctxmod
+    orig = ctxmod.playbook_volume_outline
+    ctxmod.playbook_volume_outline = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("volume boom"))
+    try:
+        boom = build_ctx(_World(), 1, playbook=_FrozenOnly())
+        assert "volume_outline" in (boom.get("_guide_fail") or [])
+        assert boom.get("volume_outline") == ""
+    finally:
+        ctxmod.playbook_volume_outline = orig
+
+    src = Path(__file__).resolve().parents[1] / "playbook/prompts.py"
+    text = src.read_text(encoding="utf-8")
+    assert "2000-4000" in text
+    assert "连续 8 个字" not in draft_generate({})
+    assert PLAYBOOK_VERSION == "playbook.3.2.2"
+
+
+def test_extra_can_override_guide_fail():
+    ctx = build_ctx(_World(), 1, extra={"_guide_fail": ["north_star"]}, playbook=_FrozenOnly())
+    assert ctx["_guide_fail"] == ["north_star"]

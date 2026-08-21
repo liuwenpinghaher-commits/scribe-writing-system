@@ -32,6 +32,17 @@ PUBLIC_CHAIN_KEYS = frozenset({
     "contrast_summary", "notes", "schema_ver", "created_at",
     "prev_trace_id", "next_trace_id", "spans", "tree",
     "event_count", "artifact_count", "log_count",
+    "fail_reasons",
+})
+# 140+142+150 允许 PATCH 的列。不含 created_at（READONLY）、trace_id（CREATE 强制补，UPDATE 只进 WHERE）。
+CHAIN_PATCH_KEYS = frozenset({
+    "work", "chapter", "kind", "phase", "status",
+    "cursor_step_key", "headline", "started_at", "ended_at", "duration_ms",
+    "span_count", "red_count", "manifest_id", "actual_input_hash",
+    "outcome_id", "outcome_status", "outcome_usage",
+    "contrast_run_id", "contrast_summary", "notes", "schema_ver",
+    "event_count", "artifact_count", "log_count",
+    "fail_reasons",
 })
 SPAN_CAP = 128
 SPAN_JSON_SOFT = 4000
@@ -101,6 +112,15 @@ def strip_forbidden(obj: Any) -> Any:
     if isinstance(obj, list):
         return [strip_forbidden(x) for x in obj]
     return obj
+
+
+def norm_fail_reasons(xs: Any) -> list[str]:
+    out: list[str] = []
+    for x in xs or []:
+        s = str(x or "").strip()
+        if s and s not in out:
+            out.append(s)
+    return out
 
 
 def digest_text(text: str | None) -> str | None:
@@ -221,6 +241,7 @@ class TraceBuffer:
         self.phase: str = "draft"
         self.cursor: str | None = None
         self.notes: list[str] = []
+        self.fail_reasons: list[str] = []
         self.spans: list[SpanRec] = []
         self.logs: list[dict[str, Any]] = []
         self._log_seq: int = 0
@@ -397,6 +418,8 @@ class TraceBuffer:
                             if getattr(self, "recorder", None) is not None else 0),
             "artifact_count": (getattr(self, "recorder", None).counts()[1]
                                if getattr(self, "recorder", None) is not None else 0),
+            "log_count": len(self.logs),
+            "fail_reasons": list(self.fail_reasons),
         }
 
     def red_count(self) -> int:

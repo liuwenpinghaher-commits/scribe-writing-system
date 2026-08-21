@@ -1,4 +1,4 @@
-"""playbook.3.2.2 identity + generate/judge prompts. Changing this file requires a version bump."""
+"""playbook.3.2.2 identity + generate/judge prompts. 改法官问卷或门槛才升版本。"""
 from __future__ import annotations
 
 import json
@@ -381,8 +381,8 @@ def draft_generate(ctx: dict) -> str:
 3. 内心电阻——焦点者在两难前的具体迟疑（动作化的，不是"他想"）。
 
 增量纪律：
-- 戏的任何连续 8 个字不得原样出现在糙稿里，
-  唯一例外：章首承接上章钩子的那句（{bite}）。
+- 这场里的两难、决断和账还要演完。设计图里的句子不要搬来凑。
+  章首咬住上章钩子：{bite}。
 - 戏的场面顺序照走，但语言全部重写。
 
 必须做到：

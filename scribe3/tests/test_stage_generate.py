@@ -128,3 +128,41 @@ def test_thicken_stage_persists_via_store_insert():
     assert out.get("ok") is True, out
     assert ("duty_card", "frozen") in inserts
     assert st.get_frozen("duty_card", 1)
+
+
+def test_thicken_final_skips_existing_prose_without_persist_or_llm():
+    called = []
+    persisted = []
+
+    def llm(prompt, max_tokens=2048, **kw):
+        called.append(prompt)
+        return "x"
+
+    def persist(fields):
+        persisted.append(fields)
+
+    out = thicken_stage(
+        "final",
+        {"prose": "墙比他想象中湿。" * 20},
+        llm_fn=llm,
+        persist_fn=persist,
+        seq=1,
+        extra="",
+        st=None,
+    )
+    assert out.get("skipped") is True
+    assert out.get("ok") is True
+    assert "prose" not in out
+    assert not called
+    assert not persisted
+
+    out2 = thicken_stage(
+        "final",
+        {"prose": "墙比他想象中湿。" * 20},
+        llm_fn=llm,
+        persist_fn=persist,
+        seq=1,
+        extra="force=1",
+        st=None,
+    )
+    assert not out2.get("skipped")

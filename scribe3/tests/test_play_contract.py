@@ -710,6 +710,60 @@ def test_final_metaphor_density_fails_last_mile():
     assert hit["code"] == "final_metaphor"
 
 
+def test_contract_nail_quotes_exempt_overlap_keeps_threshold():
+    from scribe3.playbook.pipeline import contract_nail_quotes
+    from scribe3.playbook.quality_metrics import measure_chapter
+    from scribe3.playbook.structural import check_draft_struct, draft_play_overlap
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1] / "playbook/structural.py").read_text(encoding="utf-8")
+    assert "rate > 0.15" in src
+    nails = {
+        "goal": {"quote": "他把碎片按回胸口那一夜"},
+        "choice": {"quote": "交出去还是按回去"},
+        "decision": {"quote": "指腹压住碳化屏不让它休眠"},
+        "cost": {"quote": "四十二度顺着袖口往上爬"},
+        "hook": {"quote": "袖口里碳化屏还在滚"},
+    }
+    contract = {"fields": nails}
+    bite = "等着人来兑现"
+    exempt = contract_nail_quotes(contract, bite)
+    assert nails["goal"]["quote"] in exempt
+    assert bite in exempt
+    play = nails["hook"]["quote"] + "。沈烛若把碎片按回胸口。" * 40
+    body = "「铁皮还在响。」柳岸青说。\n食堂铁皮落下半扇。\n" * 80
+    draft = body + nails["hook"]["quote"] + nails["goal"]["quote"] + bite
+    rate = draft_play_overlap(draft, play, exempt_quotes=exempt)
+    assert rate >= 0
+    hit = check_draft_struct(draft, play_text=play, exempt_quotes=exempt)
+    assert hit.get("code") != "draft_copy_play"
+    long_play = "沈烛若把场核碎片按回胸口，四十二度顺着袖口往上爬。" * 80
+    copied = long_play + "他又看了一眼裂口。" * 20
+    bad = check_draft_struct(copied, play_text=long_play, exempt_quotes=exempt)
+    assert bad["ok"] is False
+    assert bad["code"] == "draft_copy_play"
+
+    class St:
+        def get_frozen(self, table, seq):
+            if table == "chapter_play":
+                return {"text": play}
+            if table == "chapter_contract":
+                return contract
+            if table == "chapter_draft":
+                return {"text": draft}
+            if table == "duty_card":
+                return {"who": []}
+            return {}
+
+        def get_chapter(self, seq):
+            return {}
+
+    m = measure_chapter(St(), 1)
+    assert m["overlap"] <= 0.15
+    from scribe3.playbook.pipeline import contract_nail_quotes as same
+    assert same(contract, bite) == exempt
+
+
 def test_sparse_metaphor_still_ok():
     from scribe3.playbook.structural import check_draft_struct
     play = "沈烛若把场核碎片按回胸口，四十二度顺着袖口往上爬。" * 40

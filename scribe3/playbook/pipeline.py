@@ -48,10 +48,27 @@ from scribe3.playbook.structural import (
     realign_state_quotes,
 )
 
-COMBINED_LEN_COPY = (
-    "写够两千字；每句都是这场里新发生的动作和对白；"
-    "戏里连续的字不要原样搬进来凑。"
-)
+COMBINED_LEN_COPY = "这场里的事还没演完，不能靠搬戏凑。"
+
+NAIL_FIELDS = ("goal", "choice", "decision", "cost", "hook")
+
+
+def contract_nail_quotes(contract: dict, *extra: str) -> tuple[str, ...]:
+    fields = contract.get("fields") if isinstance((contract or {}).get("fields"), dict) else {}
+    out: list[str] = []
+    seen: set[str] = set()
+    for k in NAIL_FIELDS:
+        node = fields.get(k) if isinstance(fields.get(k), dict) else {}
+        q = str((node or {}).get("quote") or "").strip()
+        if q and q not in seen:
+            seen.add(q)
+            out.append(q)
+    for q in extra:
+        s = str(q or "").strip()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return tuple(out)
 
 
 def draft_struct_hint(
@@ -480,7 +497,7 @@ def _run_draft(store, seq, ctx, llm_fn, *, force, persist):
         "bite_quote": bite_q,
     }
     play_text = play.get("text") or ""
-    exempt = tuple(q for q in (bite_q, hook_q) if q)
+    exempt = contract_nail_quotes(contract, bite_q)
     hint = [""]
     seen: list[str] = []
 
@@ -548,7 +565,36 @@ def _run_draft(store, seq, ctx, llm_fn, *, force, persist):
     return out
 
 
+def _chapter_has_prose(store, seq, ctx) -> bool:
+    if ctx.get("has_prose") is True:
+        return True
+    if str(ctx.get("existing_prose") or "").strip():
+        return True
+    lite = getattr(store, "chapters_lite", None)
+    if not callable(lite):
+        return False
+    try:
+        rows = lite() or []
+    except Exception:
+        return False
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            if int(row.get("seq") or 0) != int(seq):
+                continue
+        except (TypeError, ValueError):
+            continue
+        if "has_prose" not in row:
+            return False
+        return row.get("has_prose") is True
+    return False
+
+
 def _run_final(store, seq, ctx, llm_fn, *, force, persist):
+    ctx = dict(ctx or {})
+    if not force and _chapter_has_prose(store, seq, ctx):
+        return {"ok": True, "skipped": True, "status": "already_frozen"}
     play, contract, err = _need_play_contract(store, seq, ctx)
     if err:
         return err

@@ -154,3 +154,104 @@ def test_stale_in_progress_closed_when_retry_opens():
         assert "字数不够" in hl or "抄了戏" in hl
     finally:
         reset_trace_buffer(None)
+
+
+def test_chain_patch_whitelist_and_create_trace_id_column():
+    from scribe3.pipeline_trace import CHAIN_PATCH_KEYS
+    from scribe3.store.pipeline_trace_ops import PipelineTraceOpsMixin
+    from scribe3.pipeline_trace import public_chain
+    from scribe3.pipeline_trace_store import publicize_chain_list_item
+
+    assert "_CHAIN_SET" not in open(
+        __import__("pathlib").Path(__file__).resolve().parents[1] / "store/pipeline_trace_ops.py",
+        encoding="utf-8",
+    ).read()
+    assert "fail_reasons" in CHAIN_PATCH_KEYS
+    assert "event_count" in CHAIN_PATCH_KEYS
+    assert "trace_id" not in CHAIN_PATCH_KEYS
+
+    class Rec(PipelineTraceOpsMixin):
+        def __init__(self):
+            self.calls = []
+            self.rows = {}
+            self.reject = set()
+
+        def _execute_write(self, sql, params):
+            self.calls.append((sql, dict(params)))
+            for k in list(self.reject):
+                if k in params and k != "trace_id" and f"{k}=${k}" in sql:
+                    raise RuntimeError(f"Found field `{k}` that is not present")
+            tid = params.get("trace_id")
+            if "CREATE" in sql:
+                self.rows[tid] = dict(params)
+            else:
+                rec = dict(self.rows.get(tid) or {})
+                rec.update({k: v for k, v in params.items() if k != "trace_id"})
+                rec["trace_id"] = tid
+                self.rows[tid] = rec
+
+        def get_pipeline_chain(self, tid):
+            return self.rows.get(tid)
+
+    st = Rec()
+    tid = "aa" * 16
+    st.create_only_pipeline_chain(tid, {
+        "status": "in_progress",
+        "outcome_id": "o1",
+        "event_count": 2,
+        "fail_reasons": [],
+        "not_a_column": 1,
+    })
+    sql, params = st.calls[0]
+    assert "CREATE" in sql
+    assert "trace_id=$trace_id" in sql
+    assert "not_a_column" not in sql
+    assert "fail_reasons=$fail_reasons" in sql
+    row = st.get_pipeline_chain(tid)
+    assert row and row.get("trace_id") == tid
+    st.update_pipeline_chain(tid, {
+        "status": "ok",
+        "outcome_id": "o1",
+        "event_count": 3,
+        "fail_reasons": ["draft_len"],
+        "not_a_column": 1,
+        "trace_id": "should-not-set",
+    })
+    usql, uparams = st.calls[-1]
+    assert "UPDATE" in usql
+    assert "trace_id=$trace_id" in usql
+    assert "SET" in usql
+    set_part = usql.split("SET", 1)[1].split("WHERE", 1)[0]
+    assert "trace_id=" not in set_part.replace(" ", "") or "trace_id=$trace_id" not in set_part
+    assert "trace_id=$trace_id" not in set_part
+    assert "not_a_column" not in usql
+    st.reject.add("fail_reasons")
+    tid2 = "bb" * 16
+    st.create_only_pipeline_chain(tid2, {"status": "in_progress", "fail_reasons": ["x"]})
+    assert st.get_pipeline_chain(tid2)
+    assert st.get_pipeline_chain(tid2).get("trace_id") == tid2
+    assert any("fail_reasons" not in sql and "CREATE" in sql for sql, _ in st.calls if "bb" in str(_))
+    listed = publicize_chain_list_item({
+        "trace_id": tid, "status": "failed", "notes": ["fail_reasons:draft_len"],
+    })
+    assert listed.get("fail_reasons") == ["draft_len"]
+    detail = public_chain({
+        "trace_id": tid, "status": "failed", "fail_reasons": ["draft_copy_play"],
+        "work": "w", "chapter": 1, "kind": "write",
+    })
+    assert detail.get("fail_reasons") == ["draft_copy_play"]
+
+
+def test_note_reasons_lives_on_buffer_snapshot():
+    enable_pipeline_trace()
+    from scribe3.pipeline_trace_hooks import playbook_note_reasons
+    buf = TraceBuffer()
+    buf.start_chain(work="w", chapter=1, kind="write", phase="draft", trace_id="ff" * 16)
+    tok = bind_trace_buffer(buf)
+    try:
+        playbook_note_reasons(["draft_len", "draft_copy_play"])
+        assert buf.fail_reasons == ["draft_len", "draft_copy_play"]
+        snap = buf.snapshot_chain_patch()
+        assert snap.get("fail_reasons") == ["draft_len", "draft_copy_play"]
+    finally:
+        reset_trace_buffer(tok)

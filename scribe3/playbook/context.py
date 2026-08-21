@@ -248,20 +248,21 @@ def _fact_get(f: Any, key: str, default: Any = None) -> Any:
     return getattr(f, key, default)
 
 
-def _lite_rows(world: Any) -> list[dict[str, Any]]:
+def _lite_rows(world: Any) -> tuple[list[dict[str, Any]], bool]:
+    """返回 (rows, threw)。threw=True 才进 _guide_fail。"""
     fn = getattr(world, "chapters_lite", None)
     if not callable(fn):
-        return []
+        return [], False
     try:
         rows = fn() or []
     except Exception as exc:
         _log.warning("chapters_lite failed: %s", exc)
-        return []
+        return [], True
     out: list[dict[str, Any]] = []
     for r in rows:
         if isinstance(r, dict):
             out.append(r)
-    return out
+    return out, False
 
 
 def _row_for_seq(rows: list[dict[str, Any]], seq: int) -> dict[str, Any]:
@@ -512,6 +513,18 @@ def playbook_prev_prose_tail(world: Any, seq: int) -> str:
     return prose[-400:] if prose else ""
 
 
+GUIDE_SLOT_KEYS = (
+    "volume_outline",
+    "north_star",
+    "chapter_duty",
+    "recent_duty_summary",
+    "recent_scene_summary",
+    "codex_recall",
+    "characters_epistemic_history",
+    "prev_prose_tail",
+)
+
+
 def build_ctx(
     store: Any,
     seq: int,
@@ -522,7 +535,10 @@ def build_ctx(
 ) -> dict[str, Any]:
     world = store
     frozen = playbook if playbook is not None else store
-    rows = _lite_rows(world)
+    rows, lite_threw = _lite_rows(world)
+    guide_fail: list[str] = []
+    if lite_threw:
+        guide_fail.append("chapters_lite")
     row = _row_for_seq(rows, seq)
     foc = str(focalizer or "").strip() or str(row.get("focalizer") or "").strip()
     cards = cast_cards(world)
@@ -539,34 +555,42 @@ def build_ctx(
         volume_outline = playbook_volume_outline(world, seq, rows)
     except Exception as exc:
         _log.warning("volume_outline failed: %s", exc)
+        guide_fail.append("volume_outline")
     try:
         north_star = playbook_north_star(world)
     except Exception as exc:
         _log.warning("north_star failed: %s", exc)
+        guide_fail.append("north_star")
     try:
         chapter_duty = playbook_chapter_duty(seq, rows)
     except Exception as exc:
         _log.warning("chapter_duty failed: %s", exc)
+        guide_fail.append("chapter_duty")
     try:
         recent_duty = playbook_recent_duty_summary(frozen, seq)
     except Exception as exc:
         _log.warning("recent_duty_summary failed: %s", exc)
+        guide_fail.append("recent_duty_summary")
     try:
         recent_scene = playbook_recent_scene_summary(frozen, seq)
     except Exception as exc:
         _log.warning("recent_scene_summary failed: %s", exc)
+        guide_fail.append("recent_scene_summary")
     try:
         codex = playbook_codex_recall(world, seq, foc, rows=rows)
     except Exception as exc:
         _log.warning("codex_recall failed: %s", exc)
+        guide_fail.append("codex_recall")
     try:
         epistemic = playbook_epistemic_history(frozen, seq)
     except Exception as exc:
         _log.warning("epistemic_history failed: %s", exc)
+        guide_fail.append("characters_epistemic_history")
     try:
         prose_tail = playbook_prev_prose_tail(world, seq)
     except Exception as exc:
         _log.warning("prev_prose_tail failed: %s", exc)
+        guide_fail.append("prev_prose_tail")
     ctx: dict[str, Any] = {
         "seq": int(seq),
         "focalizer": foc,
@@ -586,11 +610,12 @@ def build_ctx(
         "codex_recall": codex,
         "characters_epistemic_history": epistemic,
         "prev_prose_tail": prose_tail,
+        "_guide_fail": list(guide_fail),
     }
     if extra:
         ctx.update(extra)
     _log.info(
-        "build_ctx seq=%s lens volume=%s north=%s chapter_duty=%s recent_duty=%s recent_scene=%s codex=%s",
+        "build_ctx seq=%s lens volume=%s north=%s chapter_duty=%s recent_duty=%s recent_scene=%s codex=%s epistemic=%s prose_tail=%s fail=%s",
         seq,
         len(volume_outline or ""),
         len(north_star or ""),
@@ -598,5 +623,8 @@ def build_ctx(
         len(recent_duty or ""),
         len(recent_scene or ""),
         len(codex or ""),
+        len(epistemic or ""),
+        len(prose_tail or ""),
+        ctx.get("_guide_fail") or [],
     )
     return ctx

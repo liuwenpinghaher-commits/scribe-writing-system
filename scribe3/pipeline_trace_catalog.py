@@ -172,6 +172,7 @@ FIXED_STEPS: tuple[tuple[str, str, str, str | None], ...] = (
     ("compile.engine", "编译引擎", "compile", None),
     ("guard.epistemic", "限知出口守卫", "guard", None),
     ("llm.generate", "模型生成", "llm", None),
+    ("playbook.upstream_guide", "写前看见这本书", "assemble", None),
     ("playbook.generate", "问模型", "llm", None),
     ("playbook.struct", "检查", "guard", "playbook.generate"),
     ("playbook.judge", "审稿", "llm", "playbook.generate"),

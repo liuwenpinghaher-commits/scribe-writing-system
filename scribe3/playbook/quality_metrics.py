@@ -40,15 +40,14 @@ def measure_chapter(store: Any, seq: int) -> dict[str, Any]:
     play_text = str(play.get("text") or "")
     draft_text = str(draft.get("text") or "")
     fields = contract.get("fields") if isinstance(contract.get("fields"), dict) else {}
-    hook = fields.get("hook") if isinstance(fields.get("hook"), dict) else {}
-    hook_q = str(hook.get("quote") or "")
     prev_hook = ""
     if seq >= 2:
         prev_c = store.get_frozen("chapter_contract", seq - 1) or {}
         prev_f = prev_c.get("fields") if isinstance(prev_c.get("fields"), dict) else {}
         prev_h = prev_f.get("hook") if isinstance(prev_f.get("hook"), dict) else {}
         prev_hook = str(prev_h.get("quote") or "")
-    exempt = tuple(q for q in (hook_q, prev_hook) if q)
+    from scribe3.playbook.pipeline import contract_nail_quotes
+    exempt = contract_nail_quotes(contract, prev_hook)
     overlap = draft_play_overlap(draft_text, play_text, exempt_quotes=exempt) if play_text and draft_text else 1.0
     cost = fields.get("cost")
     cost_ok = cost not in (None, "", {})
