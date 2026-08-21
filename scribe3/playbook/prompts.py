@@ -1,4 +1,4 @@
-"""playbook.3.2.1 identity + generate/judge prompts. Changing this file requires a version bump."""
+"""playbook.3.2.2 identity + generate/judge prompts. Changing this file requires a version bump."""
 from __future__ import annotations
 
 import json
@@ -83,6 +83,7 @@ def duty_generate(ctx: dict) -> str:
 【全书定位】
 卷纲：{ctx.get("volume_outline") or "（无）"}
 北极星：{ctx.get("north_star") or "（无）"}
+【本章责】{ctx.get("chapter_duty") or "（无）"}
 
 【本章焦点者】{ctx.get("focalizer") or "（未指定）"}（这一章贴着谁的视角走）
 【上一章章末留下的钩子】（原文，必须接住）
@@ -118,6 +119,7 @@ def duty_generate(ctx: dict) -> str:
 def duty_judge_v2(ctx: dict) -> str:
     return f"""【责任卡】{ctx.get("duty_json")}
 【卷纲】{ctx.get("volume_outline") or "（无）"}
+【本章责】{ctx.get("chapter_duty") or "（无）"}
 【近 3 章的责任】{ctx.get("recent_duty_summary") or "（无）"}
 【上一章章末钩子】{ctx.get("prev_hook_quote") or "（第1章无）"}
 
@@ -136,6 +138,7 @@ def duty_judge_v2(ctx: dict) -> str:
 def duty_judge(ctx: dict) -> str:
     return f"""【责任卡】{ctx.get("duty_json")}
 【卷纲】{ctx.get("volume_outline") or "（无）"}
+【本章责】{ctx.get("chapter_duty") or "（无）"}
 【近 3 章的责任】{ctx.get("recent_duty_summary") or "（无）"}
 【上一章章末钩子】{ctx.get("prev_hook_quote") or "（第1章无）"}
 【上一章结束时世界变成了什么样】
@@ -172,7 +175,7 @@ def play_generate(ctx: dict) -> str:
 {_state_json(ctx)}
 {_pov_line(ctx)}
 【相关设定】{ctx.get("codex_recall") or "（无）"}（设定以外的东西不许发明）
-【近 3 章戏的场面类型】{ctx.get("recent_scene_summary") or "（无）"}（避免连着写同类型的戏）
+【近 3 章已经发生的戏】{ctx.get("recent_scene_summary") or "（无）"}（避免连着写同一场）
 
 怎么写：
 1. 400-900 字。这是设计图，不是给读者朗读的一章。不写标签、不写表格、不分场标题。
@@ -560,4 +563,4 @@ def identity_for(kind: str) -> str:
     return IDENTITY_NOVELIST
 
 
-assert PLAYBOOK_VERSION == "playbook.3.2.1"
+assert PLAYBOOK_VERSION == "playbook.3.2.2"

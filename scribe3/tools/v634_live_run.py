@@ -30,12 +30,18 @@ SHELLS = [
 ]
 
 
-def pad(s: str, n: int) -> str:
-    s = (s or "").strip()
-    filler = "此句只为把设定写够，说明处境、代价和不能拆穿的事。"
-    while len(s) < n:
-        s += filler
-    return s
+CHAPTER_DUTIES = {
+    1: "华山北峰当夜，柳岸青必须在成核点扩开前决定交碎片还是按回。",
+    2: "体温被写成标价之后，他必须决定是否让沈烛切断观测耦合。",
+    3: "封印出现裂纹时，他必须决定现在开箱还是再欠一笔。",
+    4: "灭活程序启动前，他必须决定把自己交出去还是把旁人推出去。",
+    5: "牧场主开价买他的活法时，他必须决定卖不卖。",
+    6: "兰因要把相位锚焊在能走的人身上，他必须决定谁被焊住。",
+    7: "双向隐形变成单向可见时，他必须决定暴露哪一侧。",
+    8: "档案要改写他的夜时，他必须决定交不交原句。",
+    9: "因果咬住自己的尾巴时，他必须决定切断哪一截。",
+    10: "第三条路还没落地，他必须在粒子和波之间先付一笔账。",
+}
 
 
 def login() -> str:
@@ -95,6 +101,7 @@ def health_fingerprint() -> dict[str, Any]:
 
 def seed_world(st: SurrealStore) -> None:
     st.set_intent({
+        "north_star": "读完要先冷后烫，还想翻下一页，怕大遮蔽再撕一指。从隐瞒体温到被迫按回碎片，再欠下一笔收不回的账。",
         "reader_feeling": "先冷后烫，读完还想翻下一页，怕大遮蔽再撕一指。",
         "emotional_arc": "从隐瞒体温到被迫按回碎片，再欠下一笔收不回的账。",
         "red_lines": "不美化观测样本化人体\n不让柳岸青看见场核坐标\n不提前拆穿炉认主与帝的真名",
@@ -143,13 +150,13 @@ def seed_world(st: SurrealStore) -> None:
                 st.add_entity(Entity(eid, "character", name, traits={
                     "importance": imp,
                     "gender": gender,
-                    "appearance": pad(ap, 40),
-                    "personality_detail": pad(pd, 200),
-                    "surface_goal": pad(sg, 80),
-                    "deep_need": pad(dn, 80),
-                    "fear": pad(fear, 80),
-                    "internal_conflict": pad("他要的和系统要的不是同一笔账。", 80),
-                    "backstory": pad(bs, 200),
+                    "appearance": ap,
+                    "personality_detail": pd,
+                    "surface_goal": sg,
+                    "deep_need": dn,
+                    "fear": fear,
+                    "internal_conflict": "他要的和系统要的不是同一笔账。",
+                    "backstory": bs,
                     "abilities": ["观测闭合"],
                     "weaknesses": ["体温暴露"],
                 }))
@@ -161,8 +168,8 @@ def seed_world(st: SurrealStore) -> None:
                     "UPDATE type::record('character', $local) SET importance=$i, appearance=$a, "
                     "personality_detail=$pd, surface_goal=$sg, deep_need=$dn, fear=$fr, backstory=$bs, "
                     "gender=$g",
-                    {"local": name, "i": imp, "a": pad(ap, 40), "pd": pad(pd, 200),
-                     "sg": pad(sg, 80), "dn": pad(dn, 80), "fr": pad(fear, 80), "bs": pad(bs, 200),
+                    {"local": name, "i": imp, "a": ap, "pd": pd,
+                     "sg": sg, "dn": dn, "fr": fear, "bs": bs,
                      "g": gender},
                 )
             except Exception:
@@ -185,9 +192,9 @@ def seed_world(st: SurrealStore) -> None:
         ("普罗米修斯同盟", "民用穿越器必须有人活着回来。", "role:兰因"),
     ):
         try:
-            st.add_faction(name, ideology=pad(ideology, 40), status="active", leader=leader,
-                           known_members=[leader], public_face=pad(name, 20),
-                           private_operation=pad(ideology, 40), first_mention_chapter=1)
+            st.add_faction(name, ideology=ideology, status="active", leader=leader,
+                           known_members=[leader], public_face=name,
+                           private_operation=ideology, first_mention_chapter=1)
         except Exception:
             pass
     for text, tier, res in (
@@ -210,7 +217,7 @@ def seed_world(st: SurrealStore) -> None:
         ("波粒互补", "第三条路承认两者同时贵。", "波粒、互补、第三条路"),
     ):
         try:
-            st.add_motif(name, theme=pad(theme, 40), echoes=echoes, unfolding=pad(theme, 80),
+            st.add_motif(name, theme=theme, echoes=echoes, unfolding=theme,
                          echo_terms=echoes.split("、"))
         except Exception:
             pass
@@ -244,9 +251,9 @@ def seed_world(st: SurrealStore) -> None:
     if len(vols) < 3:
         vols = []
         for title, intro, order in (
-            ("囚笼", pad("大遮蔽内，觉醒到华山成核。", 80), 1),
-            ("泄露", pad("融合点、穿越、各方下场。", 80), 2),
-            ("第三条路", pad("电车之外的联邦飞升。", 80), 3),
+            ("囚笼", "大遮蔽内，觉醒到华山成核。", 1),
+            ("泄露", "融合点、穿越、各方下场。", 2),
+            ("第三条路", "电车之外的联邦飞升。", 3),
         ):
             vols.append(st.add_volume(title=title, sort_order=order, intro=intro))
     max_seq = 0
@@ -260,12 +267,12 @@ def seed_world(st: SurrealStore) -> None:
                 continue
             vol = vols[0] if seq <= 4 else (vols[1] if seq <= 7 else vols[2])
             st.create_chapter(title, volume_id=vol)
-    syn = pad("华山北峰当夜，柳岸青必须在成核点扩开前决定交碎片还是按回。", 40)
-    for seq, _t in CHAPTERS + SHELLS:
+    for seq, title in CHAPTERS + SHELLS:
+        syn = CHAPTER_DUTIES.get(int(seq)) or f"{title}这一章必须办成一件会让自己变贵的事。"
         try:
             st.update_chapter_meta(int(seq), {"synopsis": syn, "focalizer": FOCAL})
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"update_chapter_meta seq={seq} failed: {exc}", flush=True)
 
 
 def already_frozen(slug: str, seq: int, stage: str) -> bool:
@@ -338,7 +345,7 @@ def run_live(*, n_chapters: int = 1, title: str | None = None, slug: str | None 
     cookie = login()
     if not slug:
         title = title or (
-            "万界概率战争·v6.3.4rev13.4.2·" +
+            "万界概率战争·v6.3.4rev13.4.3·" +
             ("冒烟" if n_chapters == 1 else "三章验收") + "·" +
             datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
         )

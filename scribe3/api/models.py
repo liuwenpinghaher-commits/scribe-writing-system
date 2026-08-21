@@ -267,6 +267,7 @@ class IntentIn(BaseModel):
     emotional_arc: str = ""
     red_lines: str = ""
     imagery: str = ""
+    north_star: str = ""
     overdue_threshold: int | None = None
     total_word_goal: int | None = None   # 整稿目标字数;None → 前端回退默认 100000
     daily_word_goal: int | None = None   # 每日目标字数;None → 不显示每日进度

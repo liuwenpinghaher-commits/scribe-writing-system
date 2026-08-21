@@ -16,7 +16,7 @@ def smoke_imports() -> list[tuple[str, bool, str]]:
 
     try:
         from scribe3.playbook.quote import PLAYBOOK_VERSION
-        add("playbook_version", PLAYBOOK_VERSION == "playbook.3.2.1", PLAYBOOK_VERSION)
+        add("playbook_version", PLAYBOOK_VERSION == "playbook.3.2.2", PLAYBOOK_VERSION)
     except Exception as e:
         add("playbook_version", False, type(e).__name__)
 
@@ -160,7 +160,10 @@ def smoke_imports() -> list[tuple[str, bool, str]]:
             "short_ratio" in rh and "long_ratio" in rh and "short_bursts" in rh,
             str(rh),
         )
-        from scribe3.playbook.prompts import draft_generate, final_generate, final_judge, play_generate
+        from scribe3.playbook.prompts import (
+            draft_generate, duty_generate, final_generate, final_judge, play_generate,
+        )
+        add("duty_chapter_duty_slot", "【本章责】" in duty_generate({}), "")
         d = draft_generate({"play_text": "戏", "bite_quote": "钩"})
         add("draft_no_tactile_quota", "可听可触" not in d and "摸到或听到" in d, "")
         f = final_generate({})

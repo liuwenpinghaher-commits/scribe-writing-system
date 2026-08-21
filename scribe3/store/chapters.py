@@ -490,11 +490,14 @@ class ChaptersMixin:
         (north_star_book 原逐章 get_chapter 全行,几百章时既慢又占内存)。缺失字段补 None,
         调用方不必区分"无键"与"空值"。"""
         sql = (
-            "SELECT seq, title, synopsis, deltas FROM chapter:.. "
+            "SELECT seq, title, synopsis, deltas, "
+            "(IF volume THEN meta::id(volume) ELSE NONE END) AS volume, focalizer "
+            "FROM chapter:.. "
             "WHERE archived = NONE OR archived != true ORDER BY seq"
         )
         sql_flags = (
             "SELECT seq, title, synopsis, deltas, "
+            "(IF volume THEN meta::id(volume) ELSE NONE END) AS volume, focalizer, "
             "(IF prose IS NONE OR prose = '' THEN false ELSE true END) AS has_prose "
             "FROM chapter:.. "
             "WHERE archived = NONE OR archived != true ORDER BY seq"
@@ -502,9 +505,15 @@ class ChaptersMixin:
         try:
             rows = self._query(sql_flags)
         except Exception:
-            rows = self._query(sql)
+            try:
+                rows = self._query(sql)
+            except Exception:
+                rows = self._query(
+                    "SELECT seq, title, synopsis, deltas FROM chapter:.. "
+                    "WHERE archived = NONE OR archived != true ORDER BY seq"
+                )
         for r in rows:
-            for k in ("title", "synopsis", "deltas"):
+            for k in ("title", "synopsis", "deltas", "volume", "focalizer"):
                 r.setdefault(k, None)
             r.setdefault("beats", None)
             r.setdefault("scene_truth", None)

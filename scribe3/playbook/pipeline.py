@@ -309,6 +309,7 @@ def _run_duty(store, seq, ctx, llm_fn, *, force, persist):
         judge_ctx=lambda d: {
             "duty_json": _json(d),
             "volume_outline": ctx.get("volume_outline"),
+            "chapter_duty": ctx.get("chapter_duty"),
             "recent_duty_summary": ctx.get("recent_duty_summary"),
             "prev_hook_quote": ctx.get("prev_hook_quote"),
             **_continuity_judge(ctx),

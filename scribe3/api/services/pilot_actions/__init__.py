@@ -32,7 +32,7 @@ def _playbook_action(work: str, stage: str):
 
         return run_stage(
             st, int(seq), stage, llm_fn=llm_fn,
-            ctx=build_ctx(st, int(seq)), persist=True,
+            ctx=build_ctx(st, int(seq), playbook=st), persist=True,
         )
     return fn
 

@@ -168,6 +168,7 @@ async def s3_set_intent(ctx: Context,
                         clock_start: str | None = None,
                         clock_end: str | None = None,
                         imagery: str | None = None,
+                        north_star: str | None = None,
                         overdue_threshold: int | None = None,
                         total_word_goal: int | None = None,
                         daily_word_goal: int | None = None,
@@ -195,6 +196,8 @@ async def s3_set_intent(ctx: Context,
         fields["clock_end"] = clock_end
     if imagery is not None:
         fields["imagery"] = imagery
+    if north_star is not None:
+        fields["north_star"] = north_star
     if overdue_threshold is not None:
         fields["overdue_threshold"] = overdue_threshold
     if total_word_goal is not None:
