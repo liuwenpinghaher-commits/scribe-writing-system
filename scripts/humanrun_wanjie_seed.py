@@ -18,7 +18,7 @@ NORTH_STAR = (
     "主角柳岸青身上带着两套互斥的权柄，他每用一次，就要用自己的体温付账，付出去收不回来。"
 )
 
-INTENT_SPEECH = f"""请用 s3_set_intent 写入落库，需我审批。按下面原文填，不要改写成空话，不要凑字。
+INTENT_SPEECH = f"""必须调用 s3_set_intent 写入落库，需我审批。按下面原文填，不要改写成空话，不要凑字。
 
 north_star：{NORTH_STAR}
 reader_feeling：读完要留下的是——保护和监禁原来是同一件事。月球挡住宇宙噪音，同时把人钉死在一种现实里。
@@ -775,7 +775,7 @@ _assert_floors()
 
 def speech_chars() -> str:
     lines = [
-        "请用 s3_add_character 按原文写入落库，需我审批。",
+        "必须调用 s3_add_character 按原文写入落库，需我审批。",
         "禁止 s3_generate_codex 另写一套，禁止改写成空话，禁止凑字。",
         "每人一次调用，字段用我给的原文。柳岸青 importance=protagonist。",
         "",
@@ -797,7 +797,7 @@ def speech_chars() -> str:
 
 def speech_relations() -> str:
     lines = [
-        "请用 s3_add_character_relation 写入落库，需我审批。按原文，禁止改写。src/dst 必须带 role: 前缀。",
+        "必须调用 s3_add_character_relation 写入落库，需我审批。按原文，禁止改写。src/dst 必须带 role: 前缀。",
         "",
     ]
     for r in RELATIONS:
@@ -810,7 +810,7 @@ def speech_relations() -> str:
 
 def speech_rules() -> str:
     lines = [
-        "请用 s3_add_world_rule 写入落库，需我审批。每条都要带 cost/source/capabilities/limitations/exceptions。禁止凑字。",
+        "必须调用 s3_add_world_rule 写入落库，需我审批。每条都要带 cost/source/capabilities/limitations/exceptions。禁止凑字。",
         "",
     ]
     for r in RULES:
@@ -823,7 +823,7 @@ def speech_rules() -> str:
 
 def speech_facts() -> str:
     lines = [
-        "请用 s3_add_fact 写入落库，需我审批。valid_from=1。禁止改写成空话。",
+        "必须调用 s3_add_fact 写入落库，需我审批。valid_from=1。禁止改写成空话。",
         "",
     ]
     for oid, entity, attr, value, vf in FACTS:
@@ -833,7 +833,7 @@ def speech_facts() -> str:
 
 def speech_fit() -> str:
     lines = [
-        "请分别用 s3_add_faction、s3_add_item、s3_add_term 写入落库，需我审批。按原文，禁止 generate_codex 另写。",
+        "必须调用 s3_add_faction。必须调用 s3_add_item。必须调用 s3_add_term。写入落库，需我审批。按原文，禁止 generate_codex 另写。",
         "",
         "【势力】",
     ]
@@ -856,7 +856,7 @@ def speech_fit() -> str:
 
 def speech_motifs() -> str:
     lines = [
-        "请用 s3_add_motif 写入落库，需我审批。theme/echoes/unfolding 按原文。禁止写成空话散文。",
+        "必须调用 s3_add_motif 写入落库，需我审批。theme/echoes/unfolding 按原文。禁止写成空话散文。",
         "",
     ]
     for m in MOTIFS:
@@ -868,7 +868,7 @@ def speech_motifs() -> str:
 
 def speech_promises() -> str:
     lines = [
-        "请用 s3_plant_promise 写入落库，需我审批。长期线必须带 resolution。禁止改写成空话。",
+        "必须调用 s3_plant_promise 写入落库，需我审批。长期线必须带 resolution。禁止改写成空话。",
         "",
     ]
     for p in PROMISES:
@@ -880,7 +880,7 @@ def speech_promises() -> str:
 
 def speech_volumes() -> str:
     lines = [
-        "请用 s3_add_volume 写入落库，需我审批。三卷，intro 用原文卷责，不要互相抄。",
+        "必须调用 s3_add_volume 写入落库，需我审批。三卷，intro 用原文卷责，不要互相抄。",
         "",
     ]
     for v in VOLUMES:
@@ -890,7 +890,7 @@ def speech_volumes() -> str:
 
 def speech_chapters(volume_ids: list[str]) -> str:
     lines = [
-        "请用 s3_add_chapter 写入落库，需我审批。建十个章壳，只写标题并挂到对应卷。不要生成正文，不要跑五层。",
+        "必须调用 s3_add_chapter 写入落库，需我审批。建十个章壳，只写标题并挂到对应卷。不要生成正文，不要跑五层。",
         "",
     ]
     for ch in CHAPTERS:

@@ -223,10 +223,28 @@ class Runner:
         print(f"\n== {tag} ==", flush=True)
         (self.evid / "transcript").mkdir(exist_ok=True)
         (self.evid / "transcript" / f"{tag}.txt").write_text(msg, encoding="utf-8")
-        run_id, pkg = self.create_run(msg, WW_INSTRUCTIONS, chapter=chapter, phase=phase)
-        st = self.wait_run(run_id, timeout=timeout, chapter=chapter, phase=phase or None)
-        dump(self.evid / f"run-{tag}.json", {"run_id": run_id, "status": st, "pkg": pkg})
-        return run_id, st
+        extra = (
+            "\n\n必须实际产生 MCP 函数调用事件，禁止只输出 XML/tool_search 文本。"
+            "搜到工具后必须立刻 tool_call，不得把 Run 说成完成。"
+        )
+        last = None
+        for attempt, text in enumerate((msg, msg + extra), start=1):
+            run_id, pkg = self.create_run(text, WW_INSTRUCTIONS, chapter=chapter, phase=phase)
+            st = self.wait_run(run_id, timeout=timeout, chapter=chapter, phase=phase or None)
+            code, tr = getj(f"/api/ai/runs/{run_id}/trace", work=self.slug)
+            calls = (tr or {}).get("tool_calls") if isinstance(tr, dict) else []
+            effects = (tr or {}).get("write_effects") if isinstance(tr, dict) else []
+            approvals = (tr or {}).get("approvals") if isinstance(tr, dict) else []
+            dump(self.evid / f"run-{tag}.json", {
+                "run_id": run_id, "status": st, "pkg": pkg, "attempt": attempt,
+                "n_tool_calls": len(calls or []), "n_approvals": len(approvals or []),
+                "n_write_effects": len(effects or []),
+            })
+            last = (run_id, st)
+            if calls or approvals or effects:
+                return run_id, st
+            print(f"  WARN {tag} attempt {attempt} 无工具调用/审批卡，模型可能只写了假 XML", flush=True)
+        raise RuntimeError(f"{tag} 两次主编 Run 都没有真正调用写入工具")
 
     # —— 只读回读 ——
     def intent(self):
