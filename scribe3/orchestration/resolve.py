@@ -13,6 +13,14 @@ from scribe3.orchestration.catalog import CATALOG, get_domain
 _PROSE_RE = re.compile(
     r"(正文|草稿|段落|续写|改写|润色|扩写|缩写|写本章|写整章|写一章|完整正文|文风|镜头)"
 )
+_WRITE_CHAPTER_RE = re.compile(
+    r"(写第\s*\d+\s*章|第\s*\d+\s*章.{0,12}写|写这章|写这一章|把这章写|"
+    r"开写|写整章|写完这一章|写一章|写本章|完整正文)"
+)
+_POLISH_RE = re.compile(r"(润色|扩写|缩写|改写段落|改这段|文风|镜头)")
+_CHAPTER_LAYER_DOMAINS = frozenset({
+    "chapter.write", "chapter.duty", "chapter.draft", "chapter.final",
+})
 _MUTATION_RE = re.compile(
     r"(新增|添加|登记|记录|补录|写入|落库|建立|创建|更新|修改|改成|删除|删卷|"
     r"归档|恢复|关闭|推进|兑现|回收|标记|更正|重排|排序|起草|规划|拟|写大纲|补大纲|填大纲|"
@@ -33,12 +41,23 @@ def _score_entry(text: str, entry: dict[str, Any]) -> int:
         # 脚手架域共享生成/改戏工具时，字段/阶段词再定胜负（下方加权）
         if kw in ("s3_patch_play", "s3_patch_contract", "s3_generate_stage") and domain.startswith("chapter."):
             if domain == "chapter.design":
-                if re.search(r"stage\s*=\s*(duty|design)|写戏|章设计|责任卡", t, re.I):
+                if re.search(r"stage\s*=\s*design|写戏|章设计", t, re.I):
                     score += 100
-                elif re.search(r"大纲|节拍|synopsis|beats|演绎|deduce", t, re.I):
+                elif re.search(r"大纲|节拍|synopsis|beats|演绎|deduce|stage\s*=\s*(duty|draft|final)", t, re.I):
                     score += 10
                 else:
                     score += 80
+            elif domain == "chapter.write":
+                if _WRITE_CHAPTER_RE.search(t) or re.search(r"五层|开写", t):
+                    score += 100
+                else:
+                    score += 20
+            elif domain in ("chapter.duty", "chapter.draft", "chapter.final"):
+                stage = domain.split(".", 1)[-1]
+                if re.search(rf"stage\s*=\s*{stage}", t, re.I):
+                    score += 100
+                else:
+                    score += 15
             else:
                 score += 100
             continue
@@ -48,9 +67,17 @@ def _score_entry(text: str, entry: dict[str, Any]) -> int:
             # 基础 10 + 长度加成（封顶 24），多关键词累加
             score += 10 + min(len(kw), 14)
     if domain == "chapter.design" and re.search(
-        r"写大纲|写节拍|章纲|章设计|field\s*=\s*synopsis|field\s*=\s*beats|stage\s*=\s*design",
+        r"写大纲|写节拍|章纲|章设计|写戏|field\s*=\s*synopsis|field\s*=\s*beats|stage\s*=\s*design",
         t, re.I,
     ):
+        score += 90
+    if domain == "chapter.write" and _WRITE_CHAPTER_RE.search(t):
+        score += 90
+    if domain == "chapter.duty" and re.search(r"stage\s*=\s*duty|重跑责任|重立责任|只跑责任|duty\s*层", t, re.I):
+        score += 90
+    if domain == "chapter.draft" and re.search(r"stage\s*=\s*draft|重写糙稿|重跑糙稿|只跑糙稿|draft\s*层", t, re.I):
+        score += 90
+    if domain == "chapter.final" and re.search(r"stage\s*=\s*final|重出定稿|重跑定稿|只跑定稿|final\s*层", t, re.I):
         score += 90
     # plan 工具 + 字段/中文域词 → 明确偏 outline / beats / deduce
     if plan_tool or re.search(r"s3_patch_play|s3_patch_contract|s3_generate_stage", t):
@@ -86,7 +113,36 @@ def _score_entry(text: str, entry: dict[str, Any]) -> int:
     return score
 
 
-def match_domain(message: str, *, prior_domain: str | None = None) -> dict[str, Any]:
+def _five_layers_done(work: str | None, seq: int | None, store: Any | None = None) -> bool:
+    """糙稿已冻且章里有正文，才算这一章写过。查不到当没写过。"""
+    if seq is None:
+        return False
+    st = store
+    if st is None:
+        try:
+            from scribe3.api.app_impl import _store_for
+            st = _store_for(work or "main")
+        except Exception:
+            return False
+    try:
+        frozen = None
+        if hasattr(st, "get_frozen"):
+            frozen = st.get_frozen("chapter_draft", int(seq))
+        ch = st.get_chapter(int(seq)) if hasattr(st, "get_chapter") else None
+        prose = str((ch or {}).get("prose") or "").strip()
+        return bool(frozen) and bool(prose)
+    except Exception:
+        return False
+
+
+def match_domain(
+    message: str,
+    *,
+    prior_domain: str | None = None,
+    work: str | None = None,
+    chapter: int | None = None,
+    store: Any | None = None,
+) -> dict[str, Any]:
     """返回匹配分最高的 catalog 项（深拷贝）。"""
     text = (message or "").strip()
     best: dict[str, Any] | None = None
@@ -107,11 +163,23 @@ def match_domain(message: str, *, prior_domain: str | None = None) -> dict[str, 
         ):
             best_score = sc
             best = entry
-    # 正文词压过弱世界匹配（除非 force 已命中）
-    if best and best.get("channel") == "world_write" and best_score < 100 and _PROSE_RE.search(text):
-        prose = get_domain("prose.generate")
-        if prose:
-            return prose
+    # 正文词：章还没写完 → 走写这一章；已经写完才去润色通道
+    if _PROSE_RE.search(text):
+        done = _five_layers_done(work, chapter, store=store)
+        polish = bool(_POLISH_RE.search(text))
+        wants_write = bool(_WRITE_CHAPTER_RE.search(text))
+        world_weak = bool(
+            best and best.get("channel") == "world_write" and best_score < 100
+        )
+        prose_hit = bool(best and best.get("domain") == "prose.generate")
+        if not done and (wants_write or (world_weak and not polish) or (prose_hit and wants_write)):
+            cw = get_domain("chapter.write")
+            if cw:
+                return cw
+        if world_weak:
+            prose = get_domain("prose.generate")
+            if prose:
+                return prose
     # 负向：评分卡解读不得落到 intent 写；经验六格不得落到 beats 写
     if best and best.get("domain") == "intent.northstar":
         if re.search(r"评分卡|scorecard", text) and not re.search(
@@ -345,6 +413,7 @@ def resolve_work_package(
     journey_next_domain: str | None = None,
     focus_hint: dict[str, Any] | None = None,
     action: str = "auto",  # auto|create|continue|switch
+    store: Any | None = None,
 ) -> dict[str, Any]:
     """解析/创建/继续 WorkPackage（shipped 核心）。
 
@@ -368,13 +437,22 @@ def resolve_work_package(
             if not text or text in ("继续", "好", "嗯", "下一步"):
                 entry = get_domain(prior_dom)
         if entry is None:
-            entry = match_domain(text, prior_domain=prior_dom if action != "switch" else None)
+            entry = match_domain(
+                text,
+                prior_domain=prior_dom if action != "switch" else None,
+                work=work,
+                chapter=chapter,
+                store=store,
+            )
 
     # phase 上下文增强
     if phase in ("outline", "beats", "deduce") and entry.get("domain") == "discuss.general":
         entry = get_domain(f"chapter.{phase}") or entry
     if phase in ("draft", "final") and entry.get("domain") == "discuss.general" and _PROSE_RE.search(text or ""):
-        entry = get_domain("prose.generate") or entry
+        if chapter is not None and not _five_layers_done(work, chapter, store=store):
+            entry = get_domain("chapter.write") or entry
+        else:
+            entry = get_domain("prose.generate") or entry
 
     focus = focus_hint or _extract_focus(text, entry["domain"], {"chapter": chapter})
     if focus is None and prior and prior.get("focus") and entry["domain"] == prior.get("domain"):
@@ -402,7 +480,7 @@ def resolve_work_package(
     use_world_write = (
         channel == "world_write"
         and bool(write_tools)
-        and (mutation or force_hit)
+        and (mutation or force_hit or str(entry.get("domain") or "") in _CHAPTER_LAYER_DOMAINS)
     )
     if channel == "prose_write":
         use_world_write = False

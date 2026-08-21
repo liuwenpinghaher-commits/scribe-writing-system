@@ -112,6 +112,12 @@ def orch_resolve_ep(req: OrchResolveReq, work: str = "main"):
     from scribe3.orchestration.resolve import apply_ui_directive_events, resolve_work_package
 
     prior = package_state.get_active(work)
+    st = None
+    try:
+        from scribe3.api.app_impl import _store_for
+        st = _store_for(work)
+    except Exception:
+        st = None
     pkg = resolve_work_package(
         req.message,
         work=work,
@@ -121,6 +127,7 @@ def orch_resolve_ep(req: OrchResolveReq, work: str = "main"):
         journey_next_domain=req.journey_next_domain,
         focus_hint=req.focus_hint,
         action=req.action or "auto",
+        store=st,
     )
     if req.activate:
         package_state.set_active(work, pkg)

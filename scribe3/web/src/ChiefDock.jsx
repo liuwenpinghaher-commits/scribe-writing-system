@@ -30,6 +30,8 @@ import { useContextSnapshot } from './context/ContextSnapshotContext'
 import { ContextInspector } from './context/ContextInspector'
 import { PendingClaimsPanel } from './context/PendingClaimsPanel'
 import { ThreadSwitcher } from './ThreadSwitcher'
+import { SelectionPanel } from './SelectionPanel'
+import { PilotDock } from './PilotDock'
 import { showToast } from './ui/Toast.jsx'
 import { Btn } from './ui.jsx'
 import { notifyWorldWriteApproved } from './lib/codexLifecycle.js'
@@ -267,12 +269,12 @@ function selContext(sel, phase, deduceName) {
     if (phase === 'outline') return {
       label: `第 ${seq} 章 · 大纲`,
       prefix: `【正在写第 ${seq} 章的大纲(synopsis)。请基于已有设定/伏笔/弧光,帮作者把这章大纲讨论清楚】\n`,
-      suggests: [`用 LLM 把第 ${seq} 章大纲写成 ≥500 字因果大纲（日子/必须发生/不能说）`, `这章大纲和已埋的伏笔/弧光对得上吗?`],
+      suggests: [`用 LLM 把第 ${seq} 章写成 13 短槽章纲（选择 A vs B，动哪条线绑已有 id）`, `这章大纲和已埋的伏笔/弧光对得上吗?`],
     }
     if (phase === 'beats') return {
       label: `第 ${seq} 章 · 节拍`,
       prefix: `【正在拆第 ${seq} 章的节拍(beats)。请据本章大纲帮作者把这章拆成有序小节点】\n`,
-      suggests: [`用 LLM 把第 ${seq} 章拆成每拍 ≥500 字的场面纸，合计 ≥2000`, `现在的节拍节奏有什么问题?`],
+      suggests: [`用 LLM 把第 ${seq} 章拆成 ≥3 拍台阶（要/挡/变/付，至少一拍选）`, `现在的节拍节奏有什么问题?`],
     }
     if (phase === 'deduce') return {
       label: `第 ${seq} 章 · 演绎 · ${deduceName || '场景真相'}`,
@@ -424,27 +426,129 @@ function ProactiveGreeting({ seq }) {
   )
 }
 
-export function ChiefDock({ sel, chapterSel, lastSeq }) {
-  const { chapterPhase } = useChiefSlot()
+function ChiefModeBar({ seq }) {
+  const { chiefMode, setChiefMode } = useChiefSlot()
+  const modes = [
+    { key: 'talk', label: '聊' },
+    { key: 'select', label: '选择' },
+    { key: 'pilot', label: '驾驶' },
+  ]
+  return (
+    <div className="shrink-0 px-3 py-1 border-b border-line/60 flex items-center gap-1 min-w-0" data-testid="chief-mode-bar" role="group" aria-label="主编模式">
+      {modes.map((m) => {
+        const locked = m.key !== 'talk' && seq == null
+        const on = chiefMode === m.key
+        return (
+          <button
+            key={m.key}
+            type="button"
+            data-testid={`chief-mode-${m.key}`}
+            aria-pressed={on}
+            disabled={locked}
+            title={locked ? '先选一章再用选择/驾驶' : m.label}
+            onClick={() => !locked && setChiefMode(m.key)}
+            className={`h-7 px-2 rounded-md text-meta cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+              on ? 'bg-brand/15 text-brand' : 'text-faint hover:bg-soft hover:text-ink'
+            }`}
+          >
+            {m.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function WriteLayerRail({ seq }) {
+  const [row, setRow] = useState(null)
+  useEffect(() => {
+    if (seq == null) return undefined
+    let cancelled = false
+    const tick = () => {
+      api.pipelineTraces({ chapter: seq, kind: 'write', limit: 8 })
+        .then((d) => {
+          if (cancelled) return
+          const items = Array.isArray(d?.items) ? d.items : []
+          const live = items.find((x) => x?.status === 'in_progress') || items[0] || null
+          setRow(live)
+        })
+        .catch(() => {})
+    }
+    tick()
+    const id = setInterval(tick, 4000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [seq])
+  if (!row) return null
+  const phaseLabel = {
+    duty: '责任卡',
+    design: '戏',
+    deduce: '演绎',
+    draft: '糙稿',
+    final: '定稿',
+  }[row.phase] || row.phase || ''
+  const spinning = row.status === 'in_progress'
+  const failed = row.status === 'failed'
+  return (
+    <div
+      data-testid="write-layer-rail"
+      className="shrink-0 px-3 py-1.5 border-b border-line/60 text-meta leading-snug"
+    >
+      <span className="text-faint">这一章</span>
+      {phaseLabel ? <span className="ml-1 text-ink">{phaseLabel}</span> : null}
+      <span className={`ml-1 ${failed ? 'text-warn' : spinning ? 'text-brand' : 'text-faint'}`}>
+        {spinning ? '正在写' : (row.headline || '')}
+      </span>
+    </div>
+  )
+}
+
+export function ChiefDock({ sel, chapterSel, lastSeq, onRestored }) {
+  const { chapterPhase, chiefMode } = useChiefSlot()
   const seq = selSeq(sel)
+  const layerRail = seq != null ? <WriteLayerRail seq={seq} /> : null
+  const jobStrip = seq != null && chiefMode === 'select' ? (
+    <div className="shrink-0 max-h-[42%] overflow-y-auto border-b border-line/60 px-3 py-2">
+      <SelectionPanel seq={seq} onFinalized={onRestored} />
+    </div>
+  ) : seq != null && chiefMode === 'pilot' ? (
+    <div className="shrink-0 max-h-[42%] overflow-y-auto border-b border-line/60 px-3 py-2">
+      <PilotDock seq={seq} />
+    </div>
+  ) : null
   if (chapterSel) {
     // 正文 tab(final)→ 写作槽(WriteLayout 的 WriteChat portal 进来,出草稿卡/护栏改写)。
     // 大纲/节拍/草稿 tab → 讨论 chat(据阶段调上下文)——右栏不再因切 tab 而消失。
     if (chapterPhase && chapterPhase !== 'final') {
       return (<div className="h-full flex flex-col min-h-0">
+        <ChiefModeBar seq={seq} />
         <ProactiveGreeting seq={seq} />
+        {layerRail}
+        {jobStrip}
         <div className="flex-1 min-h-0"><DiscussionDock sel={sel} phase={chapterPhase} /></div>
       </div>)
     }
     return (<div className="h-full flex flex-col min-h-0">
+      <ChiefModeBar seq={seq} />
       <ProactiveGreeting seq={seq} />
       {/* P0a:正文写作槽也可换会话(busy 状态在 WriteChat 内部拿不到,切换保护由
           bind 发送时捕获 + _ChatTurnLog 部分留痕兜底,不弹确认) */}
       <div className="shrink-0 px-3 py-1 border-b border-line/60 flex justify-end"><ThreadSwitcher /></div>
+      {layerRail}
+      {jobStrip}
       <div className="flex-1 min-h-0"><WriteSlot /></div>
     </div>)
   }
-  return <DiscussionDock sel={sel} ctxSeq={lastSeq} />
+  return (
+    <div className="h-full flex flex-col min-h-0">
+      <ChiefModeBar seq={seq} />
+      {layerRail}
+      {jobStrip}
+      <div className="flex-1 min-h-0"><DiscussionDock sel={sel} ctxSeq={lastSeq} /></div>
+    </div>
+  )
 }
 
 // 从选中节点取当前章 seq(章/场景节点),用于草稿阶段把 chapter 传给后端。
@@ -461,7 +565,7 @@ const WRITE_PHASE = { outline: 'outline', beats: 'beats', deduce: 'deduce', draf
 
 function DiscussionDock({ sel, phase, ctxSeq }) {
   const seq = useMemo(() => selSeq(sel), [sel])
-  const { setStageProposal, chiefIntent, setChiefIntent } = useChiefSlot()
+  const { setStageProposal, chiefIntent, setChiefIntent, jobBusy } = useChiefSlot()
   // 演绎阶段:读左树/中区共享的当前演绎目标('truth' 或 character_id),生成完按它发布 target。
   const { selected: deduceSel } = useDeduceSel()
   const deduceName = deduceSel === 'truth' ? '场景真相' : String(deduceSel || '').replace(/^role:/, '')
@@ -662,7 +766,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
 
   const send = (text) => {
     const q = (text ?? input).trim()
-    if (!q || busy) return
+    if (!q || busy || jobBusy) return
     // 见上方 seedIn auto-send
     // 主编主动化 T8:「#想法 」→ 想法收件箱
     if (q.startsWith('#想法')) {
@@ -1075,7 +1179,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
                 停止
               </Btn>
             ) : (
-              <Btn variant="primary" onClick={() => send()} disabled={!input.trim()} aria-label="发送" className="h-8 min-w-[88px] shadow-none">
+              <Btn variant="primary" onClick={() => send()} disabled={!input.trim() || jobBusy} aria-label="发送" title={jobBusy ? '选择/驾驶作业进行中，暂勿再写同章' : undefined} className="h-8 min-w-[88px] shadow-none">
                 <Send size={15} />
                 发送
               </Btn>

@@ -298,14 +298,41 @@ CATALOG: list[dict[str, Any]] = [
     },
     # —— 章阶段（责任/戏/契约/演绎）——
     {
+        "domain": "chapter.write",
+        "label": "写这一章",
+        "match_keywords": (
+            "写这章", "写这一章", "写第", "开写", "继续写这",
+            "这章开始写", "把这章写出来", "写本章", "写一章",
+        ),
+        "match_force": (
+            "写整章", "写完这一章", "跑完五层", "按五层写",
+        ),
+        "read_tools": ("s3_get_chapter", "s3_get_intent", "s3_list_promises"),
+        "write_tools": ("s3_generate_stage",),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "manuscript", "phase": "design", "node": {"type": "chapter"},
+               "right_tab": "chief", "layout_mode": "collaboration", "panel": "design"},
+        "channel": "world_write",
+        "phase_hint": "design",
+        "context_pack": ("play", "contract", "intent_snip", "open_promises"),
+        "instruction_duty": (
+            "作者批准的是写这一章，不是调度某一层。"
+            "按顺序办完：责任卡 → 戏 → 演绎 → 糙稿 → 定稿。"
+            "每层 s3_generate_stage(seq, stage, persist=true, focalizer=本章焦点者)。"
+            "一层冻住才进下一层；已经冻住的层跳过，从第一层还没冻住的继续。"
+            "某一层要人看就立刻停，把没过的原因用中文告诉作者，禁止跳层。"
+            "五层走完后确认章末还悬着钩子。禁止 s3_save_chapter 当完成本任务。"
+        ),
+    },
+    {
         "domain": "chapter.design",
         "label": "章设计",
         "match_keywords": (
-            "章设计", "写设计", "stage=design", "chapter_design", "写戏", "责任卡",
+            "章设计", "写设计", "stage=design", "chapter_design", "写戏",
         ),
         "match_force": (
             "s3_generate_stage", "s3_patch_play", "s3_patch_contract",
-            "写设计", "写戏", "章设计", "stage=design", "stage=duty",
+            "写设计", "写戏", "章设计", "stage=design",
         ),
         "read_tools": ("s3_get_chapter", "s3_get_intent", "s3_list_promises"),
         "write_tools": ("s3_generate_stage", "s3_patch_play", "s3_patch_contract"),
@@ -391,6 +418,66 @@ CATALOG: list[dict[str, Any]] = [
         "instruction_duty": (
             "域纪律(章演绎):用 s3_generate_stage(stage=deduce) 写五层限知。"
             "勿用 s3_add_fact 当场景真相；禁止 s3_save_chapter 完成本任务。"
+        ),
+    },
+    {
+        "domain": "chapter.duty",
+        "label": "章责任卡",
+        "match_keywords": ("责任卡", "stage=duty", "重跑责任", "重立责任", "duty 层", "duty层"),
+        "match_force": (
+            "stage=duty", "重跑责任卡", "重立责任卡", "只跑责任卡", "duty 层", "duty层",
+        ),
+        "read_tools": ("s3_get_chapter", "s3_get_intent"),
+        "write_tools": ("s3_generate_stage",),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "manuscript", "phase": "design", "node": {"type": "chapter"},
+               "right_tab": "chief", "layout_mode": "collaboration", "panel": "design"},
+        "channel": "world_write",
+        "phase_hint": "design",
+        "instruction_duty": (
+            "只办这一层：s3_generate_stage(stage=duty)。不要连带下游。"
+            "上游缺件就报给作者，不要顺手把后面几层跑了。"
+            "禁止 s3_save_chapter 完成本任务。"
+        ),
+    },
+    {
+        "domain": "chapter.draft",
+        "label": "章糙稿",
+        "match_keywords": ("糙稿", "stage=draft", "重写糙稿", "重跑糙稿", "draft 层", "draft层"),
+        "match_force": (
+            "stage=draft", "重写糙稿", "重跑糙稿", "只跑糙稿", "draft 层", "draft层",
+        ),
+        "read_tools": ("s3_get_chapter",),
+        "write_tools": ("s3_generate_stage",),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "manuscript", "phase": "draft", "node": {"type": "chapter"},
+               "right_tab": "chief", "layout_mode": "collaboration", "panel": "draft"},
+        "channel": "world_write",
+        "phase_hint": "draft",
+        "instruction_duty": (
+            "只办这一层：s3_generate_stage(stage=draft)。不要连带定稿。"
+            "戏和演绎还没冻住就报给作者，不要顺手补跑。"
+            "禁止 s3_save_chapter 完成本任务。"
+        ),
+    },
+    {
+        "domain": "chapter.final",
+        "label": "章定稿",
+        "match_keywords": ("定稿", "stage=final", "重出定稿", "重跑定稿", "final 层", "final层"),
+        "match_force": (
+            "stage=final", "重出定稿", "重跑定稿", "只跑定稿", "final 层", "final层",
+        ),
+        "read_tools": ("s3_get_chapter",),
+        "write_tools": ("s3_generate_stage",),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "manuscript", "phase": "final", "node": {"type": "chapter"},
+               "right_tab": "chief", "layout_mode": "reading", "panel": "prose"},
+        "channel": "world_write",
+        "phase_hint": "final",
+        "instruction_duty": (
+            "只办这一层：s3_generate_stage(stage=final)。不要重跑前面几层。"
+            "糙稿还没冻住就报给作者。"
+            "禁止跳过糙稿直接 s3_save_chapter。"
         ),
     },
     # —— 辅助只读（派生面 · LLM 不写 SSOT）——

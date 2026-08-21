@@ -11,9 +11,6 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
   const [snap, setSnap] = useState(null)
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(true)
-  const [motifBusy, setMotifBusy] = useState(false)
-  const [motifMsg, setMotifMsg] = useState('')
-  const [analyzeBusy, setAnalyzeBusy] = useState(false)
   const [analyzeMsg, setAnalyzeMsg] = useState('')
   const [dash, setDash] = useState(null)
   const [dashOpen, setDashOpen] = useState(false)
@@ -38,52 +35,6 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
     try {
       window.dispatchEvent(new CustomEvent('s3-open-canon-inbox', { detail: { seq } }))
     } catch { /* */ }
-  }
-
-  const approveMotifSeeds = async () => {
-    const prop = snap?.motif_seed_proposal
-    if (!prop?.ops?.length) return
-    setMotifBusy(true)
-    setMotifMsg('')
-    try {
-      const res = await api.orchApplyProposal({
-        proposal: prop,
-        decision: 'approve',
-        execute: true,
-      })
-      const st = res?.proposal?.status
-      setMotifMsg(st === 'applied' || st === 'partial' ? '母题已写入设定库' : (res?.proposal?.note || '已提交'))
-      load()
-    } catch (e) {
-      setMotifMsg(e?.message || '批准失败')
-    } finally {
-      setMotifBusy(false)
-    }
-  }
-
-  const reanalyzeChapter = async () => {
-    const seq = snap?.chapter_lane?.seq
-    if (seq == null || typeof api.canonAnalyzeChapter !== 'function') return
-    setAnalyzeBusy(true)
-    setAnalyzeMsg('')
-    try {
-      const res = await api.canonAnalyzeChapter(seq, { force: true })
-      const l1 = res?.report?.sections?.l1_requires_approval?.items
-      const l1n = Array.isArray(l1) ? l1.length : 0
-      const applied = res?.ingest?.applied
-      setAnalyzeMsg(
-        `已重分析` +
-        (res?.unified_analysis ? '（统一模型）' : '') +
-        (l1n ? ` · 设定候选 ${l1n}` : '') +
-        (typeof applied === 'number' && applied >= 0 ? ` · 知识 ${applied}` : ''),
-      )
-      load()
-      setDash(null)
-    } catch (e) {
-      setAnalyzeMsg(e?.message || '重分析失败')
-    } finally {
-      setAnalyzeBusy(false)
-    }
   }
 
   const loadAnalysisDash = async () => {
@@ -126,7 +77,6 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
   const blockers = snap?.blockers || []
   const debt = snap?.canon_debt || {}
   const motifGap = snap?.bible_motif_gap || null
-  const motifProposal = snap?.motif_seed_proposal || null
   const creativeSuggestions = Array.isArray(snap?.creative_suggestions)
     ? snap.creative_suggestions
     : (Array.isArray(next?.creative_suggestions) ? next.creative_suggestions : [])
@@ -194,19 +144,16 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
               <p className="text-meta text-faint mt-1">
                 母题须开书先立档：写作注入与正文触及只匹配已立母题，不会从正文自动新建。
               </p>
-              {motifMsg && <p className="text-meta mt-1 text-ink">{motifMsg}</p>}
             </div>
-            {motifProposal?.ops?.length > 0 && (
-              <Btn
-                size="sm"
-                variant="primary"
-                disabled={motifBusy}
-                onClick={approveMotifSeeds}
-                data-testid="journey-approve-motif-seeds"
-              >
-                {motifBusy ? '写入中…' : `批准 ${motifProposal.ops.length} 条母题草案`}
-              </Btn>
-            )}
+            <Btn
+              size="sm"
+              variant="primary"
+              onClick={() => openInbox(lane?.seq)}
+              data-testid="journey-open-inbox-motifs"
+            >
+              去设定收件箱处理
+              <ArrowRight size={14} className="ml-1 inline" />
+            </Btn>
           </section>
         )}
 
@@ -315,15 +262,6 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
                 data-testid="journey-analysis-dash"
               >
                 {dashBusy ? '加载…' : '分析摘要'}
-              </Btn>
-              <Btn
-                size="sm"
-                variant="ghost"
-                disabled={analyzeBusy}
-                onClick={reanalyzeChapter}
-                data-testid="journey-reanalyze-chapter"
-              >
-                {analyzeBusy ? '分析中…' : '重新分析本章'}
               </Btn>
             </div>
             {analyzeMsg && <p className="text-meta text-ink mb-2">{analyzeMsg}</p>}

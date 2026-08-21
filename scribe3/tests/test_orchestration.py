@@ -41,6 +41,7 @@ def test_catalog_covers_primary_domains():
         "promise.plant", "promise.lifecycle", "motif.manage", "clue.manage",
         "structure.volume", "structure.chapter",
         "chapter.outline", "chapter.beats", "chapter.deduce",
+        "chapter.write", "chapter.duty", "chapter.draft", "chapter.final",
         "prose.generate", "craft.rules", "qc.review",
     }
     assert need <= domains, f"缺域: {need - domains}"
@@ -255,9 +256,65 @@ def test_resolve_promise_plant_not_stolen_by_protagonist_word():
 
 def test_resolve_prose_not_world_write():
     pkg = resolve_work_package("请写本章完整正文", work="w1", chapter=2, phase="final")
-    assert pkg["domain"].startswith("prose.")
+    assert pkg["domain"] == "chapter.write"
+    assert pkg["use_world_write_run"] is True
+    assert pkg["required_outcome"] == "write_proposal"
+    assert "s3_generate_stage" in pkg["write_tools"]
+
+
+class _DoneChapter:
+    def get_frozen(self, table, seq):
+        return {"text": "冻稿"} if table == "chapter_draft" else None
+
+    def get_chapter(self, seq):
+        return {"prose": "墙比他想象中湿。" * 8}
+
+
+def test_resolve_write_chapter_natural_language():
+    pkg = resolve_work_package("写第 3 章", work="w1", chapter=3)
+    assert pkg["domain"] == "chapter.write"
+    assert pkg["use_world_write_run"] is True
+    assert (pkg.get("focus") or {}).get("ref") == 3
+
+
+def test_resolve_write_chapter_body_unfinished_not_prose():
+    pkg = resolve_work_package("给第 3 章写正文", work="w1", chapter=3)
+    assert pkg["domain"] == "chapter.write"
+    assert pkg["required_outcome"] == "write_proposal"
+
+
+def test_resolve_polish_finished_chapter_stays_prose():
+    pkg = resolve_work_package(
+        "润色第 3 章正文", work="w1", chapter=3, store=_DoneChapter(),
+    )
+    assert pkg["domain"] == "prose.generate"
     assert pkg["use_world_write_run"] is False
     assert pkg["required_outcome"] == "prose_proposal"
+
+
+def test_resolve_write_play_still_design():
+    pkg = resolve_work_package("给第 3 章写戏", work="w1", chapter=3)
+    assert pkg["domain"] == "chapter.design"
+
+
+def test_journey_view_does_not_drive_writes():
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "web/src/views/JourneyView.jsx").read_text(encoding="utf-8")
+    assert "orchApplyProposal" not in src
+    assert "canonAnalyzeChapter" not in src
+    assert "journey-approve-motif-seeds" not in src
+    assert "journey-reanalyze-chapter" not in src
+    assert "handleContinue" in src
+    assert "去设定收件箱" in src
+
+
+def test_resolve_rework_draft_layer_only():
+    from scribe3.orchestration.catalog import get_domain
+    pkg = resolve_work_package("重跑第 3 章 draft 层", work="w1", chapter=3)
+    assert pkg["domain"] == "chapter.draft"
+    assert pkg["use_world_write_run"] is True
+    duty = get_domain("chapter.draft").get("instruction_duty") or ""
+    assert "只办这一层" in duty
 
 
 def test_ui_directive_emits_panel_and_promise_capability():
