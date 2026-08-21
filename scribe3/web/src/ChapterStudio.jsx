@@ -41,13 +41,13 @@ import { loadIaDensity, saveIaDensity, auxVisibleForDensity } from './lib/iaDens
 const PHASES_LEGACY = [
   { key: 'outline', label: '大纲', icon: AlignLeft, duty: '写清本章讲什么：谁、想干什么、会付出什么代价' },
   { key: 'beats', label: '节拍', icon: ListChecks, duty: '把本章拆成几场戏：冲突怎么升级、怎么收' },
-  { key: 'deduce', label: '演绎', icon: Sparkles, duty: '写清「事实真相」和「每人知道什么」——还没开写正文' },
+  { key: 'deduce', label: '演绎', icon: Sparkles, duty: '写这场戏的字缝：每人要什么、瞒了什么、读者能拼角色拼不出的' },
   { key: 'draft', label: '草稿', icon: FileEdit, duty: '先放开写一版，不急着过严检' },
   { key: 'final', label: '正文', icon: BookText, duty: '定稿用的正文：保存、检查、打磨都在这里' },
 ]
 const PHASES_DESIGN = [
   { key: 'design', label: '章设计', icon: AlignLeft, duty: '先立责任，再写一篇戏；契约从戏里抄出' },
-  { key: 'deduce', label: '演绎', icon: Sparkles, duty: '写清「事实真相」和「每人知道什么」——还没开写正文' },
+  { key: 'deduce', label: '演绎', icon: Sparkles, duty: '写这场戏的字缝：每人要什么、瞒了什么、读者能拼角色拼不出的' },
   { key: 'draft', label: '草稿', icon: FileEdit, duty: '先放开写一版，不急着过严检' },
   { key: 'final', label: '正文', icon: BookText, duty: '定稿用的正文：保存、检查、打磨都在这里' },
 ]
@@ -569,13 +569,57 @@ function BeatsTab({ seq, work, value, meta, onSaved, embedded = false, allowSave
   )
 }
 
+function contractFieldText(node) {
+  if (!node || typeof node !== 'object') return ''
+  return String(node.text || node.quote || '').trim()
+}
+
+function missingPlay(err) {
+  const code = err?.body?.detail?.code || err?.body?.code
+  return err?.status === 404 || code === 'play_missing' || code === 'contract_missing'
+}
+
 function DesignTab({ seq, work, meta, onSaved }) {
   const { setChiefIntent } = useChiefSlot()
+  const [play, setPlay] = useState(null)
+  const [contract, setContract] = useState(null)
+  const [loadingPlay, setLoadingPlay] = useState(true)
+  const [loadErr, setLoadErr] = useState('')
+  useEffect(() => {
+    let alive = true
+    setLoadingPlay(true)
+    Promise.all([
+      api.chapterPlay(seq, work).catch((e) => (missingPlay(e) ? null : Promise.reject(e))),
+      api.chapterContract(seq, work).catch((e) => (missingPlay(e) ? null : Promise.reject(e))),
+    ]).then(([p, c]) => {
+      if (!alive) return
+      setPlay(p)
+      setContract(c)
+      setLoadErr('')
+    }).catch((e) => {
+      if (!alive) return
+      setLoadErr(e?.body?.detail?.message || e?.message || '这场戏加载失败')
+    }).finally(() => { if (alive) setLoadingPlay(false) })
+    return () => { alive = false }
+  }, [seq, work])
+
   const spine = (meta && meta.chapter_spine && typeof meta.chapter_spine === 'object')
     ? meta.chapter_spine
     : null
   const hasSpine = !!(spine && (spine.goal || spine.choice))
-  const beatRows = Array.isArray(meta?.beats) ? meta.beats.filter(Boolean) : []
+  const playText = String(play?.text || '').trim()
+  const fields = (contract && typeof contract.fields === 'object') ? contract.fields : {}
+  const nails = [
+    ['他要什么', contractFieldText(fields.goal)],
+    ['两难', contractFieldText(fields.choice)],
+    ['他做了什么', contractFieldText(fields.decision)],
+    ['付了什么', contractFieldText(fields.cost)],
+    ['没做完的', contractFieldText(fields.hook)],
+  ].filter(([, t]) => t)
+  const contractBeats = Array.isArray(contract?.beats) ? contract.beats.filter(Boolean) : []
+  const legacyBeats = Array.isArray(meta?.beats) ? meta.beats.filter(Boolean) : []
+  const usePlay = !!playText
+  const beatRows = usePlay ? contractBeats : legacyBeats
   const beatN = beatRows.length
   const jumpTo = (id) => {
     const el = document.getElementById(id)
@@ -586,11 +630,12 @@ function DesignTab({ seq, work, meta, onSaved }) {
     `第 ${seq} 章设计`,
     hint || `请先为第 ${seq} 章立责任，再写一篇戏。`,
   )
+  const empty = !usePlay && !hasSpine
   return (
     <div className={STAGE_WRAP} data-testid="chapter-workbench-shell" data-phase="design">
       <StageTitle
         title="章设计"
-        subtitle="上块章纲，下块节拍。一次写出。点「节拍」可跳到拍台阶。"
+        subtitle="先读这场戏，再看从戏里抄出的要、选、付、钩。"
         actions={(
           <>
             <Btn variant="ghost" size="sm" onClick={() => {
@@ -613,7 +658,7 @@ function DesignTab({ seq, work, meta, onSaved }) {
           data-testid="design-jump-spine"
           onClick={() => jumpTo('chapter-spine')}
         >
-          章纲
+          这场戏
         </button>
         <button
           type="button"
@@ -621,12 +666,18 @@ function DesignTab({ seq, work, meta, onSaved }) {
           data-testid="design-jump-beats"
           onClick={() => jumpTo('chapter-beats')}
         >
-          节拍{beatN ? ` · ${beatN}` : ''}
+          {usePlay || nails.length ? `从戏里抄出的${beatN ? ` · ${beatN} 拍` : ''}` : `节拍${beatN ? ` · ${beatN}` : ''}`}
         </button>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 p-3">
         <div id="chapter-spine" data-testid="outline-readonly">
-          {hasSpine ? (
+          {loadingPlay ? (
+            <div className="text-faint text-f13">正在载入这场戏…</div>
+          ) : loadErr ? (
+            <div role="alert" className="text-f13 text-danger">{loadErr}</div>
+          ) : usePlay ? (
+            <div className="text-f13 text-ink whitespace-pre-wrap leading-relaxed" data-testid="design-play-text">{playText}</div>
+          ) : hasSpine ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {SPINE_CARDS.map(([key, label]) => {
                 const body = spineSlotText(spine, key)
@@ -640,43 +691,68 @@ function DesignTab({ seq, work, meta, onSaved }) {
               })}
             </div>
           ) : (
-            <div className="text-faint text-f13">（空 · 让主编一次写章纲+节拍）</div>
+            <div className="text-faint text-f13">（还没有这场戏 · 让主编先写设计）</div>
           )}
         </div>
         <section id="chapter-beats" data-testid="design-beats-section" className="shrink-0 space-y-3">
-          <div className="flex items-baseline justify-between gap-2">
-            <h3 className="text-f14 font-medium text-ink">节拍</h3>
-            <span className="text-f12 text-faint">
-              {beatN ? `本章 ${beatN} 拍 · 至少 3 拍，可以更多` : '还没写拍 · 至少 3 拍'}
-            </span>
-          </div>
-          {beatN === 0 ? (
-            <div className="text-faint text-f13">（空 · 让主编一次写章纲+节拍）</div>
-          ) : beatRows.map((b, i) => (
-            <div key={b.id || i} className="space-y-2" data-testid={`beat-card-${i}`}>
-              <div className="text-f12 text-faint">拍{i + 1}</div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {GCD_FIELDS.map(([key, label]) => {
-                  const body = String(b?.[key] ?? '').trim()
-                  if (key === 'underwater' && !body) return null
-                  if (key === 'choice' && (!body || body === '无')) {
-                    return (
-                      <div key={key} className="rounded-md border border-line/40 bg-canvas px-2 py-1.5">
-                        <div className="text-f12 text-faint mb-0.5">{label}</div>
-                        <div className="text-f13 text-faint">无</div>
-                      </div>
-                    )
-                  }
-                  return (
-                    <div key={key} className="rounded-md border border-line/40 bg-canvas px-2 py-1.5">
+          {usePlay || nails.length ? (
+            <>
+              {nails.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="design-contract-nails">
+                  {nails.map(([label, body]) => (
+                    <div key={label} className="rounded-md border border-line/40 bg-canvas px-2 py-1.5">
                       <div className="text-f12 text-faint mb-0.5">{label}</div>
-                      <div className="text-f13 text-ink whitespace-pre-wrap">{body || '（空）'}</div>
+                      <div className="text-f13 text-ink whitespace-pre-wrap">{body}</div>
                     </div>
-                  )
-                })}
+                  ))}
+                </div>
+              )}
+              {beatN > 0 && beatRows.map((b, i) => (
+                <div key={b.n || b.id || i} className="space-y-1" data-testid={`beat-card-${i}`}>
+                  <div className="text-f12 text-faint">第 {b.n || i + 1} 拍</div>
+                  <div className="text-f13 text-ink whitespace-pre-wrap">
+                    {contractFieldText(b.goal) || contractFieldText(b.turn) || String(b.text || '').trim() || '（这一拍还没从戏里抄出）'}
+                  </div>
+                </div>
+              ))}
+            </>
+          ) : (
+            <>
+              <div className="flex items-baseline justify-between gap-2">
+                <h3 className="text-f14 font-medium text-ink">节拍</h3>
+                <span className="text-f12 text-faint">
+                  {beatN ? `本章 ${beatN} 拍` : '还没写拍'}
+                </span>
               </div>
-            </div>
-          ))}
+              {empty || beatN === 0 ? (
+                <div className="text-faint text-f13">（还没有这场戏 · 让主编先写设计）</div>
+              ) : beatRows.map((b, i) => (
+                <div key={b.id || i} className="space-y-2" data-testid={`beat-card-${i}`}>
+                  <div className="text-f12 text-faint">拍{i + 1}</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {GCD_FIELDS.map(([key, label]) => {
+                      const body = String(b?.[key] ?? '').trim()
+                      if (key === 'underwater' && !body) return null
+                      if (key === 'choice' && (!body || body === '无')) {
+                        return (
+                          <div key={key} className="rounded-md border border-line/40 bg-canvas px-2 py-1.5">
+                            <div className="text-f12 text-faint mb-0.5">{label}</div>
+                            <div className="text-f13 text-faint">无</div>
+                          </div>
+                        )
+                      }
+                      return (
+                        <div key={key} className="rounded-md border border-line/40 bg-canvas px-2 py-1.5">
+                          <div className="text-f12 text-faint mb-0.5">{label}</div>
+                          <div className="text-f13 text-ink whitespace-pre-wrap">{body || '（空）'}</div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
         </section>
       </div>
     </div>

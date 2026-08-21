@@ -16,7 +16,7 @@ from scribe3.playbook.memory_store import MemoryPlaybookStore, freeze_artifact, 
 from scribe3.playbook.pipeline import run_stage
 from scribe3.playbook.quote import _norm, quote_in_play
 from scribe3.playbook.stages import LIVE_STAGES, reject_gone_stage
-from scribe3.playbook.structural import check_contract_struct, check_duty_struct
+from scribe3.playbook.structural import check_contract_struct, check_deduce_struct, check_duty_struct
 
 GOLDEN = Path(__file__).resolve().parent / "judge_golden"
 
@@ -70,6 +70,23 @@ def test_duty_who_must_be_in_cast():
     hit = check_duty_struct(duty, available_cast=["沈烛若"])
     assert hit["ok"] is False
     assert hit["code"] == "duty_who_cast"
+
+
+def test_deduce_struct_asks_undercurrent_not_ore_count():
+    hit = check_deduce_struct({
+        "scene_truth": "沈烛要的是他亲手按下去那份证据。",
+        "characters": [
+            {"id": "柳岸青", "believed": "付一只手就能完", "blind": "裂口拿他当管子"},
+        ],
+        "ore": [],
+    })
+    assert hit["ok"] is True
+    empty = check_deduce_struct({
+        "scene_truth": "发生了一些事。",
+        "characters": [{"id": "柳岸青", "perceived": "看见裂口", "known": "要按"}],
+    })
+    assert empty["ok"] is False
+    assert empty["code"] == "no_undercurrent"
 
 
 def test_duty_line_must_be_known():

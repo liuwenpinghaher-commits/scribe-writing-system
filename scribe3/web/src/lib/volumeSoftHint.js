@@ -31,6 +31,22 @@ export function shouldShowCrossArcVolumeHint({
   return (Number(overduePromiseCount) || 0) >= 1
 }
 
+/** 卷复盘只给人话。没有人话就不要展示。禁止把机器原文贴上作者页。 */
+export function volumeReviewPlain(kr4) {
+  if (kr4 == null) return ''
+  if (typeof kr4 === 'string') return kr4.trim()
+  if (typeof kr4 !== 'object') return ''
+  const summary = String(kr4.summary || kr4.note || '').trim()
+  if (summary) return summary
+  const bits = []
+  const overdue = Number(kr4.overdue_count) || 0
+  if (overdue > 0) bits.push(`有 ${overdue} 条伏笔过了该响的时候还没响`)
+  const unused = Array.isArray(kr4.motifs_no_echo) ? kr4.motifs_no_echo : []
+  const names = unused.map((m) => String((m && m.name) || '').trim()).filter(Boolean)
+  if (names.length) bits.push(`这几章还没碰到：${names.join('、')}`)
+  return bits.join('。')
+}
+
 export function loadVolumeSoftHintDismissed(work) {
   try {
     const k = work ? `${VOLUME_SOFT_HINT_DISMISS_KEY}:${work}` : VOLUME_SOFT_HINT_DISMISS_KEY

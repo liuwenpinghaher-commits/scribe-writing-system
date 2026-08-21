@@ -9,6 +9,9 @@ const apiMock = vi.hoisted(() => ({
   entities: vi.fn(),
   latestDraft: vi.fn(),
   materialRefsByChapter: vi.fn(),
+  fetchCapabilities: vi.fn(),
+  chapterPlay: vi.fn(),
+  chapterContract: vi.fn(),
 }))
 
 vi.mock('../api', () => ({ api: apiMock }))
@@ -42,6 +45,63 @@ describe('ChapterStudio 章对象外框与五阶段页签', () => {
     apiMock.entities.mockResolvedValue([{ id: 'role:小翠', kind: 'character', name: '小翠' }])
     apiMock.latestDraft.mockResolvedValue({ prose: '', summary: '' })
     apiMock.materialRefsByChapter.mockResolvedValue([])
+    apiMock.fetchCapabilities.mockRejectedValue(new Error('no caps'))
+    apiMock.chapterPlay.mockRejectedValue(Object.assign(new Error('HTTP 404'), { status: 404, body: { detail: { code: 'play_missing' } } }))
+    apiMock.chapterContract.mockRejectedValue(Object.assign(new Error('HTTP 404'), { status: 404, body: { detail: { code: 'contract_missing' } } }))
+  })
+
+  it('旗 on 时页签为章设计/演绎/草稿/正文', async () => {
+    apiMock.fetchCapabilities.mockResolvedValue({ flags: { chapter_design: true } })
+    render(<Harness initialPhase="outline" />)
+    await waitFor(() => {
+      const tabs = screen.getAllByRole('tab')
+      expect(tabs.map((tab) => tab.textContent)).toEqual(['章设计', '演绎', '草稿', '正文'])
+    })
+    expect(await screen.findByTestId('chapter-workbench-shell')).toHaveAttribute('data-phase', 'design')
+  })
+
+  it('章设计页能看见节拍块和跳转', async () => {
+    apiMock.fetchCapabilities.mockResolvedValue({ flags: { chapter_design: true } })
+    apiMock.chapter.mockResolvedValue({
+      title: '华山成核',
+      synopsis: '',
+      chapter_spine: { goal: '沈拾灯按场核成核', choice: '交指针态 vs 观测大遮蔽' },
+      beats: [
+        { id: 'b1', goal: '按场核', conflict: '挡', turn: '变', cost: '付', text: '拍1' },
+        { id: 'b2', goal: '交指针态', choice: '交指针态 vs 观测大遮蔽', text: '拍2' },
+        { id: 'b3', goal: '观测金縢', text: '拍3' },
+      ],
+      prose: '',
+    })
+    render(<Harness initialPhase="design" />)
+    expect(await screen.findByTestId('design-beats-section')).toBeTruthy()
+    expect(screen.getByTestId('design-jump-beats').textContent).toMatch(/节拍/)
+    expect(screen.getByTestId('beat-card-0')).toBeTruthy()
+    expect(screen.getByText('拍1')).toBeTruthy()
+    expect(screen.getByText('按场核')).toBeTruthy()
+  })
+
+  it('章设计页读这场戏，不把空的旧格子当内容', async () => {
+    apiMock.fetchCapabilities.mockResolvedValue({ flags: { chapter_design: true } })
+    apiMock.chapter.mockResolvedValue({ title: '华山成核', chapter_spine: {}, beats: [], prose: '' })
+    apiMock.chapterPlay.mockResolvedValue({
+      text: '柳岸青把碎片按了进去。沈烛记下货已验过。',
+    })
+    apiMock.chapterContract.mockResolvedValue({
+      fields: {
+        goal: { text: '把碎片按回裂口' },
+        choice: { text: '按则废左手，不按裂口压向兰因' },
+        decision: { text: '按了进去' },
+        cost: { text: '左手不受他管' },
+        hook: { text: '裂口没合' },
+      },
+      beats: [{ n: 1, goal: { text: '沈烛验货' }, turn: { text: '碎片咬进右腕' } }],
+    })
+    render(<Harness initialPhase="design" />)
+    expect(await screen.findByTestId('design-play-text')).toHaveTextContent('柳岸青把碎片按了进去')
+    expect(screen.getByTestId('design-contract-nails')).toHaveTextContent('把碎片按回裂口')
+    expect(screen.getByTestId('beat-card-0')).toHaveTextContent('沈烛验货')
+    expect(screen.queryByText('（还没有这场戏 · 让主编先写设计）')).toBeNull()
   })
 
   it('章页签恰为五个语义阶段,辅助资料不再占阶段位', async () => {
@@ -74,6 +134,8 @@ describe('ChapterStudio 章对象外框与五阶段页签', () => {
     expect(within(shell).getByTestId('chapter-stage-meta')).toBeTruthy()
     // 第三栏内容流:不套 elevated 装饰卡,只保留工作台 testid 与阶段切换
     expect(shell.className).not.toContain('panel-elevated')
+    expect(shell.className).toContain('h-full')
+    expect(screen.queryByTestId('phase-duty-line')).toBeNull()
 
     fireEvent.click(screen.getByRole('tab', { name: '节拍' }))
     await waitFor(() => expect(screen.getByTestId('chapter-workbench-shell').getAttribute('data-phase')).toBe('beats'))
@@ -82,6 +144,13 @@ describe('ChapterStudio 章对象外框与五阶段页签', () => {
     fireEvent.click(screen.getByRole('tab', { name: '草稿' }))
     await waitFor(() => expect(screen.getByTestId('chapter-workbench-shell').getAttribute('data-phase')).toBe('draft'))
     expect(screen.getByTestId('chapter-stage-heading').textContent).toBe('草稿')
+  })
+
+  it('场面纸默认收成一行，不占草稿正文高度', async () => {
+    render(<Harness initialPhase="draft" />)
+    const paper = await screen.findByTestId('scene-paper-expand')
+    expect(paper.tagName).toBe('DETAILS')
+    expect(paper.open).toBe(false)
   })
 
   it('草稿窄栏中标题与操作分层，操作区可在本栏换行', async () => {

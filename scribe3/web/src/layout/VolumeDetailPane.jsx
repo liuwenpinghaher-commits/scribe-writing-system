@@ -6,6 +6,7 @@ import { Btn, Input, Textarea, SectionTitle } from '../ui.jsx'
 import { seedChiefNarrativeWrite } from '../lib/chiefSeed.js'
 import { buildAddVolumeSeed, buildPatchVolumeSeed } from '../lib/volumeSeed.js'
 import { loadIaDensity, volumeReviewVisible } from '../lib/iaDensity.js'
+import { volumeReviewPlain } from '../lib/volumeSoftHint.js'
 
 function volumeIdOf(node) {
   if (node?.ref != null) return node.ref
@@ -404,17 +405,12 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
               ))}
             </div>
           </section>
-          {kr4 && (
+          {volumeReviewPlain(kr4) ? (
             <section data-testid="volume-kr4-review">
-              <div className="text-meta text-faint uppercase tracking-wider mb-2">卷信号复盘（KR4 · 只读）</div>
-              <p className="text-faint leading-snug break-words">
-                {typeof kr4 === 'string'
-                  ? kr4
-                  : (kr4.summary || kr4.note || JSON.stringify(kr4).slice(0, 280))}
-              </p>
-              <p className="mt-1 text-meta text-faint">≠ GATE-B 工艺门</p>
+              <div className="text-meta text-faint uppercase tracking-wider mb-2">这几章还欠什么</div>
+              <p className="text-faint leading-snug break-words">{volumeReviewPlain(kr4)}</p>
             </section>
-          )}
+          ) : null}
         </aside>
       </div>
     </section>

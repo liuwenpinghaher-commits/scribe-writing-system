@@ -7,6 +7,7 @@ import {
 import {
   shouldShowVolumeOrganizeHint,
   shouldShowCrossArcVolumeHint,
+  volumeReviewPlain,
   VOLUME_SOFT_HINT_DEFAULT_N,
 } from './volumeSoftHint.js'
 
@@ -53,5 +54,22 @@ describe('crossArcVolumeHint', () => {
     expect(shouldShowCrossArcVolumeHint({ overduePromiseCount: 0 })).toBe(false)
     expect(shouldShowCrossArcVolumeHint({ overduePromiseCount: 1 })).toBe(true)
     expect(shouldShowCrossArcVolumeHint({ overduePromiseCount: 3, dismissed: true })).toBe(false)
+  })
+})
+
+describe('volumeReviewPlain', () => {
+  it('does not dump machine JSON', () => {
+    const raw = {
+      seqs: [1, 2, 3, 4],
+      overdue_count: 0,
+      motifs_no_echo: [{ name: '冷与烫' }, { name: '囚笼与摇篮' }],
+    }
+    const text = volumeReviewPlain(raw)
+    expect(text).toContain('冷与烫')
+    expect(text).not.toContain('seqs')
+    expect(text).not.toContain('motif_id')
+  })
+  it('hides when there is nothing to say', () => {
+    expect(volumeReviewPlain({ seqs: [1], overdue_count: 0, motifs_no_echo: [] })).toBe('')
   })
 })

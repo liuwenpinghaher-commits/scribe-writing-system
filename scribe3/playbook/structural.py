@@ -217,19 +217,18 @@ def check_contract_struct(
 
 def check_deduce_struct(deduction: dict[str, Any]) -> dict[str, Any]:
     if not str(deduction.get("scene_truth") or "").strip():
-        return _fail("scene_truth_empty", "scene_truth 不能空")
+        return _fail("scene_truth_empty", "字缝里那一件还没写")
     chars = deduction.get("characters") or []
     if not isinstance(chars, list) or not chars:
-        return _fail("chars_empty", "characters 不能空")
+        return _fail("chars_empty", "该在场的人还没有各自的算盘")
     for i, ch in enumerate(chars):
         if not isinstance(ch, dict):
             return _fail("char_shape", f"characters[{i}] 不是对象")
-        for layer in FIVE_LAYERS:
-            if not str(ch.get(layer) or "").strip():
-                return _fail("five_layer", f"{ch.get('id') or i} 缺 {layer}", layer)
-    ore = deduction.get("ore") or []
-    if not isinstance(ore, list) or not (3 <= len(ore) <= 8):
-        return _fail("ore_count", f"矿要 3–8 条，现有 {len(ore) if isinstance(ore, list) else 0}")
+        name = str(ch.get("id") or i)
+        believed = str(ch.get("believed") or "").strip()
+        blind = str(ch.get("blind") or "").strip()
+        if not believed and not blind:
+            return _fail("no_undercurrent", f"{name} 没有以为或没察觉，字缝不成立")
     return _ok()
 
 
