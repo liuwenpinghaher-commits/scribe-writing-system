@@ -133,6 +133,18 @@ def _json(obj: Any) -> str:
         return str(obj)
 
 
+def _artifact_body(target: Any) -> str:
+    """记下这一稿实际长什么样。dict 没有 text 时整份 JSON，禁止记成空串冒充 0 字。"""
+    if isinstance(target, str):
+        return target
+    if isinstance(target, dict):
+        t = target.get("text")
+        if isinstance(t, str) and t.strip():
+            return t
+        return _json(target)
+    return str(target or "")
+
+
 def _quality_loop(
     *,
     name: str,
@@ -151,11 +163,14 @@ def _quality_loop(
     infra_fails = 0
     fail_reasons: list[str] = []
     while quality < MAX_QUALITY_ROUNDS:
+        sid_g = playbook_span_start("playbook.generate")
         try:
             art = generate()
         except InfraError as exc:
+            playbook_span_end(sid_g, status="failed", actual="failed")
             return {"ok": False, "code": "infra", "message": str(exc), "layer": name}
         except ParseError as exc:
+            playbook_span_end(sid_g, status="failed", actual="failed")
             infra_fails += 1
             last_struct = {"ok": False, "code": "json", "message": str(exc)}
             if infra_fails >= 3:
@@ -163,15 +178,26 @@ def _quality_loop(
             continue
         last_art = art
         target = extract(art) if extract else art
-        text = target if isinstance(target, str) else (
-            str((target or {}).get("text") or "") if isinstance(target, dict) else str(target or "")
-        )
-        sid_g = playbook_span_start("playbook.generate")
+        text = _artifact_body(target)
+        from scribe3.pipeline_trace import current_trace_buffer
+        buf = current_trace_buffer()
+        prompt_in = str(getattr(buf, "last_prompt", "") or "") if buf is not None else ""
+        if prompt_in:
+            playbook_note_out(
+                sid_g, name=f"{name}.in.{quality + 1}", body=prompt_in[:4000],
+                summary=f"投入 {len(prompt_in)} 字",
+                kind="prompt",
+            )
+            try:
+                buf.last_prompt = ""
+            except Exception:
+                pass
         playbook_note_out(
             sid_g, name=f"{name}.out.{quality + 1}", body=text,
             summary=f"第{quality + 1}稿 {len(text)} 字",
+            kind="output",
         )
-        playbook_span_end(sid_g, status="ok", actual="present")
+        playbook_span_end(sid_g, status="ok", actual="present" if text.strip() else "empty")
         last_struct = struct(target)
         sid_s = playbook_span_start("playbook.struct")
         code = str(last_struct.get("code") or "")

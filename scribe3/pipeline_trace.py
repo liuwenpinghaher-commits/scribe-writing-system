@@ -260,6 +260,7 @@ class TraceBuffer:
         self.headline: str | None = None
         self.obs_on: bool = True
         self.recorder = None
+        self.last_prompt: str = ""
 
     def start_chain(
         self,

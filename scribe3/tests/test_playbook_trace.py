@@ -58,6 +58,80 @@ def _short_llm(prompt, **kw):
     return "短。" * 10
 
 
+def test_quality_loop_json_layer_body_not_empty():
+    enable_pipeline_trace()
+    buf = TraceBuffer()
+    buf.start_chain(work="w", chapter=1, kind="write", phase="duty", trace_id="aa" * 16)
+    tok = bind_trace_buffer(buf)
+    remember_buffer(buf)
+    try:
+        _quality_loop(
+            name="duty",
+            generate=lambda: {"must_happen": "甲必须挡观测", "bill": "观测变贵"},
+            struct=lambda d: {"ok": False, "code": "duty_who"},
+            judge_type="duty",
+            judge_ctx=lambda d: {},
+            llm_fn=_short_llm,
+        )
+        rec = buf.recorder
+        outs = [a for a in (rec.artifacts if rec else []) if str(a.get("name") or "").startswith("duty.out")]
+        assert outs, "duty.out must exist"
+        assert "甲必须挡观测" in str(outs[0].get("body") or "")
+        assert (outs[0].get("chars") or 0) > 0
+    finally:
+        reset_trace_buffer(tok)
+
+
+def test_quality_loop_records_prompt_in():
+    from scribe3.playbook.layers import _call
+
+    enable_pipeline_trace()
+    buf = TraceBuffer()
+    buf.start_chain(work="w", chapter=1, kind="write", phase="duty", trace_id="ab" * 16)
+    tok = bind_trace_buffer(buf)
+    remember_buffer(buf)
+    try:
+        def gen():
+            _call(_short_llm, "【本章责】柳岸青必须在成核点前做决定。", system="s",
+                  temperature=0.2, max_tokens=8)
+            return {"must_happen": "做决定"}
+
+        _quality_loop(
+            name="duty",
+            generate=gen,
+            struct=lambda d: {"ok": False, "code": "duty_who"},
+            judge_type="duty",
+            judge_ctx=lambda d: {},
+            llm_fn=_short_llm,
+        )
+        rec = buf.recorder
+        ins = [a for a in (rec.artifacts if rec else []) if ".in." in str(a.get("name") or "")]
+        assert ins, "prompt .in must exist"
+        assert "本章责" in str(ins[0].get("body") or "")
+        assert ins[0].get("kind") == "prompt"
+    finally:
+        reset_trace_buffer(tok)
+
+
+def test_begin_discuss_trace_kind():
+    from scribe3.pipeline_trace_hooks import (
+        begin_discuss_trace, end_discuss_trace, note_discuss_step,
+    )
+    enable_pipeline_trace()
+    st = _FakeStore()
+    mt = begin_discuss_trace(st, work="w", chapter=0)
+    assert mt.get("request_id")
+    note_discuss_step(
+        "discuss.assemble", name="discuss.assemble.in",
+        body="系统提示含柳岸青", summary="前置",
+        kind="prompt",
+    )
+    end_discuss_trace(st, mt, ok=True)
+    row = st.get_pipeline_chain(mt["request_id"])
+    assert row and row.get("kind") == "discuss"
+    assert any("柳岸青" in str(a.get("body") or "") for a in st.artifacts)
+
+
 def test_quality_loop_records_struct_fail_reason():
     enable_pipeline_trace()
     buf = TraceBuffer()

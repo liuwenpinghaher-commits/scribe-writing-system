@@ -106,6 +106,15 @@ def chat_stream(msg: str, background: BackgroundTasks, work: str = "main",
             yield f"data: {json.dumps({'error': f'上下文组装失败:{type(e).__name__}: {str(e)[:200]}'}, ensure_ascii=False)}\n\n"
             yield 'data: {"done": true}\n\n'
             return
+        from scribe3.pipeline_trace_hooks import (
+            begin_discuss_trace, end_discuss_trace, note_discuss_step,
+        )
+        dtrace = begin_discuss_trace(st, work=work, chapter=seq)
+        note_discuss_step(
+            "discuss.assemble", name="discuss.assemble.in",
+            body=sysmsg or "", summary=f"前置 {len(sysmsg or '')} 字",
+            kind="prompt",
+        )
         with _ChatTurnLog(st, user_text=msg, chapter=seq or 0, stage="discuss",
                           thread_id=thread_id) as clog:
             try:
@@ -114,6 +123,14 @@ def chat_stream(msg: str, background: BackgroundTasks, work: str = "main",
                     yield f"data: {json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+                end_discuss_trace(st, dtrace, ok=False, err=e)
+                yield 'data: {"done": true}\n\n'
+                return
+        note_discuss_step(
+            "discuss.answer", name="discuss.answer",
+            body=clog.collected_text(), summary=f"回答 {len(clog.collected_text())} 字",
+        )
+        end_discuss_trace(st, dtrace, ok=True)
         yield 'data: {"done": true}\n\n'
 
     from scribe3.api.sse import sse_response
@@ -204,6 +221,15 @@ def chat_agentic_stream(msg: str, background: BackgroundTasks, work: str = "main
             yield f"data: {json.dumps({'error': f'上下文组装失败:{type(e).__name__}: {str(e)[:200]}'}, ensure_ascii=False)}\n\n"
             yield 'data: {"done": true}\n\n'
             return
+        from scribe3.pipeline_trace_hooks import (
+            begin_discuss_trace, end_discuss_trace, note_discuss_step,
+        )
+        dtrace = begin_discuss_trace(st, work=work, chapter=seq)
+        note_discuss_step(
+            "discuss.assemble", name="discuss.assemble.in",
+            body=instructions or "", summary=f"前置 {len(instructions or '')} 字",
+            kind="prompt",
+        )
         with _ChatTurnLog(st, user_text=msg, chapter=seq or 0, stage="discuss",
                           thread_id=turn.thread_id) as clog:
             try:
@@ -233,6 +259,12 @@ def chat_agentic_stream(msg: str, background: BackgroundTasks, work: str = "main
                     elif kind == "tool.started":
                         yield f"data: {json.dumps({'tool': app_ev.get('name', ''), 'tool_args': app_ev.get('arguments', '')}, ensure_ascii=False)}\n\n"
                     elif kind == "tool.output":
+                        out = str(app_ev.get("output") or "")
+                        nm = str(app_ev.get("name") or "tool")
+                        note_discuss_step(
+                            "discuss.lookup", name=f"discuss.lookup.{nm}",
+                            body=out[:800], summary=nm,
+                        )
                         yield f"data: {json.dumps({'tool_output': app_ev.get('output', ''), 'tool_call_id': app_ev.get('call_id')}, ensure_ascii=False)}\n\n"
                     elif kind == "approval.requested":
                         yield f"data: {json.dumps({'approval': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'message')}}, ensure_ascii=False)}\n\n"
@@ -244,6 +276,19 @@ def chat_agentic_stream(msg: str, background: BackgroundTasks, work: str = "main
                             clog.set_response_id(resp_id)
             except Exception as e:
                 yield f"data: {json.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
+                end_discuss_trace(st, dtrace, ok=False, err=e)
+                if resp_id:
+                    try:
+                        _store_for(work).update_thread_response_id(turn.thread_id, resp_id)
+                    except Exception:
+                        logging.getLogger("scribe3").warning("thread response_id 回写失败(忽略)", exc_info=True)
+                yield 'data: {"done": true}\n\n'
+                return
+        note_discuss_step(
+            "discuss.answer", name="discuss.answer",
+            body=clog.collected_text(), summary=f"回答 {len(clog.collected_text())} 字",
+        )
+        end_discuss_trace(st, dtrace, ok=True)
         if resp_id:
             try:
                 # UI busy 互斥；仅回写本 turn 拿到的 response id。

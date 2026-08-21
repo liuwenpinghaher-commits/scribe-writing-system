@@ -236,6 +236,9 @@ class _ChatTurnLog:
         if delta:
             self._buf.append(delta)
 
+    def collected_text(self) -> str:
+        return "".join(self._buf)
+
     def set_response_id(self, rid) -> None:
         if rid:
             self._response_id = rid

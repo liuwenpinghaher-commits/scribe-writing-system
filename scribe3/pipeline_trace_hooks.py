@@ -54,7 +54,8 @@ def playbook_span_end(span_id: str, **fields: Any) -> None:
         return
 
 
-def playbook_note_out(span_id: str, *, name: str, body: str, summary: str) -> None:
+def playbook_note_out(span_id: str, *, name: str, body: str, summary: str,
+                      kind: str = "segment") -> None:
     if not span_id:
         return
     try:
@@ -63,7 +64,7 @@ def playbook_note_out(span_id: str, *, name: str, body: str, summary: str) -> No
         if rec is None:
             return
         aid = rec.put_artifact(
-            kind="segment", name=name, body=str(body or "")[:8000],
+            kind=kind or "segment", name=name, body=str(body or "")[:8000],
             span_id=span_id, redact="secrets",
         )
         rec.emit(
@@ -535,6 +536,49 @@ def finish_failed(st: Any, manifest_trace: dict | None, err: BaseException | Non
         extra["notes"] = list(buf.notes)
     # 链失败就是 failed。产物在不在另表对账，禁止在这里改成 ok。
     finish_chain(st, trace_id=rid or None, status="failed", extra=extra or None)
+
+
+def begin_discuss_trace(st: Any, *, work: str, chapter: int | None) -> dict:
+    """探讨开链。失败空 dict，不挡对话。"""
+    mt: dict = {}
+    try:
+        import uuid
+        mt = {"request_id": uuid.uuid4().hex}
+        open_write_chain(
+            st, mt, work=work, chapter=int(chapter or 0),
+            kind="discuss", phase="discuss",
+        )
+    except Exception:
+        return {}
+    return mt
+
+
+def note_discuss_step(step_key: str, *, name: str, body: str, summary: str,
+                      kind: str = "segment") -> None:
+    try:
+        sid = playbook_span_start(step_key)
+        playbook_note_out(
+            sid, name=name, body=body or "", summary=summary, kind=kind,
+        )
+        playbook_span_end(
+            sid, status="ok",
+            actual="present" if str(body or "").strip() else "empty",
+        )
+    except Exception:
+        return
+
+
+def end_discuss_trace(st: Any, mt: dict | None, *, ok: bool = True,
+                      err: BaseException | None = None) -> None:
+    if not mt:
+        return
+    try:
+        if ok:
+            finish_ok(st, mt)
+        else:
+            finish_failed(st, mt, err=err)
+    except Exception:
+        return
 
 
 def emit_gate_spans(

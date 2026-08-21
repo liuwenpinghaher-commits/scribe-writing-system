@@ -188,6 +188,11 @@ def test_agentic_source_lookup_contract():
     assert "没有实时查询工具" not in agentic
     assert "skills_index_block" not in agentic
     assert "looking_up" in agentic
+    assert "begin_discuss_trace" in agentic
+    hooks = (
+        Path(__file__).resolve().parents[1] / "pipeline_trace_hooks.py"
+    ).read_text(encoding="utf-8")
+    assert 'kind="discuss"' in hooks
 
 
 def test_hermes_complete_stream_still_has_no_tools_param():

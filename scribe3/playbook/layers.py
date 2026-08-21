@@ -22,6 +22,13 @@ from scribe3.playbook.prompts import (
 
 def _call(llm_fn: Callable, prompt: str, *, system: str, temperature: float, max_tokens: int) -> str:
     try:
+        from scribe3.pipeline_trace import current_trace_buffer
+        buf = current_trace_buffer()
+        if buf is not None:
+            buf.last_prompt = str(prompt or "")
+    except Exception:
+        pass
+    try:
         return llm_fn(
             prompt, max_tokens=max_tokens, system=system, temperature=temperature,
         ) or ""
