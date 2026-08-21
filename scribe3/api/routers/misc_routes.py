@@ -228,6 +228,8 @@ def chat_agentic_stream(msg: str, background: BackgroundTasks, work: str = "main
                             yield f"data: {json.dumps({'delta': d}, ensure_ascii=False)}\n\n"
                     elif kind == "tool.blocked":
                         yield f"data: {json.dumps({'tool_blocked': app_ev.get('name', ''), 'reason': app_ev.get('reason'), 'phase': app_ev.get('phase')}, ensure_ascii=False)}\n\n"
+                    elif kind == "looking_up":
+                        yield f"data: {json.dumps({'looking_up': True}, ensure_ascii=False)}\n\n"
                     elif kind == "tool.started":
                         yield f"data: {json.dumps({'tool': app_ev.get('name', ''), 'tool_args': app_ev.get('arguments', '')}, ensure_ascii=False)}\n\n"
                     elif kind == "tool.output":

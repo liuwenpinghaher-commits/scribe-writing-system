@@ -40,11 +40,25 @@ def reset_discuss_metrics_for_test() -> None:
     discuss_work_rewrite_count = 0
     discuss_tool_blocked_count = 0
     discuss_tool_rounds_last = 0
+    try:
+        from scribe3.context_cache import reset_metrics_for_test
+        reset_metrics_for_test()
+    except Exception:
+        pass
+
+
+def _lookup_metrics(**kw) -> None:
+    try:
+        from scribe3.context_cache import record_discuss_lookup
+        record_discuss_lookup(**kw)
+    except Exception:
+        pass
 
 
 def record_discuss_work_rewrite(*, attempted: str, pinned: str) -> None:
     global discuss_work_rewrite_count
     discuss_work_rewrite_count += 1
+    _lookup_metrics(rewrite=1)
     log.info(
         "discuss_work_rewrite attempted=%s pinned=%s count=%s",
         attempted[:80], pinned, discuss_work_rewrite_count,
@@ -54,12 +68,14 @@ def record_discuss_work_rewrite(*, attempted: str, pinned: str) -> None:
 def record_discuss_tool_blocked(name: str) -> None:
     global discuss_tool_blocked_count
     discuss_tool_blocked_count += 1
+    _lookup_metrics(blocked=1)
     log.info("discuss_tool_blocked name=%s count=%s", name, discuss_tool_blocked_count)
 
 
 def record_discuss_tool_rounds(n: int) -> None:
     global discuss_tool_rounds_last
     discuss_tool_rounds_last = int(n)
+    _lookup_metrics(rounds=int(n))
     log.info("discuss_tool_rounds n=%s", n)
 
 

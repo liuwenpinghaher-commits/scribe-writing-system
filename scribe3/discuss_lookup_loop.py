@@ -175,6 +175,7 @@ def discuss_lookup_events(
             prev = last_resp
             continue
 
+        yield {"kind": "looking_up"}
         results = []
         for call in calls:
             payload = exec_fn(

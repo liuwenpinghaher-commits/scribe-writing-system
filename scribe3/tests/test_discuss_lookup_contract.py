@@ -86,6 +86,12 @@ def test_pin_work_omit_and_rewrite():
     assert stores["book_req"].hits[1][1] == "book_req"
     assert "other_book" not in stores
     assert DT.discuss_work_rewrite_count >= 1
+    from scribe3 import context_cache as cc
+    snap = cc.metrics_snapshot()
+    assert snap["discuss_work_rewrite"] >= 1
+    blob = str(snap)
+    assert "other_book" not in blob
+    assert "伏笔来自" not in blob
     assert "伏笔来自book_req" in str(r1)
     assert "伏笔来自other_book" not in str(r2)
 
@@ -155,12 +161,14 @@ def test_fifth_round_does_not_execute():
         }
         yield {"type": "response.completed", "response": {"id": f"r{n['i']}"}}
 
-    list(discuss_lookup_events(
+    evs = list(discuss_lookup_events(
         "还缺什么", "ins", work="book_req",
         events_iter=events_iter, execute=exec_fn, api_base="http://127.0.0.1:8642/v1",
     ))
     assert len(executed) == 4
-    assert any(not (kw.get("function_tools")) for kw in []) or True
+    assert any(e.get("kind") == "looking_up" for e in evs)
+    from scribe3 import context_cache as cc
+    assert cc.metrics_snapshot()["discuss_tool_rounds_last"] == 4
 
 
 def test_agentic_source_lookup_contract():
@@ -179,6 +187,7 @@ def test_agentic_source_lookup_contract():
     assert "8643" not in agentic
     assert "没有实时查询工具" not in agentic
     assert "skills_index_block" not in agentic
+    assert "looking_up" in agentic
 
 
 def test_hermes_complete_stream_still_has_no_tools_param():
@@ -199,6 +208,9 @@ def test_discuss_ui_copy():
     discuss_send = t[idx: idx + 1200]
     assert "onToolOutput: () => {}" in discuss_send
     assert "lookingUp: true" in discuss_send
+    api = (WEB / "api.js").read_text(encoding="utf-8")
+    assert "d.looking_up" in api
+    assert "onTool && onTool()" in api
 
 
 def test_prefetch_named_and_journey(monkeypatch):
@@ -299,6 +311,16 @@ def test_overlay_discuss_empty_mcp():
     assert "reveal" not in blob
     assert "s3_generate" not in blob
     assert "s3_add_" not in blob
+
+
+def test_summarize_keeps_decisions_and_comes_sooner():
+    src = (
+        Path(__file__).resolve().parents[1] / "api/services/thread_helpers.py"
+    ).read_text(encoding="utf-8")
+    assert "threshold: int = 12" in src
+    assert "已选方向" in src
+    assert "未决问题" in src
+    assert "还没做完的事" in src
 
 
 def test_provision_discuss_is_empty_mcp_profile():

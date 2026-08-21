@@ -429,8 +429,13 @@ def record_stale_rejection() -> None:
 # 讨论路径组装(chat_stream / agentic):延迟 + 提示长度;可选业务属性 ring(无 secret)
 _DISCUSS_LATENCY = _Histogram()
 _DISCUSS_CHARS = _Histogram()
+_DISCUSS_ROUNDS = _Histogram()
 _DISCUSS_ATTRS_LOCK = threading.Lock()
 _DISCUSS_ATTRS: deque = deque(maxlen=64)  # 最近 64 次 {work, chapter, path, ms, chars}
+_DISCUSS_LOOKUP_LOCK = threading.Lock()
+_DISCUSS_WORK_REWRITE = 0
+_DISCUSS_TOOL_BLOCKED = 0
+_DISCUSS_ROUNDS_LAST = 0
 
 
 def record_discuss_assembly(
@@ -462,12 +467,30 @@ def record_discuss_assembly(
         _DISCUSS_ATTRS.append(attr)
 
 
+def record_discuss_lookup(*, rewrite: int = 0, blocked: int = 0, rounds: int | None = None) -> None:
+    """查阅安全/轮次计数。只记整数，不含书名全文以外的 prompt / 秘密 / 工具返回。"""
+    global _DISCUSS_WORK_REWRITE, _DISCUSS_TOOL_BLOCKED, _DISCUSS_ROUNDS_LAST
+    with _DISCUSS_LOOKUP_LOCK:
+        if rewrite:
+            _DISCUSS_WORK_REWRITE += int(rewrite)
+        if blocked:
+            _DISCUSS_TOOL_BLOCKED += int(blocked)
+        if rounds is not None:
+            n = int(rounds)
+            _DISCUSS_ROUNDS_LAST = n
+            _DISCUSS_ROUNDS.record(float(n))
+
+
 def metrics_snapshot() -> dict:
     """检索/组装侧指标只读快照。绝不含 prompt / 秘密——只有计数与分位数。"""
     with _stale_lock:
         stale = _STALE_REJECTIONS
     with _DISCUSS_ATTRS_LOCK:
         recent = list(_DISCUSS_ATTRS)[-8:]
+    with _DISCUSS_LOOKUP_LOCK:
+        rewrite = _DISCUSS_WORK_REWRITE
+        blocked = _DISCUSS_TOOL_BLOCKED
+        rounds_last = _DISCUSS_ROUNDS_LAST
     return {
         "retrieval_p50": _RETRIEVAL_LATENCY.percentile(50),
         "retrieval_p95": _RETRIEVAL_LATENCY.percentile(95),
@@ -480,16 +503,26 @@ def metrics_snapshot() -> dict:
         "discuss_assembly_samples": _DISCUSS_LATENCY.count(),
         "discuss_chars_p95": _DISCUSS_CHARS.percentile(95),
         "discuss_recent": recent,
+        "discuss_work_rewrite": rewrite,
+        "discuss_tool_blocked": blocked,
+        "discuss_tool_rounds_last": rounds_last,
+        "discuss_tool_rounds_p50": _DISCUSS_ROUNDS.percentile(50),
+        "discuss_tool_rounds_samples": _DISCUSS_ROUNDS.count(),
     }
 
 
 def reset_metrics_for_test() -> None:
-    global _STALE_REJECTIONS
+    global _STALE_REJECTIONS, _DISCUSS_WORK_REWRITE, _DISCUSS_TOOL_BLOCKED, _DISCUSS_ROUNDS_LAST
     _RETRIEVAL_LATENCY.clear()
     _CONTEXT_TOKENS.clear()
     _DISCUSS_LATENCY.clear()
     _DISCUSS_CHARS.clear()
+    _DISCUSS_ROUNDS.clear()
     with _stale_lock:
         _STALE_REJECTIONS = 0
     with _DISCUSS_ATTRS_LOCK:
         _DISCUSS_ATTRS.clear()
+    with _DISCUSS_LOOKUP_LOCK:
+        _DISCUSS_WORK_REWRITE = 0
+        _DISCUSS_TOOL_BLOCKED = 0
+        _DISCUSS_ROUNDS_LAST = 0

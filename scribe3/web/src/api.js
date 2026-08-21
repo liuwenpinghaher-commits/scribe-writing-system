@@ -828,6 +828,7 @@ export const api = {
       try {
         const d = JSON.parse(e.data)
         if (d.delta) onDelta(d.delta)
+        else if (d.looking_up) { onTool && onTool() }
         else if (d.tool) { onTool && onTool(d.tool, d.tool_args) }
         else if (d.tool_output) onToolOutput?.(d.tool_output, d.tool_call_id)
         else if (d.approval) onApproval?.(d.approval)

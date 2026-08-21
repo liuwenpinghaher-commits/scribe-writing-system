@@ -129,7 +129,7 @@ def _capture_turn_memory(store, *, work: str, thread_id: str, turn_id: str,
         logging.getLogger("scribe3").warning("记忆捕获失败(忽略,不阻断写作)", exc_info=True)
 
 
-def _maybe_summarize_thread(work: str, thread_id: str, threshold: int = 40) -> dict:
+def _maybe_summarize_thread(work: str, thread_id: str, threshold: int = 12) -> dict:
     """P0b L2:线程增量摘要(补 _thread_history_for_prompt 挂账的 L2)。
 
     未摘要消息(ts > summarized_upto_ts)≥ threshold 才压缩:旧 summary + 新增轮次
@@ -176,8 +176,8 @@ def _summarize_thread_inner(work: str, thread_id: str, threshold: int) -> dict:
     prev = (row.get("summary") or "").strip()
     prompt = (
         "你是写作系统的会话压缩器。把主编与作者的讨论增量压缩为持续摘要,供后续对话作早期记忆。\n"
-        "硬要求:≤1200字;优先保留三类信息:①未决决策(选项与倾向)②作者的偏好/否决表态"
-        "③伏笔/设定承诺;去客套与过程性废话;第三人称陈述;绝不虚构未出现的内容。\n"
+        "硬要求:≤1200字;必须留下三类事:①未决问题(还没选的选项)②已选方向"
+        "③还没做完的事(设定债/伏笔/下一笔)。去客套与过程废话;第三人称;绝不虚构未出现的内容。\n"
         f"【既有摘要(为空则忽略,否则融合)】\n{prev or '(无)'}\n\n"
         "【新增讨论】\n" + "\n".join(lines) + "\n\n只输出新摘要正文,不加任何前后缀。")
     complete_fn = _complete_fn
