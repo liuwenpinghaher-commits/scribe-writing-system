@@ -174,6 +174,7 @@ def gateway_status():
         ("deduce_preview", get_setting("HERMES_DEDUCE_PREVIEW_RUNS_API"), "scribe3_deduce_preview"),
         ("plan", get_setting("HERMES_PLAN_RUNS_API"), "scribe3_plan"),
         ("draft", get_setting("HERMES_DRAFT_RUNS_API"), "scribe3_draft"),
+        ("discuss", get_setting("HERMES_DISCUSS_API"), get_setting("HERMES_DISCUSS_PROFILE") or "scribe3_discuss"),
     ]
     out = []
     for name, base, profile in targets:

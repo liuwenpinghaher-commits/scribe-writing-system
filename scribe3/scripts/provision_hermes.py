@@ -58,6 +58,8 @@ _PROFILES = {
     "scribe3_draft": ("overlay.scribe3_draft.yaml",
                       "profiles/scribe3_draft/config.yaml", True,
                       "SOUL.scribe3_write.md"),
+    "scribe3_discuss": ("overlay.scribe3_discuss.yaml",
+                        "profiles/scribe3_discuss/config.yaml", False, None),
 }
 
 # Hermes 会注册 profile config 中的全部 MCP server；platform_toolsets 只是请求标签，
@@ -69,6 +71,7 @@ _PROFILE_MCP_SERVERS = {
     "scribe3_deduce_preview": ("scribe3_deduce_read",),
     "scribe3_plan": ("scribe3_plan_read", "scribe3_plan_write"),
     "scribe3_draft": ("scribe3_draft_read", "scribe3_draft_write"),
+    "scribe3_discuss": (),
 }
 
 
@@ -614,10 +617,13 @@ def _build_overlay(profile: str, repo: Path) -> dict:
 def _assert_invariants(profile: str, merged: dict) -> list[str]:
     """返回违规列表(空=通过)。这些是【写库前】的硬门,不满足则拒绝写(fail-closed)。"""
     violations = []
-    if profile == "default":
+    if profile in ("default", "scribe3_discuss"):
         api = ((merged.get("platform_toolsets") or {}).get("api_server")) or []
         if api:
-            violations.append(f"默认 profile 的 api_server 工具面非空({api})——速答不得挂任何工具(U-006)")
+            tag = "速答" if profile == "default" else "讨论查阅"
+            violations.append(
+                f"{profile} profile 的 api_server 工具面非空({api})——{tag}不得挂任何 MCP"
+            )
     elif profile in _PROFILE_MCP_SERVERS:
         api = ((merged.get("platform_toolsets") or {}).get("api_server")) or []
         expected = list(_PROFILE_MCP_SERVERS[profile])

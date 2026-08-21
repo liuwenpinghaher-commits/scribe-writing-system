@@ -306,6 +306,8 @@ def _hermes_runtime_status() -> dict:
     )
     from scribe3.llm import (
         HERMES,
+        HERMES_DISCUSS,
+        HERMES_DISCUSS_PROFILE,
         HERMES_RESPONSES,
         HERMES_RESPONSES_PROFILE,
         HERMES_RUNS,
@@ -320,6 +322,7 @@ def _hermes_runtime_status() -> dict:
         HermesRuntime(api_base=HERMES_DEDUCE_PREVIEW_RUNS, profile="scribe3_deduce_preview").probe(),
         HermesRuntime(api_base=HERMES_PLAN_RUNS, profile="scribe3_plan").probe(),
         HermesRuntime(api_base=HERMES_DRAFT_RUNS, profile="scribe3_draft").probe(),
+        HermesRuntime(api_base=HERMES_DISCUSS, profile=HERMES_DISCUSS_PROFILE or "scribe3_discuss").probe(),
     ]
     profile_configs = {
         "default": _hermes_profile_config_summary("default"),   # U-006:速答网关工具面自检需要
@@ -329,6 +332,7 @@ def _hermes_runtime_status() -> dict:
         "scribe3_deduce_preview": _hermes_profile_config_summary("scribe3_deduce_preview"),
         "scribe3_plan": _hermes_profile_config_summary("scribe3_plan"),
         "scribe3_draft": _hermes_profile_config_summary("scribe3_draft"),
+        "scribe3_discuss": _hermes_profile_config_summary("scribe3_discuss"),
     }
     cron = _hermes_cron_status(HERMES_RESPONSES_PROFILE)
     summary = _summarize_hermes_runtime(profiles, profile_configs=profile_configs, cron=cron)

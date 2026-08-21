@@ -107,7 +107,7 @@ function RunStaleCard({ ap, onApprovalDecision }) {
   )
 }
 
-function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApprovalDecision, focus, context_revision, writeEffects, chapterSeq, writeProposal, onProposalDone }) {
+function Bubble({ role, content, tools, toolOutputs, approvals, streaming, lookingUp, onApprovalDecision, focus, context_revision, writeEffects, chapterSeq, writeProposal, onProposalDone }) {
   const me = role === 'user'
   // Task 6:带焦点标签的消息打上 data-context-revision(每轮焦点=快照 revision 的印记)。
   const ctxRev = focus && context_revision != null ? String(context_revision) : undefined
@@ -140,7 +140,10 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApp
             </>
           )}
         </div>
-        {!me && tools?.length > 0 && (
+        {!me && lookingUp && (
+          <div data-testid="discuss-lookup-chip" className="mb-1.5 text-meta text-faint">主编在翻这本书</div>
+        )}
+        {!me && !lookingUp && tools?.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-1.5">
             {tools.map((t, i) => (
               <span key={i} className="inline-flex items-center gap-1 rounded-lg bg-soft/80 px-1.5 py-0.5 text-meta text-faint">
@@ -231,7 +234,7 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApp
             />
           </div>
         )}
-        {!me && toolOutputs?.length > 0 && (
+        {!me && !lookingUp && toolOutputs?.length > 0 && (
           <div className="mt-2 space-y-1.5">
             {toolOutputs.map((out, i) => (
               <div key={out.call_id || i} className="border-l-2 border-line pl-2.5 py-1">
@@ -340,9 +343,7 @@ function WriteSlot() {
 
 /**
  * 右主编栏(常驻)。
- * - 非章节点:讨论模式。把当前选中节点/视图作为上下文,走 /chat/stream(纯对话)。
- *   注:agentic 联查(/chat/agentic-stream)当前禁用(防跨书串库,见 send() 的 agentic:false);
- *   要联查书内实证请到章内写作槽,主编在那挂 s3_ 工具。
+ * - 非章节点:讨论模式。走 /chat/agentic-stream（Scribe 进程内只读闭集，work 钉死当前书）。
  * - 章/场景节点:写作模式。渲染 WriteSlot,WriteLayout 的 WriteChat 经 portal 落进来。
  * 波B Step3:右栏常驻;章=写作槽 / 非章=讨论 chat。无双 chat,无嵌套第4列。
  */
@@ -1004,9 +1005,9 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
       })
       return
     }
-    // 非章前置阶段(素材/视图等):走 /chat/stream + B∪C discussion 编译与会话绑定
+    // 讨论查阅：agentic-stream + 进程内闭集。作者只见「主编在翻这本书」。
     esRef.current = api.chatStream(finalMsg, {
-      agentic: false, seq: seq ?? ctxSeq,   // 审查 P0-1:非章上下文用最近章记忆,时机C 不死线
+      agentic: true, seq: seq ?? ctxSeq,   // 审查 P0-1:非章上下文用最近章记忆,时机C 不死线
       thread: threadMode ? threadId : undefined,   // P0a:消息落当前选中会话(非线程模式不传=旧行为)
       context: bind && bind.context_session_id ? {
         context_session_id: bind.context_session_id,
@@ -1014,19 +1015,18 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         context_hash: bind.context_hash,
       } : null,
       onDelta: (d) => mut((l) => ({ ...l, content: l.content + d })),
-      onTool: (name) => {
-        toolsThisTurn.push(name)
-        mut((l) => ({ ...l, tools: [...(l.tools || []), name] }))
+      onTool: () => {
+        mut((l) => ({ ...l, lookingUp: true }))
       },
-      onToolOutput: (output, call_id) => mut((l) => ({ ...l, toolOutputs: [...(l.toolOutputs || []), { output, call_id }] })),
+      onToolOutput: () => {},
       onApproval: (approval) => mut((l) => ({ ...l, approvals: [...(l.approvals || []), { ...approval, status: 'pending' }] })),
       onApprovalResolved: (approval) => {
         const status = approvalStatusFromDecision(approval?.decision)
         patchApproval(approval, { ...approval, status })
         if (status === 'approved') applyOrchUiAfterApprove(orchPkg)
       },
-      onDone: () => { setBusy(false); finishOrchEval() },
-      onError: (err) => { mut((l) => ({ ...l, content: l.content + `\n\n_出错:${err}_` })); setBusy(false); finishOrchEval() },
+      onDone: () => { mut((l) => ({ ...l, lookingUp: false })); setBusy(false); finishOrchEval() },
+      onError: (err) => { mut((l) => ({ ...l, lookingUp: false, content: l.content + `\n\n_出错:${err}_` })); setBusy(false); finishOrchEval() },
     })
     }).catch((err) => {
       mut((l) => ({ ...l, content: (l.content || '') + `\n\n_编排失败:${err?.message || err}_` }))
@@ -1091,7 +1091,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
                 <div className="rounded-md bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">全新会话,不带对话历史——主编的长期记忆(设定圣经/伏笔/正典)仍然在。</div>
               )
             )}
-            <div className="rounded-md bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">就当前选中的内容与主编讨论(纯对话)。要主编联查书内实证(角色/伏笔/事件/设定),请到章内写作槽——主编在那挂书内工具。</div>
+            <div className="rounded-md bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">就当前打开的这本书跟主编聊。主编会自己翻书，不用离开这栏。</div>
             <div className="space-y-1.5">
               {ctx.suggests.map((s) => (
                 <button key={s} onClick={() => send(s)}

@@ -1,0 +1,26 @@
+# 讨论查阅专用 profile(:8649)——空 MCP 工具面。
+# 工具执行在 Scribe 进程内（execute_discuss_tool），Hermes 只跑 type=function。
+# 禁止把 scribe3_read 挂到这里；禁止占用 :8645（演绎）。
+platform_toolsets:
+  api_server: []
+agent:
+  tool_use_enforcement: true
+  gateway_timeout: 600
+  gateway_timeout_warning: 300
+  clarify_timeout: 300
+compression:
+  enabled: true
+  threshold: 0.50
+  protect_last_n: 12
+platforms:
+  api_server:
+    port: 8649
+    host: 127.0.0.1
+
+fallback_providers:
+  - provider: custom
+    model: kimi-k2-thinking
+    base_url: https://ark.cn-beijing.volces.com/api/coding/v3
+  - provider: custom
+    model: MiniMax-M2.5
+    base_url: https://ark.cn-beijing.volces.com/api/coding/v3

@@ -13,13 +13,10 @@ def _store_work(s) -> str | None:
 
 
 def _store_for(work: str | None = None):
-    """返回目标书 store。work=None 保持旧行为:使用当前 MCP 默认 store。"""
+    """返回目标书 store。省略 work 时 fail-closed，禁止回落默认库。"""
     from scribe3.mcp import _common as C
     if not work:
-        if C._store is None:
-            from scribe3.mcp.server import setup_store
-            setup_store()
-        return C._store
+        raise ValueError("work is required (fail-closed: refuse default store)")
     if work in C._stores:
         C._stores.move_to_end(work)
         return C._stores[work]

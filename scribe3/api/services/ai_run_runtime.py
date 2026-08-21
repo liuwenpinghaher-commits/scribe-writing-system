@@ -88,8 +88,9 @@ def _response_events_iter(fn, message, instructions: str, **kwargs):
         return fn(message, instructions, **kwargs)
     safe = {
         k: v for k, v in kwargs.items()
-        if k in {"model", "with_tools", "max_tokens"}
+        if k in {"model", "with_tools", "max_tokens", "function_tools", "api_base"}
         and (k != "max_tokens" or v is not None)
+        and (k not in {"function_tools", "api_base"} or v is not None)
     }
     return fn(message, instructions, **safe)
 

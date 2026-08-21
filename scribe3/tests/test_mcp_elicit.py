@@ -55,7 +55,11 @@ def test_work_scoped_read_uses_requested_book(store):
         M.set_store(store)
         M.set_store(other, work="book_b")
 
-        assert M.s3_get_chapter(1)["title"] == "主库章"
+        import pytest
+        with pytest.raises(ValueError, match="fail-closed"):
+            M.s3_get_chapter(1)
+        main_work = getattr(store, "db_name", None) or getattr(store, "db", "main")
+        assert M.s3_get_chapter(1, work=main_work)["title"] == "主库章"
         assert M.s3_get_chapter(1, work="book_b")["title"] == "乙库章"
     finally:
         other.close()

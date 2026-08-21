@@ -161,6 +161,10 @@ HERMES = os.environ.get("HERMES_API", "http://127.0.0.1:8642/v1")
 # 主编 agentic 走 scribe3 profile 专属网关 :8643(挂 scribe3 MCP);与 default :8642 隔离。
 HERMES_RESPONSES = os.environ.get("HERMES_RESPONSES_API", "http://127.0.0.1:8643/v1")
 HERMES_RESPONSES_PROFILE = os.environ.get("HERMES_RESPONSES_PROFILE", "scribe3")
+# 讨论查阅：零 MCP。默认打 :8642 空工具面；provision 起 :8649 后改 HERMES_DISCUSS_API。
+# 禁止默认落到 :8643（会注册 scribe3_read 全表）。
+HERMES_DISCUSS = os.environ.get("HERMES_DISCUSS_API", "http://127.0.0.1:8642/v1")
+HERMES_DISCUSS_PROFILE = os.environ.get("HERMES_DISCUSS_PROFILE", "scribe3_discuss")
 # 会改状态的长任务 Runs 走独立写 profile。Hermes Runs 不支持 per-run tools 裁剪,
 # 工具面必须靠 gateway profile/platform_toolsets 隔离。
 HERMES_RUNS = os.environ.get("HERMES_RUNS_API", "http://127.0.0.1:8644/v1")
@@ -347,7 +351,9 @@ def hermes_responses_events(message, instructions: str, model: str | None = None
                             store: bool = True,
                             context_revision: int | None = None,
                             context_hash: str | None = None,
-                            server_label: str = "scribe3_read"):
+                            server_label: str = "scribe3_read",
+                            api_base: str | None = None,
+                            function_tools: list | None = None):
     """主编 agentic:POST scribe3 网关(:8643)/v1/responses(可选 tools=scribe3 MCP + stream),逐事件 yield。
     默认 server_label='scribe3_read',普通 Responses 写作/讨论只暴露只读 s3_ 工具。
     SSE 为 OpenAI Responses 标准(每条 data: 的 JSON 带 type 字段)。
@@ -457,7 +463,40 @@ def hermes_responses_events(message, instructions: str, model: str | None = None
         }
         return
 
-    runtime = HermesRuntime(api_base=HERMES_RESPONSES, profile=HERMES_RESPONSES_PROFILE, auth=HermesAuth())
+    if function_tools is not None:
+        # 讨论查阅：只交 type=function，禁止 MCP。网关必须是空 api_server。
+        discuss_base = api_base or HERMES_DISCUSS or HERMES
+        runtime = HermesRuntime(
+            api_base=discuss_base,
+            profile=HERMES_DISCUSS_PROFILE or "default",
+            auth=HermesAuth(),
+        )
+
+        def make_fn_stream():
+            yield from runtime.responses_events(
+                message,
+                instructions,
+                model=model,
+                timeout=timeout,
+                with_tools=True,
+                conversation=conversation,
+                previous_response_id=previous_response_id,
+                session_key=session_key,
+                store=store,
+                context_revision=context_revision,
+                context_hash=context_hash,
+                server_label=server_label,
+                function_tools=list(function_tools),
+            )
+
+        yield from _stream_with_retry(make_fn_stream)
+        return
+
+    runtime = HermesRuntime(
+        api_base=api_base or HERMES_RESPONSES,
+        profile=HERMES_RESPONSES_PROFILE,
+        auth=HermesAuth(),
+    )
 
     def make_stream():
         yield from runtime.responses_events(

@@ -288,8 +288,14 @@ class HermesRuntime:
                          store: bool = True,
                          context_revision: int | None = None,
                          context_hash: str | None = None,
-                         server_label: str = "scribe3_read"):
-        tools = [{"type": "mcp", "server_label": server_label}] if with_tools else None
+                         server_label: str = "scribe3_read",
+                         function_tools: list | None = None):
+        if function_tools is not None:
+            tools = list(function_tools)
+        elif with_tools:
+            tools = [{"type": "mcp", "server_label": server_label}]
+        else:
+            tools = None
         body = build_hermes_request_body(
             input_text=message,
             instructions=instructions,

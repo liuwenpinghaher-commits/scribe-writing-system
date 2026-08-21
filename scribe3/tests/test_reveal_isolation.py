@@ -240,11 +240,8 @@ def test_post_chat_write_endpoint_uses_read_label(store, monkeypatch):
     assert captured["server_label"] == A.SCRIBE3_READ_MCP_LABEL
 
 
-def test_chat_agentic_stream_also_uses_read_label_not_a_separate_chief_label(store, monkeypatch):
-    """主编 agentic 联查(面向作者本人,GET /chat/agentic-stream)U-003 v2 回滚后与写作
-    路径共用**同一个** READ label——这就是"server_label 不做过滤"这条真机实测结论的
-    直接后果:与其维持一个从不生效的隔离幻觉,不如让两条路径显式共用同一个 label,
-    真正的隔离靠④的网关自检(任何 profile 都不得 include *_reveal 工具)兜底。"""
+def test_chat_agentic_stream_uses_function_tools_not_mcp_label(store, monkeypatch):
+    """讨论查阅禁止 MCP：function_tools 闭集，不传 server_label。"""
     captured = {}
     monkeypatch.setattr(A, "_responses_events", None)
     monkeypatch.setattr("scribe3.llm.hermes_responses_events",
@@ -252,7 +249,14 @@ def test_chat_agentic_stream_also_uses_read_label_not_a_separate_chief_label(sto
 
     r = _client(store).get("/chat/agentic-stream", params={"msg": "查伏笔"})
     assert r.status_code == 200
-    assert captured["server_label"] == A.SCRIBE3_READ_MCP_LABEL
+    tools = captured.get("function_tools") or []
+    names = {t.get("name") for t in tools}
+    from scribe3.discuss_tools import DISCUSS_TOOL_NAMES
+    assert names == DISCUSS_TOOL_NAMES
+    assert "server_label" not in captured
+    assert not any(t.get("type") == "mcp" for t in tools)
+    api_base = captured.get("api_base") or ""
+    assert "8643" not in api_base
 
 
 # ============================================================

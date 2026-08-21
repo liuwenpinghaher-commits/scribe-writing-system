@@ -82,13 +82,14 @@ def chat_stream(msg: str, background: BackgroundTasks, work: str = "main",
             import time as _time
             _t0 = _time.perf_counter()
             pulse = _pulse_digest(st, seq)
+            history = _thread_history_for_prompt(st, thread_id)
             sysmsg = assemble_discussion_system(
                 st, work=work, chapter=seq, user_msg=msg,
                 memory_trace_ctx=_ctx if _ctx.get("context_session_id") else None,
                 pulse_text=pulse,
                 directive_text=_DISCUSSION_DIRECTIVE,
+                history=history,
             )
-            history = _thread_history_for_prompt(st, thread_id)
             try:
                 from scribe3.context_cache import record_discuss_assembly
                 record_discuss_assembly(
@@ -119,14 +120,16 @@ def chat_stream(msg: str, background: BackgroundTasks, work: str = "main",
     return sse_response(gen())
 
 def chat_agentic_stream(msg: str, background: BackgroundTasks, work: str = "main",
-                        seq: int | None = None, thread: str | None = None):
-    """主编 agentic 对话(SSE):经 scribe3 网关 /v1/responses,主编自调 s3_ 工具查 SurrealDB 真实数据。
-    事件:tool(工具调用提示)/delta(回复片段)/done。"""
-    from scribe3.hermes_runtime import HermesEventAdapter
-    from scribe3.llm import hermes_responses_events
+                        seq: int | None = None, thread: str | None = None,
+                        context_session_id: str | None = None,
+                        context_revision: int | None = None,
+                        context_hash: str | None = None):
+    """主编讨论查阅(SSE):零 MCP Responses + Scribe 进程内闭集只读工具。
+    事件:tool(查阅中)/delta/done。失败不改打 /chat/stream。"""
+    from scribe3.discuss_lookup_loop import discuss_lookup_events
+    from scribe3.llm import HERMES_DISCUSS, hermes_responses_events
     from scribe3.llm_path_guard import assert_llm_path_ok
     fn = _responses_events or hermes_responses_events
-    # GAP-12：agentic 必须 Hermes responses 路径
     _ag_chk = assert_llm_path_ok(fn, path="agentic")
     if _ag_chk.get("bypass"):
         logging.getLogger("scribe3").error(
@@ -138,45 +141,46 @@ def chat_agentic_stream(msg: str, background: BackgroundTasks, work: str = "main
             yield f"data: {json.dumps({'error': 'LLM path must be Hermes (GAP-12)', 'bypass': True}, ensure_ascii=False)}\n\n"
             yield 'data: {"done": true}\n\n'
         return sse_response(_deny_ag())
-    # GAP-11：生产接线 — 工具事件经 filter_tool_calls 后验拦截
-    adapter = HermesEventAdapter(phase="discuss", filter_tools=True)
-    # H-01:工具 work-scoped,所有作品都可挂工具;提示必须钉死当前 work,防跨书读写。
-    with_tools = _work_has_tools(work)
 
-    # Task 11:稳定 session key = work+thread(切章不换 Hermes session,主编历史连续);
-    # 会话续接锚 conversation/previous_response 从线程行取(掉链常态,由 Scribe 侧重建兜底)。
     turn = _editor_turn_context(work, thread_row=_resolve_thread_or_raise(work, thread))
     st = _store_for(work)
-    background.add_task(_maybe_summarize_thread, work, turn.thread_id)   # P0b 增量摘要
+    background.add_task(_maybe_summarize_thread, work, turn.thread_id)
+    _ctx = {
+        "context_session_id": context_session_id,
+        "context_revision": context_revision,
+        "context_hash": context_hash,
+        "thread_id": turn.thread_id,
+    }
 
     def _build_instructions() -> str:
-        # B∪C：与 chat_stream 同源 discussion 单编译；工具说明作 supplemental。
         import time as _time
         from scribe3.api.services.write_assemble import assemble_discussion_system
         _t0 = _time.perf_counter()
-        tools_hint = ""
-        if with_tools:
-            tools_hint = (
-                _s3_work_scope_block(work) + (
-                    "\n\n你能调用 s3_ 工具实时查询/操作这部书的 SurrealDB(知识帧 s3_project_frame、反讽 s3_dramatic_irony、"
-                    "伏笔 s3_list_promises、母题 s3_list_motifs、章节 s3_get_chapter、确定性QC s3_qc_chapter、纪律判官 "
-                    "s3_discipline_check、语义召回 s3_semantic_recall、因果 s3_causal_complete 等)。"
-                    "回答前先用只读工具核实真实数据,不臆测;引用数据时说明来自哪个工具。"
-                    "写操作(加角色/事实/伏笔等)会进入待批,不会立即生效。"
-                )
+        history = _thread_history_for_prompt(st, turn.thread_id)
+        tools_hint = (
+            _s3_work_scope_block(work) + (
+                "\n\n你能调用只读工具翻当前打开的这本书"
+                "（s3_setting_completeness / s3_list_promises / s3_resolve_entities / "
+                "s3_character_state / s3_get_chapter / s3_semantic_recall / "
+                "s3_chapter_recall / s3_list_chapters）。"
+                "先核实再下判断。工具由服务钉死当前书，传错书名也会被丢掉。"
+                "不要调用写/生成/揭密工具。"
             )
-            try:
-                from scribe3.craft_skills import skills_index_block
-                tools_hint += skills_index_block()
-            except Exception:
-                pass
+        )
         ins = assemble_discussion_system(
             st, work=work, chapter=seq, user_msg=msg,
-            memory_trace_ctx=None,
+            memory_trace_ctx=_ctx if _ctx.get("context_session_id") else None,
             pulse_text=_pulse_digest(st, seq),
-            directive_text=_DISCUSSION_DIRECTIVE,
+            directive_text=_DISCUSSION_LOOKUP_DIRECTIVE,
             with_tools_hint=tools_hint,
+            history=history,
         )
+        if not turn.previous_response_id and history:
+            lines = ["【近窗对话】"]
+            for m in history:
+                role = "作者" if m.get("role") == "user" else "主编"
+                lines.append(f"{role}：{(m.get('content') or '')[:800]}")
+            ins = ins + "\n\n" + "\n".join(lines)
         try:
             from scribe3.context_cache import record_discuss_assembly
             record_discuss_assembly(
@@ -200,56 +204,47 @@ def chat_agentic_stream(msg: str, background: BackgroundTasks, work: str = "main
             yield f"data: {json.dumps({'error': f'上下文组装失败:{type(e).__name__}: {str(e)[:200]}'}, ensure_ascii=False)}\n\n"
             yield 'data: {"done": true}\n\n'
             return
-        # U-005:agentic 讨论/审批也留痕(此前从不落库——《印迹》批准写入 15 世界规则 +
-        # 6 势力的整场对话凭空消失)。工具调用/审批帧【不】进对话留痕(它们已在 ai_run_trace
-        # 有账;灌进历史会把对话淹没),只留 user + assistant 最终文本。
         with _ChatTurnLog(st, user_text=msg, chapter=seq or 0, stage="discuss",
                           thread_id=turn.thread_id) as clog:
             try:
-                events = _response_events_iter(
-                    fn,
+                events = discuss_lookup_events(
                     msg,
                     instructions,
-                    with_tools=with_tools,
+                    work=work,
+                    api_base=HERMES_DISCUSS,
                     session_key=turn.session_key,
                     conversation=turn.conversation_id,
                     previous_response_id=turn.previous_response_id,
                     store=True,
-                    # U-003 回滚(v2):曾想给主编 agentic 联查挂专属 CHIEF label 隔离
-                    # reveal 工具,真机实测证明 server_label 不过滤——挂了等于两条路径
-                    # 都拿到。故与写作路径共用同一个 READ label;当前 6 把 *_reveal
-                    # 工具不挂在任何网关上(见 SCRIBE3_READ_MCP_LABEL 定义处注释)。
-                    server_label=SCRIBE3_READ_MCP_LABEL,
+                    context_revision=context_revision,
+                    context_hash=context_hash,
                 )
-                for ev in events:
-                    app_ev = adapter.adapt(ev)
-                    if app_ev["kind"] == "text.delta":
+                for app_ev in events:
+                    kind = app_ev.get("kind")
+                    if kind == "text.delta":
                         d = app_ev.get("delta", "")
                         if d:
                             clog.feed(d)
                             yield f"data: {json.dumps({'delta': d}, ensure_ascii=False)}\n\n"
-                    elif app_ev["kind"] == "tool.blocked":
-                        # GAP-11：拒绝违规工具，不下发为可执行 tool.started
+                    elif kind == "tool.blocked":
                         yield f"data: {json.dumps({'tool_blocked': app_ev.get('name', ''), 'reason': app_ev.get('reason'), 'phase': app_ev.get('phase')}, ensure_ascii=False)}\n\n"
-                    elif app_ev["kind"] == "tool.started":
+                    elif kind == "tool.started":
                         yield f"data: {json.dumps({'tool': app_ev.get('name', ''), 'tool_args': app_ev.get('arguments', '')}, ensure_ascii=False)}\n\n"
-                    elif app_ev["kind"] == "tool.output":
+                    elif kind == "tool.output":
                         yield f"data: {json.dumps({'tool_output': app_ev.get('output', ''), 'tool_call_id': app_ev.get('call_id')}, ensure_ascii=False)}\n\n"
-                    elif app_ev["kind"] == "approval.requested":
+                    elif kind == "approval.requested":
                         yield f"data: {json.dumps({'approval': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'message')}}, ensure_ascii=False)}\n\n"
-                    elif app_ev["kind"] == "approval.resolved":
+                    elif kind == "approval.resolved":
                         yield f"data: {json.dumps({'approval_resolved': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'decision')}}, ensure_ascii=False)}\n\n"
-                    elif app_ev["kind"] == "run.completed":
-                        # 记新 response id,turn 结束后回写线程,供下一轮 previous_response_id 续接。
+                    elif kind in ("run.completed", "lookup.done"):
                         resp_id = app_ev.get("response_id") or resp_id
-                        clog.set_response_id(resp_id)
+                        if resp_id:
+                            clog.set_response_id(resp_id)
             except Exception as e:
                 yield f"data: {json.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
         if resp_id:
             try:
-                # 竞态记账(#5):同一线程若并发两 turn,后完成者覆盖 previous_response_id。
-                # 现状不显现——前端 ChiefDock 默认 agentic:false(本路未启用)且 UI busy 期
-                # 串行化发送;重新启用 agentic 或引入并发发送时需加"仅当更晚 turn 才覆盖"的护栏。
+                # UI busy 互斥；仅回写本 turn 拿到的 response id。
                 _store_for(work).update_thread_response_id(turn.thread_id, resp_id)
             except Exception:
                 logging.getLogger("scribe3").warning("thread response_id 回写失败(忽略)", exc_info=True)

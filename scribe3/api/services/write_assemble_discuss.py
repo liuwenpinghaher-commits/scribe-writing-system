@@ -20,6 +20,63 @@ def _record_write_soft_fail(kind: str) -> None:
     from scribe3.api.services.write_assemble import record_write_soft_fail
     record_write_soft_fail(kind)
 
+JOURNEY_LINE_MAX = 200
+HAYSTACK_CHARS = 4000
+
+
+def discuss_request_haystack(user_msg: str, history: list | None = None) -> str:
+    """本轮问句 + 近窗至少两轮，给点名档当针。"""
+    parts: list[str] = []
+    if history:
+        for m in list(history)[-4:]:
+            if not isinstance(m, dict):
+                continue
+            text = (m.get("content") or m.get("text") or "").strip()
+            if text:
+                parts.append(text)
+    um = (user_msg or "").strip()
+    if um:
+        parts.append(um)
+    blob = "\n".join(parts)
+    return blob[:HAYSTACK_CHARS]
+
+
+def discuss_journey_line(st, work: str | None = None, seq: int | None = None) -> str:
+    """旅程当前站 + 下一步，≤200 字。失败时写「尚未立站」。"""
+    try:
+        from scribe3.director import JOURNEY_STATIONS, build_workflow_snapshot
+        snap = build_workflow_snapshot(st, work=work or "main", seq=seq)
+        journey = snap.get("journey") or {}
+        current = journey.get("current_station")
+        labels = dict(JOURNEY_STATIONS)
+        label = labels.get(current) or current
+        nxt = snap.get("next_step") or {}
+        title = str(nxt.get("title") or "").strip()
+        if not current:
+            line = "【旅程】尚未立站"
+        elif title:
+            line = f"【旅程】当前站：{label}。下一步：{title}"
+        else:
+            line = f"【旅程】当前站：{label}。"
+    except Exception:
+        line = "【旅程】尚未立站"
+    return line[:JOURNEY_LINE_MAX]
+
+
+def _context_pack_hint(work: str | None) -> str:
+    """只点名 pack 字段，不灌戏/契约正文。"""
+    try:
+        from scribe3.orchestration import package_state
+        pkg = package_state.get_active(work or "main") or {}
+        pack = pkg.get("context_pack") or []
+        names = [str(x).strip() for x in pack if str(x).strip()]
+        if not names:
+            return ""
+        return "【取数提示】可优先查阅：" + "、".join(names[:12])
+    except Exception:
+        return ""
+
+
 def assemble_discussion_system(
     st,
     *,
@@ -30,6 +87,8 @@ def assemble_discussion_system(
     pulse_text: str = "",
     directive_text: str = "",
     with_tools_hint: str = "",
+    history: list | None = None,
+    haystack: str | None = None,
 ) -> str:
     """B∪C：讨论路径单编译（discussion.v1），禁止写作围栏协议。
 
@@ -60,7 +119,8 @@ def assemble_discussion_system(
         memory_trace_ctx=memory_trace_ctx)
     retriever = _get_write_retriever(st)
     _retrieval_out = {} if retriever is not None else None
-    query = (user_msg or "").strip()[:200]
+    hay = haystack if haystack is not None else discuss_request_haystack(user_msg, history)
+    query = ((user_msg or hay) or "").strip()[:200]
     supplemental: list[ContextSource] = []
 
     def _render(envelope):
@@ -78,7 +138,7 @@ def assemble_discussion_system(
         from scribe3.api.services.write_assemble_blocks import _codex_segments
         named, cards, _st = _codex_segments(
             st, reveal=True, focalizer="", chapter=chapter,
-            for_generation=False, request_text=user_msg or "", work=work,
+            for_generation=False, request_text=hay or user_msg or "", work=work,
         )
         if named:
             parts.append(named)
@@ -86,6 +146,12 @@ def assemble_discussion_system(
             parts.append(cards)
         # pulse / directive 作为可审计补充段
         extra_bits = []
+        journey = discuss_journey_line(st, work=work, seq=chapter)
+        if journey:
+            extra_bits.append(journey)
+        pack_hint = _context_pack_hint(work)
+        if pack_hint:
+            extra_bits.append(pack_hint)
         if (pulse_text or "").strip():
             extra_bits.append(pulse_text.strip())
         if (directive_text or "").strip():

@@ -37,8 +37,8 @@ def test_mcp_tool_reads_skill():
     assert out and "潜台词" in out
 
 
-def test_agentic_instructions_carry_skills_index(store, monkeypatch):
-    """集成:agentic(带工具)instructions 含技法索引。"""
+def test_agentic_instructions_do_not_carry_skills_index(store, monkeypatch):
+    """讨论查阅不教 s3_skill_read（闭集外）。写作路径仍可带索引。"""
     import scribe3.app as A
     from .test_app import _client
     captured = {}
@@ -48,7 +48,8 @@ def test_agentic_instructions_carry_skills_index(store, monkeypatch):
     monkeypatch.setattr(A, "_responses_events", fake)
     r = _client(store).get("/chat/agentic-stream", params={"msg": "hi", "work": "main"})
     b"".join(r.iter_bytes())
-    assert "写作技法库" in captured["ins"] and "s3_skill_read" in captured["ins"]
+    assert "s3_skill_read" not in (captured.get("ins") or "")
+    assert "写作技法库" not in (captured.get("ins") or "")
 
 
 def test_write_instructions_index_only_with_tools(store):
