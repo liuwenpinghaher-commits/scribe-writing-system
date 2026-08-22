@@ -1,4 +1,3 @@
-from scribe3.feature_flags import get_flag
 # scribe3/drama_beats.py
 """戏剧节拍校验 · 纯函数（PR-1）。
 
@@ -17,6 +16,8 @@ import json
 import os
 import re
 from typing import Any
+
+from scribe3.feature_flags import get_flag
 
 # ── 角色 / 词表（设计 § 初版；单测锁定）──────────────────────────────────
 

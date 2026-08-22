@@ -1,10 +1,3 @@
-"""Module-level helpers and work registry (split from store.py)."""
-from __future__ import annotations
-
-from scribe3.feature_flags import get_flag
-from __future__ import annotations
-
-"""Module-level helpers and work registry extracted from store.py."""
 """SurrealStore · 故事本体 v2 的 SurrealDB 持久层(NS=scribe3)。
 
 把纵切片的内存 World 迁到 SurrealDB,接口与 World 鸭子兼容——knowledge.project_frame /
@@ -28,7 +21,9 @@ oid 映射:本体 id(role:焦三 / fact:治眼)↔ SurrealDB record(character:�
 # 9. 会话与 AI 轨迹: chat messages · runs · editorial threads
 # 公开类名 SurrealStore 在拆分后须保持稳定(门面+mixin)。
 """
+from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import hashlib
 import json
 import logging
