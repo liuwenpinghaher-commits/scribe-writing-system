@@ -19,6 +19,11 @@ import urllib.parse
 import urllib.request
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+for _root in (Path("/app"), Path(__file__).resolve().parents[1]):
+    if (_root / "scribe3").is_dir() and str(_root) not in sys.path:
+        sys.path.insert(0, str(_root))
 
 
 def _fail(msg: str, code: int = 2) -> int:
