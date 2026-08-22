@@ -110,8 +110,10 @@ def _roster(ctx: dict[str, Any]) -> list[dict[str, str]]:
 def _settled_note(duty: Any, contract: Any, seq: int) -> str:
     """定稿后记一句本章办成了什么。只记录，不挡存。"""
     happen = ""
+    bill = ""
     if isinstance(duty, dict):
         happen = str(duty.get("must_happen") or "").strip()
+        bill = str(duty.get("bill") or "").strip()
     fields = {}
     if isinstance(contract, dict):
         fields = contract.get("fields") if isinstance(contract.get("fields"), dict) else {}
@@ -121,6 +123,8 @@ def _settled_note(duty: Any, contract: Any, seq: int) -> str:
     bit = happen or decision
     if not bit:
         return ""
+    if bill:
+        return f"第{int(seq)}章办成了：{bit}。付了：{bill}"[:200]
     return f"第{int(seq)}章办成了：{bit}"[:200]
 
 

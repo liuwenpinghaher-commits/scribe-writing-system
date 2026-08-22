@@ -84,7 +84,8 @@ def craft_diagnostic(prose: str, *, llm_fn: Callable | None = None) -> dict[str,
     )
     try:
         try:
-            note = llm_fn(prompt, max_tokens=600, temperature=0.3) or ""
+            from scribe3.llm_temps import TEMP_DIAGNOSE
+            note = llm_fn(prompt, max_tokens=600, temperature=TEMP_DIAGNOSE) or ""
         except TypeError:
             note = llm_fn(prompt) or ""
         report["notes"].append(str(note).strip()[:1200])

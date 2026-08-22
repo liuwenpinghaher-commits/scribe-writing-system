@@ -43,7 +43,8 @@ def _rubrics_for(version: str) -> dict:
 
 def _call(llm_fn: Callable, prompt: str, *, system: str) -> str:
     try:
-        return llm_fn(prompt, max_tokens=2048, system=system, temperature=0) or ""
+        from scribe3.llm_temps import TEMP_JUDGE
+        return llm_fn(prompt, max_tokens=2048, system=system, temperature=TEMP_JUDGE) or ""
     except TypeError:
         try:
             return llm_fn(prompt, max_tokens=2048) or ""

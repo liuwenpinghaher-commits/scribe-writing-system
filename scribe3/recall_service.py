@@ -177,6 +177,8 @@ def shadow_diff(store: Any, seq: int, focalizer: str, legacy_text: str, query: s
     both = legacy_ids | shadow_ids
     jacc = (len(legacy_ids & shadow_ids) / len(both)) if both else 1.0
     leg_n = max(len(legacy_text or ""), 1)
+    secret_diff = 0.0 if not leaked else 1.0
+    budget_delta = abs(len(shadow or "") - len(legacy_text or "")) / leg_n
     rec = {
         "ok": True,
         "seq": int(seq),
@@ -189,9 +191,18 @@ def shadow_diff(store: Any, seq: int, focalizer: str, legacy_text: str, query: s
         "same_entities": legacy_ids == shadow_ids,
         "entity_jaccard": round(jacc, 4),
         "secret_leak_count": len(leaked),
-        "secret_jaccard_diff": 0.0 if not leaked else 1.0,
-        "budget_delta": abs(len(shadow or "") - len(legacy_text or "")) / leg_n,
+        "secret_jaccard_diff": secret_diff,
+        "budget_delta": budget_delta,
     }
+    rec["threshold_ok"] = (
+        secret_diff <= 0.0 and jacc >= 0.92 and budget_delta <= 0.15
+    )
+    if secret_diff > 0.0:
+        _log.warning("recall_shadow 限知泄漏 seq=%s leaked=%s", seq, sorted(leaked)[:8])
+    if jacc < 0.92:
+        _log.warning("recall_shadow 通用实体 Jaccard=%.4f < 0.92 seq=%s", jacc, seq)
+    if budget_delta > 0.15:
+        _log.warning("recall_shadow 预算偏差=%.4f > 0.15 seq=%s", budget_delta, seq)
     _log.info("recall_shadow %s", rec)
     try:
         from scribe3.pipeline_trace_hooks import note_guide_missing

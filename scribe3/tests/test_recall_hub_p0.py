@@ -33,6 +33,7 @@ def test_shadow_does_not_change_codex_text():
     assert rec["ok"] is True
     assert "entity_jaccard" in rec
     assert rec.get("secret_leak_count") == 0
+    assert "threshold_ok" in rec
 
 
 def test_outline_stale_missing_field_does_not_block():

@@ -6,6 +6,14 @@ from typing import Any, Callable
 from scribe3.playbook.parse import parse_json_with_retry
 from scribe3.playbook.stages import STAGE_MAX_TOKENS
 from scribe3.playbook.structural import detect_narrative_pov, thin_metaphors
+from scribe3.llm_temps import (
+    TEMP_CREATE,
+    TEMP_DESIGN,
+    TEMP_DRAFT,
+    TEMP_FINAL,
+    TEMP_SCRIBE,
+    TEMP_STATE,
+)
 from scribe3.playbook.prompts import (
     IDENTITY_NOVELIST,
     IDENTITY_PLAY,
@@ -40,7 +48,7 @@ def _call(llm_fn: Callable, prompt: str, *, system: str, temperature: float, max
             return llm_fn(prompt) or ""
 
 
-def generate_json(llm_fn: Callable, prompt: str, *, system: str, max_tokens: int, temperature: float = 0.8) -> dict[str, Any]:
+def generate_json(llm_fn: Callable, prompt: str, *, system: str, max_tokens: int, temperature: float = TEMP_CREATE) -> dict[str, Any]:
     def _once() -> str:
         return _call(llm_fn, prompt, system=system, temperature=temperature, max_tokens=max_tokens)
 
@@ -48,14 +56,15 @@ def generate_json(llm_fn: Callable, prompt: str, *, system: str, max_tokens: int
 
 
 def generate_text(
-    llm_fn: Callable, prompt: str, *, system: str, max_tokens: int, temperature: float = 0.8,
+    llm_fn: Callable, prompt: str, *, system: str, max_tokens: int, temperature: float = TEMP_CREATE,
 ) -> str:
     return _call(llm_fn, prompt, system=system, temperature=temperature, max_tokens=max_tokens).strip()
 
 
 def gen_duty(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
     raw = generate_json(
-        llm_fn, duty_generate(ctx), system=identity_for("duty"), max_tokens=STAGE_MAX_TOKENS["duty"],
+        llm_fn, duty_generate(ctx), system=identity_for("duty"),
+        max_tokens=STAGE_MAX_TOKENS["duty"], temperature=TEMP_DESIGN,
     )
     raw["seq"] = int(ctx.get("seq") or 0)
     raw["focalizer"] = ctx.get("focalizer") or raw.get("focalizer") or ""
@@ -84,6 +93,7 @@ def gen_duty(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
 def gen_play(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
     text = generate_text(
         llm_fn, play_generate(ctx), system=IDENTITY_PLAY, max_tokens=4096,
+        temperature=TEMP_DESIGN,
     )
     duty = ctx.get("duty") or {}
     return {
@@ -96,7 +106,7 @@ def gen_play(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
 def gen_contract(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
     raw = generate_json(
         llm_fn, contract_extract(ctx),
-        system=IDENTITY_SCRIBE, max_tokens=4096, temperature=0,
+        system=IDENTITY_SCRIBE, max_tokens=4096, temperature=TEMP_SCRIBE,
     )
     play = ctx.get("play") or {}
     raw["play_sha"] = play.get("sha") or ctx.get("play_sha") or ""
@@ -117,7 +127,7 @@ def gen_deduce(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
 def gen_draft(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
     text = generate_text(
         llm_fn, draft_generate(ctx), system=IDENTITY_NOVELIST, max_tokens=16384,
-        temperature=0.4,
+        temperature=TEMP_DRAFT,
     )
     bite = ctx.get("bite_quote") or ctx.get("prev_hook_quote") or ""
     text = thin_metaphors(text, exempt_quotes=tuple(q for q in (bite,) if q))
@@ -132,6 +142,7 @@ def gen_draft(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
 def gen_final(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
     text = generate_text(
         llm_fn, final_generate(ctx), system=IDENTITY_NOVELIST, max_tokens=16384,
+        temperature=TEMP_FINAL,
     )
     text = thin_metaphors(text)
     return {
@@ -157,7 +168,7 @@ def _gender_map(ctx: dict) -> dict[str, str]:
 def gen_state(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
     raw = generate_json(
         llm_fn, state_extract(ctx),
-        system=IDENTITY_SCRIBE, max_tokens=4096, temperature=0.2,
+        system=IDENTITY_SCRIBE, max_tokens=4096, temperature=TEMP_STATE,
     )
     seq = int(ctx.get("seq") or raw.get("seq") or 0)
     raw["seq"] = seq

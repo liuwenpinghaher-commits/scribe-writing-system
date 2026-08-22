@@ -1,6 +1,16 @@
-"""温度三档单源。规划层禁止高于 DESIGN。"""
+"""温度单源。规划层禁止高于 TEMP_PLAN_MAX。"""
 
-TEMP_OBJECTIVE = 0.4  # 账目 / 抄录 / 法官
-TEMP_DESIGN = 0.6     # 责任 / 戏
-TEMP_CREATE = 0.8     # 单章正文
+TEMP_JUDGE = 0.0
+TEMP_SCRIBE = 0.0
+TEMP_STATE = 0.2
+TEMP_DIAGNOSE = 0.3
+TEMP_PLAN = 0.4
+TEMP_OBJECTIVE = 0.4
+TEMP_DRAFT = 0.4
+TEMP_DESIGN = 0.6
+TEMP_CREATE = 0.8
+TEMP_FINAL = 0.8
 TEMP_PLAN_MAX = TEMP_DESIGN
+
+# 别名：评审点名的名字
+TEMP_PLAN_ACCOUNTS = TEMP_PLAN

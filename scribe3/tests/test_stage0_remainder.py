@@ -3,9 +3,11 @@ from __future__ import annotations
 
 from scribe3.codex_digest import _VALUE_MAX, digest_payloads
 from scribe3.playbook.pipeline import _settled_note, draft_struct_hint
+from scribe3.llm_temps import TEMP_DESIGN, TEMP_DRAFT, TEMP_JUDGE, TEMP_PLAN_MAX
 from scribe3.playbook.prompts import (
     IRON_RULES,
     PACE_EXEMPT,
+    VOLUME_LEDGER_DISCIPLINE,
     duty_generate,
     duty_judge,
     draft_generate,
@@ -24,6 +26,26 @@ def test_version_324():
     assert PACE_EXEMPT in play_judge({"seq": 1})
     assert PACE_EXEMPT in draft_judge({})
     assert PACE_EXEMPT in final_judge({})
+
+
+def test_ledger_forbids_foreshadow_in_prose():
+    assert "账本" in VOLUME_LEDGER_DISCIPLINE
+    assert "不许用任何形式预告" in VOLUME_LEDGER_DISCIPLINE
+    d = duty_generate({"seq": 1, "volume_ledger": "第2章《四十二度》〔还没办〕"})
+    assert "账本" in d
+    assert "酝酿情绪" in PACE_EXEMPT
+
+
+def test_temps_single_source():
+    assert TEMP_JUDGE == 0.0
+    assert TEMP_DRAFT == 0.4
+    assert TEMP_DESIGN == 0.6
+    assert TEMP_PLAN_MAX == 0.6
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "playbook/layers.py").read_text(encoding="utf-8")
+    assert "temperature=0.4" not in src
+    assert "TEMP_DRAFT" in src
+    assert "TEMP_JUDGE" in (Path(__file__).resolve().parents[1] / "playbook/judge.py").read_text(encoding="utf-8")
 
 
 def test_iron_rules_dual_anchor_in_generate():
@@ -82,3 +104,10 @@ def test_settled_note_from_duty():
     )
     assert note.startswith("第1章办成了")
     assert "按回裂口" in note
+    with_bill = _settled_note(
+        {"must_happen": "把碎片按回裂口", "bill": "左手不受他管"},
+        {},
+        1,
+    )
+    assert "付了" in with_bill
+    assert "左手" in with_bill
