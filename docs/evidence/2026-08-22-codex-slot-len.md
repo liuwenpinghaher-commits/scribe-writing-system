@@ -6,3 +6,5 @@
 翻主后只放对得上的设定，条数变少、单条要写完。400 字会把「四十二度不是病是标价」一类短事实裁进一半。800 与对话设定槽对齐。
 
 夹具观测：`test_codex_recall_does_not_alphabet_pad_unrelated` 主路文本含对上的身体事实、不含字母序路人。ledger / volume_intro 槽未改。
+
+2026-08-22 生产复核：demo `main` 当时还没有带长度的对照行，口径维持 800。见 `docs/evidence/2026-08-22-codex-slot-len-prod.md`。
