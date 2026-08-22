@@ -165,6 +165,11 @@ def _as_playbook_store(st):
         return MemoryPlaybookStore()
     if all(hasattr(st, n) for n in ("get_frozen", "insert", "next_version", "mark_superseded")):
         return st
+    existing = getattr(st, "_playbook_mem", None)
+    if existing is not None and all(
+        hasattr(existing, n) for n in ("get_frozen", "insert", "next_version", "mark_superseded")
+    ):
+        return existing
     mem = MemoryPlaybookStore()
     setattr(st, "_playbook_mem", mem)
     return mem

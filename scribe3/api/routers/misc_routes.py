@@ -1244,6 +1244,27 @@ def get_injection_trace(work: str = "main"):
             "run_card 为期望×实际×质量；budget_report 并列。永不回传 prompt。"
             f" source={src}；无 work 时为默认书+本进程 last。"
         ),
+        "recall_shadow": _recall_shadow_card(),
+    }
+
+
+def _recall_shadow_card() -> dict:
+    try:
+        from scribe3.recall_service import summarize_recall_shadow
+        return summarize_recall_shadow()
+    except Exception:
+        return {"by_path": {}, "n": 0}
+
+
+def get_debug_recall_shadow(work: str = "main"):
+    """召回影子按 path 分组的通过率。只读，不改输出。"""
+    from scribe3.recall_service import summarize_recall_shadow
+    agg = summarize_recall_shadow()
+    return {
+        "ok": True,
+        "work": work,
+        "surface": "debug.recall_shadow",
+        **agg,
     }
 
 
@@ -2106,6 +2127,7 @@ def _bind_and_register() -> None:
         ('get_debug_pipeline_trace_spans', '/debug/pipeline-traces/{trace_id}/spans', ['GET']),
         ('get_debug_pipeline_spans', '/debug/pipeline-spans', ['GET']),
         ('get_debug_pipeline_logs', '/debug/pipeline-logs', ['GET']),
+        ('get_debug_recall_shadow', '/debug/recall-shadow', ['GET']),
         ('get_debug_pipeline_events', '/debug/pipeline-events', ['GET']),
         ('get_debug_pipeline_artifacts', '/debug/pipeline-artifacts', ['GET']),
         ('get_debug_pipeline_artifact', '/debug/pipeline-artifacts/{artifact_id}', ['GET']),

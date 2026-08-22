@@ -23,6 +23,7 @@ RECORDER_FORBIDDEN_KEYS = frozenset({
 EVENT_KINDS = frozenset({
     "read", "pred", "branch", "emit", "keep", "drop", "skip", "produce", "consume",
     "budget", "usage", "error", "flag", "join", "gate", "obs_incomplete",
+    "observe",
 })
 
 ARTIFACT_KINDS = frozenset({
@@ -65,6 +66,8 @@ PAYLOAD_TOP = frozenset({
     "selected_n", "rejected_n", "total_token_estimate", "envelope_hash",
     "segment_names", "segment_artifact_ids",
     "guard_hits", "guard_scrubbed", "output_hash", "output_chars", "scrubbed",
+    "threshold_ok", "path", "entity_jaccard", "secret_leak_count", "seq",
+    "budget_delta", "channels",
 })
 
 _SECRET_RE = re.compile(r"(?i)(sk-[A-Za-z0-9]{8,}|Bearer\s+[A-Za-z0-9._\-]{12,})")

@@ -1205,6 +1205,12 @@ class ChaptersMixin:
                 next_rev = cur_rev + 1
 
         allowed = set(CHAPTER_META_ALLOWED)
+        try:
+            from scribe3.feature_flags import flag_truthy
+            if not flag_truthy("SCRIBE3_BEATS_WRITE_LEGACY"):
+                allowed -= {"beats", "deductions", "scene_truth", "chapter_spine", "beats_meta"}
+        except Exception:
+            allowed -= {"beats", "deductions", "scene_truth", "chapter_spine", "beats_meta"}
         # volume 需单独处理(record link 不能传字符串参数)
         volume_id = _UNSET  # 哨兵:区分"未传 volume"与"传了 None(清空)"
         plain: dict = {}

@@ -117,6 +117,21 @@ async def _app_lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="scribe3", lifespan=_app_lifespan)
+
+
+@app.exception_handler(HTTPException)
+async def _unify_http_errors(_request: Request, exc: HTTPException):
+    from scribe3.feature_flags import flag_truthy
+    from scribe3.http_errors import http_error_response
+    if not flag_truthy("SCRIBE3_HTTP_ERRORS_UNIFIED"):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=getattr(exc, "headers", None),
+        )
+    return http_error_response(exc.status_code, exc.detail)
+
+
 _CORS = os.environ.get("SCRIBE3_CORS_ORIGINS", "http://127.0.0.1:3311,http://localhost:3311")
 
 # P3-e1 Fix 1 / 批C D-3+H-1:overdue 阈值单源——常量定义在 store.py(OVERDUE_SLACK),

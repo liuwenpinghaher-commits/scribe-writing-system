@@ -8,10 +8,66 @@ from typing import Any
 _log = logging.getLogger("scribe3.recall_service")
 
 _BUDGET_BY_TAG = {
-    "playbook_codex": 400,
+    "playbook_codex": 800,
     "discuss_codex": 800,
     "canonical": 600,
+    "volume_intro": 400,
+    "ledger": 900,
 }
+
+_SHADOW_RING: list[dict[str, Any]] = []
+_SHADOW_RING_MAX = 500
+
+
+def budget_for(tag: str, default: int = 400) -> int:
+    """召回/组装预算单源。未登记的 tag 用 default。"""
+    try:
+        return int(_BUDGET_BY_TAG.get(str(tag or ""), default))
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def record_shadow_stat(rec: dict[str, Any] | None) -> None:
+    if not isinstance(rec, dict) or rec.get("ok") is False:
+        return
+    _SHADOW_RING.append({
+        "path": str(rec.get("path") or ""),
+        "threshold_ok": bool(rec.get("threshold_ok")),
+        "secret_leak_count": int(rec.get("secret_leak_count") or 0),
+        "channels": list(rec.get("channels") or []),
+        "seq": rec.get("seq"),
+    })
+    overflow = len(_SHADOW_RING) - _SHADOW_RING_MAX
+    if overflow > 0:
+        del _SHADOW_RING[:overflow]
+
+
+def summarize_recall_shadow(rows: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """按 path 分组的 threshold_ok 通过率。无 rows 则读进程内环。"""
+    items = rows if rows is not None else list(_SHADOW_RING)
+    by_path: dict[str, dict[str, Any]] = {}
+    for rec in items:
+        if not isinstance(rec, dict):
+            continue
+        path = str(rec.get("path") or "unknown") or "unknown"
+        bucket = by_path.setdefault(path, {"n": 0, "ok": 0, "secret_leak": 0, "vector_n": 0})
+        bucket["n"] += 1
+        if rec.get("threshold_ok"):
+            bucket["ok"] += 1
+        bucket["secret_leak"] += int(rec.get("secret_leak_count") or 0)
+        chans = rec.get("channels") or []
+        if any(c in ("hybrid", "semantic", "vector") for c in chans):
+            bucket["vector_n"] += 1
+    grouped = {}
+    for path, b in by_path.items():
+        n = int(b["n"] or 0)
+        grouped[path] = {
+            "n": n,
+            "threshold_ok_rate": round((b["ok"] / n) if n else 0.0, 4),
+            "secret_leak_sum": int(b["secret_leak"]),
+            "vector_n": int(b["vector_n"]),
+        }
+    return {"by_path": grouped, "n": sum(int(b["n"]) for b in grouped.values())}
 
 
 @dataclass
@@ -95,6 +151,11 @@ def recall(
             channels.append("hybrid")
         except Exception as exc:
             _log.info("recall hybrid skip: %s", type(exc).__name__)
+            try:
+                from scribe3.pipeline_trace_hooks import note_guide_missing
+                note_guide_missing("recall_hybrid_skip")
+            except Exception:
+                pass
     elif callable(semantic) and q:
         try:
             rows = list(semantic(q, k=8, chapter=int(chapter)) or [])
@@ -103,6 +164,11 @@ def recall(
             channels.append("semantic")
         except Exception as exc:
             _log.info("recall semantic skip: %s", type(exc).__name__)
+            try:
+                from scribe3.pipeline_trace_hooks import note_guide_missing
+                note_guide_missing("recall_semantic_skip")
+            except Exception:
+                pass
 
     if flag_truthy("SCRIBE3_GRAPH_RELATION_RECALL"):
         graph_fn = getattr(store, "relation_recall", None)
@@ -114,6 +180,11 @@ def recall(
                 channels.append("graph")
             except Exception as exc:
                 _log.info("recall graph skip: %s", type(exc).__name__)
+                try:
+                    from scribe3.pipeline_trace_hooks import note_guide_missing
+                    note_guide_missing("recall_graph_skip")
+                except Exception:
+                    pass
 
     fused = _rrf(packs) if packs else []
     if not fused:
@@ -144,20 +215,44 @@ def shadow_diff(
     store: Any, seq: int, focalizer: str, legacy_text: str, query: str = "",
     path: str = "",
 ) -> dict[str, Any]:
-    """并行算影子，输出不变。默认不走向量（避免写章路径加载 embedding）。"""
+    """并行算影子，输出不变。默认不走向量；开 SCRIBE3_RECALL_SHADOW_VECTOR 纳入对照。"""
     try:
+        from scribe3.feature_flags import flag_truthy
         facts_fn = getattr(store, "facts_at", None)
         hits: list[RecallHit] = []
+        channels: list[str] = []
         if callable(facts_fn):
             rows = list(facts_fn(int(seq)) or [])
             for f in rows:
                 h = _as_hit(f, "facts_at")
                 if h and not h.secret:
                     hits.append(h)
-        pack = RecallPack(hits=hits[:8], skip_reason="" if hits else "empty", budget_tag="playbook_codex", channels=["facts_at"] if hits else [])
+            if hits:
+                channels.append("facts_at")
+        if flag_truthy("SCRIBE3_RECALL_SHADOW_VECTOR"):
+            vec = recall(
+                store,
+                chapter=int(seq),
+                focalizer=focalizer,
+                query=query or focalizer,
+                budget_tag="playbook_codex",
+            )
+            hits.extend(vec.hits)
+            channels.extend(list(vec.channels or []))
+        pack = RecallPack(
+            hits=hits[:12],
+            skip_reason="" if hits else "empty",
+            budget_tag="playbook_codex",
+            channels=channels,
+        )
     except Exception as exc:
         rec = {"ok": False, "error": type(exc).__name__, "seq": int(seq)}
         _log.info("recall_shadow fail %s", rec)
+        try:
+            from scribe3.pipeline_trace_hooks import note_guide_missing
+            note_guide_missing("recall_shadow_fail")
+        except Exception:
+            pass
         return rec
     shadow = pack_text(pack)
     legacy_ids = set()
@@ -208,6 +303,10 @@ def shadow_diff(
     if budget_delta > 0.15:
         _log.warning("recall_shadow 预算偏差=%.4f > 0.15 seq=%s", budget_delta, seq)
     _log.info("recall_shadow %s", rec)
+    try:
+        record_shadow_stat(rec)
+    except Exception:
+        pass
     try:
         from scribe3.pipeline_trace_hooks import note_guide_missing, note_recall_shadow
         note_recall_shadow(rec)

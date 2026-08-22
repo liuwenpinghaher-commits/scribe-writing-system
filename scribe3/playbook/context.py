@@ -5,14 +5,17 @@ import logging
 import re
 from typing import Any
 
+from scribe3.recall_service import budget_for as _budget_for
+
 _log = logging.getLogger("scribe3.playbook.context")
 
 _LIVE_PAD = "此句只为把设定写够，说明处境、代价和不能拆穿的事。"
 _OLD_PAD = "这不是口号，是巷里炉灰和铜腥贴在骨头上的实感。"
 GENERIC_SYNOPSIS_MIN = 16
-_VOLUME_INTRO_BUDGET = 400
-_CODEX_BUDGET = 800
-_LEDGER_BUDGET = 900
+
+_VOLUME_INTRO_BUDGET = _budget_for("volume_intro", 400)
+_CODEX_BUDGET = _budget_for("playbook_codex", 800)
+_LEDGER_BUDGET = _budget_for("ledger", 900)
 _LEDGER_MAX_ROWS = 8
 _LEDGER_DONE_KEEP = 2
 _LEDGER_LATER_KEEP = 6
@@ -620,6 +623,11 @@ def playbook_codex_recall(
                 return alt[:_CODEX_BUDGET]
     except Exception as exc:
         _log.info("codex_recall overlay skip: %s", type(exc).__name__)
+        try:
+            from scribe3.pipeline_trace_hooks import note_guide_missing
+            note_guide_missing("codex_recall_overlay_skip")
+        except Exception:
+            pass
     return text
 
 
