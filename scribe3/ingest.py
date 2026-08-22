@@ -661,7 +661,7 @@ def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3,
         from scribe3.api.services.ingest_bg import mark_chapter_ingest_status
         mark_chapter_ingest_status(
             store, seq, "ok",
-            f"ingest:{unified_source or 'legacy'}",
+            f"学到了 {applied} 条设定",
             prose_fp=fp,
         )
     except Exception as e:

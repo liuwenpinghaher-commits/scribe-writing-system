@@ -235,20 +235,37 @@ def test_pipeline_events_tag_filter():
     from scribe3.api.routers.misc_routes import get_debug_pipeline_events
 
     class St:
-        def list_pipeline_events(self, **_k):
-            return [
+        def __init__(self):
+            self.kwargs = None
+
+        def list_pipeline_events(self, **k):
+            self.kwargs = k
+            rows = [
                 {"seq": 1, "kind": "observe", "payload": {"tag": "recall_shadow"}},
                 {"seq": 2, "kind": "observe", "payload": {"tag": "other"}},
+                {"seq": 3, "kind": "observe", "payload": {"tag": "recall_shadow"}},
             ]
+            want = str(k.get("tag") or "").strip()
+            if want:
+                rows = [r for r in rows if (r.get("payload") or {}).get("tag") == want]
+            return rows[: int(k.get("limit") or 200)]
 
     import scribe3.api.app_impl as core
     orig = getattr(core, "_store_for", None)
-    core._store_for = lambda work: St()
+    st = St()
+    core._store_for = lambda work: st
     try:
-        out = get_debug_pipeline_events(tag="recall_shadow")
-        assert out["ok"] is True
-        assert out["count"] == 1
-        assert out["items"][0]["payload"]["tag"] == "recall_shadow"
+        plain = get_debug_pipeline_events(limit=10)
+        assert plain["ok"] is True
+        assert st.kwargs.get("tag") in (None, "")
+        tagged = get_debug_pipeline_events(tag="recall_shadow", limit=10)
+        assert tagged["count"] == 2
+        assert all(i["payload"]["tag"] == "recall_shadow" for i in tagged["items"])
+        assert tagged["truncated"] is False
+        cut = get_debug_pipeline_events(tag="recall_shadow", limit=1)
+        assert cut["count"] == 1
+        assert cut["truncated"] is True
+        assert cut["next_seq"] == cut["items"][-1]["seq"]
     finally:
         if orig is not None:
             core._store_for = orig
@@ -407,5 +424,89 @@ def test_update_volume_sql_returns_before():
     start = src.index("def update_volume")
     end = src.index("def ", start + 1)
     block = src[start:end]
-    assert "RETURN BEFORE intro" in block
+    assert "RETURN BEFORE" in block
+    assert "RETURN BEFORE intro" not in block
     assert "self._execute_write(" in block
+
+
+def test_observe_emit_fail_leaves_note(monkeypatch):
+    notes = []
+    monkeypatch.setattr(
+        "scribe3.pipeline_trace_hooks.note_guide_missing",
+        lambda n: notes.append(n),
+    )
+
+    class Boom:
+        def emit(self, *a, **k):
+            raise RuntimeError("emit down")
+
+    _SHADOW_RING.clear()
+    n0 = len(_SHADOW_RING)
+    record_shadow_stat({
+        "ok": True, "path": "playbook", "threshold_ok": True, "secret_leak_count": 0,
+    }, recorder=Boom())
+    assert "recall_shadow_observe_persist_fail" in notes
+    assert len(_SHADOW_RING) >= n0 + 1
+    assert any(r.get("persist_fail") for r in _SHADOW_RING)
+
+
+def test_async_vector_shadow_uses_captured_recorder(monkeypatch):
+    import time
+    from scribe3.feature_flags import flag_truthy as _orig
+    from scribe3.pipeline_recorder import FlightRecorder
+    from scribe3.pipeline_trace import TraceBuffer, bind_trace_buffer, reset_trace_buffer
+
+    def _ft(name):
+        if name == "SCRIBE3_RECALL_SHADOW_VECTOR":
+            return True
+        if name == "SCRIBE3_RECALL_SHADOW_VECTOR_SYNC":
+            return False
+        return _orig(name)
+
+    monkeypatch.setattr("scribe3.feature_flags.flag_truthy", _ft)
+
+    class St:
+        def facts_at(self, seq):
+            return [{"entity_id": "role:柳岸青", "attribute": "身体", "value": "四十二度不是病是标价"}]
+
+        def hybrid_recall(self, q, chapter, k=8):
+            return [{"entity_id": "role:柳岸青", "attribute": "身体", "value": "四十二度不是病是标价"}]
+
+    buf = TraceBuffer()
+    buf.recorder = FlightRecorder(work="t", chapter=1, kind="write", trace_id="cd" * 16, enabled=True)
+    tok = bind_trace_buffer(buf)
+    try:
+        rec = shadow_diff(
+            St(), 1, "role:柳岸青", "柳岸青 / 身体：四十二度不是病是标价",
+            query="柳岸青", path="playbook",
+        )
+        assert rec.get("ok") is True
+        found = False
+        for _ in range(80):
+            paths = [((e.get("payload") or {}).get("path") or "") for e in buf.recorder.events]
+            if any(str(p).endswith(":vector") for p in paths):
+                found = True
+                break
+            time.sleep(0.02)
+        assert found
+    finally:
+        reset_trace_buffer(tok)
+
+
+def test_mcp_ingest_return_forwards_applied():
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "mcp" / "tools_write.py").read_text(encoding="utf-8")
+    start = src.index("def s3_ingest_chapter")
+    end = src.index("\n@mcp.tool", start)
+    block = src[start:end]
+    assert '"applied": applied' in block or '"applied": ing.get("applied")' in block
+
+
+def test_quality_eval_shape_adds_gate():
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "quality" / "api.py").read_text(encoding="utf-8")
+    start = src.index("def _shape_evaluation")
+    end = src.index("\n@quality_eval_router", start)
+    block = src[start:end]
+    assert "from_existing" in block
+    assert "quality_eval" in block

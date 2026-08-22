@@ -840,7 +840,7 @@ class ChaptersMixin:
         old_intro = None
         try:
             raw = self._execute_write(
-                f"UPDATE type::record('volume', $vid) SET {sets} RETURN BEFORE intro",
+                f"UPDATE type::record('volume', $vid) SET {sets} RETURN BEFORE",
                 {"vid": vid, **params},
             )
             before = self._rows_from_write(raw)

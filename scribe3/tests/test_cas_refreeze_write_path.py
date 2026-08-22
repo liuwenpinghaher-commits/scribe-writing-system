@@ -106,5 +106,46 @@ def test_update_volume_single_write_returns_before(monkeypatch):
     st = _VolStore(write_rows=[{"intro": "旧纲"}])
     ok = st.update_volume("v1", {"intro": "新纲"})
     assert ok is True
-    assert any("RETURN BEFORE intro" in w for w in st.writes)
+    assert any("RETURN BEFORE" in w and "RETURN BEFORE intro" not in w for w in st.writes)
     assert marks == ["v1"]
+
+
+def test_update_volume_ws_only_does_not_mark(monkeypatch):
+    marks = []
+    monkeypatch.setattr(
+        "scribe3.outline_status.mark_volume_intro_changed",
+        lambda st, vid: marks.append(vid),
+    )
+
+    class _VolStore(_CasStore):
+        def _query(self, sql, vars=None):
+            return [{"id": "volume:v1"}]
+
+    st = _VolStore(write_rows=[{"intro": "华山成核"}])
+    ok = st.update_volume("v1", {"intro": "  华山成核  "})
+    assert ok is True
+    assert marks == []
+
+
+def test_update_volume_fallback_marks_on_write_error(monkeypatch):
+    marks = []
+    monkeypatch.setattr(
+        "scribe3.outline_status.mark_volume_intro_changed",
+        lambda st, vid: marks.append(vid),
+    )
+
+    class _VolStore(_CasStore):
+        def _query(self, sql, vars=None):
+            return [{"id": "volume:v1"}]
+
+        def _execute_write(self, sql, vars):
+            self.writes.append(sql)
+            if "RETURN BEFORE" in sql:
+                raise RuntimeError("syntax")
+            return []
+
+    st = _VolStore()
+    ok = st.update_volume("v1", {"intro": "新纲"})
+    assert ok is True
+    assert marks == ["v1"]
+    assert any("RETURN BEFORE" not in w for w in st.writes)

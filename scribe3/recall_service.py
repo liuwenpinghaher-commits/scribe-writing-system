@@ -28,7 +28,7 @@ def budget_for(tag: str, default: int = 400) -> int:
         return int(default)
 
 
-def record_shadow_stat(rec: dict[str, Any] | None) -> None:
+def record_shadow_stat(rec: dict[str, Any] | None, recorder: Any = None) -> None:
     if not isinstance(rec, dict) or rec.get("ok") is False:
         return
     row = {
@@ -47,8 +47,10 @@ def record_shadow_stat(rec: dict[str, Any] | None) -> None:
     if overflow > 0:
         del _SHADOW_RING[:overflow]
     try:
-        from scribe3.pipeline_recorder import current_recorder
-        recd = current_recorder()
+        recd = recorder
+        if recd is None:
+            from scribe3.pipeline_recorder import current_recorder
+            recd = current_recorder()
         if recd is not None:
             recd.emit(
                 "", "observe",
@@ -66,7 +68,21 @@ def record_shadow_stat(rec: dict[str, Any] | None) -> None:
                 },
             )
     except Exception:
-        pass
+        _SHADOW_RING.append({
+            "path": str(row.get("path") or ""),
+            "threshold_ok": False,
+            "secret_leak_count": 0,
+            "tag": "recall_shadow",
+            "persist_fail": 1,
+        })
+        overflow = len(_SHADOW_RING) - _SHADOW_RING_MAX
+        if overflow > 0:
+            del _SHADOW_RING[:overflow]
+        try:
+            from scribe3.pipeline_trace_hooks import note_guide_missing
+            note_guide_missing("recall_shadow_observe_persist_fail")
+        except Exception:
+            pass
 
 
 def summarize_recall_shadow(rows: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -312,6 +328,13 @@ def shadow_diff(
         if flag_truthy("SCRIBE3_RECALL_SHADOW_VECTOR"):
             import threading
 
+            captured = None
+            try:
+                from scribe3.pipeline_recorder import current_recorder
+                captured = current_recorder()
+            except Exception:
+                captured = None
+
             def _vector_shadow() -> None:
                 try:
                     vec = recall(
@@ -328,7 +351,7 @@ def shadow_diff(
                         "secret_leak_count": 0,
                         "channels": list(vec.channels or []),
                         "seq": int(seq),
-                    })
+                    }, recorder=captured)
                 except Exception:
                     pass
 

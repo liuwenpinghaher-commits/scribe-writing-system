@@ -127,8 +127,10 @@ def _bg_ingest(work: str, seq: int) -> None:
                                        "LLM 回复解析失败,知识账本未更新")
         else:
             _refresh_scorecard_after_ingest(st, seq)   # P2-3:主链路 ingest 后哨兵转真值
+            applied = int(r.get("applied") or 0)
             mark_chapter_ingest_status(
-                st, seq, "ok", prose_fp=r.get("prose_fp") or None)
+                st, seq, "ok", f"学到了 {applied} 条设定",
+                prose_fp=r.get("prose_fp") or None)
             # 北极星任务8:仅真实 apply 后蒸馏(skip 已由终选/前次路径覆盖)
             try:
                 from scribe3.lesson import distill_chapter

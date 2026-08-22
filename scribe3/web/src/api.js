@@ -611,6 +611,7 @@ export const api = {
     if (q.since) p.set('since', q.since)
     if (q.after_seq != null) p.set('after_seq', String(q.after_seq))
     if (q.limit) p.set('limit', String(q.limit))
+    if (q.tag) p.set('tag', q.tag)
     const qs = p.toString()
     return j('/debug/pipeline-events' + (qs ? '?' + qs : ''), work)
   },

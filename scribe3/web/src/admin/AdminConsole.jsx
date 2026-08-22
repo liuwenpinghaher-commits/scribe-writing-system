@@ -10,6 +10,7 @@ import {
   ArrowLeft, PenLine, History,
 } from 'lucide-react'
 import { RunLogsPage } from './RunLogsPage'
+import { httpErrorMessage } from '../lib/httpError'
 
 const TABS = [
   { key: 'overview', label: '总览', icon: LayoutDashboard },
@@ -32,7 +33,7 @@ function fmtTs(ts) {
 
 function Err({ e }) {
   if (!e) return null
-  const msg = e?.body?.detail || e?.message || String(e)
+  const msg = httpErrorMessage(e, e?.message || String(e))
   return <div className="text-f12 text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-md px-3 py-2 mb-3">{msg}</div>
 }
 

@@ -1,12 +1,23 @@
-# 摘要收编清单
+# 摘要收编 · 裁决闭环凭证
 
-摘要只走 `codex_digest`（一条不超过 200 字，名字/性别/秘密标记还在）。
+日期：2026-08-22  
+状态：**已统一（裁决闭环）**  
+复核期限：下一次统一度重估（不晚于 2026-09-05）
+
+摘要底座只走 `codex_digest`（一条不超过 200 字，名字/性别/秘密标记还在）。下面三处**不迁**进统一召回中枢：它们不是实体摘要，和「找这本书里对得上的设定」不是一件事。
+
+| 处 | 理由 | 触发再评估 |
+| --- | --- | --- |
+| `scribe3/api/services/prompt_blocks.py` `_pulse_digest` | 章脉搏：给作者看这一章写得怎样，不是设定条目 | 若改成把角色/世界条目摘要喂进写章嘱咐 |
+| `scribe3/api/routers/chat_threads.py` `maintenance_daily_digest` | 日摘要：对话维护用，不是书里的人/物设定 | 若改成按实体消费、进召回槽 |
+| `scribe3/memory_gain.py` usage digest | 用量：模型花了多少，不是故事事实 | 若改成故事事实摘要并进嘱咐 |
+
+已接：
 
 | 处 | 状态 |
 | --- | --- |
 | `scribe3/codex_digest.py` `sync_entity_digests` | 底座 |
 | `scribe3/api/routers/codex.py` 实体写入后同步 | 已接 |
 | `scribe3/tools/codex_digest_backfill.py` | 已接 |
-| `scribe3/api/services/prompt_blocks.py` `_pulse_digest` | 章脉搏，不是实体摘要，不迁 |
-| `scribe3/api/routers/chat_threads.py` `maintenance_daily_digest` | 日摘要，不是实体摘要，不迁 |
-| `scribe3/memory_gain.py` usage digest | 用量，不是实体摘要，不迁 |
+
+触发条件（任一成立则重启迁移评估，不算本凭证自动失效）：digest 的消费方开始把「人/物/规则」当设定条目召回。

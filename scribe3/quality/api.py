@@ -628,7 +628,7 @@ def _shape_evaluation(evaluation, seq: int, *, quality: QualityStore) -> dict[st
             "decision_index": decision_index,
             "conflicted": conflicted,
         })
-    return {
+    out = {
         "chapter": seq,
         # 终态与 queued/running 使用同一 job 身份，前端轮询才能证明 ready
         # 结果属于自己刚刚创建的冻结评价，而非同章旧结果。
@@ -640,6 +640,19 @@ def _shape_evaluation(evaluation, seq: int, *, quality: QualityStore) -> dict[st
         "weights": weights.model_dump(mode="json"),
         "status": "ready",
     }
+    try:
+        from scribe3.feature_flags import flag_truthy
+        if flag_truthy("SCRIBE3_QUALITY_GATE_UNIFIED"):
+            from scribe3.quality_gate import from_existing
+            out["gate"] = from_existing({
+                "ok": out.get("status") == "ready",
+                "code": "quality_eval",
+                "message": "",
+                "hits": dimensions,
+            })
+    except Exception:
+        pass
+    return out
 
 
 @quality_eval_router.post("/snapshot", status_code=202)

@@ -1372,6 +1372,28 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
             })
     except Exception:
         pass
+    try:
+        from scribe3.pipeline_recorder import current_recorder
+        rec = current_recorder()
+        events = list(getattr(rec, "events", []) or []) if rec is not None else []
+        if not events and hasattr(st, "list_pipeline_events"):
+            events = st.list_pipeline_events(work=work, kind="flag", limit=80) or []
+        empty_line = ""
+        for ev in events:
+            blob = " ".join([
+                str(((ev or {}).get("payload") or {}).get("name") or ""),
+                str(((ev or {}).get("payload") or {}).get("tag") or ""),
+                str((ev or {}).get("actual_reason") or ""),
+                str((ev or {}).get("summary") or ""),
+            ])
+            if "codex_recall_empty" in blob:
+                if int((ev or {}).get("chapter") or seq or 0) in (0, int(seq or 0)):
+                    empty_line = "本章没对上设定条目"
+                    break
+        resp["codex_recall_empty"] = bool(empty_line)
+        resp["codex_recall_empty_line"] = empty_line
+    except Exception:
+        pass
     if ai_grade is not None:
         resp["ai_grade"] = ai_grade
     # coverage honesty for clients that only read post-check

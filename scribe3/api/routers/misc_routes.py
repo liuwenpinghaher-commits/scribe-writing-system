@@ -1601,19 +1601,19 @@ def get_debug_pipeline_events(
     if not hasattr(st, "list_pipeline_events"):
         return {"ok": True, "work": work, "surface": "debug.pipeline_events",
                 "items": [], "total": 0, "truncated": False, "next_seq": None}
+    want_tag = str(tag or "").strip()
     rows = st.list_pipeline_events(
         work=work, trace_id=trace_id, step_key=step_key, kind=kind,
         empty=empty_b, since=since, after_seq=after_seq, limit=lim + 1,
+        tag=want_tag or None,
     )
-    truncated = len(rows) > lim
-    items = rows[:lim]
-    want_tag = str(tag or "").strip()
     if want_tag:
-        items = [
-            r for r in items
+        rows = [
+            r for r in rows
             if str(((r or {}).get("payload") or {}).get("tag") or "") == want_tag
         ]
-        truncated = False
+    truncated = len(rows) > lim
+    items = rows[:lim]
     next_seq = items[-1].get("seq") if truncated and items else None
     return {
         "ok": True, "work": work, "surface": "debug.pipeline_events",

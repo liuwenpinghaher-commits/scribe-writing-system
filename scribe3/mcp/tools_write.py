@@ -956,6 +956,9 @@ def s3_ingest_chapter(seq: int, work: str | None = None, force: bool = False,
         }
     # 透传 ingest 结果字段
     ing = out.get("ingest") or {}
+    applied = ing.get("applied")
+    if applied is None:
+        applied = out.get("applied")
     return {
         "status": "ok" if out.get("action") == "auto" else out.get("action"),
         "seq": seq,
@@ -964,6 +967,7 @@ def s3_ingest_chapter(seq: int, work: str | None = None, force: bool = False,
         "prose_fp": out.get("prose_fp") or ing.get("prose_fp"),
         "skipped": bool(ing.get("skipped")),
         "parse_failed": bool(ing.get("parse_failed")),
+        "applied": applied,
         "distilled": out.get("distilled"),
     }
 

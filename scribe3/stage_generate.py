@@ -176,6 +176,7 @@ def _as_playbook_store(st):
             _PLAYBOOK_STORES[st] = mem
         return mem
     except TypeError:
+        # 仅测试替身入此路，生产路径已收敛到 WeakKeyDictionary。
         existing = getattr(st, "_playbook_mem", None)
         if existing is not None and all(
             hasattr(existing, n) for n in ("get_frozen", "insert", "next_version", "mark_superseded")

@@ -15,4 +15,7 @@ describe('guideMissingLine', () => {
     expect(guideMissingLine({ payload: { name: 'codex_recall_empty' } })).toBe('本章没对上设定条目')
     expect(guideMissingLine({ summary: '别的' })).toBe('')
   })
+  it('does not fire when recall hit', () => {
+    expect(guideMissingLine({ payload: { name: 'ok' }, summary: '有设定' })).toBe('')
+  })
 })

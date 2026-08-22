@@ -78,6 +78,38 @@ describe('WriteLayout final phase', () => {
     expect(captured.textContent).toContain('chapter=4')
     const island = screen.getByTestId('prose-island')
     expect(island.className).toContain('max-w-[56rem]')
+  })
+
+  it('shows empty-recall hint on checkup and hides when recall hit', async () => {
+    apiMock.chapter.mockResolvedValue({
+      title: '四',
+      prose: '墙比他想象中湿。',
+      focalizer: 'role:崔判',
+      beats: [],
+      deductions: [],
+      involved_characters: [],
+    })
+    apiMock.postCheck.mockResolvedValue({
+      quality: { total: 0 },
+      leaks: [],
+      issues: [],
+      codex_recall_empty: true,
+      codex_recall_empty_line: '本章没对上设定条目',
+    })
+    render(<WriteLayout work="demo" seq={4} />)
+    const btn = await screen.findByText('全量体检')
+    await waitFor(() => expect(btn).not.toBeDisabled())
+    btn.click()
+    expect(await screen.findByTestId('codex-recall-empty')).toHaveTextContent('本章没对上设定条目')
+    apiMock.postCheck.mockResolvedValue({
+      quality: { total: 0 },
+      leaks: [],
+      issues: [],
+      codex_recall_empty: false,
+      codex_recall_empty_line: '',
+    })
+    btn.click()
+    await waitFor(() => expect(screen.queryByTestId('codex-recall-empty')).toBeNull())
     expect(island.className).toContain('py-4')
     expect(screen.getByTestId('write-meta-row')).toBeTruthy()
     expect(screen.getByTestId('pulse-bar')).toBeTruthy()

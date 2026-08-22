@@ -209,6 +209,7 @@ class PipelineTraceOpsMixin:
         since=None,
         after_seq: int | None = None,
         limit: int = 200,
+        tag: str | None = None,
     ) -> list[dict[str, Any]]:
         cap = 2048 if trace_id else 500
         lim = max(1, min(int(limit or 200), cap))
@@ -236,6 +237,10 @@ class PipelineTraceOpsMixin:
         if after_seq is not None:
             wh.append("seq > $aseq")
             params["aseq"] = int(after_seq)
+        want_tag = str(tag or "").strip()
+        if want_tag:
+            wh.append("payload.tag = $ptag")
+            params["ptag"] = want_tag
         where = (" WHERE " + " AND ".join(wh)) if wh else ""
         rows = self._query(
             "SELECT * FROM pipeline_event" + where + " ORDER BY seq ASC LIMIT $lim",

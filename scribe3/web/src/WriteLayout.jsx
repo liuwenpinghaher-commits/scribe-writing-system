@@ -405,6 +405,14 @@ export function WriteLayout({ work, seq, sceneIdx }) {
       </div>
       {postCheckResult && !postCheckResult.error && (
         <div className="space-y-1.5">
+          {postCheckResult.codex_recall_empty_line ? (
+            <div
+              className="text-f12 text-amber-800 dark:text-amber-300"
+              data-testid="codex-recall-empty"
+            >
+              {postCheckResult.codex_recall_empty_line}
+            </div>
+          ) : null}
           {postCheckResult.structure_style && (
             <div
               className="text-f12 rounded-lg px-2 py-1.5 bg-soft border border-line text-ink"

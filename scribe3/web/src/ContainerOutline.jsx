@@ -13,6 +13,7 @@ import { chapterLabel } from './chapterLabel'
 import { wcLabel, povLabel, POV_HINT } from './outlineColors'
 import { NorthStarBar } from './NorthStarBar'
 import { useToast } from './ui/Toast'
+import { httpErrorMessage } from './lib/httpError'
 import { ConfirmDialog } from './ui/Dialog.jsx'
 
 function useStrPref(key, def) {
@@ -132,7 +133,7 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
     setErr(null)
     return api.outline()
       .then((o) => { setOutline(o); setErr(null) })
-      .catch((e) => { setErr(e?.body?.detail || e?.message || '大纲加载失败') })
+      .catch((e) => { setErr(httpErrorMessage(e, '大纲加载失败')) })
   }
   useEffect(() => { if (isManuscript) reload() }, [isManuscript]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (adding && addRef.current) addRef.current.focus() }, [adding])
@@ -525,16 +526,16 @@ function UnverifiedRefs({ onSelect }) {
   const remove = (id) => setItems((prev) => (prev || []).filter((p) => p.id !== id))
   const accept = async (p) => {
     try { await api.acceptUnverified(p.id); remove(p.id); toast?.(`已接受「${p.name}」为角色`) }
-    catch (e) { toast?.(e?.body?.detail || '接受失败', { tone: 'danger' }) }
+    catch (e) { toast?.(httpErrorMessage(e, '接受失败'), { tone: 'danger' }) }
   }
   const ignore = async (p) => {
     try { await api.ignoreUnverified(p.id); remove(p.id) }
-    catch (e) { toast?.(e?.body?.detail || '忽略失败', { tone: 'danger' }) }
+    catch (e) { toast?.(httpErrorMessage(e, '忽略失败'), { tone: 'danger' }) }
   }
   // R2-12:批量忽略死水(产生≫消化,几十上百条时逐条点不现实)
   const ignoreAll = async () => {
     try { const r = await api.ignoreAllUnverified(); setItems([]); toast?.(`已忽略 ${r.ignored} 条待确认引用`) }
-    catch (e) { toast?.(e?.body?.detail || '批量忽略失败', { tone: 'danger' }) }
+    catch (e) { toast?.(httpErrorMessage(e, '批量忽略失败'), { tone: 'danger' }) }
   }
   if (!items || items.length === 0) return null
   return (
