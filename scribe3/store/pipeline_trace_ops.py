@@ -210,6 +210,7 @@ class PipelineTraceOpsMixin:
         after_seq: int | None = None,
         limit: int = 200,
         tag: str | None = None,
+        chapter: int | None = None,
     ) -> list[dict[str, Any]]:
         cap = 2048 if trace_id else 500
         lim = max(1, min(int(limit or 200), cap))
@@ -237,6 +238,9 @@ class PipelineTraceOpsMixin:
         if after_seq is not None:
             wh.append("seq > $aseq")
             params["aseq"] = int(after_seq)
+        if chapter is not None:
+            wh.append("chapter=$ch")
+            params["ch"] = int(chapter)
         want_tag = str(tag or "").strip()
         if want_tag:
             wh.append("payload.tag = $ptag")

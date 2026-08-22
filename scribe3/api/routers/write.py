@@ -683,6 +683,38 @@ def check_prose(req: CheckReq, seq: int | None = Query(default=None), work: str 
         logging.getLogger("scribe3").warning("check aggregate_ai_grade 失败: %s", e)
     return resp
 
+
+def chapter_codex_empty_line(events: list, seq: int, rec_tid: str = "") -> str:
+    """写章空召回提示。不认对话路、不认别章、不认别次 run。"""
+    want = int(seq or 0)
+    tid = str(rec_tid or "")
+    for ev in events or []:
+        payload = (ev or {}).get("payload") or {}
+        if str(payload.get("source") or "") == "discuss":
+            continue
+        if str(payload.get("budget_tag") or "") == "discuss_codex":
+            continue
+        blob = " ".join([
+            str(payload.get("name") or ""),
+            str(payload.get("tag") or ""),
+            str((ev or {}).get("actual_reason") or ""),
+            str((ev or {}).get("summary") or ""),
+        ])
+        if "codex_recall_empty" not in blob:
+            continue
+        try:
+            ev_ch = int((ev or {}).get("chapter") or 0)
+        except (TypeError, ValueError):
+            ev_ch = 0
+        if ev_ch != want:
+            continue
+        ev_tid = str((ev or {}).get("trace_id") or "")
+        if tid and ev_tid and ev_tid != tid:
+            continue
+        return "本章没对上设定条目"
+    return ""
+
+
 def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: str = "main"):
     """生成后全量体检:五类确定性 QC + 限知泄露 + LLM 语义纪律判(fail-open)。
     不落库。注册为 read-only POST(见 KNOWN_REST_WRITE_ROUTES)。
@@ -1376,20 +1408,12 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
         from scribe3.pipeline_recorder import current_recorder
         rec = current_recorder()
         events = list(getattr(rec, "events", []) or []) if rec is not None else []
+        rec_tid = str(getattr(rec, "trace_id", "") or "") if rec is not None else ""
         if not events and hasattr(st, "list_pipeline_events"):
-            events = st.list_pipeline_events(work=work, kind="flag", limit=80) or []
-        empty_line = ""
-        for ev in events:
-            blob = " ".join([
-                str(((ev or {}).get("payload") or {}).get("name") or ""),
-                str(((ev or {}).get("payload") or {}).get("tag") or ""),
-                str((ev or {}).get("actual_reason") or ""),
-                str((ev or {}).get("summary") or ""),
-            ])
-            if "codex_recall_empty" in blob:
-                if int((ev or {}).get("chapter") or seq or 0) in (0, int(seq or 0)):
-                    empty_line = "本章没对上设定条目"
-                    break
+            events = st.list_pipeline_events(
+                work=work, kind="flag", chapter=int(seq), limit=80,
+            ) or []
+        empty_line = chapter_codex_empty_line(events, seq, rec_tid)
         resp["codex_recall_empty"] = bool(empty_line)
         resp["codex_recall_empty_line"] = empty_line
     except Exception:

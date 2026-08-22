@@ -130,15 +130,38 @@ def test_discuss_hub_keeps_hits_drops_unrelated_cards(monkeypatch):
 
 def test_discuss_flag_off_still_spreads_cards(monkeypatch):
     from scribe3.api.services.write_assemble_blocks import _codex_segments
+    from scribe3.playbook.context import playbook_codex_recall
     from scribe3.tests.test_antiflood_codex import _Char, _Store
+    from scribe3.tests.test_playbook_context_guides import _World
 
-    monkeypatch.setenv("SCRIBE3_RECALL_PLAYBOOK", "0")
+    monkeypatch.setenv("SCRIBE3_RECALL_DISCUSS", "0")
+    monkeypatch.setenv("SCRIBE3_RECALL_PLAYBOOK", "1")
     st = _Store(chars=[_Char("柳岸青"), _Char("路人甲")])
     named, cards, _ = _codex_segments(
         st, reveal=True, chapter=1, for_generation=False,
         request_text="柳岸青",
     )
     assert "路人甲" in cards or "路人甲" in named
+    assert "四十二度不是病是标价" in playbook_codex_recall(_World(), 1, "role:柳岸青")
+
+
+def test_discuss_empty_recall_keeps_legacy_cards(monkeypatch):
+    from scribe3.api.services.write_assemble_blocks import _codex_segments
+    from scribe3.ontology import Fact
+    from scribe3.tests.test_antiflood_codex import _Char, _Store
+
+    monkeypatch.setenv("SCRIBE3_RECALL_PLAYBOOK", "1")
+    monkeypatch.setenv("SCRIBE3_RECALL_DISCUSS", "1")
+    st = _Store(chars=[_Char("路人甲")])
+    st.facts_at = lambda _n: [
+        Fact("fact:路人", "role:路人甲", "身份", "路人甲还在名片里", 1, secret=False),
+    ]
+    named, cards, stats = _codex_segments(
+        st, reveal=True, chapter=1, for_generation=False,
+        request_text="完全对不上的查询词xyz",
+    )
+    assert "路人甲" in cards
+    assert stats["codex_cards_chars"] > 0
 
 
 def test_hot_flags_go_through_registry():

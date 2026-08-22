@@ -662,7 +662,7 @@ def note_recall_shadow(rec: dict[str, Any] | None) -> None:
         return
 
 
-def note_guide_missing(name: str) -> None:
+def note_guide_missing(name: str, *, source: str = "", budget_tag: str = "") -> None:
     """上游引导抛错时落一笔，不含正文。"""
     try:
         sid = playbook_span_start("playbook.upstream_guide")
@@ -672,7 +672,12 @@ def note_guide_missing(name: str) -> None:
             rec.emit(
                 sid, "flag",
                 summary=f"上游空 {name}",
-                payload={"tag": "upstream_guide_missing", "name": str(name)[:64]},
+                payload={
+                    "tag": "upstream_guide_missing",
+                    "name": str(name)[:64],
+                    "source": str(source or "")[:32],
+                    "budget_tag": str(budget_tag or "")[:32],
+                },
             )
         playbook_span_end(
             sid, status="ok", actual="empty", actual_reason=str(name)[:64],

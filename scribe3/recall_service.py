@@ -192,6 +192,11 @@ def recall(
     q = " ".join([str(query or "").strip(), str(focalizer or "").replace("role:", "")]).strip()
     needles = [p for p in q.split() if len(p) >= 2]
     reveal = bool(reveal)
+    who = str(focalizer or "").strip()
+    if reveal and who not in ("", "chief", "author", "主编"):
+        raise ValueError("reveal=True 只许主编位，不能带角色焦点")
+    if reveal and not needles:
+        return RecallPack(hits=[], skip_reason="empty_query", budget_tag=budget_tag, channels=[])
 
     facts_fn = getattr(store, "facts_at", None)
     if callable(facts_fn):
@@ -203,6 +208,8 @@ def recall(
                     h for h in hits
                     if any(n in f"{h.entity_id}|{h.attribute}|{h.value}" for n in needles)
                 ]
+            elif reveal:
+                hits = []
             if hits:
                 packs.append(hits)
             channels.append("facts_at")
@@ -309,15 +316,19 @@ def pack_text(pack: RecallPack) -> str:
     for h in pack.hits:
         eid = h.entity_id.replace("role:", "")
         attr = h.attribute
-        lines.append(f"{eid} / {attr}：{h.value}" if attr else f"{eid}：{h.value}")
+        line = f"{eid} / {attr}：{h.value}" if attr else f"{eid}：{h.value}"
+        if h.secret:
+            line = "〔秘〕" + line
+        lines.append(line)
     return "\n".join(lines)
 
 
 def shadow_diff(
     store: Any, seq: int, focalizer: str, legacy_text: str, query: str = "",
     path: str = "",
+    reveal: bool = False,
 ) -> dict[str, Any]:
-    """并行算影子，输出不变。默认不走向量；开 SCRIBE3_RECALL_SHADOW_VECTOR 纳入对照。"""
+    """并行算影子，输出不变。只作被动观测，不挡放行。"""
     try:
         from scribe3.feature_flags import flag_truthy
         facts_fn = getattr(store, "facts_at", None)
@@ -327,7 +338,7 @@ def shadow_diff(
             rows = list(facts_fn(int(seq)) or [])
             for f in rows:
                 h = _as_hit(f, "facts_at")
-                if h and not h.secret:
+                if _keep_hit(h, reveal):
                     hits.append(h)
             if hits:
                 channels.append("facts_at")

@@ -259,7 +259,10 @@ def _quality_loop(
         last_verdict = verdict
         last_sha = sha
         sid_j = playbook_span_start("playbook.judge")
-        vcode = str(verdict.get("verdict") or "")
+        if "ok" in verdict and "code" in verdict:
+            vcode = "pass" if verdict.get("ok") else str(verdict.get("code") or "fail")
+        else:
+            vcode = str(verdict.get("verdict") or "")
         playbook_note_gate(
             sid_j, ok=vcode == "pass",
             code="" if vcode == "pass" else (vcode or "needs_human"),

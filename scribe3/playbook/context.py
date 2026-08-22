@@ -570,6 +570,7 @@ def _rule_lines(world: Any, needles: list[str], *, pad: bool) -> list[str]:
 
 
 def _legacy_codex_recall(world: Any, seq: int, needles: list[str], public: list[Any]) -> str:
+    """紧急回退依赖。删码待旗退役。"""
     def _hit(blob: str) -> bool:
         return any(n in blob for n in needles)
 
@@ -616,7 +617,7 @@ def playbook_codex_recall(
     from scribe3.feature_flags import flag_truthy
     legacy_text = _legacy_codex_recall(world, seq, needles, public)
     if not flag_truthy("SCRIBE3_RECALL_PLAYBOOK"):
-        text = legacy_text
+        text = legacy_text  # 紧急回退口，关旗才走
     else:
         text = ""
         try:
@@ -635,7 +636,11 @@ def playbook_codex_recall(
             elif public:
                 try:
                     from scribe3.pipeline_trace_hooks import note_guide_missing
-                    note_guide_missing("codex_recall_empty")
+                    note_guide_missing(
+                        "codex_recall_empty",
+                        source="playbook",
+                        budget_tag="playbook_codex",
+                    )
                 except Exception:
                     pass
             rules = _rule_lines(world, needles, pad=False)
@@ -651,7 +656,7 @@ def playbook_codex_recall(
                 note_guide_missing("codex_recall_overlay_skip")
             except Exception:
                 pass
-            text = legacy_text
+            text = legacy_text  # 降级安全网，非旧路
     try:
         if flag_truthy("SCRIBE3_RECALL_SHADOW"):
             from scribe3.recall_service import shadow_diff

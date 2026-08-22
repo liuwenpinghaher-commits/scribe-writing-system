@@ -186,10 +186,12 @@ def test_beats_write_legacy_flag_registered():
         "SCRIBE3_RECALL_SHADOW_VECTOR",
         "SCRIBE3_RECALL_SHADOW_VECTOR_SYNC",
         "SCRIBE3_RECALL_PLAYBOOK",
+        "SCRIBE3_RECALL_DISCUSS",
     ):
         assert k in names
     flags = get_all_flags()
     assert flags["SCRIBE3_RECALL_PLAYBOOK"]["default"] == "1"
+    assert flags["SCRIBE3_RECALL_DISCUSS"]["default"] == "1"
     assert flags["SCRIBE3_PROMPT_RENDERER"]["default"] == "1"
     assert flags["SCRIBE3_QUALITY_GATE_UNIFIED"]["default"] == "1"
     assert flags["SCRIBE3_EPISTEMIC_ORACLE"]["default"] == "1"
@@ -299,7 +301,7 @@ def test_epistemic_allow_empty_keeps_hits(monkeypatch):
     notes = []
     monkeypatch.setattr(
         "scribe3.pipeline_trace_hooks.note_guide_missing",
-        lambda n: notes.append(n),
+        lambda n, **k: notes.append(n),
     )
     monkeypatch.setattr("scribe3.epistemic.visible_to", lambda *a, **k: [])
     _SHADOW_RING.clear()
@@ -324,7 +326,7 @@ def test_epistemic_fail_closed_drops_layer(monkeypatch):
     notes = []
     monkeypatch.setattr(
         "scribe3.pipeline_trace_hooks.note_guide_missing",
-        lambda n: notes.append(n),
+        lambda n, **k: notes.append(n),
     )
 
     def boom(*_a, **_k):
@@ -384,7 +386,7 @@ def test_codex_recall_empty_notes_when_facts_exist(monkeypatch):
     notes = []
     monkeypatch.setattr(
         "scribe3.pipeline_trace_hooks.note_guide_missing",
-        lambda n: notes.append(n),
+        lambda n, **k: notes.append(n),
     )
 
     class St:
@@ -433,7 +435,7 @@ def test_observe_emit_fail_leaves_note(monkeypatch):
     notes = []
     monkeypatch.setattr(
         "scribe3.pipeline_trace_hooks.note_guide_missing",
-        lambda n: notes.append(n),
+        lambda n, **k: notes.append(n),
     )
 
     class Boom:
@@ -500,6 +502,92 @@ def test_mcp_ingest_return_forwards_applied():
     end = src.index("\n@mcp.tool", start)
     block = src[start:end]
     assert '"applied": applied' in block or '"applied": ing.get("applied")' in block
+
+
+def test_reveal_rejects_character_focalizer():
+    from scribe3.ontology import Fact
+    from scribe3.recall_service import recall
+
+    class St:
+        def facts_at(self, n):
+            return [Fact("fact:体温", "role:柳岸青", "身体", "四十二度不是病是标价", 1)]
+
+    try:
+        recall(St(), chapter=1, focalizer="role:柳岸青", query="柳岸青", reveal=True)
+        assert False, "should reject"
+    except ValueError as exc:
+        assert "reveal" in str(exc)
+
+
+def test_reveal_empty_query_returns_empty():
+    from scribe3.ontology import Fact
+    from scribe3.recall_service import pack_text, recall
+
+    class St:
+        def facts_at(self, n):
+            return [
+                Fact("fact:体温", "role:柳岸青", "身体", "四十二度不是病是标价", 1),
+                Fact("fact:密", "role:柳岸青", "秘密", "看不见场核坐标", 1, secret=True),
+            ]
+
+    pack = recall(St(), chapter=1, focalizer="", query="", reveal=True)
+    assert pack.hits == []
+    pack2 = recall(St(), chapter=1, focalizer="", query="柳岸青", reveal=True)
+    text = pack_text(pack2)
+    assert "四十二度" in text
+    assert "〔秘〕" in text
+    assert "看不见场核坐标" in text
+    pack3 = recall(St(), chapter=1, focalizer="chief", query="柳岸青", reveal=False)
+    assert "〔秘〕" not in pack_text(pack3)
+    assert "看不见场核坐标" not in pack_text(pack3)
+
+
+def test_pack_text_secret_prefix():
+    from scribe3.recall_service import RecallHit, RecallPack, pack_text
+    pub = RecallHit("role:柳岸青", "身体", "四十二度不是病是标价", "facts_at")
+    sec = RecallHit("role:柳岸青", "秘密", "看不见场核坐标", "facts_at", secret=True)
+    text = pack_text(RecallPack(hits=[pub, sec]))
+    assert "柳岸青 / 身体：四十二度不是病是标价" in text
+    assert "〔秘〕柳岸青 / 秘密：看不见场核坐标" in text
+    assert text.splitlines()[1].startswith("柳岸青")
+
+
+def test_shadow_diff_reveal_keeps_secret():
+    from scribe3.ontology import Fact
+    from scribe3.recall_service import shadow_diff
+
+    class St:
+        def facts_at(self, n):
+            return [
+                Fact("fact:体温", "role:柳岸青", "身体", "四十二度不是病是标价", 1),
+                Fact("fact:密", "role:柳岸青", "秘密", "看不见场核坐标", 1, secret=True),
+            ]
+
+    hid = shadow_diff(St(), 1, "", "x", reveal=False)
+    shown = shadow_diff(St(), 1, "", "x", reveal=True)
+    assert shown.get("ok") is True
+    assert int(shown.get("shadow_len") or 0) >= int(hid.get("shadow_len") or 0)
+
+
+def test_chapter_codex_empty_line_filters():
+    from scribe3.api.routers.write import chapter_codex_empty_line
+    line = "本章没对上设定条目"
+    ev_ok = {"chapter": 2, "payload": {"name": "codex_recall_empty", "source": "playbook"}, "trace_id": "aa"}
+    assert chapter_codex_empty_line([ev_ok], 2, "aa") == line
+    assert chapter_codex_empty_line([ev_ok], 1, "aa") == ""
+    discuss = {"chapter": 2, "payload": {"name": "codex_recall_empty", "source": "discuss"}}
+    assert chapter_codex_empty_line([discuss], 2, "") == ""
+    other_run = {"chapter": 2, "payload": {"name": "codex_recall_empty", "source": "playbook"}, "trace_id": "bb"}
+    assert chapter_codex_empty_line([other_run], 2, "aa") == ""
+    zero = {"chapter": 0, "payload": {"name": "codex_recall_empty", "source": "playbook"}}
+    assert chapter_codex_empty_line([zero], 2, "") == ""
+
+
+def test_applied_minus_one_not_learned_copy():
+    src = (__import__("pathlib").Path(__file__).resolve().parents[1]
+           / "api" / "services" / "ingest_bg.py").read_text(encoding="utf-8")
+    assert 'r.get("parse_failed") or r.get("applied") == -1' in src
+    assert "学到了 {applied} 条设定" in src
 
 
 def test_quality_eval_shape_adds_gate():

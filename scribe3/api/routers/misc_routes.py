@@ -1607,6 +1607,7 @@ def get_debug_pipeline_events(
         empty=empty_b, since=since, after_seq=after_seq, limit=lim + 1,
         tag=want_tag or None,
     )
+    # 存储形态漂移兜底，非冗余，勿删：库侧 payload.tag 过滤失败时路由层再滤一遍。
     if want_tag:
         rows = [
             r for r in rows

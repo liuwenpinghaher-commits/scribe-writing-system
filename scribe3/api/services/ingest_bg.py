@@ -120,7 +120,7 @@ def _bg_ingest(work: str, seq: int) -> None:
             # 或 lease_lost_before_purge
             logging.getLogger("scribe3").info(
                 "后台 ingest %s 第%s章: skip %s", work, seq, r.get("reason") or "same_prose_fp")
-        elif r.get("parse_failed"):
+        elif r.get("parse_failed") or r.get("applied") == -1:
             logging.getLogger("scribe3").warning(
                 "后台 ingest %s 第%s章: LLM 回复解析失败,既有知识已保留(未 purge)", work, seq)
             mark_chapter_ingest_status(st, seq, "parse_failed",

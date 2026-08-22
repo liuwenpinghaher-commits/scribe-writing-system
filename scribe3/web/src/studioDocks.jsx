@@ -797,6 +797,15 @@ function QCPanel({ seq }) {
           ——知识账本可能落后;可点写作台「反哺失败·点重试」或手点反哺。
         </div>
       )}
+      {!ingest?.failed && !ingest?.pending && ingest?.ingest_status === 'ok' && ingest?.ingest_error && (
+        <div
+          data-testid="qc-ingest-ok-banner"
+          className="mb-2 rounded-md border border-line bg-soft/60 px-2 py-1.5 text-meta text-ink"
+          role="status"
+        >
+          {ingest.ingest_error}
+        </div>
+      )}
       {ingest?.pending && (
         <div className="mb-2 text-meta text-faint">反哺进行中…</div>
       )}

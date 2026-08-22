@@ -61,6 +61,12 @@ scribe3/.venv/bin/python -m scribe3.app
 - 前端已有 Codex/北极星记录：倾向只读，写入走「让主编写入」种子。
 - REST 写仍存在；未在本文件强制关闭。细节见 `scribe3/AGENTIC_BOUNDARY_DECISION.md`。
 
+## 翻主纪律
+
+- 换主路必须把依据和代码一起交：谁让改（作者授意或实施判断为最优）、为何这样最好、和旧路差在哪、怎么退（关旗或 revert）。
+- 没有依据落账 = 擅自。对照日志只作旁观，不挡决策。不要再设观察期。
+- 台账模板见 [`docs/plans/2026-08-22-round8-ledger.md`](docs/plans/2026-08-22-round8-ledger.md)。
+
 ## 改动卫生
 
 - 不要提交 `artifacts/`、`surrealdb-docs-cache/`、`.codegraph/`、密钥、本地 DB。

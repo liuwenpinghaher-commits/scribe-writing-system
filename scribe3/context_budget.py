@@ -600,7 +600,7 @@ def join_generation_segments(
 
     segs, total_rep = enforce_total_prompt_budget(segs, budget=tb)
     joined_legacy = "".join(str(s.get("text") or "") for s in segs)
-    joined = joined_legacy
+    joined = joined_legacy  # 关旗紧急回退才用这段拼接
     renderer_equal = None
     try:
         from scribe3.feature_flags import flag_truthy

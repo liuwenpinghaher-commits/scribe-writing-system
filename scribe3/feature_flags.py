@@ -168,7 +168,14 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag(
         "SCRIBE3_RECALL_PLAYBOOK",
         "1",
-        "写章和对话设定槽走统一召回（默认开；关=退回旧子串+字母序凑数）",
+        "写章设定槽走统一召回（默认开；关=紧急退回旧子串+字母序凑数）",
+        "recall",
+        "caution",
+    ),
+    Flag(
+        "SCRIBE3_RECALL_DISCUSS",
+        "1",
+        "对话设定槽走统一召回（默认开；关=只退对话路，写章不动）",
         "recall",
         "caution",
     ),
@@ -189,14 +196,14 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag(
         "SCRIBE3_PROMPT_RENDERER",
         "1",
-        "PromptRenderer 统一组装（默认开；关=旧拼接）",
+        "PromptRenderer 统一组装（默认开；关=紧急回退旧拼接）",
         "prompt",
         "caution",
     ),
     Flag(
         "SCRIBE3_QUALITY_GATE_UNIFIED",
         "1",
-        "QualityGate 统一判定出口（默认开；关=旧形状）",
+        "QualityGate 统一判定出口（默认开；关=紧急回退旧形状）",
         "quality",
         "caution",
     ),
