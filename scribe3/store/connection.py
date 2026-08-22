@@ -235,6 +235,12 @@ class ConnectionMixin:
         except Exception:
             logging.getLogger("scribe3").warning(
                 "backfill_thread_ids 失败(不阻断启动,下次可重试)", exc_info=True)
+        try:
+            from scribe3.ingest_integrity import maybe_heal_ingest_on_connect
+            maybe_heal_ingest_on_connect(self)
+        except Exception:
+            logging.getLogger("scribe3").warning(
+                "ingest heal after schema 失败(不阻断启动,下次可重试)", exc_info=True)
 
     def _execute_write(self, surql: str, vars: dict):
         """改世界状态的唯一落库点。所有 add_* 经此(开发标准不变量1)。

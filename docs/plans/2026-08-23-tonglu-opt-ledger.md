@@ -124,7 +124,7 @@
 | MAN-11 | 章节重排乐观更新无回滚 | P2 | 5 | decision: P2 重排拒绝回滚远期 | decision: P2 重排拒绝回滚远期 |
 | DED-01 | chat\_write路径无章节锁 | P0 | 0 | done | chat_write 章节锁 |
 | DED-02 | Playbook run\_stage无内置章节锁 | P0 | 0 | done | run_stage 章节锁 |
-| DED-03 | ingest apply\_delta无事务保护 | P0 | 2 | done | purge 在 checkpoint 守卫内；heal_ingest_if_needed 可自愈 |
+| DED-03 | ingest apply\_delta无事务保护 | P0 | 2 | done | purge 在守卫内；开机/连库扫检查点并用留下的稿子重放 |
 | DED-04 | apply\_change\_pack无回滚机制 | P0 | 2 | done | patch 恢复 before；add 才整条删 |
 | DED-05 | leak\_markers依赖人工标注 | P0 | 1 | done | auto_generate_leak_markers |
 | DED-06 | 卷纲→章纲无自动细化闭环 | P0 | 0 | done | empty_synopsis 硬阻断 |

@@ -259,41 +259,141 @@ def test_dir_12_13_letter_and_grid_in_build_ctx(monkeypatch):
     assert "问诊" in play or "戏格" in play
 
 
-def test_ded_03_purge_inside_guard_and_heal():
-    class St:
-        def __init__(self):
-            self.purged = 0
-            self.writes = 0
-            self._ingest_checkpoints = {}
+class _IngestCrashStore:
+    """purge 后第一次写炸，留下 checkpoint；第二次写成功。"""
 
-        def purge_ingest(self, seq):
-            self.purged += 1
-            if self.writes == 0:
-                raise RuntimeError("midway after purge")
+    def __init__(self):
+        self.purged: list[int] = []
+        self.applied: list[tuple[int, str]] = []
+        self._ingest_checkpoints: dict = {}
+        self.fail_once = True
 
-        def add_fact(self, *a, **k):
-            self.writes += 1
+    def apply_schema(self):
+        return None
 
-        def add_knowledge(self, *a, **k):
-            return None
+    def close(self):
+        return None
 
-        def add_event(self, *a, **k):
-            return None
+    def purge_ingest(self, seq):
+        self.purged.append(int(seq))
+        self.applied = [row for row in self.applied if row[0] != int(seq)]
 
-        def events_at(self, seq):
-            return []
+    def add_fact(self, *a, **k):
+        return None
 
-    # 用 checkpoint + heal 路径：先记下失败，再重放
-    st = St()
-    from scribe3.ingest_integrity import checkpoint_ingest, ingest_needs_replay
+    def add_knowledge(self, *a, **k):
+        return None
 
-    checkpoint_ingest(st, 4, ok=False, needs_replay=True, delta={"learned": []})
-    assert ingest_needs_replay(load_ingest_checkpoint(st, 4))
-    st.writes = 1  # 下一次 purge 不再炸
-    n = heal_ingest_if_needed(st, 4, {"learned": []})
-    assert n == 0 or st.purged >= 1
-    cp = load_ingest_checkpoint(st, 4)
-    assert cp is not None
+    def add_event(self, *a, **k):
+        return None
+
+    def events_at(self, seq):
+        return []
+
+
+def test_ded_03_apply_delta_fail_then_heal_uses_saved_delta(monkeypatch):
+    """apply 在 purge 之后炸 → 检查点留下 delta → heal 不另传 delta 也能救回。"""
+    import pytest
+    from scribe3.ingest import apply_delta
+    from scribe3.ingest_integrity import ingest_needs_replay, load_ingest_checkpoint
+
+    st = _IngestCrashStore()
+    calls = {"n": 0}
+
+    def fake_body(store, delta, seq, open_promises):
+        calls["n"] += 1
+        if store.fail_once:
+            store.fail_once = False
+            raise RuntimeError("midway after purge")
+        n = 0
+        for it in delta.get("learned") or []:
+            store.applied.append((int(seq), str(it.get("fact") or "")))
+            n += 1
+        return n
+
+    monkeypatch.setattr("scribe3.ingest._apply_delta_body", fake_body)
+    delta = {"learned": [{"who": "柳岸青", "fact": "炉还亮着"}]}
+    with pytest.raises(RuntimeError, match="midway after purge"):
+        apply_delta(st, delta, 7)
+    assert st.purged == [7]
+    assert st.applied == []
+    cp = load_ingest_checkpoint(st, 7)
+    assert ingest_needs_replay(cp) is True
+    assert (cp.get("delta") or {}).get("learned")[0]["fact"] == "炉还亮着"
+
+    n = heal_ingest_if_needed(st, 7)  # 只用留下的 delta
+    assert n == 1
+    assert st.applied == [(7, "炉还亮着")]
+    assert ingest_needs_replay(load_ingest_checkpoint(st, 7)) is False
+
+
+def test_ded_03_store_for_connect_heals_saved_delta(monkeypatch):
+    """连库新生 store 会扫 needs_replay 并用留下的 delta 重放。"""
+    import pytest
+    import scribe3.api.app_impl as impl
+    from scribe3.ingest import apply_delta
+    from scribe3.ingest_integrity import ingest_needs_replay, load_ingest_checkpoint
+
+    st = _IngestCrashStore()
+
+    def fake_body(store, delta, seq, open_promises):
+        if store.fail_once:
+            store.fail_once = False
+            raise RuntimeError("midway after purge")
+        n = 0
+        for it in delta.get("learned") or []:
+            store.applied.append((int(seq), str(it.get("fact") or "")))
+            n += 1
+        return n
+
+    monkeypatch.setattr("scribe3.ingest._apply_delta_body", fake_body)
+    with pytest.raises(RuntimeError):
+        apply_delta(st, {"learned": [{"who": "柳岸青", "fact": "炉还亮着"}]}, 8)
+    assert ingest_needs_replay(load_ingest_checkpoint(st, 8)) is True
+
+    impl._stores.clear()
+    monkeypatch.setattr(impl, "SurrealStore", lambda *a, **k: st)
+    got = impl._store_for("heal-connect")
+    assert got is st
+    assert st.applied == [(8, "炉还亮着")]
+    assert ingest_needs_replay(load_ingest_checkpoint(st, 8)) is False
+
+
+def test_ded_03_lifespan_heals_cached_store(monkeypatch):
+    """进程启动时扫已缓存 store 上的 needs_replay。"""
+    import asyncio
+    import pytest
+    import scribe3.api.app_impl as impl
+    from scribe3.ingest import apply_delta
+    from scribe3.ingest_integrity import ingest_needs_replay, load_ingest_checkpoint
+
+    st = _IngestCrashStore()
+
+    def fake_body(store, delta, seq, open_promises):
+        if store.fail_once:
+            store.fail_once = False
+            raise RuntimeError("midway after purge")
+        n = 0
+        for it in delta.get("learned") or []:
+            store.applied.append((int(seq), str(it.get("fact") or "")))
+            n += 1
+        return n
+
+    monkeypatch.setattr("scribe3.ingest._apply_delta_body", fake_body)
+    with pytest.raises(RuntimeError):
+        apply_delta(st, {"learned": [{"who": "柳岸青", "fact": "炉还亮着"}]}, 9)
+
+    impl.set_store(st, work="heal-life")
+    monkeypatch.setattr(impl, "_startup_gateway_guard", lambda: None)
+    monkeypatch.setattr(impl, "_close_cached_stores", lambda: None)
+
+    async def exercise():
+        async with impl._app_lifespan(impl.app):
+            pass
+
+    asyncio.run(exercise())
+    assert st.applied == [(9, "炉还亮着")]
+    assert ingest_needs_replay(load_ingest_checkpoint(st, 9)) is False
 
 
 def test_ded_12_health_reads_three_systems(monkeypatch):

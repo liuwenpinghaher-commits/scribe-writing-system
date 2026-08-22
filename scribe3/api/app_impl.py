@@ -81,6 +81,14 @@ _settings.apply_restart_overrides()   # restart 类 DB 覆盖灌 env,必须在 C
 async def _app_lifespan(_app: FastAPI):
     """统一承载启动安全守卫与退出连接回收，替代已弃用的 on_event。"""
     _startup_gateway_guard()
+    try:
+        from scribe3.ingest_integrity import maybe_heal_ingest_on_connect
+        with _stores_lock:
+            cached = list(_stores.values())
+        for st in cached:
+            maybe_heal_ingest_on_connect(st)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("ingest heal on startup skipped: %s", e)
     # S-2: Changefeed 缓存消费者（flag 关则 no-op）+ A3 factory 双写
     try:
         from scribe3.changefeed_consumer import ChangefeedCacheWorker, changefeed_cache_enabled
@@ -382,16 +390,24 @@ def _store_for(work: str) -> SurrealStore:
     # 首次并发访问同一 work 时，必须把“检查→建连→迁移→入缓存”作为一个原子区，
     # 否则被后写缓存覆盖的客户端没有所有者关闭，最终耗尽线程和套接字。
     with _stores_lock:
+        newborn = False
         if work not in _stores:
             st = SurrealStore(ns="scribe3", db=work)
             st.apply_schema()
             _stores[work] = st
+            newborn = True
             while len(_stores) > _STORE_CACHE_MAX:
                 _, old = _stores.popitem(last=False)
                 old.close()
         else:
             _stores.move_to_end(work)
         st = _stores[work]
+    if newborn:
+        try:
+            from scribe3.ingest_integrity import maybe_heal_ingest_on_connect
+            maybe_heal_ingest_on_connect(st)
+        except Exception:
+            pass
     try:
         from scribe3.pipeline_trace_store import maybe_purge_pipeline_traces
         maybe_purge_pipeline_traces(st, work=work)

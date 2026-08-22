@@ -965,7 +965,7 @@
     "priority": "P0",
     "stage": "2",
     "status": "done",
-    "note": "purge 在 checkpoint 守卫内；heal_ingest_if_needed 可自愈"
+    "note": "purge 在守卫内；开机/连库扫 ingest_checkpoint 用留下的 delta 重放"
   },
   {
     "id": "DED-04",

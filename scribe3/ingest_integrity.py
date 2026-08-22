@@ -110,3 +110,71 @@ def heal_ingest_if_needed(store: Any, seq: int, delta: dict | None = None) -> in
         return 0
     from scribe3.ingest import apply_delta
     return int(apply_delta(store, body, seq) or 0)
+
+
+def list_ingest_needing_replay(store: Any) -> list[dict[str, Any]]:
+    """扫所有标了要重放的 ingest 检查点。"""
+    out: list[dict[str, Any]] = []
+    if store is None:
+        return out
+    bucket = getattr(store, "_ingest_checkpoints", None)
+    if isinstance(bucket, dict):
+        for seq, rec in bucket.items():
+            if not isinstance(rec, dict):
+                continue
+            row = dict(rec)
+            row.setdefault("seq", int(seq))
+            if ingest_needs_replay(row):
+                out.append(row)
+        return out
+    query = getattr(store, "_query", None)
+    if not callable(query):
+        return out
+    try:
+        rows = query(
+            "SELECT seq, ok, needs_replay, n, delta FROM ingest_checkpoint "
+            "WHERE needs_replay = true OR ok = false",
+        ) or []
+    except Exception:
+        return out
+    for r in rows:
+        rec = dict(r)
+        raw = rec.get("delta")
+        if isinstance(raw, str):
+            try:
+                rec["delta"] = json.loads(raw)
+            except Exception:
+                pass
+        if ingest_needs_replay(rec):
+            out.append(rec)
+    return out
+
+
+def heal_pending_ingests(store: Any) -> dict[str, Any]:
+    """连库/开机：扫 needs_replay 并用留下的 delta 重放。失败不阻断启动。"""
+    healed: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for rec in list_ingest_needing_replay(store):
+        seq = int(rec.get("seq") or 0)
+        if seq <= 0:
+            continue
+        try:
+            n = heal_ingest_if_needed(store, seq)
+            healed.append({"seq": seq, "n": n})
+        except Exception as e:
+            errors.append({
+                "seq": seq,
+                "error": type(e).__name__,
+                "detail": str(e)[:200],
+            })
+    return {"healed": healed, "errors": errors}
+
+
+def maybe_heal_ingest_on_connect(store: Any) -> dict[str, Any] | None:
+    """连库后调用：表不存在或查询失败时静默跳过。"""
+    if store is None:
+        return None
+    try:
+        return heal_pending_ingests(store)
+    except Exception:
+        return None
