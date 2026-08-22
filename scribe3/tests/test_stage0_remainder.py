@@ -60,6 +60,20 @@ def test_digest_cap_and_key_fields():
     assert "男" in blob
 
 
+def test_intro_change_stale_skips_high_confidence():
+    from scribe3.outline_status import classify_intro_change, should_block_stage
+    split = classify_intro_change([
+        {"seq": 1, "confidence": "low"},
+        {"seq": 2, "confidence": "high"},
+        {"seq": 3},
+    ])
+    assert split["stale"] == [1, 3]
+    assert split["pending_human"] == [2]
+    assert should_block_stage("deduce", "stale") is True
+    assert should_block_stage("duty", "stale") is False
+    assert should_block_stage("draft", "") is False
+
+
 def test_settled_note_from_duty():
     note = _settled_note(
         {"must_happen": "把碎片按回裂口"},

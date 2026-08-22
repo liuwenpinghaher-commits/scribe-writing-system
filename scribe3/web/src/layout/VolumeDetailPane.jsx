@@ -384,6 +384,9 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
                   <span className="min-w-0">
                     <span className="block truncate font-medium text-ink">{`${chapter.seq} ${chapter.title || ''}`.trim()}</span>
                     <span className="block text-f12 text-faint mt-0.5 leading-snug">{chapterAccountLine(chapter)}</span>
+                    {String(chapter.settled_note || '').trim() ? (
+                      <span className="block text-f12 text-ink mt-0.5 leading-snug" data-testid="chapter-settled-note">{chapter.settled_note}</span>
+                    ) : null}
                   </span>
                   <span className="text-meta text-faint">{chapter.label || '未设'}</span>
                   {!String(chapter.synopsis || '').trim() ? (

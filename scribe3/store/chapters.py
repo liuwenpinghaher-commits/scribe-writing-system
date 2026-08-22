@@ -401,7 +401,21 @@ class ChaptersMixin:
         beats 存为 JSON 串,读时解析为 list;缺失降级为 []。"""
         # SurrealDB 2.1: bare ``<string> optional_field`` InternalError when field is NONE;
         # cast only when present. type::record (not type::record) for two-arg record ids.
-        rows = self._query(
+        sql_full = (
+            "SELECT seq,title,label,(IF volume THEN meta::id(volume) ELSE NONE END) AS volume,"
+            "focalizer,prose,synopsis,"
+            "outline_status,outline_rev,confidence,settled_note,"
+            "scene_truth_revision,involved_characters,purpose_text,deltas,"
+            "pressure_drive,narrative_drive,narrative_contract,"
+            "prose_lock,play_sha,contract_sha,playbook_version,"
+            "reveal_secret_ids,"
+            "archived,"
+            "(IF archived_at IS NONE THEN NONE ELSE <string>archived_at END) AS archived_at,"
+            "archive_reason,"
+            "ingest_status,ingest_error,ingest_prose_fp "
+            "FROM type::record('chapter',$seq)"
+        )
+        sql_old = (
             "SELECT seq,title,label,(IF volume THEN meta::id(volume) ELSE NONE END) AS volume,"
             "focalizer,prose,synopsis,"
             "scene_truth_revision,involved_characters,purpose_text,deltas,"
@@ -411,8 +425,13 @@ class ChaptersMixin:
             "archived,"
             "(IF archived_at IS NONE THEN NONE ELSE <string>archived_at END) AS archived_at,"
             "archive_reason,"
-            "ingest_status,ingest_error,ingest_prose_fp "  # P0 指纹 + 审计 P1-6
-            "FROM type::record('chapter',$seq)", {"seq": seq})
+            "ingest_status,ingest_error,ingest_prose_fp "
+            "FROM type::record('chapter',$seq)"
+        )
+        try:
+            rows = self._query(sql_full, {"seq": seq})
+        except Exception:
+            rows = self._query(sql_old, {"seq": seq})
         if not rows:
             return None
         r = rows[0]
@@ -820,6 +839,12 @@ class ChaptersMixin:
         self._execute_write(
             f"UPDATE type::record('volume', $vid) SET {sets}",
             {"vid": vid, **params})
+        if "intro" in payload:
+            try:
+                from scribe3.outline_status import mark_volume_intro_changed
+                mark_volume_intro_changed(self, vid)
+            except Exception:
+                pass
         return True
 
     def delete_volume(self, vid: str) -> bool:

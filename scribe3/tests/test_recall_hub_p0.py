@@ -31,6 +31,8 @@ def test_shadow_does_not_change_codex_text():
     assert ctx1["codex_recall"] == ctx2["codex_recall"]
     rec = shadow_diff(st, 1, "role:柳岸青", ctx1["codex_recall"])
     assert rec["ok"] is True
+    assert "entity_jaccard" in rec
+    assert rec.get("secret_leak_count") == 0
 
 
 def test_outline_stale_missing_field_does_not_block():
@@ -42,6 +44,7 @@ def test_outline_stale_missing_field_does_not_block():
 
 def test_outline_stale_blocks_only_when_flag_and_stale(monkeypatch):
     monkeypatch.setenv("SCRIBE3_OUTLINE_STATUS_GATE", "1")
+    # default is on; keep explicit for this case
     def llm(_prompt, **_k):
         return "{}"
     out = thicken_stage(
@@ -66,7 +69,7 @@ def test_recall_flags_registered():
     flags = get_all_flags()
     assert flags["SCRIBE3_RECALL_SHADOW"]["default"] == "1"
     assert flags["SCRIBE3_RECALL_PLAYBOOK"]["default"] == "0"
-    assert flags["SCRIBE3_OUTLINE_STATUS_GATE"]["default"] == "0"
+    assert flags["SCRIBE3_OUTLINE_STATUS_GATE"]["default"] == "1"
     assert flag_truthy("SCRIBE3_RECALL_PLAYBOOK") is False
 
 

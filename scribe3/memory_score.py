@@ -7,7 +7,8 @@ from typing import Any
 
 
 def memory_access_decay_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_MEMORY_ACCESS_DECAY") or "1").strip().lower()
+    from scribe3.feature_flags import get_flag
+    raw = (get_flag("SCRIBE3_MEMORY_ACCESS_DECAY") or "1").strip().lower()
     return raw not in ("0", "false", "off", "no")
 
 

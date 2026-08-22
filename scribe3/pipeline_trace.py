@@ -54,14 +54,16 @@ _DISABLED: ContextVar[bool] = ContextVar("scribe3_pt_off", default=False)
 def pipeline_trace_enabled() -> bool:
     if _DISABLED.get():
         return False
-    raw = os.environ.get("SCRIBE3_PIPELINE_TRACE")
+    from scribe3.feature_flags import get_flag
+    raw = get_flag("SCRIBE3_PIPELINE_TRACE")
     if raw is None or str(raw).strip() == "":
         return True
     return str(raw).strip().lower() not in ("0", "false", "no", "off")
 
 
 def preview_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_PIPELINE_TRACE_PREVIEW") or "0").strip().lower()
+    from scribe3.feature_flags import get_flag
+    raw = (get_flag("SCRIBE3_PIPELINE_TRACE_PREVIEW") or "0").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 

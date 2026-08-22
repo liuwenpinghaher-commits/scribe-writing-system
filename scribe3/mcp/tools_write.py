@@ -1140,6 +1140,66 @@ async def s3_refine_volume_outline(ctx: Context, volume_id: str, intro: str, wor
     return commit_if_approved("s3_refine_volume_outline", ok, _write)
 
 
+def _structure_mode_or_error(st) -> dict | None:
+    try:
+        intent = st.get_intent() or {}
+    except Exception:
+        intent = {}
+    if intent.get("structure_mode"):
+        return None
+    return {
+        "status": "error",
+        "http": 422,
+        "code": "structure_mode_off",
+        "message": "这本书没打开长篇结构。",
+    }
+
+
+@mcp.tool(annotations=_RW)
+async def s3_add_arc_unit(
+    ctx: Context, volume_id: str, seq: int, title: str,
+    goal: str | None = None, work: str | None = None,
+) -> dict:
+    st = _store_for(work)
+    off = _structure_mode_or_error(st)
+    if off:
+        return off
+    ok = await _ask(ctx, f"给卷 {volume_id} 加情节单元 {seq}《{title}》")
+    return commit_if_approved(
+        "s3_add_arc_unit", ok,
+        lambda: st.add_arc_unit(volume_id, seq, title, goal=goal or ""),
+    )
+
+
+@mcp.tool(annotations=_RW)
+async def s3_expand_arc_window(ctx: Context, volume_id: str, work: str | None = None) -> dict:
+    st = _store_for(work)
+    off = _structure_mode_or_error(st)
+    if off:
+        return off
+    ok = await _ask(ctx, f"只铺卷 {volume_id} 眼前这一段和接下来一段，不铺全书")
+    return commit_if_approved(
+        "s3_expand_arc_window", ok,
+        lambda: {"volume_id": volume_id, "window": "current_and_next", "status": "draft"},
+    )
+
+
+@mcp.tool(annotations=_RW)
+async def s3_settle_arc_event(
+    ctx: Context, volume_id: str, unit_seq: int, event_id: str, done_seq: int,
+    work: str | None = None,
+) -> dict:
+    st = _store_for(work)
+    off = _structure_mode_or_error(st)
+    if off:
+        return off
+    ok = await _ask(ctx, f"记下第{done_seq}章办的是单元{unit_seq}的 {event_id}")
+    return commit_if_approved(
+        "s3_settle_arc_event", ok,
+        lambda: st.settle_arc_event(volume_id, unit_seq, event_id, done_seq),
+    )
+
+
 @mcp.tool(annotations=_RW)
 async def s3_batch_stage(
     ctx: Context,

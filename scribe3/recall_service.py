@@ -162,6 +162,21 @@ def shadow_diff(store: Any, seq: int, focalizer: str, legacy_text: str, query: s
         if " / " in line:
             legacy_ids.add(line.split(" / ", 1)[0].strip())
     shadow_ids = {h.entity_id.replace("role:", "") for h in pack.hits}
+    secret_ids: set[str] = set()
+    try:
+        facts_fn = getattr(store, "facts_at", None)
+        if callable(facts_fn):
+            for f in list(facts_fn(int(seq)) or []):
+                if _fact_get(f, "secret") is True:
+                    val = str(_fact_get(f, "value") or "").strip()
+                    if val:
+                        secret_ids.add(val)
+    except Exception:
+        pass
+    leaked = {s for s in secret_ids if s and s in str(legacy_text or "")}
+    both = legacy_ids | shadow_ids
+    jacc = (len(legacy_ids & shadow_ids) / len(both)) if both else 1.0
+    leg_n = max(len(legacy_text or ""), 1)
     rec = {
         "ok": True,
         "seq": int(seq),
@@ -172,6 +187,10 @@ def shadow_diff(store: Any, seq: int, focalizer: str, legacy_text: str, query: s
         "legacy_ids": sorted(legacy_ids),
         "shadow_ids": sorted(shadow_ids),
         "same_entities": legacy_ids == shadow_ids,
+        "entity_jaccard": round(jacc, 4),
+        "secret_leak_count": len(leaked),
+        "secret_jaccard_diff": 0.0 if not leaked else 1.0,
+        "budget_delta": abs(len(shadow or "") - len(legacy_text or "")) / leg_n,
     }
     _log.info("recall_shadow %s", rec)
     try:

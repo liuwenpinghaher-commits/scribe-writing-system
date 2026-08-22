@@ -1,8 +1,9 @@
-"""只读：长篇结构预算建议。不落库。"""
+"""只读：长篇结构预算建议与设定缺口。不落库。"""
 from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
+from scribe3.http_errors import error_body
 from scribe3.structure_budget import suggest_budget
 
 router = APIRouter(tags=["structure"])
@@ -26,3 +27,38 @@ def suggest_structure_budget(
         except Exception:
             goal = None
     return suggest_budget(goal, words_per_chapter)
+
+
+@router.get("/codex/completeness")
+def codex_completeness(work: str = "main"):
+    """设定缺口只读报告，不挡写。"""
+    try:
+        from scribe3.api.app_impl import _store_for
+        st = _store_for(work)
+        if hasattr(st, "setting_completeness"):
+            report = st.setting_completeness() or {}
+        else:
+            report = {}
+    except Exception:
+        report = {}
+    return {
+        "advisory": True,
+        "blocks_write": False,
+        "report": report,
+        "note": "缺什么只告诉你，不挡开写。",
+    }
+
+
+@router.get("/volumes/{vid}/arc-units")
+def list_arc_units(vid: str, work: str = "main"):
+    try:
+        from scribe3.api.app_impl import _store_for
+        st = _store_for(work)
+        intent = st.get_intent() if hasattr(st, "get_intent") else {}
+        if not (intent or {}).get("structure_mode"):
+            return {"units": [], "structure_mode": False}
+        fn = getattr(st, "list_arc_units", None)
+        units = fn(vid) if callable(fn) else []
+        return {"units": units, "structure_mode": True}
+    except Exception:
+        return {"units": [], "structure_mode": False, "error": error_body("arc_units_read", "情节单元暂时读不到")}

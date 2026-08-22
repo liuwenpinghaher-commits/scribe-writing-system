@@ -363,6 +363,11 @@ def add_faction_ep(fc: FactionIn, work: str = "main"):
         bridge_row = st.get_faction(name)
         if bridge_row is not None:
             sync_faction_secrets(st, name, bridge_row)
+            try:
+                from scribe3.codex_digest import sync_entity_digests
+                sync_entity_digests(st, "faction", f"faction:{name}", bridge_row)
+            except Exception:
+                pass
     except Exception:
         logging.getLogger("scribe3").warning(
             "sync_faction_secrets 命题桥同步失败,不阻断势力写入: %s", name, exc_info=True)

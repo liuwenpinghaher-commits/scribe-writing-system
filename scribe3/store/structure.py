@@ -181,13 +181,21 @@ class StructureMixin:
             "qc_word_count AS word_count, qc_issues, qc_causal, qc_breakdown, qc_cache_revision, "
             "scene_count, scene_meta, beats, beats_meta, "
             "craft_compliance, craft_compliance_at, "
+            "outline_status, outline_rev, confidence, settled_note, "
             "(IF prose IS NONE OR prose = '' THEN false ELSE true END) AS has_prose "
             "FROM chapter:.. WHERE archived = NONE OR archived != true"
         )
         try:
             rows = self._query(sql_flags)
         except Exception:
-            rows = self._query(sql)
+            try:
+                sql_flags_old = sql_flags.replace(
+                    "outline_status, outline_rev, confidence, settled_note, ",
+                    "",
+                )
+                rows = self._query(sql_flags_old)
+            except Exception:
+                rows = self._query(sql)
         for r in rows:
             if "has_prose" in r:
                 r["has_prose"] = bool(r.get("has_prose"))
@@ -481,3 +489,76 @@ class StructureMixin:
 
         return {"manuscript": manuscript, "codex": codex,
                 "materials": materials, "views": views}
+
+    def _structure_mode_on(self) -> bool:
+        try:
+            intent = self.get_intent() or {}
+        except Exception:
+            intent = {}
+        return bool(intent.get("structure_mode"))
+
+    def list_arc_units(self, volume_id: str) -> list[dict]:
+        if not self._structure_mode_on():
+            return []
+        vid = str(volume_id or "").strip()
+        if not vid:
+            return []
+        try:
+            return self._query(
+                "SELECT seq, title, goal, events, chapter_from, chapter_to, status, "
+                "meta::id(volume_id) AS volume_id FROM arc_unit "
+                "WHERE volume_id = type::record('volume', $vid) ORDER BY seq",
+                {"vid": vid},
+            ) or []
+        except Exception:
+            return []
+
+    def add_arc_unit(self, volume_id: str, seq: int, title: str, **fields) -> dict:
+        if not self._structure_mode_on():
+            raise ValueError("structure_mode_off")
+        vid = str(volume_id or "").strip()
+        content = {
+            "volume_id": f"volume:{vid}",
+            "seq": int(seq),
+            "title": str(title or "").strip() or f"单元{seq}",
+            "goal": fields.get("goal") or "",
+            "events": fields.get("events") or [],
+            "chapter_from": fields.get("chapter_from"),
+            "chapter_to": fields.get("chapter_to"),
+            "status": str(fields.get("status") or "draft"),
+        }
+        self._execute_write(
+            "CREATE arc_unit SET volume_id=type::record('volume',$vid), seq=$seq, "
+            "title=$title, goal=$goal, events=$events, chapter_from=$cf, "
+            "chapter_to=$ct, status=$st",
+            {
+                "vid": vid, "seq": content["seq"], "title": content["title"],
+                "goal": content["goal"], "events": content["events"],
+                "cf": content["chapter_from"], "ct": content["chapter_to"],
+                "st": content["status"],
+            },
+        )
+        return content
+
+    def settle_arc_event(self, volume_id: str, unit_seq: int, event_id: str, done_seq: int) -> dict:
+        if not self._structure_mode_on():
+            raise ValueError("structure_mode_off")
+        rows = self.list_arc_units(volume_id)
+        unit = next((u for u in rows if int(u.get("seq") or 0) == int(unit_seq)), None)
+        if not unit:
+            return {"ok": False, "code": "unit_missing"}
+        events = list(unit.get("events") or [])
+        found = False
+        for ev in events:
+            if not isinstance(ev, dict):
+                continue
+            if str(ev.get("id") or "") == str(event_id):
+                ev["done_seq"] = int(done_seq)
+                found = True
+        if not found:
+            return {"ok": False, "code": "event_missing"}
+        self._execute_write(
+            "UPDATE arc_unit SET events=$ev WHERE volume_id=type::record('volume',$vid) AND seq=$seq",
+            {"vid": volume_id, "seq": int(unit_seq), "ev": events},
+        )
+        return {"ok": True, "events": events}

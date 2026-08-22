@@ -122,7 +122,7 @@ flowchart LR
 - 责任卡 `must_happen` 仍是「今晚一件事」；法官能判「有没有把后面的夜提前演完」（可挡冻结）。
 - 章设计 UI 以 play/contract 为戏/契约真源；空态不再读 `chapter_spine`。本卷还没办的几笔用 `GET /outline` 同卷 synopsis 拼。
 - 长篇结构书级 opt-in；未启用的书零新表、零新硬门。排期在万界冒烟绿之后。
-- 滚动建纲：只预铺近窗；opt-in 时当前单元 + 下一单元。禁止一次生成百万字细纲。
+- 滚动建纲：只预铺近窗；opt-in 时当前单元 + 下一单元。禁止一次生成全书节拍级以下细纲；账目级一句话章纲允许按卷批跑。
 - 规划数字（密/疏、爽点间隔、展开比）只出现在预算建议里，不进写路径通过条件。
 
 ### Non-Goals
@@ -554,7 +554,7 @@ Flag(
 6. **法官必须看见台账。** `_run_duty` / `_run_design` 的 `judge_ctx` 传入 `volume_ledger`。只改 `prompts.py` 不够。
 7. **L4 不是密疏 beats。** 章内设计真源是 play + contract。
 8. **不新建 story_plan 表。** L0 用现有 intent。opt-in 字段要扩白名单和 MCP 参数，不是 SCHEMALESS 透传。
-9. **滚动近窗，禁止一次生成全书细纲。**
+9. **滚动近窗，禁止一次生成全书节拍级以下细纲；账目级一句话章纲允许按卷批跑。**
 10. **章设计 UI 只认 play/contract；台账走 GET /outline。** 删 DesignTab spine/legacy beats；父级拉 play/contract 再 evaluate；`ChapterMetaPane` 不因缺 beats 教 13 槽；`api.js` 补 `chapterDuty`；404 当空态。
 11. **卷纲法官非阻塞。** 根因是写章上下文。PR-3 只改种子和侧栏。
 12. **craft 配额不在本设计重做。** playbook 路径已跳过八引擎。

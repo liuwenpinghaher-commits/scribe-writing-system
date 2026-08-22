@@ -202,9 +202,10 @@ def thicken_stage(
     try:
         from scribe3.feature_flags import flag_truthy
         if flag_truthy("SCRIBE3_OUTLINE_STATUS_GATE"):
+            from scribe3.outline_status import should_block_stage
             stg = normalize_stage(stage)
-            status = str((ch or {}).get("outline_status") or "").strip().lower()
-            if stg in ("deduce", "draft") and status == "stale":
+            status = str((ch or {}).get("outline_status") or "").strip()
+            if should_block_stage(stg, status):
                 return {
                     "ok": False,
                     "code": "outline_stale",

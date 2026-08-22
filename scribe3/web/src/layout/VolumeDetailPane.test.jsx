@@ -72,4 +72,15 @@ describe('VolumeDetailPane', () => {
     expect(later.textContent).not.toMatch(/华山成核/)
     expect(await screen.findByTestId('volume-intro-one-night')).toBeTruthy()
   })
+
+  it('章下列出定稿记下的那句话', async () => {
+    api.outline.mockResolvedValue({
+      volumes: [{ id: 'vol-2', title: '第二卷', intro: '华山成核 / 四十二度', color: '#123456', sort_order: 2 }],
+      chapters: [
+        { seq: 1, title: '华山成核', volume: 'vol-2', synopsis: '按碎片', has_prose: true, word_count: 1900, settled_note: '第1章办成了：把碎片按回裂口' },
+      ],
+    })
+    render(<VolumeDetailPane node={{ id: 'vol:vol-2', type: 'volume', ref: 'vol-2', label: '第二卷' }} />)
+    expect(await screen.findByTestId('chapter-settled-note')).toHaveTextContent('把碎片按回裂口')
+  })
 })

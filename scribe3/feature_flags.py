@@ -167,8 +167,8 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     ),
     Flag(
         "SCRIBE3_OUTLINE_STATUS_GATE",
-        "0",
-        "纲改过未核对时拦演绎/草稿（默认关；旧书缺字段不拦）",
+        "1",
+        "纲改过未核对时拦演绎/草稿（缺字段不拦）",
         "structure",
         "caution",
     ),

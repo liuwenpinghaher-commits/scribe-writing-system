@@ -100,7 +100,8 @@ def _conflict_keys(cand: MemoryCandidate) -> set[tuple[str, str]]:
     import os
     from scribe3.memory_conflict_heuristic import conflict_keys_from_parts
 
-    use_h = (os.environ.get("SCRIBE3_CANON_SUPPRESS_HEURISTIC") or "1").strip().lower() not in (
+    from scribe3.feature_flags import get_flag
+    use_h = (get_flag("SCRIBE3_CANON_SUPPRESS_HEURISTIC") or "1").strip().lower() not in (
         "0", "false", "off", "no",
     )
     text = getattr(cand, "text", None) or getattr(cand, "content", None) or ""

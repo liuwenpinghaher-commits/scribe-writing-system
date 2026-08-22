@@ -506,8 +506,8 @@ def _final_reminder_core() -> str:
 
 def _final_reminder() -> str:
     """末尾强化提醒。默认短核;CORE=0 才用 11 条全文。"""
-    import os
-    raw = (os.environ.get("SCRIBE3_FINAL_REMINDER_CORE") or "1").strip().lower()
+    from scribe3.feature_flags import get_flag
+    raw = (get_flag("SCRIBE3_FINAL_REMINDER_CORE") or "1").strip().lower()
     if raw in ("0", "false", "no", "off", "full"):
         return _final_reminder_full()
     return _final_reminder_core()
