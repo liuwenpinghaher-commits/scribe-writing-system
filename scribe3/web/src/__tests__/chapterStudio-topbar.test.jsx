@@ -12,6 +12,8 @@ const apiMock = vi.hoisted(() => ({
   fetchCapabilities: vi.fn(),
   chapterPlay: vi.fn(),
   chapterContract: vi.fn(),
+  chapterDuty: vi.fn(),
+  outline: vi.fn(),
 }))
 
 vi.mock('../api', () => ({ api: apiMock }))
@@ -48,6 +50,8 @@ describe('ChapterStudio 章对象外框与五阶段页签', () => {
     apiMock.fetchCapabilities.mockRejectedValue(new Error('no caps'))
     apiMock.chapterPlay.mockRejectedValue(Object.assign(new Error('HTTP 404'), { status: 404, body: { detail: { code: 'play_missing' } } }))
     apiMock.chapterContract.mockRejectedValue(Object.assign(new Error('HTTP 404'), { status: 404, body: { detail: { code: 'contract_missing' } } }))
+    apiMock.chapterDuty.mockRejectedValue(Object.assign(new Error('HTTP 404'), { status: 404, body: { detail: { code: 'duty_missing' } } }))
+    apiMock.outline.mockResolvedValue({ volumes: [], chapters: [] })
   })
 
   it('旗 on 时页签为章设计/演绎/草稿/正文', async () => {
@@ -60,7 +64,7 @@ describe('ChapterStudio 章对象外框与五阶段页签', () => {
     expect(await screen.findByTestId('chapter-workbench-shell')).toHaveAttribute('data-phase', 'design')
   })
 
-  it('章设计页能看见节拍块和跳转', async () => {
+  it('章设计页能看见从戏里抄出的拍，不读旧格子', async () => {
     apiMock.fetchCapabilities.mockResolvedValue({ flags: { chapter_design: true } })
     apiMock.chapter.mockResolvedValue({
       title: '华山成核',
@@ -68,17 +72,22 @@ describe('ChapterStudio 章对象外框与五阶段页签', () => {
       chapter_spine: { goal: '沈拾灯按场核成核', choice: '交指针态 vs 观测大遮蔽' },
       beats: [
         { id: 'b1', goal: '按场核', conflict: '挡', turn: '变', cost: '付', text: '拍1' },
-        { id: 'b2', goal: '交指针态', choice: '交指针态 vs 观测大遮蔽', text: '拍2' },
-        { id: 'b3', goal: '观测金縢', text: '拍3' },
       ],
       prose: '',
     })
+    apiMock.chapterPlay.mockResolvedValue({
+      text: '柳岸青把碎片按了进去。沈烛记下货已验过。',
+    })
+    apiMock.chapterContract.mockResolvedValue({
+      fields: { goal: { text: '把碎片按回裂口' }, hook: { text: '裂口没合' } },
+      beats: [{ n: 1, goal: { text: '沈烛验货' } }],
+    })
     render(<Harness initialPhase="design" />)
-    expect(await screen.findByTestId('design-beats-section')).toBeTruthy()
-    expect(screen.getByTestId('design-jump-beats').textContent).toMatch(/节拍/)
-    expect(screen.getByTestId('beat-card-0')).toBeTruthy()
-    expect(screen.getByText('拍1')).toBeTruthy()
-    expect(screen.getByText('按场核')).toBeTruthy()
+    expect(await screen.findByTestId('design-play-text')).toHaveTextContent('柳岸青把碎片按了进去')
+    expect(screen.getByTestId('design-beats-section')).toBeTruthy()
+    expect(screen.getByTestId('design-jump-beats').textContent).toMatch(/从戏里抄出的/)
+    expect(screen.getByTestId('beat-card-0')).toHaveTextContent('沈烛验货')
+    expect(screen.queryByText('按场核')).toBeNull()
   })
 
   it('章设计页读这场戏，不把空的旧格子当内容', async () => {
@@ -102,6 +111,35 @@ describe('ChapterStudio 章对象外框与五阶段页签', () => {
     expect(screen.getByTestId('design-contract-nails')).toHaveTextContent('把碎片按回裂口')
     expect(screen.getByTestId('beat-card-0')).toHaveTextContent('沈烛验货')
     expect(screen.queryByText('（还没有这场戏 · 让主编先写设计）')).toBeNull()
+  })
+
+  it('章设计页列出本卷还没办的几笔，不含今晚这一章', async () => {
+    apiMock.fetchCapabilities.mockResolvedValue({ flags: { chapter_design: true } })
+    apiMock.chapter.mockResolvedValue({
+      title: '华山成核',
+      volume: 'cage',
+      synopsis: '北峰按碎片',
+      prose: '',
+    })
+    apiMock.outline.mockResolvedValue({
+      volumes: [{ id: 'cage', title: '囚笼' }],
+      chapters: [
+        { seq: 1, title: '华山成核', volume: 'cage', synopsis: '北峰按碎片', has_prose: false },
+        { seq: 2, title: '四十二度', volume: 'cage', synopsis: '体温标价', has_prose: false },
+        { seq: 3, title: '金縢裂纹', volume: 'cage', synopsis: '金縢被点名', has_prose: false },
+        { seq: 4, title: '灭活边缘', volume: 'cage', synopsis: '灭活三分钟', has_prose: false },
+      ],
+    })
+    render(
+      <ChiefSlotProvider>
+        <ChapterStudio work="demo" seq={1} initialPhase="design" />
+      </ChiefSlotProvider>,
+    )
+    const box = await screen.findByTestId('design-remaining-later')
+    expect(box.textContent).toMatch(/四十二度/)
+    expect(box.textContent).toMatch(/金縢裂纹/)
+    expect(box.textContent).toMatch(/灭活边缘/)
+    expect(box.textContent).not.toMatch(/华山成核/)
   })
 
   it('章页签恰为五个语义阶段,辅助资料不再占阶段位', async () => {

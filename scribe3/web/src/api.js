@@ -674,6 +674,7 @@ export const api = {
   // work 可选:大纲/节拍卸载兜底 flush 传入捕获的 work,钉死目标书,防切书写错书(F5,同 saveDraft/saveChapter)。
   chapterPlay: (seq, work) => j(`/chapters/${enc(seq)}/play`, work),
   chapterContract: (seq, work) => j(`/chapters/${enc(seq)}/contract`, work),
+  chapterDuty: (seq, work) => j(`/chapters/${enc(seq)}/duty`, work),
   chapterDeduce: (seq, work) => j(`/chapters/${enc(seq)}/deduce`, work),
   patchChapter: (seq, b, work) => patch('/chapters/' + seq, b, work),
   // O14 / emergency 闸外：仅 beats GCD 微调（拍数守恒）；勿用 patchChapter 存 GCD 面板

@@ -4,12 +4,31 @@
  * 无 form-wall REST 落库。
  */
 
+function chapterAccountSeedLines(chapters = []) {
+  const rows = (chapters || []).filter(Boolean)
+  if (!rows.length) {
+    return [
+      '章壳补齐后，把每一章各办哪一件补进卷纲。现在不要发明还不存在的章夜。',
+    ]
+  }
+  const body = rows.map((c) => {
+    const title = String(c.title || '').trim() || `第${c.seq}章`
+    const syn = String(c.synopsis || '').trim() || '这章还没立要办的事'
+    return `- 第${c.seq}章《${title}》：${syn}`
+  })
+  return [
+    '按本卷每一章各写一笔账，禁止只写其中一章的夜。本卷已有章：',
+    ...body,
+  ]
+}
+
 export function buildPatchVolumeSeed({
   volumeId,
   title = '',
   intro = '',
   color = '',
   sort_order = 0,
+  chapters = [],
 } = {}) {
   const vid = String(volumeId ?? '').trim()
   if (!vid) {
@@ -21,8 +40,9 @@ export function buildPatchVolumeSeed({
     `- title=${title || '（保持或清空请说明）'}`,
     `- color=${color || '（空）'}`,
     `- sort_order=${sort_order}`,
-    `- intro 如下:`,
+    `- intro 如下（按本卷每一章各写一笔账，禁止只写其中一章的夜）:`,
     intro?.trim() ? intro.trim() : '（空 · 空则写路径不注入 volume_intro）',
+    ...chapterAccountSeedLines(chapters),
     '未获批准不得声称已落库。',
   ]
   return lines.join('\n')
@@ -34,6 +54,7 @@ export function buildAddVolumeSeed({
   color = '',
   sort_order = 1,
   chapterSeqs = [],
+  chapters = [],
 } = {}) {
   const t = String(title || '').trim()
   if (!t) throw new Error('buildAddVolumeSeed: title required')
@@ -42,6 +63,8 @@ export function buildAddVolumeSeed({
     `请用 s3_add_volume 创建卷 title=${t}, sort_order=${sort_order}`
       + (color ? `, color=${color}` : '')
       + (intro?.trim() ? `, intro 如下:\n${intro.trim()}` : '。'),
+    '按本卷每一章各写一笔账，禁止只写其中一章的夜。',
+    ...chapterAccountSeedLines(chapters),
     ch
       ? `创建后请将未分卷章节 [${ch}] 归入该卷(可用 s3_patch_chapter_meta)。`
       : '',

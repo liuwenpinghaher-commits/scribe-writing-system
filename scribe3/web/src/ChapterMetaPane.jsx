@@ -334,8 +334,12 @@ export function ChapterMetaPane({
             <span>本章大纲{!contract.synopsisOk ? ' · 还没写' : contract.issues.some((i) => i.id === 'shortSynopsis') ? ' · 偏短' : ''}</span>
           </li>
           <li className="flex items-center gap-2">
-            <StatusDot ok={contract.beatsOk} />
-            <span>节拍 · {contract.beatCount}/3 条（建议至少 3 条）</span>
+            <StatusDot ok={contract.designReady || contract.playOk || contract.beatsOk} />
+            <span>
+              {contract.designReady || contract.playOk
+                ? '设计齐（这场戏 / 契约）'
+                : `节拍 · ${contract.beatCount}/3 条（建议至少 3 条）`}
+            </span>
           </li>
           <li className="flex items-center gap-2">
             <StatusDot

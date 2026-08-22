@@ -12,6 +12,17 @@ _OLD_PAD = "这不是口号，是巷里炉灰和铜腥贴在骨头上的实感�
 GENERIC_SYNOPSIS_MIN = 16
 _VOLUME_INTRO_BUDGET = 400
 _CODEX_BUDGET = 800
+_LEDGER_BUDGET = 900
+_LEDGER_MAX_ROWS = 8
+_LEDGER_DONE_KEEP = 2
+_LEDGER_LATER_KEEP = 6
+_LEDGER_KNOWN_SKIP = frozenset({
+    "unassigned_or_empty",
+    "single_chapter",
+    "no_synopses",
+    "flag_off",
+})
+_STATUS_ZH = {"tonight": "今晚", "done": "已办", "later": "还没办"}
 
 
 def _clean_name(n: str) -> str:
@@ -304,6 +315,129 @@ def playbook_volume_outline(world: Any, seq: int, rows: list[dict[str, Any]]) ->
     return f"本卷《{title}》"
 
 
+def _same_volume_id(a: str, b: str) -> bool:
+    x = str(a or "").strip()
+    y = str(b or "").strip()
+    if not x or not y:
+        return False
+    return x == y or x.endswith(":" + y) or y.endswith(":" + x)
+
+
+def _row_has_prose(row: dict[str, Any]) -> bool:
+    if not isinstance(row, dict) or "has_prose" not in row:
+        return False
+    return row.get("has_prose") is True
+
+
+def _ledger_eligible(rows: list[dict[str, Any]], seq: int) -> bool:
+    cur = _row_for_seq(rows, seq)
+    vol = str(cur.get("volume") or "").strip()
+    if not vol:
+        return False
+    peers = [r for r in rows if _same_volume_id(str(r.get("volume") or ""), vol)]
+    if len(peers) < 2:
+        return False
+    n_syn = 0
+    for r in peers:
+        syn = str(r.get("synopsis") or "")
+        n = int(r.get("seq") or 0)
+        if syn and not synopsis_is_generic(rows, n, syn):
+            n_syn += 1
+    return n_syn >= 2
+
+
+def assemble_volume_ledger(
+    world: Any,
+    frozen: Any,
+    seq: int,
+    rows: list[dict[str, Any]],
+) -> tuple[str, str]:
+    """本卷台账近窗。返回 (人话文本, skip 原因)。不把卷纲折成钩子。"""
+    try:
+        from scribe3.feature_flags import flag_truthy
+        if not flag_truthy("SCRIBE3_VOLUME_LEDGER"):
+            return "", "flag_off"
+    except Exception:
+        pass
+    cur = _row_for_seq(rows, seq)
+    vol = str(cur.get("volume") or "").strip()
+    if not vol:
+        return "", "unassigned_or_empty"
+    peers = [r for r in rows if _same_volume_id(str(r.get("volume") or ""), vol)]
+    peers.sort(key=lambda r: int(r.get("seq") or 0))
+    if len(peers) < 2:
+        return "", "single_chapter"
+    want = int(seq)
+    items: list[dict[str, Any]] = []
+    for r in peers:
+        try:
+            n = int(r.get("seq") or 0)
+        except (TypeError, ValueError):
+            continue
+        if n <= 0:
+            continue
+        if n == want:
+            status = "tonight"
+        elif _row_has_prose(r):
+            status = "done"
+        else:
+            status = "later"
+        raw_syn = str(r.get("synopsis") or "")
+        items.append({
+            "seq": n,
+            "title": str(r.get("title") or "").strip(),
+            "raw_syn": raw_syn,
+            "synopsis": strip_seed_pad(raw_syn).replace("\n", " ").strip(),
+            "status": status,
+        })
+    fn = getattr(frozen, "get_frozen", None)
+    if callable(fn):
+        for it in items:
+            if it["status"] != "later":
+                continue
+            if abs(int(it["seq"]) - want) > 2:
+                continue
+            try:
+                rec = fn("duty_card", int(it["seq"]))
+            except Exception:
+                rec = None
+            if isinstance(rec, dict) and (
+                str(rec.get("must_happen") or "").strip() or str(rec.get("bill") or "").strip()
+            ):
+                it["status"] = "done"
+    n_syn = 0
+    for it in items:
+        if it["synopsis"] and not synopsis_is_generic(rows, it["seq"], it["raw_syn"]):
+            n_syn += 1
+    if n_syn < 2:
+        return "", "no_synopses"
+    tonight = [it for it in items if it["status"] == "tonight"]
+    done = sorted((it for it in items if it["status"] == "done"), key=lambda x: x["seq"])[-_LEDGER_DONE_KEEP:]
+    later = sorted((it for it in items if it["status"] == "later"), key=lambda x: x["seq"])[:_LEDGER_LATER_KEEP]
+    keep = {it["seq"] for it in tonight + done + later}
+    window = [it for it in items if it["seq"] in keep][:_LEDGER_MAX_ROWS]
+    lines: list[str] = []
+    for it in window:
+        zh = _STATUS_ZH.get(it["status"], "还没办")
+        title = it["title"] or f"第{it['seq']}章"
+        syn = it["synopsis"]
+        if syn:
+            lines.append(f"第{it['seq']}章《{title}》〔{zh}〕：{syn}")
+        else:
+            lines.append(f"第{it['seq']}章《{title}》〔{zh}〕")
+    text = "\n".join(lines)
+    if len(text) > _LEDGER_BUDGET:
+        text = text[:_LEDGER_BUDGET]
+    return text, ""
+
+
+def playbook_volume_ledger(
+    world: Any, frozen: Any, seq: int, rows: list[dict[str, Any]],
+) -> str:
+    text, _reason = assemble_volume_ledger(world, frozen, seq, rows)
+    return text
+
+
 def playbook_chapter_duty(seq: int, rows: list[dict[str, Any]]) -> str:
     row = _row_for_seq(rows, seq)
     title = str(row.get("title") or "").strip()
@@ -464,8 +598,29 @@ def playbook_codex_recall(
             parts.append(f"{name}（代价：{cost}）" if cost else name)
     text = "\n".join(parts)
     if text == "这些已经为真，不许另造。":
-        return ""
-    return text[:_CODEX_BUDGET]
+        text = ""
+    else:
+        text = text[:_CODEX_BUDGET]
+    try:
+        from scribe3.feature_flags import flag_truthy
+        if flag_truthy("SCRIBE3_RECALL_SHADOW"):
+            from scribe3.recall_service import shadow_diff
+            shadow_diff(world, seq, focalizer, text, query=" ".join(needles))
+        if flag_truthy("SCRIBE3_RECALL_PLAYBOOK"):
+            from scribe3.recall_service import pack_text, recall
+            pack = recall(
+                world,
+                chapter=int(seq),
+                focalizer=focalizer,
+                query=" ".join(needles),
+                budget_tag="playbook_codex",
+            )
+            alt = pack_text(pack)
+            if alt:
+                return alt[:_CODEX_BUDGET]
+    except Exception as exc:
+        _log.info("codex_recall overlay skip: %s", type(exc).__name__)
+    return text
 
 
 def playbook_epistemic_history(frozen: Any, seq: int) -> str:
@@ -515,6 +670,7 @@ def playbook_prev_prose_tail(world: Any, seq: int) -> str:
 
 GUIDE_SLOT_KEYS = (
     "volume_outline",
+    "volume_ledger",
     "north_star",
     "chapter_duty",
     "recent_duty_summary",
@@ -568,6 +724,26 @@ def build_ctx(
         lambda: playbook_epistemic_history(frozen, seq),
     )
     prose_tail = _slot("prev_prose_tail", lambda: playbook_prev_prose_tail(world, seq))
+    volume_ledger = ""
+    ledger_skip = ""
+    try:
+        volume_ledger, ledger_skip = assemble_volume_ledger(world, frozen, seq, rows)
+    except Exception as exc:
+        from scribe3.soft_fail import soft_fail
+        soft_fail("build_ctx.volume_ledger", exc, logger=_log)
+        guide_fail.append("volume_ledger")
+        volume_ledger = ""
+        ledger_skip = "threw"
+    else:
+        if (
+            not volume_ledger
+            and ledger_skip not in _LEDGER_KNOWN_SKIP
+            and _ledger_eligible(rows, seq)
+        ):
+            guide_fail.append("volume_ledger")
+            _log.warning("volume_ledger empty despite eligible seq=%s skip=%s", seq, ledger_skip)
+        elif ledger_skip:
+            _log.info("volume_ledger skip seq=%s reason=%s", seq, ledger_skip)
     ctx: dict[str, Any] = {
         "seq": int(seq),
         "focalizer": foc,
@@ -580,6 +756,7 @@ def build_ctx(
         "imagery": book_imagery(world),
         "gender_roster": gender_roster(prev_state, cards),
         "volume_outline": volume_outline,
+        "volume_ledger": volume_ledger,
         "north_star": north_star,
         "chapter_duty": chapter_duty,
         "recent_duty_summary": recent_duty,
@@ -588,13 +765,15 @@ def build_ctx(
         "characters_epistemic_history": epistemic,
         "prev_prose_tail": prose_tail,
         "_guide_fail": list(guide_fail),
+        "_volume_ledger_skip": ledger_skip,
     }
     if extra:
         ctx.update(extra)
     _log.info(
-        "build_ctx seq=%s lens volume=%s north=%s chapter_duty=%s recent_duty=%s recent_scene=%s codex=%s epistemic=%s prose_tail=%s fail=%s",
+        "build_ctx seq=%s lens volume=%s ledger=%s north=%s chapter_duty=%s recent_duty=%s recent_scene=%s codex=%s epistemic=%s prose_tail=%s fail=%s",
         seq,
         len(volume_outline or ""),
+        len(volume_ledger or ""),
         len(north_star or ""),
         len(chapter_duty or ""),
         len(recent_duty or ""),

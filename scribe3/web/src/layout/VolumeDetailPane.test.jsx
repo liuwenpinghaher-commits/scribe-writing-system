@@ -53,4 +53,23 @@ describe('VolumeDetailPane', () => {
     expect(seeds[0]).toMatch(/s3_add_chapter/)
     expect(api.createChapter).not.toHaveBeenCalled()
   })
+
+  it('侧栏列出本卷还没办的几笔，章下展示梗概', async () => {
+    api.outline.mockResolvedValue({
+      volumes: [{ id: 'vol-2', title: '第二卷', intro: '只写了华山那一夜', color: '#123456', sort_order: 2 }],
+      chapters: [
+        { seq: 1, title: '华山成核', volume: 'vol-2', synopsis: '按碎片', has_prose: true, word_count: 1900, label: '定稿' },
+        { seq: 2, title: '四十二度', volume: 'vol-2', synopsis: '体温标价', has_prose: false, word_count: 0, label: '未设' },
+        { seq: 3, title: '金縢裂纹', volume: 'vol-2', synopsis: '', has_prose: false, word_count: 0 },
+      ],
+    })
+    render(<VolumeDetailPane node={{ id: 'vol:vol-2', type: 'volume', ref: 'vol-2', label: '第二卷' }} />)
+    expect(await screen.findByText('体温标价')).toBeTruthy()
+    expect(screen.getByText('这章还没立要办的事')).toBeTruthy()
+    const later = await screen.findByTestId('volume-remaining-later')
+    expect(later.textContent).toMatch(/四十二度/)
+    expect(later.textContent).toMatch(/金縢裂纹/)
+    expect(later.textContent).not.toMatch(/华山成核/)
+    expect(await screen.findByTestId('volume-intro-one-night')).toBeTruthy()
+  })
 })

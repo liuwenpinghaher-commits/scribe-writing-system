@@ -169,6 +169,37 @@ def sync_faction_secrets(store, name: str, row: dict) -> dict:
     return counts
 
 
+def sync_role_secrets(store, name: str, row: dict) -> dict:
+    """角色类 secret 字段同步进限知命题。默认关；势力桥不受影响。"""
+    try:
+        from scribe3.feature_flags import flag_truthy
+        if not flag_truthy("SCRIBE3_SECRET_BRIDGE_ROLES"):
+            return {"skipped": True, "created": 0, "updated": 0, "deleted": 0}
+    except Exception:
+        return {"skipped": True, "created": 0, "updated": 0, "deleted": 0}
+    entity_id = name if str(name).startswith("role:") else f"role:{name}"
+    counts = {"created": 0, "updated": 0, "deleted": 0, "skipped": False}
+    keys = secret_capable_keys("character")
+    for key in keys:
+        flagged = bool(row.get(secret_flag_key(key)))
+        has_value = _has_value(row.get(key))
+        existing_local = _find_bridge_local(store, entity_id, key)
+        if flagged and has_value:
+            text = _summarize(row.get(key))
+            store.upsert_bridge_proposition(
+                local=existing_local, entity_id=entity_id,
+                attribute=key, value=text, source=SOURCE,
+            )
+            if existing_local:
+                counts["updated"] += 1
+            else:
+                counts["created"] += 1
+        elif existing_local:
+            store.delete_bridge_proposition(existing_local)
+            counts["deleted"] += 1
+    return counts
+
+
 def is_faction_bridge_mirror(entity_id: str, attribute: str) -> bool:
     """此 (entity_id, attribute) 是否本模块 `sync_faction_secrets` 造的势力 secret 字段镜像?
 

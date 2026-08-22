@@ -167,13 +167,30 @@ class StructureMixin:
         SurrealDB 不支持 ORDER BY (expr ?? expr) 括号形式,改在 Python 侧排序。
         """
         vols = self.list_volumes()
-        rows = self._query(
+        sql = (
             "SELECT seq, sort_order, title, synopsis, focalizer, "
             "(IF volume THEN meta::id(volume) ELSE NONE END) AS volume, label, "
             "qc_word_count AS word_count, qc_issues, qc_causal, qc_breakdown, qc_cache_revision, "
             "scene_count, scene_meta, beats, beats_meta, "
             "craft_compliance, craft_compliance_at "
-            "FROM chapter:.. WHERE archived = NONE OR archived != true")
+            "FROM chapter:.. WHERE archived = NONE OR archived != true"
+        )
+        sql_flags = (
+            "SELECT seq, sort_order, title, synopsis, focalizer, "
+            "(IF volume THEN meta::id(volume) ELSE NONE END) AS volume, label, "
+            "qc_word_count AS word_count, qc_issues, qc_causal, qc_breakdown, qc_cache_revision, "
+            "scene_count, scene_meta, beats, beats_meta, "
+            "craft_compliance, craft_compliance_at, "
+            "(IF prose IS NONE OR prose = '' THEN false ELSE true END) AS has_prose "
+            "FROM chapter:.. WHERE archived = NONE OR archived != true"
+        )
+        try:
+            rows = self._query(sql_flags)
+        except Exception:
+            rows = self._query(sql)
+        for r in rows:
+            if "has_prose" in r:
+                r["has_prose"] = bool(r.get("has_prose"))
         # Python 侧排序:sort_order 为 None 时回退 seq
         rows.sort(key=lambda r: (r.get("sort_order") if r.get("sort_order") is not None else r["seq"]))
         import json
@@ -342,16 +359,29 @@ class StructureMixin:
             }
 
         chars = self.characters()
-        char_items = [{"name": c.name, "id": c.id, "local": c.id.split(":", 1)[-1],
-                       "importance": c.traits.get("importance"),
-                       "secret": bool(c.traits.get("backstory_secret"))}
-                      for c in chars]
+        char_items = []
+        for c in chars:
+            traits = c.traits if isinstance(getattr(c, "traits", None), dict) else {}
+            char_items.append({
+                "name": c.name, "id": c.id, "local": c.id.split(":", 1)[-1],
+                "importance": traits.get("importance"),
+                "secret": bool(traits.get("backstory_secret")),
+                "_ready_row": {"name": c.name, **traits},
+            })
 
         def _char_meta(c):
             return {"importance": c.get("importance"), "id": c.get("id")}
 
+        def _ready_badges(kind, row):
+            from scribe3.iceberg import codex_ready_badge
+            return [codex_ready_badge(kind, row)]
+
         def _char_badge(c):
-            return [{"kind": "secret", "tone": "faint"}] if c.get("secret") else None
+            badges = []
+            if c.get("secret"):
+                badges.append({"kind": "secret", "tone": "faint"})
+            badges.extend(_ready_badges("character", c.get("_ready_row") or c))
+            return badges
 
         # 世界真相(引擎 ref=proposition):开区间投影 + classify_bucket 滤噪
         # 见 truth_surface · PR-UX1/UX1b / KD-17；SCRIBE3_TRUTH_UI=legacy_tree 跳过滤
@@ -399,13 +429,18 @@ class StructureMixin:
         codex_children = [
             _cat("character", "角色", char_items, "character", ref_key="local",
                  meta_fn=_char_meta, badge_fn=_char_badge),
-            _cat("faction", "势力", self.list_factions(), "faction"),
-            _cat("item", "物件", self.list_items(), "item"),
-            _cat("term", "术语", self.list_terms(), "term"),
-            _cat("world_rule", "世界规则", self.list_world_rules(), "world_rule"),
+            _cat("faction", "势力", self.list_factions(), "faction",
+                 badge_fn=lambda r: _ready_badges("faction", r)),
+            _cat("item", "物件", self.list_items(), "item",
+                 badge_fn=lambda r: _ready_badges("item", r)),
+            _cat("term", "术语", self.list_terms(), "term",
+                 badge_fn=lambda r: _ready_badges("term", r)),
+            _cat("world_rule", "世界规则", self.list_world_rules(), "world_rule",
+                 badge_fn=lambda r: _ready_badges("world_rule", r)),
             _cat("promise", "伏笔", self.list_promises(), "promise",
                  name_key="text", ref_key="id"),
-            _cat("motif", "母题", self.list_motifs(), "motif", ref_key="id"),
+            _cat("motif", "母题", self.list_motifs(), "motif", ref_key="id",
+                 badge_fn=lambda r: _ready_badges("motif", r)),
             prop_cat,
         ]
         codex = {

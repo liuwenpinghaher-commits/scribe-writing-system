@@ -175,6 +175,8 @@ async def s3_set_intent(ctx: Context,
                         total_word_goal: int | None = None,
                         daily_word_goal: int | None = None,
                         arc_tracking: str | None = None,
+                        structure_mode: bool | None = None,
+                        structure_budget: str | None = None,
                         work: str | None = None) -> dict:
     """写入/合并本书北极星意图(写,待批)。
 
@@ -212,6 +214,10 @@ async def s3_set_intent(ctx: Context,
             return {"status": "error", "tool": "s3_set_intent",
                     "reason": "arc_tracking 须为 on|off"}
         fields["arc_tracking"] = at
+    if structure_mode is not None:
+        fields["structure_mode"] = bool(structure_mode)
+    if structure_budget is not None:
+        fields["structure_budget"] = structure_budget
     if not fields:
         return {"status": "noop", "tool": "s3_set_intent", "reason": "no fields"}
     summary = " / ".join(f"{k}={str(v)[:40]}" for k, v in fields.items())
@@ -1079,6 +1085,107 @@ async def s3_patch_volume(ctx: Context, volume_id: str,
         return {"volume_id": volume_id, "fields": list(fields)}
 
     return commit_if_approved("s3_patch_volume", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_plan_volumes(ctx: Context, work: str | None = None) -> dict:
+    """按卷把账立住：每一卷的 intro 要对着该卷每一章各办哪一件。不写节拍，不写正文。"""
+    st = _store_for(work)
+    outline = st.outline() if hasattr(st, "outline") else {"volumes": [], "chapters": []}
+    vols = outline.get("volumes") or []
+    chs = outline.get("chapters") or []
+    lines = ["请按卷把账立住。每一卷 intro 必须按章写出各办哪一件，禁止只写其中一章的夜。"]
+    for v in vols:
+        vid = v.get("id")
+        peers = [c for c in chs if str(c.get("volume") or "") == str(vid or "")]
+        lines.append(f"卷《{v.get('title') or vid}》volume_id={vid} 现有 {len(peers)} 章。")
+        for c in peers:
+            lines.append(f"  第{c.get('seq')}章《{c.get('title') or ''}》：{(c.get('synopsis') or '还没立要办的事')}")
+    ok = await _ask(ctx, "\n".join(lines)[:1500])
+    return commit_if_approved("s3_plan_volumes", ok, lambda: {"volumes": len(vols), "planned": True})
+
+
+@mcp.tool(annotations=_RW)
+async def s3_plan_chapter_accounts(ctx: Context, volume_id: str, work: str | None = None) -> dict:
+    """只给这一卷的每一章立一句话账（梗概）。不写戏，不写正文。"""
+    if not str(volume_id or "").strip():
+        return {"status": "error", "code": "volume_required", "message": "一次只给一卷立账，请点名 volume_id。"}
+    ok = await _ask(ctx, f"给卷 {volume_id} 的每一章立一句话账（谁、在哪、办成什么）。不写戏。")
+
+    def _write():
+        st = _store_for(work)
+        outline = st.outline() if hasattr(st, "outline") else {"chapters": []}
+        seqs = [c.get("seq") for c in (outline.get("chapters") or [])
+                if str(c.get("volume") or "") == str(volume_id)]
+        return {"volume_id": volume_id, "seqs": seqs, "note": "账目由主编按章补进 synopsis，本工具只锁定这一卷。"}
+
+    return commit_if_approved("s3_plan_chapter_accounts", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_refine_volume_outline(ctx: Context, volume_id: str, intro: str, work: str | None = None) -> dict:
+    """重写这一卷的卷纲。必须按章列出各办哪一件。"""
+    if not str(volume_id or "").strip():
+        return {"status": "error", "code": "volume_required", "message": "请点名要改的那一卷。"}
+    if not str(intro or "").strip():
+        return {"status": "error", "code": "intro_required", "message": "请写出这一卷每一章各办哪一件。"}
+    ok = await _ask(ctx, f"改卷纲 {volume_id}：{intro[:400]}")
+
+    def _write():
+        st = _store_for(work)
+        if not st.update_volume(volume_id, {"intro": intro}):
+            return False
+        return {"volume_id": volume_id, "intro_len": len(intro)}
+
+    return commit_if_approved("s3_refine_volume_outline", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_batch_stage(
+    ctx: Context,
+    volume_id: str,
+    stage: str,
+    work: str | None = None,
+    persist: bool = True,
+) -> dict:
+    """只给这一卷批跑责任或戏。禁止演绎/草稿/正文，禁止一次全书。"""
+    from scribe3.playbook.stages import normalize_stage
+    stg = normalize_stage(stage)
+    if stg not in ("duty", "design"):
+        return {
+            "status": "error",
+            "http": 422,
+            "code": "batch_stage_forbidden",
+            "message": "一次只跑一卷的责任和戏，不写演绎和正文。",
+        }
+    if not str(volume_id or "").strip():
+        return {"status": "error", "http": 422, "code": "volume_required", "message": "请点名这一卷。"}
+    ok = await _ask(ctx, f"给卷 {volume_id} 批跑 {stg}（只这一卷，不写正文）")
+
+    def _write():
+        st = _store_for(work)
+        outline = st.outline() if hasattr(st, "outline") else {"chapters": []}
+        seqs = [int(c.get("seq")) for c in (outline.get("chapters") or [])
+                if str(c.get("volume") or "") == str(volume_id) and c.get("seq") is not None]
+        if not seqs:
+            return {"volume_id": volume_id, "stage": stg, "seqs": [], "note": "这一卷还没有章。"}
+        from scribe3.stage_generate import thicken_stage, STAGE_MAX_TOKENS
+        results = []
+        for seq in seqs:
+            ch = st.get_chapter(int(seq)) or {}
+            def llm_fn(prompt, max_tokens=STAGE_MAX_TOKENS.get(stg, 4096), **kwargs):
+                from scribe3.api.services.misc_helpers import _pilot_llm_gen
+                return _pilot_llm_gen(
+                    st, work or "main", int(seq), stg, prompt,
+                    max_tokens=max_tokens, system=kwargs.get("system"),
+                )
+            out = thicken_stage(
+                stg, ch, llm_fn=llm_fn, persist_fn=None, seq=int(seq), st=st, work=work or "main",
+            )
+            results.append({"seq": int(seq), "ok": bool(out.get("ok")), "code": out.get("code") or out.get("status")})
+        return {"volume_id": volume_id, "stage": stg, "results": results}
+
+    return commit_if_approved("s3_batch_stage", ok, _write)
 
 
 @mcp.tool(annotations=_RW)

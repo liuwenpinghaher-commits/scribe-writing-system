@@ -9,16 +9,22 @@ class IntentMixin:
         try:
             rows = self._query(
                 "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold, "
-                "total_word_goal, daily_word_goal, arc_tracking, imagery, north_star FROM intent:main")
+                "total_word_goal, daily_word_goal, arc_tracking, imagery, north_star, "
+                "structure_mode, structure_budget FROM intent:main")
         except Exception:
             try:
                 rows = self._query(
                     "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold, "
-                    "total_word_goal, daily_word_goal, arc_tracking, imagery FROM intent:main")
+                    "total_word_goal, daily_word_goal, arc_tracking, imagery, north_star FROM intent:main")
             except Exception:
-                rows = self._query(
-                    "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold, "
-                    "total_word_goal, daily_word_goal, arc_tracking FROM intent:main")
+                try:
+                    rows = self._query(
+                        "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold, "
+                        "total_word_goal, daily_word_goal, arc_tracking, imagery FROM intent:main")
+                except Exception:
+                    rows = self._query(
+                        "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold, "
+                        "total_word_goal, daily_word_goal, arc_tracking FROM intent:main")
         r = rows[0] if rows else {}
         result = {"reader_feeling": r.get("reader_feeling", ""),
                   "emotional_arc": r.get("emotional_arc", ""),
@@ -36,6 +42,10 @@ class IntentMixin:
         # 弧光追踪：on|off；未设则不写键（调用方默认 on）
         if r.get("arc_tracking") is not None and str(r.get("arc_tracking")).strip():
             result["arc_tracking"] = str(r["arc_tracking"]).strip().lower()
+        if r.get("structure_mode") is not None:
+            result["structure_mode"] = bool(r.get("structure_mode"))
+        if r.get("structure_budget") is not None and str(r.get("structure_budget")).strip():
+            result["structure_budget"] = r.get("structure_budget")
         return result
 
     def set_intent(self, fields: dict) -> None:
@@ -57,6 +67,16 @@ class IntentMixin:
             if at not in ("on", "off"):
                 raise ValueError("arc_tracking 须为 on|off")
             content["arc_tracking"] = at
+        if "structure_mode" in fields and fields.get("structure_mode") is not None:
+            raw = fields.get("structure_mode")
+            if isinstance(raw, str):
+                content["structure_mode"] = raw.strip().lower() in ("1", "true", "yes", "on")
+            else:
+                content["structure_mode"] = bool(raw)
+        if "structure_budget" in fields and fields.get("structure_budget") is not None:
+            import json
+            sb = fields.get("structure_budget")
+            content["structure_budget"] = sb if isinstance(sb, str) else json.dumps(sb, ensure_ascii=False)
         if not content:
             return
         self._execute_write("UPSERT intent:main MERGE $c", {"c": content})

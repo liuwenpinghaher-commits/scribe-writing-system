@@ -484,6 +484,53 @@ class RecallMixin:
                 break
         return out
 
+    def relation_recall(self, entity_id: str, hops: int = 2, chapter: int | None = None) -> list[dict]:
+        """人物/实体关系 ≤2 跳。不走向量。secret 边照实标出，调用方 fail-closed。"""
+        seed = str(entity_id or "").strip()
+        if not seed:
+            return []
+        if ":" not in seed:
+            seed = f"role:{seed}"
+        depth = max(1, min(int(hops), 2))
+        seen = {seed}
+        frontier = [seed]
+        facts: list[dict] = []
+        for _ in range(depth):
+            nxt: list[str] = []
+            for eid in frontier:
+                try:
+                    rows = self._query(
+                        "SELECT a, b, relation_type, perception_a, perception_b, truth, truth_secret "
+                        "FROM entity_relation WHERE a=$e OR b=$e LIMIT 24",
+                        {"e": eid},
+                    ) or []
+                except Exception:
+                    rows = []
+                for r in rows:
+                    if not isinstance(r, dict):
+                        continue
+                    a = str(r.get("a") or "")
+                    b = str(r.get("b") or "")
+                    other = b if a == eid else a
+                    if other and other not in seen:
+                        seen.add(other)
+                        nxt.append(other)
+                    val = str(r.get("truth") or r.get("perception_a") or r.get("perception_b") or "").strip()
+                    if not val:
+                        continue
+                    facts.append({
+                        "entity_id": other or eid,
+                        "attribute": str(r.get("relation_type") or "relation"),
+                        "value": val,
+                        "secret": bool(r.get("truth_secret")),
+                        "valid_from": 1,
+                        "valid_to": None,
+                    })
+            frontier = nxt
+            if not frontier:
+                break
+        return facts[:24]
+
     def recall_lessons(self, query: str, k: int = 3, min_sim: float | None = None) -> list[dict]:
         """HNSW 语义召回 lesson,相似度下限过滤(宁缺勿滥:相关但不适用比无关更毒),
         命中即 uses+1(质量闭环);invalid 条目 Python 侧过滤(避开 KNN×WHERE 组合坑,Q4)。"""

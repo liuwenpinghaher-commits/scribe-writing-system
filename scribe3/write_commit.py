@@ -27,6 +27,8 @@ DEFAULT_WRITE_GATED: frozenset[str] = frozenset({
     "s3_mark_herring", "s3_touch_promise", "s3_abandon_promise",
     "s3_add_entity_relation", "s3_author_pref_add",
     "s3_add_volume", "s3_patch_volume",
+    "s3_plan_volumes", "s3_plan_chapter_accounts",
+    "s3_refine_volume_outline", "s3_batch_stage",
     "s3_add_chapter", "s3_patch_chapter_meta",
     "s3_patch_play", "s3_patch_contract",
     "s3_generate_stage", "s3_save_chapter_draft",

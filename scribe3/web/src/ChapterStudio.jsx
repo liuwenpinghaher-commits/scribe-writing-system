@@ -33,6 +33,7 @@ import {
   executionSoftSummary,
 } from './lib/chapterContractGate.js'
 import { loadIaDensity, saveIaDensity, auxVisibleForDensity } from './lib/iaDensity.js'
+import { remainingLaterFromOutline, chapterAccountLine } from './lib/volumeLedger.js'
 
 
 // 章五阶段(Task 7):大纲→节拍→演绎→草稿→正文。字段分列禁止合并(IA KD-IA-1)。
@@ -576,37 +577,39 @@ function contractFieldText(node) {
 
 function missingPlay(err) {
   const code = err?.body?.detail?.code || err?.body?.code
-  return err?.status === 404 || code === 'play_missing' || code === 'contract_missing'
+  return err?.status === 404
+    || code === 'play_missing'
+    || code === 'contract_missing'
+    || code === 'duty_missing'
 }
 
 function DesignTab({ seq, work, meta, onSaved }) {
   const { setChiefIntent } = useChiefSlot()
-  const [play, setPlay] = useState(null)
-  const [contract, setContract] = useState(null)
-  const [loadingPlay, setLoadingPlay] = useState(true)
-  const [loadErr, setLoadErr] = useState('')
+  const [duty, setDuty] = useState(null)
+  const [later, setLater] = useState([])
+  const play = meta?.play ?? null
+  const contract = meta?.contract ?? null
+  const loadingPlay = !(meta && Object.prototype.hasOwnProperty.call(meta, 'play'))
+  const loadErr = meta?.playErr || ''
   useEffect(() => {
     let alive = true
-    setLoadingPlay(true)
-    Promise.all([
-      api.chapterPlay(seq, work).catch((e) => (missingPlay(e) ? null : Promise.reject(e))),
-      api.chapterContract(seq, work).catch((e) => (missingPlay(e) ? null : Promise.reject(e))),
-    ]).then(([p, c]) => {
-      if (!alive) return
-      setPlay(p)
-      setContract(c)
-      setLoadErr('')
-    }).catch((e) => {
-      if (!alive) return
-      setLoadErr(e?.body?.detail?.message || e?.message || '这场戏加载失败')
-    }).finally(() => { if (alive) setLoadingPlay(false) })
+    const dutyFn = typeof api.chapterDuty === 'function' ? api.chapterDuty : null
+    if (dutyFn) {
+      dutyFn(seq, work)
+        .then((d) => { if (alive) setDuty(d) })
+        .catch((e) => { if (alive) setDuty(missingPlay(e) ? null : null) })
+    }
+    if (typeof api.outline === 'function') {
+      api.outline()
+        .then((data) => {
+          if (!alive) return
+          setLater(remainingLaterFromOutline(data, seq, { volume: meta?.volume }))
+        })
+        .catch(() => { if (alive) setLater([]) })
+    }
     return () => { alive = false }
-  }, [seq, work])
+  }, [seq, work, meta?.volume])
 
-  const spine = (meta && meta.chapter_spine && typeof meta.chapter_spine === 'object')
-    ? meta.chapter_spine
-    : null
-  const hasSpine = !!(spine && (spine.goal || spine.choice))
   const playText = String(play?.text || '').trim()
   const fields = (contract && typeof contract.fields === 'object') ? contract.fields : {}
   const nails = [
@@ -617,9 +620,8 @@ function DesignTab({ seq, work, meta, onSaved }) {
     ['没做完的', contractFieldText(fields.hook)],
   ].filter(([, t]) => t)
   const contractBeats = Array.isArray(contract?.beats) ? contract.beats.filter(Boolean) : []
-  const legacyBeats = Array.isArray(meta?.beats) ? meta.beats.filter(Boolean) : []
   const usePlay = !!playText
-  const beatRows = usePlay ? contractBeats : legacyBeats
+  const beatRows = usePlay ? contractBeats : []
   const beatN = beatRows.length
   const jumpTo = (id) => {
     const el = document.getElementById(id)
@@ -630,7 +632,7 @@ function DesignTab({ seq, work, meta, onSaved }) {
     `第 ${seq} 章设计`,
     hint || `请先为第 ${seq} 章立责任，再写一篇戏。`,
   )
-  const empty = !usePlay && !hasSpine
+  const happen = String(duty?.must_happen || duty?.body?.must_happen || '').trim()
   return (
     <div className={STAGE_WRAP} data-testid="chapter-workbench-shell" data-phase="design">
       <StageTitle
@@ -656,7 +658,7 @@ function DesignTab({ seq, work, meta, onSaved }) {
           type="button"
           className="h-7 px-2 rounded-md text-f12 border border-line/50 hover:bg-canvas cursor-pointer"
           data-testid="design-jump-spine"
-          onClick={() => jumpTo('chapter-spine')}
+          onClick={() => jumpTo('chapter-play')}
         >
           这场戏
         </button>
@@ -666,30 +668,30 @@ function DesignTab({ seq, work, meta, onSaved }) {
           data-testid="design-jump-beats"
           onClick={() => jumpTo('chapter-beats')}
         >
-          {usePlay || nails.length ? `从戏里抄出的${beatN ? ` · ${beatN} 拍` : ''}` : `节拍${beatN ? ` · ${beatN}` : ''}`}
+          {usePlay || nails.length ? `从戏里抄出的${beatN ? ` · ${beatN} 拍` : ''}` : '从戏里抄出的'}
         </button>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 p-3">
-        <div id="chapter-spine" data-testid="outline-readonly">
+        {happen ? (
+          <div className="text-f13 text-ink" data-testid="design-duty">今晚要办：{happen}</div>
+        ) : null}
+        {later.length > 0 ? (
+          <section data-testid="design-remaining-later" className="space-y-1">
+            <div className="text-f12 text-faint">本卷还没办的</div>
+            {later.map((ch) => (
+              <div key={ch.seq} className="text-f13 text-ink">
+                第{ch.seq}章《{ch.title || ''}》：{chapterAccountLine(ch)}
+              </div>
+            ))}
+          </section>
+        ) : null}
+        <div id="chapter-play" data-testid="outline-readonly">
           {loadingPlay ? (
             <div className="text-faint text-f13">正在载入这场戏…</div>
           ) : loadErr ? (
             <div role="alert" className="text-f13 text-danger">{loadErr}</div>
           ) : usePlay ? (
             <div className="text-f13 text-ink whitespace-pre-wrap leading-relaxed" data-testid="design-play-text">{playText}</div>
-          ) : hasSpine ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {SPINE_CARDS.map(([key, label]) => {
-                const body = spineSlotText(spine, key)
-                if (key === 'forbid' && !body) return null
-                return (
-                  <div key={key} className="rounded-md border border-line/40 bg-canvas px-2 py-1.5">
-                    <div className="text-f12 text-faint mb-0.5">{label}</div>
-                    <div className="text-f13 text-ink whitespace-pre-wrap">{body || '（空）'}</div>
-                  </div>
-                )
-              })}
-            </div>
           ) : (
             <div className="text-faint text-f13">（还没有这场戏 · 让主编先写设计）</div>
           )}
@@ -717,41 +719,7 @@ function DesignTab({ seq, work, meta, onSaved }) {
               ))}
             </>
           ) : (
-            <>
-              <div className="flex items-baseline justify-between gap-2">
-                <h3 className="text-f14 font-medium text-ink">节拍</h3>
-                <span className="text-f12 text-faint">
-                  {beatN ? `本章 ${beatN} 拍` : '还没写拍'}
-                </span>
-              </div>
-              {empty || beatN === 0 ? (
-                <div className="text-faint text-f13">（还没有这场戏 · 让主编先写设计）</div>
-              ) : beatRows.map((b, i) => (
-                <div key={b.id || i} className="space-y-2" data-testid={`beat-card-${i}`}>
-                  <div className="text-f12 text-faint">拍{i + 1}</div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {GCD_FIELDS.map(([key, label]) => {
-                      const body = String(b?.[key] ?? '').trim()
-                      if (key === 'underwater' && !body) return null
-                      if (key === 'choice' && (!body || body === '无')) {
-                        return (
-                          <div key={key} className="rounded-md border border-line/40 bg-canvas px-2 py-1.5">
-                            <div className="text-f12 text-faint mb-0.5">{label}</div>
-                            <div className="text-f13 text-faint">无</div>
-                          </div>
-                        )
-                      }
-                      return (
-                        <div key={key} className="rounded-md border border-line/40 bg-canvas px-2 py-1.5">
-                          <div className="text-f12 text-faint mb-0.5">{label}</div>
-                          <div className="text-f13 text-ink whitespace-pre-wrap">{body || '（空）'}</div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              ))}
-            </>
+            <div className="text-faint text-f13">（还没有这场戏 · 让主编先写设计）</div>
           )}
         </section>
       </div>
@@ -1134,8 +1102,18 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
       else setLoading(false)
       setExecutionSoft(null)
     }
-    api.chapter(seq, work, { includeSuggest: true })
-      .then((ch) => {
+    const playP = typeof api.chapterPlay === 'function'
+      ? api.chapterPlay(seq, work).catch((e) => (missingPlay(e) ? null : Promise.reject(e)))
+      : Promise.resolve(null)
+    const contractP = typeof api.chapterContract === 'function'
+      ? api.chapterContract(seq, work).catch((e) => (missingPlay(e) ? null : Promise.reject(e)))
+      : Promise.resolve(null)
+    Promise.all([
+      api.chapter(seq, work, { includeSuggest: true }),
+      playP,
+      contractP,
+    ])
+      .then(([ch, p, c]) => {
         if (!alive) return
         setMeta((m) => ({
           ...(m || {}),
@@ -1156,15 +1134,21 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
           narrative_contract: ch?.narrative_contract || {},
           chapter_spine: ch?.chapter_spine || {},
           scene_suggest: ch?.scene_suggest || null,
+          play: p,
+          contract: c,
+          playErr: '',
         }))
       })
-      .catch(() => {
+      .catch((e) => {
         if (!alive) return
         setMeta((m) => ({
           ...(m || {}),
           title: '', synopsis: '', beats: [], label: '', volume: '',
           focalizer: '', scene_truth: '', scene_truth_revision: 0,
           deductions: [], involved_characters: [], proseWords: 0,
+          play: null,
+          contract: null,
+          playErr: e?.body?.detail?.message || e?.message || '',
         }))
       })
       .finally(() => { if (alive) setLoading(false) })

@@ -352,9 +352,11 @@ def _run_duty(store, seq, ctx, llm_fn, *, force, persist):
         judge_ctx=lambda d: {
             "duty_json": _json(d),
             "volume_outline": ctx.get("volume_outline"),
+            "volume_ledger": ctx.get("volume_ledger"),
             "chapter_duty": ctx.get("chapter_duty"),
             "recent_duty_summary": ctx.get("recent_duty_summary"),
             "prev_hook_quote": ctx.get("prev_hook_quote"),
+            "seq": ctx.get("seq"),
             **_continuity_judge(ctx),
         },
         llm_fn=llm_fn,
@@ -381,6 +383,8 @@ def _run_design(store, seq, ctx, llm_fn, *, force, rewrite, persist):
             judge_ctx=lambda p: {
                 "duty_json": _json(duty),
                 "play_text": p.get("text") if isinstance(p, dict) else str(p),
+                "volume_ledger": ctx.get("volume_ledger"),
+                "seq": ctx.get("seq"),
                 **_continuity_judge(ctx),
             },
             llm_fn=llm_fn,

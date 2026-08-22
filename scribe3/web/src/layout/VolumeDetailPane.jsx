@@ -7,6 +7,11 @@ import { seedChiefNarrativeWrite } from '../lib/chiefSeed.js'
 import { buildAddVolumeSeed, buildPatchVolumeSeed } from '../lib/volumeSeed.js'
 import { loadIaDensity, volumeReviewVisible } from '../lib/iaDensity.js'
 import { volumeReviewPlain } from '../lib/volumeSoftHint.js'
+import {
+  chapterAccountLine,
+  introLooksLikeOneChapterNight,
+  volumeRemainingWork,
+} from '../lib/volumeLedger.js'
 
 function volumeIdOf(node) {
   if (node?.ref != null) return node.ref
@@ -127,6 +132,7 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
       intro: form.intro,
       color: form.color,
       sort_order: form.sort_order,
+      chapters,
     })
     seedChiefNarrativeWrite(
       'volume',
@@ -162,6 +168,7 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
       color: form.color,
       sort_order: maxOrder + 1,
       chapterSeqs: chapters.map((c) => c.seq),
+      chapters,
     })
     seedChiefNarrativeWrite(
       'volume',
@@ -294,9 +301,14 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
               </div>
             </div>
             <p className="mb-2 text-f12 text-faint leading-relaxed" data-testid="volume-intro-hint">
-              卷纲是整卷备忘，不是单章大纲：写本章时系统可能摘一小段当背景；空则跳过。
+              卷纲要对着这一卷每一章各写一笔账，禁止只写其中一章的夜。
               下方是本地草稿，不会直接入库；点「让主编写入」经主编审批后才会落库。
             </p>
+            {introLooksLikeOneChapterNight(form.intro, chapters) ? (
+              <p className="mb-2 text-f12 text-warn leading-relaxed" data-testid="volume-intro-one-night">
+                这一卷有好几章，卷纲现在读起来像只写了其中一章的夜。可以先存，但最好按章把各办哪一件写清。
+              </p>
+            ) : null}
             <div className="grid gap-3" data-testid="volume-meta-fields">
               <FieldLabel>
                 卷名
@@ -341,7 +353,7 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
                   value={form.intro}
                   onChange={(e) => setForm((f) => ({ ...f, intro: e.target.value }))}
                   rows={8}
-                  placeholder="本卷主冲突、角色弧、应付的账（这是卷纲，不是单章大纲/节拍）。"
+                  placeholder="按本卷每一章各写一笔账，禁止只写其中一章的夜。"
                   className="min-h-40"
                 />
               </FieldLabel>
@@ -367,9 +379,12 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
                   key={chapter.seq}
                   type="button"
                   onClick={() => onSelectNode?.(chapterNode(chapter))}
-                  className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-3 py-2 text-left text-f13 hover:bg-soft/50 cursor-pointer"
+                  className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto_auto] items-start gap-3 py-2 text-left text-f13 hover:bg-soft/50 cursor-pointer"
                 >
-                  <span className="min-w-0 truncate font-medium text-ink">{`${chapter.seq} ${chapter.title || ''}`.trim()}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium text-ink">{`${chapter.seq} ${chapter.title || ''}`.trim()}</span>
+                    <span className="block text-f12 text-faint mt-0.5 leading-snug">{chapterAccountLine(chapter)}</span>
+                  </span>
                   <span className="text-meta text-faint">{chapter.label || '未设'}</span>
                   {!String(chapter.synopsis || '').trim() ? (
                     <span className="text-meta text-warn" title="本章还没有写大纲">缺大纲</span>
@@ -390,6 +405,18 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
               <div className="flex justify-between gap-3"><span className="text-faint">章节</span><span className="text-ink tnum">{chapters.length}</span></div>
               <div className="flex justify-between gap-3"><span className="text-faint">字数</span><span className="text-ink">{wcLabel(totalWords)}</span></div>
               <div className="flex justify-between gap-3"><span className="text-faint">排序</span><span className="text-ink tnum">{volume.sort_order ?? '—'}</span></div>
+            </div>
+          </section>
+          <section data-testid="volume-remaining-later">
+            <div className="text-meta text-faint uppercase tracking-wider mb-2">本卷还要办的</div>
+            <div className="space-y-1.5">
+              {volumeRemainingWork(outline, vid).length === 0 ? (
+                <div className="text-faint">这一卷眼下没有还没办的章。</div>
+              ) : volumeRemainingWork(outline, vid).map((ch) => (
+                <div key={ch.seq} className="text-ink leading-snug">
+                  第{ch.seq}章《{ch.title || ''}》
+                </div>
+              ))}
             </div>
           </section>
           <section>

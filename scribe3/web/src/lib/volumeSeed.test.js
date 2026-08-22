@@ -15,6 +15,21 @@ describe('buildPatchVolumeSeed', () => {
     expect(s).toMatch(/volume_id=vol-2/)
     expect(s).toMatch(/卷纲草稿/)
     expect(s).toMatch(/未获批准/)
+    expect(s).toMatch(/禁止只写其中一章的夜/)
+  })
+
+  it('把本卷已有章写进种子', () => {
+    const s = buildPatchVolumeSeed({
+      volumeId: 'cage',
+      title: '囚笼',
+      intro: '四笔账',
+      chapters: [
+        { seq: 1, title: '华山成核', synopsis: '按碎片' },
+        { seq: 2, title: '四十二度', synopsis: '体温标价' },
+      ],
+    })
+    expect(s).toMatch(/华山成核/)
+    expect(s).toMatch(/四十二度/)
   })
 
   it('throws without volumeId', () => {
@@ -28,6 +43,7 @@ describe('buildAddVolumeSeed', () => {
     expect(s).toMatch(/s3_add_volume/)
     expect(s).toMatch(/第一卷/)
     expect(s).toMatch(/\[1, 2\]/)
+    expect(s).toMatch(/禁止只写其中一章的夜/)
   })
 })
 

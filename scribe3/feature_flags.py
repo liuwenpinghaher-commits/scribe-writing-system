@@ -123,6 +123,55 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     ),
     Flag("SCRIBE3_PIPELINE_RECORDER", "1", "飞行记录仪事件+工件；默认开", "observability", "caution"),
     Flag("SCRIBE3_PIPELINE_ARTIFACT_CAP", "16384", "单工件 Unicode 字帽", "observability", "safe"),
+    Flag(
+        "SCRIBE3_VOLUME_LEDGER",
+        "1",
+        "写章时注入本卷台账近窗（今晚/已办/还没办）；0/false/off=关",
+        "playbook",
+        "safe",
+    ),
+    Flag(
+        "SCRIBE3_CODEX_DIGEST_SYNC",
+        "1",
+        "实体摘要同步为 codex_digest 命题；0=不同步",
+        "recall",
+        "caution",
+    ),
+    Flag(
+        "SCRIBE3_GRAPH_RELATION_RECALL",
+        "1",
+        "人物/实体关系 ≤2 跳进召回图通道",
+        "recall",
+        "caution",
+    ),
+    Flag(
+        "SCRIBE3_RECALL_SHADOW",
+        "1",
+        "RecallService 影子：并行计算只记 diff，写章输出不变",
+        "recall",
+        "caution",
+    ),
+    Flag(
+        "SCRIBE3_RECALL_PLAYBOOK",
+        "0",
+        "写章设定槽改走 RecallService（翻主；默认关）",
+        "recall",
+        "caution",
+    ),
+    Flag(
+        "SCRIBE3_SECRET_BRIDGE_ROLES",
+        "0",
+        "角色类 secret 字段同步进限知命题（默认关，势力桥不受影响）",
+        "recall",
+        "caution",
+    ),
+    Flag(
+        "SCRIBE3_OUTLINE_STATUS_GATE",
+        "0",
+        "纲改过未核对时拦演绎/草稿（默认关；旧书缺字段不拦）",
+        "structure",
+        "caution",
+    ),
 )
 
 

@@ -39,6 +39,7 @@ from scribe3.api.routers.settings_gateway import router as settings_gateway_rout
 from scribe3.api.routers.works import router as works_router
 from scribe3.api.routers.world_read import router as world_read_router
 from scribe3.api.routers.write import router as write_router
+from scribe3.api.routers.structure_plan import router as structure_plan_router
 from scribe3.api.routers.canon_loop import router as canon_loop_router
 from scribe3.api.token_bridge import install_token_query_bridge
 from scribe3.auth.middleware import install_l1_auth
@@ -74,6 +75,7 @@ _DOMAIN_ROUTERS = (
     materials_router,
     quality_router,
     write_router,
+    structure_plan_router,
     ingest_import_router,
     pilot_inbox_router,
     experience_router,

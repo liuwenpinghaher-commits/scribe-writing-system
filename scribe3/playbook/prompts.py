@@ -1,4 +1,4 @@
-"""playbook.3.2.2 identity + generate/judge prompts. 改法官问卷或门槛才升版本。"""
+"""playbook.3.2.3 identity + generate/judge prompts. 改法官问卷或门槛才升版本。"""
 from __future__ import annotations
 
 import json
@@ -76,6 +76,16 @@ def _pov_line(ctx: dict) -> str:
     return "【叙事人称】第三人称（沿用首章）。叙述里禁止出现「我」；对白里不受限。"
 
 
+VOLUME_LEDGER_DISCIPLINE = (
+    "今晚只办这一章该办的那一笔。后面几章的账可以在章末当没做完的事挂着，不许今晚演完。"
+)
+
+
+def _volume_ledger_block(ctx: dict) -> str:
+    body = (ctx or {}).get("volume_ledger") or "（无）"
+    return f"【本卷还要办的】\n{VOLUME_LEDGER_DISCIPLINE}\n{body}"
+
+
 def duty_generate(ctx: dict) -> str:
     return f"""你在为第 {ctx.get("seq")} 章立"责任"——这一章必须办成的事。
 这份责任卡直接驱动下游写戏：写戏的严格按你立的来，立歪了整章歪。
@@ -84,6 +94,7 @@ def duty_generate(ctx: dict) -> str:
 卷纲：{ctx.get("volume_outline") or "（无）"}
 北极星：{ctx.get("north_star") or "（无）"}
 【本章责】{ctx.get("chapter_duty") or "（无）"}
+{_volume_ledger_block(ctx)}
 
 【本章焦点者】{ctx.get("focalizer") or "（未指定）"}（这一章贴着谁的视角走）
 【上一章章末留下的钩子】（原文，必须接住）
@@ -120,16 +131,18 @@ def duty_judge_v2(ctx: dict) -> str:
     return f"""【责任卡】{ctx.get("duty_json")}
 【卷纲】{ctx.get("volume_outline") or "（无）"}
 【本章责】{ctx.get("chapter_duty") or "（无）"}
+{_volume_ledger_block(ctx)}
 【近 3 章的责任】{ctx.get("recent_duty_summary") or "（无）"}
 【上一章章末钩子】{ctx.get("prev_hook_quote") or "（第1章无）"}
 
-六问：
+七问：
 1. must_happen 是不是一个可演的具体动作（不是情绪/方向/主题）？
 2. bill 是不是一笔收不回来的账（不是"付出代价"这种空话）？
 3. 这份责任和近 3 章的账单同类型吗？（同质 → 不过）
 4. 这份责任接住上一章的钩子了吗？（字符串核对是机器的事，你只判「责任与钩子有没有关系」）
 5. forbidden_reveal 有没有漏掉"照这章的写法极可能说漏嘴"的秘密？
 6. 这章除了焦点者，有没有第二个有意志的在场者？（能说话或能对抗；远远看着不算）
+7. 打开本卷还要办的几笔：这份责任是不是第 {ctx.get("seq")} 章该办的那一笔？后面的可以挂着当没做完的事。有没有把后面某章的夜提前写成了这一夜？
 
 {VERDICT_SCHEMA}
 """
@@ -139,13 +152,14 @@ def duty_judge(ctx: dict) -> str:
     return f"""【责任卡】{ctx.get("duty_json")}
 【卷纲】{ctx.get("volume_outline") or "（无）"}
 【本章责】{ctx.get("chapter_duty") or "（无）"}
+{_volume_ledger_block(ctx)}
 【近 3 章的责任】{ctx.get("recent_duty_summary") or "（无）"}
 【上一章章末钩子】{ctx.get("prev_hook_quote") or "（第1章无）"}
 【上一章结束时世界变成了什么样】
 {_state_json(ctx)}
 【全书意象域】{_imagery_line(ctx)}
 
-七问：
+八问：
 1. must_happen 是不是一个可演的具体动作（不是情绪/方向/主题）？
 2. bill 是不是一笔收不回来的账（不是"付出代价"这种空话）？
 3. 这份责任和近 3 章的账单同类型吗？（同质 → 不过）
@@ -153,6 +167,7 @@ def duty_judge(ctx: dict) -> str:
 5. forbidden_reveal 有没有漏掉"照这章的写法极可能说漏嘴"的秘密？
 6. 这章除了焦点者，有没有第二个有意志的在场者？（能说话或能对抗；远远看着不算）
 7. 这章摸起来还是这本书吗？（全书意象域未设则本问 yes；若这章要跨到另一个世界的质感，责任卡必须先在场上放一个同时属于两个世界的物件作桥，否则 no）
+8. 打开本卷还要办的几笔：这份责任是不是第 {ctx.get("seq")} 章该办的那一笔？后面的可以挂着当没做完的事。有没有把后面某章的夜提前写成了这一夜？
 
 {VERDICT_SCHEMA}
 """
@@ -169,6 +184,7 @@ def play_generate(ctx: dict) -> str:
 - 必须接住的上章钩子：{d.get("bite_from_prev")}
 - 禁止拆穿的事：{d.get("forbidden_reveal")}
 - 本章焦点者：{d.get("focalizer")}（贴着这个人的处境写）
+{_volume_ledger_block(ctx)}
 
 【可用的人】{_cast_line({**ctx, "available_cast": d.get("available_cast") or ctx.get("available_cast")})}（编造户口外的人 = 废稿）
 【上一章结束时世界变成了什么样】（身体、物件位置、未了的悬念——不得写拧）
@@ -205,9 +221,10 @@ def play_generate(ctx: dict) -> str:
 def play_judge_v2(ctx: dict) -> str:
     return f"""【责任卡】{ctx.get("duty_json")}
 【戏】{ctx.get("play_text")}
+{_volume_ledger_block(ctx)}
 
 你是审稿的，不是改稿的——先判，判不过才写意见。
-八问，每问必须先从戏里引用原句作证据，再给"yes/no"：
+九问，每问必须先从戏里引用原句作证据，再给"yes/no"：
 
 1. 责任里点名的人都在场做事吗？（站着看的不算）
 2. 办的是责任卡上那件事吗？（办岔了、办多了都算不过）
@@ -218,6 +235,7 @@ def play_judge_v2(ctx: dict) -> str:
 6. 他的选择落成了具体动作吗？（他做了什么，不是他想了什么）
 7. 章末有没有一件没做完的事？（能抄出原句的、悬着的那件——"夜色深了"式氛围收尾不算）
 8. 有没有提前拆穿禁止拆穿的事？
+9. 这场戏有没有把本卷后面的夜提前演完？章末挂着没做完的事不算演完。
 
 {VERDICT_SCHEMA}
 """
@@ -226,11 +244,12 @@ def play_judge_v2(ctx: dict) -> str:
 def play_judge(ctx: dict) -> str:
     return f"""【责任卡】{ctx.get("duty_json")}
 【戏】{ctx.get("play_text")}
+{_volume_ledger_block(ctx)}
 【上一章结束时世界变成了什么样】
 {_state_json(ctx)}
 
 你是审稿的，不是改稿的——先判，判不过才写意见。
-十一问，每问必须先从戏里引用原句作证据，再给"yes/no"：
+十二问，每问必须先从戏里引用原句作证据，再给"yes/no"：
 
 1. 责任里点名的人都在场做事吗？（站着看的不算）
 2. 办的是责任卡上那件事吗？（办岔了、办多了都算不过）
@@ -244,6 +263,7 @@ def play_judge(ctx: dict) -> str:
 9. 对照上章末态，在场角色的身体状态、持有物、位置有矛盾吗？（无末态则 yes）
 10. 上章记下、到这章该响的悬念，这章戏里碰到了吗？（没有到期条目则 yes）
 11. 这章戏里新写出的可见事实，有没有跟上一章已经写死的事实打架？（无末态则 yes）
+12. 这场戏有没有把本卷后面的夜提前演完？章末挂着没做完的事不算演完。
 
 {VERDICT_SCHEMA}
 """
@@ -557,4 +577,4 @@ def identity_for(kind: str) -> str:
     return IDENTITY_NOVELIST
 
 
-assert PLAYBOOK_VERSION == "playbook.3.2.2"
+assert PLAYBOOK_VERSION == "playbook.3.2.3"

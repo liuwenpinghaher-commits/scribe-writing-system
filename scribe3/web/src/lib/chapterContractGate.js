@@ -106,7 +106,19 @@ export function evaluateChapterContract(ch) {
   const meta = ch || {}
   const synopsis = trimText(meta.synopsis)
   const truth = trimText(meta.scene_truth)
-  const beatCount = countBeatTexts(meta.beats)
+  const playText = trimText(
+    (meta.play && typeof meta.play === 'object' ? meta.play.text : meta.play) || meta.play_text,
+  )
+  const contractObj = (meta.contract && typeof meta.contract === 'object') ? meta.contract : null
+  const contractBeats = Array.isArray(contractObj?.beats) ? contractObj.beats : []
+  const fields = (contractObj && typeof contractObj.fields === 'object') ? contractObj.fields : null
+  const hasPlay = playText.length > 0
+  const hasContract = !!(fields && (fields.goal || fields.choice || fields.decision || fields.cost || fields.hook))
+    || contractBeats.length > 0
+  const designReady = hasPlay || hasContract
+  const beatCount = designReady
+    ? Math.max(countBeatTexts(contractBeats), countBeatTexts(meta.beats))
+    : countBeatTexts(meta.beats)
   const stakes = parseOutlineStakes(synopsis)
   const issues = []
 
@@ -133,7 +145,7 @@ export function evaluateChapterContract(ch) {
     })
   }
 
-  if (beatCount < MIN_BEAT_TEXTS) {
+  if (!designReady && beatCount < MIN_BEAT_TEXTS) {
     issues.push({
       id: 'missingBeats',
       level: 'info',
@@ -180,15 +192,18 @@ export function evaluateChapterContract(ch) {
     dedSum += cnLen(typeof d === 'string' ? d : (d && (d.prose || d.text)) || '')
   }
   const hasSpine = !!(meta.chapter_spine && (meta.chapter_spine.goal || meta.chapter_spine.choice))
-  const icebergThin = (!hasSpine && synN > 0 && synN < MIN_WRITABLE_CHARS)
-    || dedSum < ICEBERG_DEDUCTION
+  const icebergThin = !designReady && (
+    (!hasSpine && synN > 0 && synN < MIN_WRITABLE_CHARS) || dedSum < ICEBERG_DEDUCTION
+  )
   if (icebergThin && (synN > 0 || beatLens.length > 0 || hasSpine || dedSum > 0)) {
     issues.push({
       id: 'icebergThin',
       level: 'warn',
-      message: hasSpine
-        ? `演绎尚未齐（${dedSum}/${ICEBERG_DEDUCTION}）。章纲已有短槽，开写前先补限知投影。`
-        : `情节合同未齐（大纲 ${synN} 字，演绎 ${dedSum}/${ICEBERG_DEDUCTION}）。请用 13 短槽补选择/代价/线，不要用烟锅巷凑字。`,
+      message: hasPlay || hasContract
+        ? `演绎尚未齐（${dedSum}/${ICEBERG_DEDUCTION}）。这场戏已经有了，先补字缝。`
+        : hasSpine
+          ? `演绎尚未齐（${dedSum}/${ICEBERG_DEDUCTION}）。章纲已有短槽，开写前先补限知投影。`
+          : `情节合同未齐（大纲 ${synN} 字，演绎 ${dedSum}/${ICEBERG_DEDUCTION}）。请先立责任、再写这场戏。`,
     })
   }
 
@@ -208,7 +223,9 @@ export function evaluateChapterContract(ch) {
     needsAttention: hasError || issues.some((i) => i.level === 'warn'),
     hasError,
     synopsisOk: synN >= MIN_WRITABLE_CHARS,
-    beatsOk: beatCount >= MIN_BEAT_TEXTS,
+    beatsOk: designReady || beatCount >= MIN_BEAT_TEXTS,
+    playOk: hasPlay,
+    designReady,
     sceneTruthOk: truthN >= MIN_WRITABLE_CHARS,
     stakesOk: stakes.present || !stakes.highPressure,
     stakes,

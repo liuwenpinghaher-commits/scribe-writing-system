@@ -199,6 +199,19 @@ def thicken_stage(
     gone = reject_gone_stage(stage)
     if gone:
         return gone
+    try:
+        from scribe3.feature_flags import flag_truthy
+        if flag_truthy("SCRIBE3_OUTLINE_STATUS_GATE"):
+            stg = normalize_stage(stage)
+            status = str((ch or {}).get("outline_status") or "").strip().lower()
+            if stg in ("deduce", "draft") and status == "stale":
+                return {
+                    "ok": False,
+                    "code": "outline_stale",
+                    "message": "这章的纲改过还没核对，先看章纲再写正文。",
+                }
+    except Exception:
+        pass
     store = _as_playbook_store(st)
     n = int(seq or 1)
     if normalize_stage(stage) == "final" and not parse_force(extra):

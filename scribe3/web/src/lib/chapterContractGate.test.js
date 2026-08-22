@@ -52,6 +52,18 @@ await test('empty chapter → B1 B2 B3 errors', () => {
   assert.equal(contractNeedsAttention({}), true)
 })
 
+await test('play and contract count as design ready', () => {
+  const r = evaluateChapterContract({
+    play: { text: '柳岸青把碎片按了进去。' },
+    contract: { fields: { goal: { text: '按回' } }, beats: [{ n: 1, goal: { text: '验货' } }] },
+  })
+  assert.equal(r.playOk, true)
+  assert.equal(r.designReady, true)
+  assert.equal(r.beatsOk, true)
+  assert.ok(!r.issues.some((i) => i.id === 'missingBeats'))
+  assert.ok(!String(r.issues.map((i) => i.message).join(' ')).includes('13 短槽'))
+})
+
 await test('full contract → no error', () => {
   const ch = {
     synopsis: '甲'.repeat(90),

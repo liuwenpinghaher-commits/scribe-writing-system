@@ -18,6 +18,7 @@ CHAPTER_META_ALLOWED = frozenset({
     "scene_truth", "involved_characters", "deductions",
     "purpose_text", "deltas", "focalizer", "prose_lock",
     "play_sha", "contract_sha", "playbook_version",
+    "outline_status", "outline_rev", "confidence",
     *CHAPTER_JSON_META_KEYS,
     *CHAPTER_JSON_LIST_META_KEYS,
 })

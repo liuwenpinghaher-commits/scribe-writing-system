@@ -220,7 +220,7 @@ def test_good_contract_passes():
 
 def _pass_llm(kind_text: dict[str, str]):
     def llm_fn(prompt, max_tokens=2048, system="", temperature=0.8):
-        if "你是审稿的" in prompt or "五问" in prompt or "两问" in prompt or "六问" in prompt or "七问" in prompt or "四问" in prompt or "八问" in prompt or "三问" in prompt or "十一问" in prompt:
+        if "你是审稿的" in prompt or "五问" in prompt or "两问" in prompt or "六问" in prompt or "七问" in prompt or "四问" in prompt or "八问" in prompt or "三问" in prompt or "九问" in prompt or "十一问" in prompt or "十二问" in prompt:
             return json.dumps({
                 "answers": [{"q": 1, "evidence": "沈烛若合上五指", "answer": "yes", "reason": "过"}],
                 "verdict": "pass",
@@ -245,7 +245,7 @@ def _pass_llm(kind_text: dict[str, str]):
             }, ensure_ascii=False)
         if "你要从戏里抄出契约" in prompt:
             return json.dumps(_sample_contract(PLAY), ensure_ascii=False)
-        if "写演绎" in prompt:
+        if "写演绎" in prompt or "写水面下" in prompt:
             return json.dumps({
                 "scene_truth": "他按回碎片，账当场付了。" * 20,
                 "characters": [{
@@ -260,7 +260,7 @@ def _pass_llm(kind_text: dict[str, str]):
             }, ensure_ascii=False)
         if "打磨成正文" in prompt:
             return ("「按回去。」沈烛说。\n正文正文正文正文。\n" * 120)
-        if "糙稿" in prompt:
+        if "写一遍糙稿" in prompt:
             return ("「按回去。」沈烛说。\n场面场面场面场面场面场面。\n" * 120)
         return PLAY * 8
     return llm_fn

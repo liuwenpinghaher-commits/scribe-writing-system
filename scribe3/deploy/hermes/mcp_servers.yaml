@@ -100,6 +100,10 @@ scribe3_write:
       - s3_craft_rule_remove
       - s3_add_volume
       - s3_patch_volume
+      - s3_plan_volumes
+      - s3_plan_chapter_accounts
+      - s3_refine_volume_outline
+      - s3_batch_stage
       - s3_add_chapter
       - s3_patch_chapter_meta
       - s3_patch_play
