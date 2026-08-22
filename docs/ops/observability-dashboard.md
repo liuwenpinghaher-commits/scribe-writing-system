@@ -12,7 +12,7 @@
 | vcode 分布 | pass / needs_human / fail 占比 | `playbook/pipeline.py` `_judge_vcode` 结果；关旗缺结论现默认 pass | 现有：写章 span / 判定日志。建议在 span 上记 `vcode`（已有则复用） |
 | fail 原因 Top-5 | 人话原因出现次数 | `gate.message` / `hits`；作业 `error_message` | 现有字段。不要把空串当 fail（第十轮已修） |
 
-**已可运行**：`python scripts/observability_quality_stats.py --book <book_id> --days 7`
+**已可运行，已接入定时任务，日志持久化**：`python scripts/observability_quality_stats.py --book <book_id> --days 7`
 
 默认打本机 `http://127.0.0.1:8000/debug/pipeline-events`。连不上时打印原因退出，不甩栈。铜炉上可把 `--base-url` 指到容器内后端。
 
@@ -53,4 +53,13 @@
 - **已能从 span / debug 接口直接采**：管线时长、失败标签、召回对照窗口、ingest 状态。
 - **要新增埋点才好看板**：vcode 日分布、retry 按章汇总、applied 结构化计数、空召回 fallback 布尔。
 
-第十轮只把格子定义写清。真正满分要等后续轮次把采集挂上，不能把「写了文档」报成「已经在看」。
+## 部署
+
+- 每日脚本：`deploy/prod/scripts/observability_cron.sh`
+- systemd：`deploy/prod/systemd/scribe3-observability.timer` + `.service`（每天 03:00）
+- 日志目录：`/var/log/scribe3/observability/quality_stats_YYYY-MM-DD.json`（可用 `OBSERVABILITY_LOG_DIR` 改）
+- 环境变量：`SCRIBE3_ROOT` 指向包含 `scribe3/` 的目录；`EnvironmentFile=/etc/scribe3/env`
+- Grafana 数据源：JSON file，指向 `/var/log/scribe3/observability/`
+- Grafana 模板：`deploy/prod/grafana/quality-stats-panel.json`（gate 触发率 / vcode 分布 / fail Top-5 表）
+
+机器数字只给人看运行是否健康，**不得当作创作质量放行判据**。

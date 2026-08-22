@@ -5,6 +5,10 @@
   python scripts/observability_quality_stats.py --book main --days 7
   python scripts/observability_quality_stats.py --book main --base-url http://127.0.0.1:8000
 
+环境变量：
+  SCRIBE3_ROOT  可选；指定后端包根目录（包含 scribe3/ 子目录的路径）。
+                若未设置，依次尝试 /app 和脚本父目录的上一级。
+
 连不上接口时打印原因并退出 2，不甩 traceback。
 机器数字只给人看运行是否健康，不得当作创作质量放行判据。
 """
@@ -21,7 +25,10 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-for _root in (Path("/app"), Path(__file__).resolve().parents[1]):
+_env_root = os.environ.get("SCRIBE3_ROOT")
+_candidates = [Path(_env_root)] if _env_root else []
+_candidates += [Path("/app"), Path(__file__).resolve().parents[1]]
+for _root in _candidates:
     if (_root / "scribe3").is_dir() and str(_root) not in sys.path:
         sys.path.insert(0, str(_root))
 

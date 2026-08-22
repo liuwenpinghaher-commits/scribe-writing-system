@@ -1,0 +1,46 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "marcusolsson-json-datasource",
+        "uid": "scribe3-observability-json"
+      },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } },
+        "overrides": []
+      },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "showHeader": true,
+        "footer": { "show": false }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "url": "file:///var/log/scribe3/observability/quality_stats.json"
+        }
+      ],
+      "title": "gate 触发率 / vcode 分布 / fail Top-5",
+      "type": "table"
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["scribe3", "quality"],
+  "templating": { "list": [] },
+  "time": { "from": "now-7d", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Scribe3 质量判定",
+  "uid": "scribe3-quality-stats",
+  "version": 1
+}

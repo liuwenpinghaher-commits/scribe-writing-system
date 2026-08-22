@@ -578,7 +578,7 @@ def _shape_evaluation(evaluation, seq: int, *, quality: QualityStore) -> dict[st
         evaluation.job.contract_id, evaluation.job.contract_revision,
     )
     weights = contract.weights
-    dimensions = []
+    hits = []
     for d in CORE_DIMENSIONS:
         axes = by_dim.get(d.key, {})
         sys_j = axes.get("system")
@@ -619,7 +619,7 @@ def _shape_evaluation(evaluation, seq: int, *, quality: QualityStore) -> dict[st
             and author_j.score is not None and sys_j.score is not None
             and abs(author_j.score - sys_j.score) >= 2
         )
-        dimensions.append({
+        hits.append({
             "dimension": d.label,
             "state": (sys_j.state.value if sys_j is not None else JudgmentState.INSUFFICIENT.value),
             "system": system,
@@ -644,7 +644,7 @@ def _shape_evaluation(evaluation, seq: int, *, quality: QualityStore) -> dict[st
         "ok": out.get("status") == "ready",
         "code": "quality_eval",
         "message": "",
-        "hits": dimensions,
+        "hits": hits,
     })
     return out
 

@@ -287,4 +287,4 @@ def chapter_pulse(st, seq: int) -> dict:
         except Exception as e:
             _log.warning("pulse 维度 %s 失败(该维降级,其余照常): %s", name, e)
             dims.append(_dim(name, [_item(f"该维检测未跑成(没查≠没病):{str(e)[:60]}")], degraded=True))
-    return {"seq": seq, "dimensions": dims}
+    return {"seq": seq, "checks": dims}

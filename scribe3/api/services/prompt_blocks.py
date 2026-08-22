@@ -79,7 +79,7 @@ def _pulse_digest(st, seq: int | None) -> str:
         from scribe3.pulse import chapter_pulse
         p = chapter_pulse(st, int(seq))
         decisions, nudges = [], 0
-        for d in p["dimensions"]:
+        for d in p["checks"]:
             for it in d["items"]:
                 if it["severity"] == "decision":
                     decisions.append(it["message"])

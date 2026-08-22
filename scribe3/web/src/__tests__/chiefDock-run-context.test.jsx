@@ -8,7 +8,7 @@ import { ChiefSlotProvider, useChiefSlot } from '../ChiefSlotContext'
 // 并按 409 code 分流:changed=作废(不放行);stale=二次确认后带 approve_stale=true 重批。
 const apiMock = vi.hoisted(() => ({
   getWork: vi.fn(() => 'book-a'),
-  chapterPulse: vi.fn(() => Promise.resolve({ dimensions: [] })),
+  chapterPulse: vi.fn(() => Promise.resolve({ checks: [] })),
   addIdea: vi.fn(),
   chatWrite: vi.fn(),
   chatStream: vi.fn(),
@@ -63,7 +63,7 @@ describe('ChiefDock run 上下文过期审批', () => {
     sessionStorage.clear()
     HTMLElement.prototype.scrollIntoView = vi.fn()
     apiMock.getWork.mockReturnValue('book-a')
-    apiMock.chapterPulse.mockResolvedValue({ dimensions: [] })
+    apiMock.chapterPulse.mockResolvedValue({ checks: [] })
   })
 
   it('影响当前章(run_context_changed)→ 展示已过期/发起时/当前焦点并作废,不放行', async () => {

@@ -158,7 +158,7 @@ class PilotOpsMixin:
         )
 
     def get_chapter_quality_fields(self, seq: int) -> dict[str, Any]:
-        """pulse 质量维：ingest_status / error / qc_issues。"""
+        """pulse 质量维：ingest_status / ingest_message / qc_issues。"""
         rows = self._query(
             "SELECT ingest_status, ingest_message, qc_issues "
             "FROM type::record('chapter',$seq)",

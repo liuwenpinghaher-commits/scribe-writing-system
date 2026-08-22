@@ -7,7 +7,7 @@ import { useRightDockController } from '../studioDocks'
 
 const apiMock = vi.hoisted(() => ({
   getWork: vi.fn(() => 'demo'),
-  chapterPulse: vi.fn(() => Promise.resolve({ dimensions: [] })),
+  chapterPulse: vi.fn(() => Promise.resolve({ checks: [] })),
   inbox: vi.fn(() => Promise.resolve({ items: [], count: 0 })),
   chapterVersions: vi.fn(() => Promise.resolve([])),
   selectLightLatest: vi.fn(() => Promise.resolve(null)),

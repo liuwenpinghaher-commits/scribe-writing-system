@@ -198,7 +198,8 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
       .then((ev) => {
         if (requestEpoch !== evaluationEpoch.current) return
         const prev = evaluationRef.current
-        if (ev && prev && ev.job_id === prev.job_id && ev.status === prev.status) return
+        if (ev && prev && ev.job_id === prev.job_id && ev.status === prev.status
+            && (ev.gate?.hits?.length ?? 0) === (prev.gate?.hits?.length ?? 0)) return
         evaluationRef.current = ev
         setEvaluation(ev)
         setState(ev?.status || 'ready')

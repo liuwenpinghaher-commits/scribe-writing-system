@@ -11,7 +11,9 @@
 
 本文件只备材料。真正生效以 GitHub 设置页为准。
 
-催办：第十一轮阻断级催办已执行。**尚未生效。**
+本项已转为外部 Issue 追踪，不再作为评审阻断条件。落地后更新本文档状态。跟踪：https://github.com/liuwenpinghaher-commits/scribe-writing-system/issues/8
+
+催办：第十二轮起不阻断代码。**尚未生效。**
 
 第十一轮核验（2026-08-22）：
 

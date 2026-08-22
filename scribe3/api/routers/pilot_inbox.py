@@ -376,7 +376,7 @@ def decision_inbox(work: str = "main", seq: int | None = None):
     if focus_seq is not None:
         try:
             from scribe3.pulse import chapter_pulse
-            for d in chapter_pulse(st, focus_seq)["dimensions"]:
+            for d in chapter_pulse(st, focus_seq)["checks"]:
                 for it in d["items"]:
                     if it["severity"] == "decision":
                         dim = d["dimension"]

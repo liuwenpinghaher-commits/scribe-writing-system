@@ -397,7 +397,7 @@ function ProactiveGreeting({ seq }) {
     api.chapterPulse(seq).then((p) => {
       if (dead) return
       const w = api.getWork()
-      for (const d of p.dimensions || []) {
+      for (const d of p.checks || []) {
         if (localStorage.getItem(`s3.pulse.mute.${w}.${d.dimension}`) === '1') continue   // R2-10:键含 work(此前跨书全局静音)
         if (localStorage.getItem(`s3.spoke.${w}.${seq}.${d.dimension}`) === '1') continue
         const hit = (d.items || []).find((it) => it.severity === 'decision')

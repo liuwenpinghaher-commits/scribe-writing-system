@@ -12,7 +12,7 @@ vi.mock('../api', () => ({ api: apiMock }))
 describe('PulseBar 灯位', () => {
   beforeEach(() => {
     apiMock.chapterPulse.mockResolvedValue({
-      dimensions: [
+      checks: [
         { dimension: 'promise', severity: 'info', items: [] },
         { dimension: 'arc', severity: 'nudge', items: [{ message: '弧有缺口' }] },
         { dimension: 'quality', severity: 'decision', items: [{ message: '需决' }] },

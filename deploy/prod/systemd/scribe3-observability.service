@@ -1,0 +1,9 @@
+[Unit]
+Description=Scribe3 质量观测脚本
+After=network.target
+
+[Service]
+Type=oneshot
+User=scribe3
+EnvironmentFile=/etc/scribe3/env
+ExecStart=/opt/scribe3/deploy/prod/scripts/observability_cron.sh

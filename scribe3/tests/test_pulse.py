@@ -13,7 +13,7 @@ from .test_app import _client
 
 
 def _dims(out):
-    return {d["dimension"]: d for d in out["dimensions"]}
+    return {d["dimension"]: d for d in out["checks"]}
 
 
 def test_pulse_dimensions_shape(store):
@@ -118,7 +118,7 @@ def test_pulse_endpoint(store):
     r = _client(store).get("/chapter-pulse?seq=1")
     assert r.status_code == 200
     body = r.json()
-    assert len(body["dimensions"]) == 6
+    assert len(body["checks"]) == 6
 
 
 def test_refresh_exhausted_maps_to_decision(store):

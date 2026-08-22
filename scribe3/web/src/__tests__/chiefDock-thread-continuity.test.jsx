@@ -10,7 +10,7 @@ import { ChiefSlotProvider, useChiefSlot } from '../ChiefSlotContext'
 
 const apiMock = vi.hoisted(() => ({
   getWork: vi.fn(() => 'demo_work'),
-  chapterPulse: vi.fn(() => Promise.resolve({ dimensions: [] })),
+  chapterPulse: vi.fn(() => Promise.resolve({ checks: [] })),
   addIdea: vi.fn(),
   chatWrite: vi.fn(),
   chatStream: vi.fn(),

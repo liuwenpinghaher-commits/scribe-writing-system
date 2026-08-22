@@ -9,7 +9,7 @@ import { ChiefSlotProvider, useChiefSlot } from '../ChiefSlotContext'
 
 const apiMock = vi.hoisted(() => ({
   getWork: vi.fn(() => 'demo_work'),
-  chapterPulse: vi.fn(() => Promise.resolve({ dimensions: [] })),
+  chapterPulse: vi.fn(() => Promise.resolve({ checks: [] })),
   addIdea: vi.fn(),
   chatWrite: vi.fn(),
   chatStream: vi.fn(),
@@ -214,7 +214,7 @@ describe('ChiefDock UI', () => {
     first.unmount()
     vi.clearAllMocks()
     apiMock.getWork.mockReturnValue('demo_work')
-    apiMock.chapterPulse.mockResolvedValue({ dimensions: [] })
+    apiMock.chapterPulse.mockResolvedValue({ checks: [] })
     apiMock.aiRunStatus.mockResolvedValue({ run_id: 'run_1', status: 'requires_approval' })
     apiMock.aiRunEvents.mockImplementation((_runId, handlers) => {
       recoveredHandlers = handlers

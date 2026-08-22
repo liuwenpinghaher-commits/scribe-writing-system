@@ -80,7 +80,7 @@ export function PulseBar({ seq, onChat }) {
   }, [open])
 
   if (!pulse) return null
-  const dims = pulse.dimensions || []
+  const dims = pulse.checks || []
   const cur = dims.find((d) => d.dimension === open)
   const sevLabel = (s) => (s === 'decision' ? '需决策' : s === 'nudge' ? '有建议' : '安')
   return (
