@@ -56,47 +56,48 @@ class AdapterOpsMixin:
 
     # ── chapter quality / ingest fields ─────────────────────
     def get_chapter_ingest_status_fields(self, seq: int) -> dict[str, Any]:
-        rows = self._query(
-            "SELECT ingest_status, ingest_error FROM type::record('chapter',$seq)",
-            {"seq": int(seq)},
-        ) or []
-        return rows[0] if rows else {}
+        try:
+            rows = self._query(
+                "SELECT ingest_status, ingest_error, ingest_message "
+                "FROM type::record('chapter',$seq)",
+                {"seq": int(seq)},
+            ) or []
+        except Exception:
+            rows = self._query(
+                "SELECT ingest_status, ingest_error FROM type::record('chapter',$seq)",
+                {"seq": int(seq)},
+            ) or []
+        row = rows[0] if rows else {}
+        if row and not row.get("ingest_message"):
+            row["ingest_message"] = row.get("ingest_error") or ""
+        return row
 
     def set_chapter_ingest_status(
         self, seq: int, status: str, err: str = "", *, prose_fp: str | None = None
     ) -> None:
+        msg = (err or "")[:200]
+        params = {"seq": int(seq), "st": status, "er": msg}
+        sets = "ingest_status=$st, ingest_error=$er, ingest_message=$er"
         if prose_fp and status == "ok":
-            try:
-                self._execute_write(
-                    "UPDATE type::record('chapter',$seq) SET "
-                    "ingest_status=$st, ingest_error=$er, ingest_prose_fp=$fp",
-                    {
-                        "seq": int(seq),
-                        "st": status,
-                        "er": (err or "")[:200],
-                        "fp": prose_fp[:32],
-                    },
-                )
-                return
-            except Exception:
-                self._raw_query(
-                    "DEFINE FIELD IF NOT EXISTS ingest_prose_fp ON chapter TYPE option<string>;"
-                )
-                self._execute_write(
-                    "UPDATE type::record('chapter',$seq) SET "
-                    "ingest_status=$st, ingest_error=$er, ingest_prose_fp=$fp",
-                    {
-                        "seq": int(seq),
-                        "st": status,
-                        "er": (err or "")[:200],
-                        "fp": prose_fp[:32],
-                    },
-                )
-                return
-        self._execute_write(
-            "UPDATE type::record('chapter',$seq) SET ingest_status=$st, ingest_error=$er",
-            {"seq": int(seq), "st": status, "er": (err or "")[:200]},
-        )
+            params["fp"] = prose_fp[:32]
+            sets += ", ingest_prose_fp=$fp"
+        try:
+            self._execute_write(
+                f"UPDATE type::record('chapter',$seq) SET {sets}",
+                params,
+            )
+            return
+        except Exception:
+            self._raw_query(
+                "DEFINE FIELD IF NOT EXISTS ingest_prose_fp ON chapter TYPE option<string>;"
+            )
+            self._raw_query(
+                "DEFINE FIELD IF NOT EXISTS ingest_message ON chapter TYPE option<string>;"
+            )
+            self._execute_write(
+                f"UPDATE type::record('chapter',$seq) SET {sets}",
+                params,
+            )
 
     def ensure_ingest_hold_fields(self) -> None:
         for field, typ in (

@@ -494,6 +494,8 @@ def _codex_segments(st, reveal: bool = True, focalizer: str = "", chapter: int |
                         )
                     except Exception:
                         pass
+                # 优雅降级：空召回时保留全景名片，探索式宽问不变薄。
+                # 语义=对得上的优先，对不上时至少不丢信息。作者已接受此折中。
                 cards_text = legacy_cards
     except Exception:
         named_text, cards_text = legacy_named, legacy_cards  # 降级安全网，非旧路

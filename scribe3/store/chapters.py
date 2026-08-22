@@ -412,7 +412,7 @@ class ChaptersMixin:
             "archived,"
             "(IF archived_at IS NONE THEN NONE ELSE <string>archived_at END) AS archived_at,"
             "archive_reason,"
-            "ingest_status,ingest_error,ingest_prose_fp "
+            "ingest_status,ingest_error,ingest_message,ingest_prose_fp "
             "FROM type::record('chapter',$seq)"
         )
         sql_old = (

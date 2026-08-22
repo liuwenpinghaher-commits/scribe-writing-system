@@ -159,11 +159,21 @@ class PilotOpsMixin:
 
     def get_chapter_quality_fields(self, seq: int) -> dict[str, Any]:
         """pulse 质量维：ingest_status / error / qc_issues。"""
-        rows = self._query(
-            "SELECT ingest_status, ingest_error, qc_issues FROM type::record('chapter',$seq)",
-            {"seq": int(seq)},
-        ) or []
-        return rows[0] if rows else {}
+        try:
+            rows = self._query(
+                "SELECT ingest_status, ingest_error, ingest_message, qc_issues "
+                "FROM type::record('chapter',$seq)",
+                {"seq": int(seq)},
+            ) or []
+        except Exception:
+            rows = self._query(
+                "SELECT ingest_status, ingest_error, qc_issues FROM type::record('chapter',$seq)",
+                {"seq": int(seq)},
+            ) or []
+        row = rows[0] if rows else {}
+        if row and not row.get("ingest_message"):
+            row["ingest_message"] = row.get("ingest_error") or ""
+        return row
 
     def get_chapter_ingest_prose_fp(self, seq: int) -> str | None:
         rows = self._query(

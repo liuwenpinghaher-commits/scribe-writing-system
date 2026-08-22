@@ -584,7 +584,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
     // 存后拉 ingest 状态角标(KR3 可观测)
     try {
       const ist = await api.ingestStatus(chapter, work)
-      if (ist?.failed) setIngestFail({ status: ist.ingest_status, error: ist.ingest_error })
+      if (ist?.failed) setIngestFail({ status: ist.ingest_status, error: ist.ingest_message || ist.ingest_error })
       else setIngestFail(null)
     } catch { /* 角标失败不挡存稿 */ }
     // 主编主动化 T5·时机B:落稿后有命中 → 主编摘要一条(每章一次,防烦协议)
@@ -926,7 +926,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
                 await api.ingestRetry(chapter, work)
                 toast('已重试「从正文提取设定」')
                 const ist = await api.ingestStatus(chapter, work)
-                if (ist?.failed) setIngestFail({ status: ist.ingest_status, error: ist.ingest_error })
+                if (ist?.failed) setIngestFail({ status: ist.ingest_status, error: ist.ingest_message || ist.ingest_error })
                 else setIngestFail(null)
               } catch (e) {
                 toast(e?.body?.detail || e?.message || '重试失败', { tone: 'danger' })

@@ -67,6 +67,42 @@ class FakeStore:
     def chapters_lite(self):
         return self.list_chapters()
 
+    def set_chapter_ingest_status(self, seq, status, err="", *, prose_fp=None):
+        sql = (
+            "UPDATE type::record('chapter',$seq) SET "
+            "ingest_status=$st, ingest_error=$er, ingest_message=$er"
+        )
+        params = {"seq": int(seq), "st": status, "er": err or ""}
+        if prose_fp and status == "ok":
+            params["fp"] = prose_fp[:32]
+            sql += ", ingest_prose_fp=$fp"
+        self._execute_write(sql, params)
+
+    def ensure_ingest_lease_table(self):
+        if not hasattr(self, "_lease"):
+            self._lease = {}
+
+    def get_ingest_lease_row(self, rid):
+        self.ensure_ingest_lease_table()
+        return self._lease.get(rid)
+
+    def create_only_ingest_lease(self, rid, **kw):
+        self.ensure_ingest_lease_table()
+        if rid in self._lease:
+            raise RuntimeError("exists")
+        self._lease[rid] = {"o": kw.get("owner"), "u": kw.get("until")}
+
+    def cas_update_ingest_lease(self, rid, **kw):
+        self.ensure_ingest_lease_table()
+        self._lease[rid] = {"o": kw.get("owner"), "u": kw.get("until")}
+
+    def upsert_ingest_lease_row(self, rid, **kw):
+        self.cas_update_ingest_lease(rid, **kw)
+
+    def clear_ingest_lease_row(self, rid, owner):
+        self.ensure_ingest_lease_table()
+        self._lease.pop(rid, None)
+
     def _execute_write(self, sql, params=None):
         """实现 mark_chapter_ingest_status 所用 Surreal UPDATE 语义(无剧院手写 status)。"""
         params = params or {}
@@ -75,6 +111,7 @@ class FakeStore:
             ch = self.chapters.setdefault(int(params["seq"]), {"seq": int(params["seq"])})
             ch["ingest_status"] = params.get("st")
             ch["ingest_error"] = params.get("er", "")
+            ch["ingest_message"] = params.get("er", "")
             if "fp" in params and params.get("fp") is not None:
                 ch["ingest_prose_fp"] = params.get("fp")
 
@@ -290,7 +327,7 @@ def test_real_ingest_retry_forced_failure_then_success(monkeypatch):
 
     calls = {"n": 0}
 
-    def fake_ingest_chapter(store, seq, llm):
+    def fake_ingest_chapter(store, seq, llm, **_k):
         calls["n"] += 1
         if calls["n"] == 1:
             raise RuntimeError("forced_fail")

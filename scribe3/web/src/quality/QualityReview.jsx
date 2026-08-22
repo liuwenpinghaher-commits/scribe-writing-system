@@ -13,6 +13,14 @@ const STATE_TONE = {
   conflicted: 'danger', not_applicable: 'faint',
 }
 
+function qualityDims(evaluation) {
+  const hits = evaluation?.gate?.hits
+  if (Array.isArray(hits) && hits.length) return hits
+  if (Array.isArray(evaluation?.dimensions) && evaluation.dimensions.length) return evaluation.dimensions
+  if (Array.isArray(evaluation?.dimensions_deprecated)) return evaluation.dimensions_deprecated
+  return []
+}
+
 function ScoreInput({ value, onChange, label, path }) {
   return (
     <input
@@ -376,13 +384,13 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
   const isRunning = jobStatus === 'queued' || jobStatus === 'running'
   const isRetryableFailure = jobStatus === 'retryable_failed'
   const isPermanentFailure = jobStatus === 'failed'
-  const hasEvaluation = jobStatus === 'ready'
-    && Array.isArray(evaluation?.dimensions) && evaluation.dimensions.length > 0
+  const dims = qualityDims(evaluation)
+  const hasEvaluation = jobStatus === 'ready' && dims.length > 0
   const chapter = evaluation?.chapter ?? activeSeq
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-2xl mx-auto px-6 py-5 space-y-4">
-        <SectionTitle icon={Gauge} right={chapter == null ? '未选择章节' : `第 ${chapter} 章${hasEvaluation ? ` · ${evaluation.dimensions.length} 维` : ''}`}>质量审阅</SectionTitle>
+        <SectionTitle icon={Gauge} right={chapter == null ? '未选择章节' : `第 ${chapter} 章${hasEvaluation ? ` · ${dims.length} 维` : ''}`}>质量审阅</SectionTitle>
         {starter}
         {isRunning && <Card className="flex items-center gap-2 text-faint" data-testid="quality-job-running">
           <Loader2 size={16} className="animate-spin" />正在执行质量判断，完成后会自动显示十维证据与作者裁决。
@@ -401,7 +409,7 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
         </Card>}
         {!hasEvaluation && !isRunning && !isRetryableFailure && !isPermanentFailure && <Empty>{activeSeq == null ? '先选择章节，再创建快照并启动评价。' : '暂无质量评价。填写合同后即可创建章节评价。'}</Empty>}
         {hasEvaluation && <div className="space-y-3">
-          {evaluation.dimensions.map((dim) => (
+          {dims.map((dim) => (
             <DimensionRow
               key={dim.dimension}
               dim={dim}

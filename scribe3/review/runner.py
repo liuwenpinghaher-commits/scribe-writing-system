@@ -167,7 +167,7 @@ def run_chapter_review(
         "work": work,
         "mode": mode,
         "prose_fp": fp,
-        "issues": norm,
+        "issues": norm,  # 人话给前端；消费方应优先读 gate.hits
         "leaks": post.get("leaks") or [],
         "quality": post.get("quality"),
         "ai_grade": post.get("ai_grade"),

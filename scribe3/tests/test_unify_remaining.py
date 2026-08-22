@@ -577,6 +577,13 @@ def test_chapter_codex_empty_line_filters():
     assert chapter_codex_empty_line([ev_ok], 1, "aa") == ""
     discuss = {"chapter": 2, "payload": {"name": "codex_recall_empty", "source": "discuss"}}
     assert chapter_codex_empty_line([discuss], 2, "") == ""
+    discuss_tag = {
+        "chapter": 2,
+        "payload": {"name": "codex_recall_empty", "budget_tag": "discuss_codex"},
+    }
+    assert chapter_codex_empty_line([discuss_tag], 2, "") == ""
+    plain = {"chapter": 2, "payload": {"name": "codex_recall_empty"}}
+    assert chapter_codex_empty_line([plain], 2, "") == line
     other_run = {"chapter": 2, "payload": {"name": "codex_recall_empty", "source": "playbook"}, "trace_id": "bb"}
     assert chapter_codex_empty_line([other_run], 2, "aa") == ""
     zero = {"chapter": 0, "payload": {"name": "codex_recall_empty", "source": "playbook"}}
@@ -590,6 +597,14 @@ def test_applied_minus_one_not_learned_copy():
     assert "学到了 {applied} 条设定" in src
 
 
+def test_judge_vcode_prefers_gate():
+    from scribe3.playbook.pipeline import _judge_vcode
+    assert _judge_vcode({"ok": True, "code": "pass", "verdict": "fail"}) == "pass"
+    assert _judge_vcode({"ok": False, "code": "needs_human", "verdict": "pass"}) == "needs_human"
+    assert _judge_vcode({"verdict": "pass"}) == "pass"
+    assert _judge_vcode({"verdict": "needs_human"}) == "needs_human"
+
+
 def test_quality_eval_shape_adds_gate():
     from pathlib import Path
     src = (Path(__file__).resolve().parents[1] / "quality" / "api.py").read_text(encoding="utf-8")
@@ -598,3 +613,4 @@ def test_quality_eval_shape_adds_gate():
     block = src[start:end]
     assert "from_existing" in block
     assert "quality_eval" in block
+    assert "dimensions_deprecated" in block

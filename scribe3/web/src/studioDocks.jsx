@@ -793,17 +793,17 @@ function QCPanel({ seq }) {
           className="mb-2 rounded-md border border-danger/40 bg-danger/8 px-2 py-1.5 text-meta text-danger"
           role="status"
         >
-          反哺(ingest)失败:{ingest.ingest_error || ingest.ingest_status}
+          反哺(ingest)失败:{ingest.ingest_message || ingest.ingest_error || ingest.ingest_status}
           ——知识账本可能落后;可点写作台「反哺失败·点重试」或手点反哺。
         </div>
       )}
-      {!ingest?.failed && !ingest?.pending && ingest?.ingest_status === 'ok' && ingest?.ingest_error && (
+      {!ingest?.failed && !ingest?.pending && ingest?.ingest_status === 'ok' && (ingest?.ingest_message || ingest?.ingest_error) && (
         <div
           data-testid="qc-ingest-ok-banner"
           className="mb-2 rounded-md border border-line bg-soft/60 px-2 py-1.5 text-meta text-ink"
           role="status"
         >
-          {ingest.ingest_error}
+          {ingest.ingest_message || ingest.ingest_error}
         </div>
       )}
       {ingest?.pending && (

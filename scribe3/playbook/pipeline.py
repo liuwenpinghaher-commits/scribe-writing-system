@@ -128,6 +128,14 @@ def _settled_note(duty: Any, contract: Any, seq: int) -> str:
     return f"第{int(seq)}章办成了：{bit}"[:200]
 
 
+def _judge_vcode(verdict: dict[str, Any] | None) -> str:
+    """旗开读 gate；关旗走旧 verdict。"""
+    src = verdict or {}
+    if "ok" in src and "code" in src:
+        return "pass" if src.get("ok") else str(src.get("code") or "fail")
+    return str(src.get("verdict") or "")
+
+
 def _continuity_judge(ctx: dict[str, Any]) -> dict[str, Any]:
     return {
         "prev_state": ctx.get("prev_state"),
@@ -252,17 +260,14 @@ def _quality_loop(
             continue
         body = target if isinstance(target, str) else _json(target)
         sha = str(hash(body))
-        if last_verdict and last_sha == sha and last_verdict.get("verdict") != verdict.get("verdict"):
+        if last_verdict and last_sha == sha and _judge_vcode(last_verdict) != _judge_vcode(verdict):
             third = judge(judge_type, art if isinstance(art, dict) else {"text": art},
                           PLAYBOOK_VERSION, judge_ctx(art), llm_fn=llm_fn)
             verdict = majority_if_disagreed(last_verdict, verdict, third)
         last_verdict = verdict
         last_sha = sha
         sid_j = playbook_span_start("playbook.judge")
-        if "ok" in verdict and "code" in verdict:
-            vcode = "pass" if verdict.get("ok") else str(verdict.get("code") or "fail")
-        else:
-            vcode = str(verdict.get("verdict") or "")
+        vcode = _judge_vcode(verdict)
         playbook_note_gate(
             sid_j, ok=vcode == "pass",
             code="" if vcode == "pass" else (vcode or "needs_human"),
@@ -275,12 +280,12 @@ def _quality_loop(
             actual_reason=None if vcode == "pass" else vcode,
             verdict="green" if vcode == "pass" else "red",
         )
-        if verdict.get("verdict") == "pass":
+        if vcode == "pass":
             return {
                 "ok": True, "artifact": art, "review": verdict,
                 "rounds": quality + 1, "fail_reasons": fail_reasons,
             }
-        if verdict.get("verdict") == "needs_human":
+        if vcode == "needs_human":
             playbook_note_reasons(fail_reasons)
             return {
                 "ok": False,
@@ -955,7 +960,7 @@ def review_and_freeze_play(
         )
     except (InfraError, ParseError) as exc:
         return {"ok": False, "code": "infra", "message": str(exc), "layer": "play"}
-    if verdict.get("verdict") != "pass":
+    if _judge_vcode(verdict) != "pass":
         if persist:
             rec = {
                 "seq": int(seq), "text": text, "status": "draft",

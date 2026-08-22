@@ -636,7 +636,8 @@ def _shape_evaluation(evaluation, seq: int, *, quality: QualityStore) -> dict[st
         # 只暴露本次冻结评价绑定的不可变版本 ID，供审计确认结论没有滞留在
         # 旧正文版本；正文和模型输入仍不离开现有受控读取边界。
         "chapter_version_ids": [unit.chapter_version_id for unit in evaluation.units],
-        "dimensions": dimensions,
+        "dimensions": dimensions,  # 兼容一版；消费方应读 gate.hits
+        "dimensions_deprecated": dimensions,
         "weights": weights.model_dump(mode="json"),
         "status": "ready",
     }
