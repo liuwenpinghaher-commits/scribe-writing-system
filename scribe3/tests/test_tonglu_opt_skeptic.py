@@ -152,6 +152,45 @@ def test_dir_05_overdue_blocker_roundtrip():
     _reject_overdue_hard(st)
 
 
+def test_dir_05_motif_blocker_clears_after_seed():
+    from scribe3.bible_motifs import evaluate_motif_gap
+    from scribe3.director import build_workflow_snapshot
+
+    class St:
+        def __init__(self):
+            self.motifs = []
+
+        def list_motifs(self):
+            return list(self.motifs)
+
+        def get_intent(self):
+            return {"reader_feeling": "先冷后烫", "red_lines": "不泄密"}
+
+        def chapters_lite(self):
+            return []
+
+        def list_characters(self):
+            return [{"name": "柳岸青"}]
+
+        def characters(self):
+            return [{"name": "柳岸青"}]
+
+        def count_canon_debt(self):
+            return {"total": 0, "high": 0}
+
+        def list_canon_candidates(self, **k):
+            return []
+
+    st = St()
+    assert evaluate_motif_gap(st)["ok"] is False
+    snap = build_workflow_snapshot(st, work="motif-block")
+    assert any(b.get("code") == "bible_motifs" for b in snap["blockers"])
+    st.motifs = [{"name": "灯与债"}, {"name": "替与真名"}, {"name": "应到之声"}]
+    assert evaluate_motif_gap(st)["ok"] is True
+    snap2 = build_workflow_snapshot(st, work="motif-block")
+    assert not any(b.get("code") == "bible_motifs" for b in snap2["blockers"])
+
+
 def test_ded_08_prev_state_reads_degraded():
     st = MemoryPlaybookStore()
     persist_degraded_chapter_state(

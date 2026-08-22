@@ -12,6 +12,8 @@ import asyncio
 import json
 import os
 
+from surrealdb import AsyncSurreal
+
 
 def _live_credentials() -> tuple[str, str]:
     """与 SurrealStore 一致:env → 设置中心 → 开发默认 root。"""
@@ -100,8 +102,6 @@ async def live_stream(
     S-8 / GAP-4: 推送 ``{table, action?, id?, fields?}``。
     ``record_ids`` 若提供：对对应表在输出侧按 id 过滤（DB 条件 LIVE 在驱动不稳时回退过滤）。
     """
-    from surrealdb import AsyncSurreal
-
     q: asyncio.Queue = asyncio.Queue()
     tasks: list = []
     user, password = _live_credentials()
