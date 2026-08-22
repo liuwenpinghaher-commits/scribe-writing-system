@@ -37,6 +37,9 @@ class MemoryPlaybookStore:
                 return rec
         return None
 
+    def clear_frozen_for_seq(self, seq: int) -> None:
+        clear_frozen_for_seq(self, seq)
+
     def get_by_sha(self, table: str, sha: str) -> dict[str, Any] | None:
         for rec in self.rows[table]:
             if rec.get("sha") == sha:
@@ -70,6 +73,31 @@ def overwrite_play(store: MemoryPlaybookStore, sha: str, new_text: str) -> dict[
     rec["text"] = new_text
     rec["sha"] = artifact_sha(rec)
     return rec
+
+
+def clear_frozen_for_seq(store: Any, seq: int) -> None:
+    """DIR-03：解开某章冻产物，允许重跑当前步。不回调 store 同名方法，避免递归。"""
+    rows = getattr(store, "rows", None)
+    if isinstance(rows, dict):
+        for recs in rows.values():
+            for rec in recs or []:
+                if int(rec.get("seq") or 0) == int(seq) and rec.get("status") == "frozen":
+                    rec["status"] = "superseded"
+        return
+    writer = getattr(store, "_execute_write", None)
+    if callable(writer):
+        for table in TABLES:
+            try:
+                writer(
+                    f"UPDATE {table} SET status='superseded' WHERE seq=$seq AND status='frozen'",
+                    {"seq": int(seq)},
+                )
+            except Exception:
+                pass
+    frozen = getattr(store, "frozen", None)
+    if isinstance(frozen, dict):
+        frozen.pop(int(seq), None)
+        frozen.pop(seq, None)
 
 
 def freeze_artifact(

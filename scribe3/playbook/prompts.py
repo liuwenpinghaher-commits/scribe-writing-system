@@ -119,10 +119,25 @@ def _iron_enabled() -> bool:
         return True
 
 
+def _letter_grid_block(ctx: dict) -> str:
+    letter = str((ctx or {}).get("revision_letter_digest") or "").strip()
+    grid = str((ctx or {}).get("scene_grid") or "").strip()
+    skills = (ctx or {}).get("craft_skills") or []
+    parts: list[str] = []
+    if letter:
+        parts.append(f"上章问诊还没做完的事：{letter[:600]}")
+    if grid:
+        parts.append(f"这一场戏格：{grid[:600]}")
+    if skills:
+        parts.append("必须用上的技法：" + "、".join(str(s) for s in skills if s))
+    return ("\n".join(parts) + "\n") if parts else ""
+
+
 def _iron_head(ctx: dict) -> str:
+    extra = _letter_grid_block(ctx)
     if not _iron_enabled():
-        return ""
-    return f"【今晚钉住】\n{IRON_RULES}\n今晚还不能拆穿：{_forbid_bits(ctx)}\n"
+        return extra
+    return f"【今晚钉住】\n{IRON_RULES}\n今晚还不能拆穿：{_forbid_bits(ctx)}\n{extra}"
 
 
 def _iron_tail(ctx: dict) -> str:

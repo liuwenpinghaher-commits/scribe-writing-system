@@ -19,9 +19,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_dir_01_pending_proposal_survives_get():
-    rec = save_pending_proposal(None, {"ops": [{"tool": "s3_add_item"}]})
+    class St:
+        pass
+    st = St()
+    rec = save_pending_proposal(st, {"ops": [{"tool": "s3_add_item"}]})
     assert rec["id"]
-    got = get_pending_proposal(None, rec["id"])
+    got = get_pending_proposal(st, rec["id"])
     assert got and got["id"] == rec["id"]
     assert got["ops"]
 

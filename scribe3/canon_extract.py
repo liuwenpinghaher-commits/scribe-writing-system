@@ -396,6 +396,18 @@ def _llm_extract(
         bible += "已立角色（勿重复新建，可 patch 字段）: " + "、".join(known[:40]) + "\n"
     if wr:
         bible += "已立世界规则: " + "、".join(str(x) for x in wr) + "\n"
+    schema_line = ""
+    try:
+        from scribe3.codex_schema import fields_for
+        bits = []
+        for kind in ("character", "faction", "item", "term", "world_rule"):
+            keys = [f.key for f in fields_for(kind)[:12]]
+            if keys:
+                bits.append(f"{kind}: {', '.join(keys)}")
+        if bits:
+            schema_line = "schema 字段（fields 只能用这些键）: " + "；".join(bits) + "\n"
+    except Exception:
+        schema_line = ""
     prompt = (
         "你是长篇写作系统的设定增量抽取器。只根据【正文】相对【已有设定】抽「需要作者确认」的增量。\n"
         "铁律:\n"
@@ -404,6 +416,7 @@ def _llm_extract(
         "3) 不要把门/推门/一会/口语残片当成势力；组织须像专名（如「高门代还」「灯火门」）。\n"
         "4) 人名须是人物称呼，禁止「叫我来看」类动词短语。\n"
         "5) 宁缺毋滥：不确定就省略。\n"
+        f"{schema_line}"
         "输出一行 JSON，键可含 entities/relations/world_rules/factions/items/terms/"
         "promises/facts/knowledge/motifs（缺省用空数组）。\n"
         "entities: {module,op,name,fields,evidence,confidence} module 仅 character|faction|item|term；"

@@ -260,6 +260,8 @@ class MaterialReferenceIn(BaseModel):
     chapter: int = Field(ge=1)
     dimension: str | None = None
     reason: str | None = None
+    # MAT-06：injection=正文吃进去；inspiration=只借鉴。缺省由 via 推断。
+    ref_kind: str | None = None
 
 
 class IntentIn(BaseModel):
@@ -534,6 +536,8 @@ class PilotDismissReq(BaseModel):
 class PilotApproveReq(BaseModel):
     seq: int
     expect_state: str = ""   # 审查 P1-1:知情背书——前端携带条目状态,错位 409 防误触终选
+    force_rollback: bool = False
+    to_state: str = ""
 
 
 class PilotRunReq(BaseModel):

@@ -30,6 +30,38 @@ def strip_codex_pad(text: str) -> str:
     return cleaned
 
 
+def _live_known_members(st, row: dict) -> list:
+    """ATL-06：势力成员按当前在册角色过滤，归档/已删的不进 prompt。"""
+    members = list(row.get("known_members") or [])
+    if not members:
+        return members
+    alive: set[str] = set()
+    try:
+        chars = []
+        if hasattr(st, "characters"):
+            chars = st.characters() or []
+        elif hasattr(st, "list_characters"):
+            chars = st.list_characters() or []
+        for c in chars:
+            if isinstance(c, dict):
+                name = str(c.get("name") or "").strip()
+                oid = str(c.get("id") or "")
+            else:
+                name = str(getattr(c, "name", "") or "").strip()
+                oid = str(getattr(c, "id", "") or "")
+            if name:
+                alive.add(name)
+                alive.add(f"role:{name}")
+            if oid:
+                alive.add(oid)
+                alive.add(oid.split(":")[-1])
+    except Exception:
+        return members
+    if not alive:
+        return members
+    return [m for m in members if str(m) in alive or str(m).split(":")[-1] in alive]
+
+
 def _faction_prompt_block(st, row: dict, *, chapter: int, known_ids: set,
                           secret_ids: set, fact_index: dict, for_generation: bool) -> str:
     """单个势力的结构化注入块(CX-Task 6):按注册表 in_prompt 字段拼,secret/chief_only
@@ -74,6 +106,8 @@ def _faction_prompt_block(st, row: dict, *, chapter: int, known_ids: set,
         if key == "name":
             continue
         value = row.get(key)
+        if key == "known_members":
+            value = _live_known_members(st, row)
         if value in (None, "", [], {}):
             continue
         if key in chief_keys:

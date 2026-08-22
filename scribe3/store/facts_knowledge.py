@@ -121,6 +121,11 @@ class FactsKnowledgeMixin:
             valid_from=since_chapter, secret=secret, source="author",
         )
         self.add_fact(new_fact, supersede_open=True)
+        try:
+            _emit_cache_invalidation("fact", getattr(self, "db_name", None), store=self)
+            _emit_cache_invalidation("proposition", getattr(self, "db_name", None), store=self)
+        except Exception:
+            pass
         return new_oid
 
     def forget_knowledge(self, knower_id: str, proposition_id: str, until_chapter: int) -> None:

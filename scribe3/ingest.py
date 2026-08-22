@@ -277,22 +277,21 @@ def apply_delta(store, delta: dict, seq: int,
     S3: learned 类命题去重——近精确匹配到已有客观命题时复用,只新发 knows 边。"""
     import logging
     _log = logging.getLogger("scribe3.ingest")
-    store.purge_ingest(seq)
-    from scribe3.ingest_integrity import run_ingest_apply
+    from scribe3.ingest_integrity import checkpoint_ingest, run_ingest_apply
+
+    checkpoint_ingest(store, seq, ok=False, needs_replay=True, delta=delta)
 
     def _body():
+        store.purge_ingest(seq)
         return _apply_delta_body(store, delta, seq, open_promises)
 
     guarded = run_ingest_apply(_body, seq)
     if not guarded.get("ok"):
-        try:
-            if hasattr(store, "_execute_write"):
-                store._execute_write(
-                    "UPSERT ingest_checkpoint SET seq=$s, ok=false, needs_replay=true",
-                    {"s": seq})
-        except Exception:
-            pass
+        checkpoint_ingest(store, seq, ok=False, needs_replay=True, delta=delta)
         raise RuntimeError(guarded.get("detail") or "ingest apply failed")
+    checkpoint_ingest(
+        store, seq, ok=True, needs_replay=False, n=int(guarded.get("n") or 0),
+    )
     return guarded.get("n") or 0
 
 

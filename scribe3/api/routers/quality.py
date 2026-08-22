@@ -1,6 +1,7 @@
 """Domain router (extracted from app_impl). URLs unchanged."""
 from __future__ import annotations
 
+import time
 import types
 from typing import Any, Optional, List, Dict, Literal
 
@@ -43,20 +44,55 @@ def chapter_health_ep(seq: int, work: str = "main"):
     from scribe3.motif_heat import motif_overheat_advisory
     st = _store_for(work)
     pb = {}
+    pc = {}
+    rv = {}
     try:
         if hasattr(st, "get_frozen"):
             d = st.get_frozen("chapter_draft", seq) or st.get_frozen("duty_card", seq) or {}
-            pb = {"status": "ok" if d else "missing", "ok": bool(d)}
+            review = d.get("review") if isinstance(d, dict) else None
+            pb = {
+                "status": (review or {}).get("verdict") or ("ok" if d else "missing"),
+                "ok": bool(d) and str((review or {}).get("verdict") or "pass") != "fail",
+                "verdict": (review or {}).get("verdict"),
+            }
+            if isinstance(review, dict):
+                rv = dict(review)
     except Exception:
         pb = {"status": "unknown"}
+    try:
+        if hasattr(st, "post_analysis_summary"):
+            pc = st.post_analysis_summary(seq) or {}
+            if isinstance(pc, dict) and "verdict" not in pc:
+                if pc.get("present"):
+                    pc["verdict"] = "pass" if pc.get("fp_match") is not False else "advisory"
+                else:
+                    pc["verdict"] = "unknown"
+    except Exception:
+        pc = pc or {}
+    try:
+        getter = getattr(st, "get_chapter_review_row", None)
+        if callable(getter):
+            row = getter(f"{work}_{int(seq)}") or {}
+            if row:
+                cov = row.get("coverage") or row.get("cov")
+                rv = {**rv, **row}
+                if cov is not None:
+                    rv["coverage"] = cov.get("coverage") if isinstance(cov, dict) else cov
+                if row.get("verdict"):
+                    rv["verdict"] = row.get("verdict")
+    except Exception:
+        pass
     inst = []
     try:
         lister = getattr(st, "list_motif_instances", None)
         inst = lister(seq) if callable(lister) else []
     except Exception:
         inst = []
-    h = aggregate_chapter_health(playbook=pb, post_check={}, review={})
+    h = aggregate_chapter_health(playbook=pb, post_check=pc, review=rv)
     h["motif_overheat"] = motif_overheat_advisory(inst)
+    h["playbook"] = pb
+    h["post_check"] = pc
+    h["review"] = rv
     return h
 
 
@@ -72,6 +108,10 @@ def craft_gates(seq: int | None = Query(default=None, ge=1), work: str = "main")
         out["seq"] = seq
     return out
 
+_QUALITY_TTL: dict[tuple, tuple[float, dict]] = {}
+_QUALITY_TTL_SEC = 5.0
+
+
 def quality(work: str = "main"):
     """质量仪表盘聚合:每章 字数/双层QC问题/因果违规 + 伏笔状态。
     P3-e1 Fix 1: 使用 OVERDUE_SLACK 模块常量(唯一真源),支持 intent.overdue_threshold 覆盖;
@@ -82,6 +122,14 @@ def quality(work: str = "main"):
     缓存由 save_chapter 写时落库;若版本戳过期，响应明确标注而不把旧值伪装为当前结论。"""
     from scribe3.qc_product_keys import project_product_qc_breakdown
     st = _store_for(work)
+    try:
+        stamp = (work, int(st.max_chapter() or 0))
+    except Exception:
+        stamp = (work, None)
+    now = time.monotonic()
+    hit = _QUALITY_TTL.get(stamp)
+    if hit and now - hit[0] < _QUALITY_TTL_SEC:
+        return hit[1]
     out = st.outline()
     per = []
     stale_chapters = []
@@ -119,12 +167,27 @@ def quality(work: str = "main"):
         "overdue": sum(1 for p in prom_list if p["overdue"]),
         "promises": prom_list,
     }
-    return {"chapters": per, "foreshadow": fore, "total_words": sum(c["word_count"] for c in per),
+    result = {"chapters": per, "foreshadow": fore, "total_words": sum(c["word_count"] for c in per),
             "cache_stale_chapters": sorted(stale_chapters),
             "cache_revision": QUALITY_CACHE_REVISION}
+    _QUALITY_TTL[stamp] = (now, result)
+    return result
+
+def accept_advisory_ep(seq: int, work: str = "main"):
+    from scribe3.advisory_ttl import accept_advisory
+    out = accept_advisory(_store_for(work), seq)
+    if not out.get("ok"):
+        code = out.get("code") or ""
+        status = 409 if code == "expired" else 404
+        raise HTTPException(status_code=status, detail=out)
+    return out
+
 
 def refresh_quality(work: str = "main"):
     """作者显式刷新本书过期质量缓存；仅更新派生列，不触碰正文和正典数据。"""
+    for key in list(_QUALITY_TTL):
+        if key[0] == work:
+            _QUALITY_TTL.pop(key, None)
     refreshed = _store_for(work).refresh_quality_caches()
     return {"ok": True, "refreshed_chapters": refreshed,
             "cache_revision": QUALITY_CACHE_REVISION}
@@ -166,5 +229,13 @@ def _bind_and_register() -> None:
     setattr(core, 'chapter_health_ep', _re)
     g['chapter_health_ep'] = _re
     router.add_api_route('/chapters/{seq}/health', _re, methods=['GET'], name='chapter_health_ep')
+
+    _fn = g['accept_advisory_ep']
+    _re = types.FunctionType(_fn.__code__, core.__dict__, 'accept_advisory_ep', _fn.__defaults__, _fn.__closure__)
+    if _fn.__annotations__:
+        _re.__annotations__ = dict(_fn.__annotations__)
+    setattr(core, 'accept_advisory_ep', _re)
+    g['accept_advisory_ep'] = _re
+    router.add_api_route('/chapters/{seq}/accept-advisory', _re, methods=['POST'], name='accept_advisory_ep')
 
 _bind_and_register()

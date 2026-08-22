@@ -84,11 +84,17 @@ function buildGraph(data, focus, theme) {
     if (!g.hasNode(e.src) || !g.hasNode(e.dst)) return
     const isKnows = e.rel === 'knows'
     try {
+      const w = Number(e.weight)
+      const size = Number.isFinite(w) && w > 0
+        ? Math.max(0.8, Math.min(6, w * 1.6))
+        : (isKnows ? 1 : 2.2)
       g.addEdgeWithKey('e' + i, e.src, e.dst, {
-        size: isKnows ? 1 : 2.2,
+        size,
         color: resolveColor(relColor(e.rel), theme),
         _rel: e.rel,
-        label: isKnows ? '' : (REL_LABEL[e.rel] || e.rel),
+        _weight: Number.isFinite(w) ? w : 1,
+        _directed: e.directed !== false,
+        label: isKnows ? '' : `${REL_LABEL[e.rel] || e.rel}${Number.isFinite(w) && w !== 1 ? ` ·${w}` : ''}`,
         type: 'arrow',
       })
     } catch { /* 重复边忽略 */ }

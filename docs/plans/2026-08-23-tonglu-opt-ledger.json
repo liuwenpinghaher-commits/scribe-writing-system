@@ -140,8 +140,8 @@
     "title": "/quality端点无TTL缓存但每次全查SurrealDB",
     "priority": "P1",
     "stage": "5",
-    "status": "decision: P1 短 TTL，本轮用 live 刷新代替全量缓存",
-    "note": "decision: P1 短 TTL，本轮用 live 刷新代替全量缓存"
+    "status": "done",
+    "note": "/quality 5s TTL（按 work+max_chapter）"
   },
   {
     "id": "DSH-05",
@@ -284,8 +284,8 @@
     "title": "canon\\_extract LLM prompt不含schema字段列表",
     "priority": "P2",
     "stage": "5",
-    "status": "decision: P2 extract prompt schema 列表本轮未改 canon_extract",
-    "note": "decision: P2 extract prompt schema 列表本轮未改 canon_extract"
+    "status": "done",
+    "note": "canon_extract prompt 注入 schema 字段列表"
   },
   {
     "id": "CDX-14",
@@ -364,16 +364,16 @@
     "title": "material\\_reference溯源语义错误",
     "priority": "P1",
     "stage": "5",
-    "status": "decision: P1 溯源语义 injection vs inspiration 记录在案",
-    "note": "decision: P1 溯源语义 injection vs inspiration 记录在案"
+    "status": "done",
+    "note": "material_reference.ref_kind injection vs inspiration"
   },
   {
     "id": "MAT-07",
     "title": "素材搜索无语义检索（仅BM25文本匹配）",
     "priority": "P1",
     "stage": "5",
-    "status": "decision: P1 hybrid 搜索本轮不新开通道",
-    "note": "decision: P1 hybrid 搜索本轮不新开通道"
+    "status": "done",
+    "note": "素材搜索 mode=hybrid 二次排序"
   },
   {
     "id": "MAT-08",
@@ -428,24 +428,24 @@
     "title": "势力known\\_members与角色实体无动态同步",
     "priority": "P1",
     "stage": "5",
-    "status": "decision: P1 known_members 动态同步本轮未做",
-    "note": "decision: P1 known_members 动态同步本轮未做"
+    "status": "done",
+    "note": "known_members 按在册角色动态过滤"
   },
   {
     "id": "ATL-07",
     "title": "物品state\\_history无时间线展示",
     "priority": "P1",
     "stage": "5",
-    "status": "decision: P1 物品时间线组件远期",
-    "note": "decision: P1 物品时间线组件远期"
+    "status": "done",
+    "note": "CodexView ItemStateHistory 时间线"
   },
   {
     "id": "ATL-08",
     "title": "关系图无权重/无方向标注",
     "priority": "P1",
     "stage": "5",
-    "status": "decision: P1 关系权重标注远期",
-    "note": "decision: P1 关系权重标注远期"
+    "status": "done",
+    "note": "图谱边 weight + 箭头方向"
   },
   {
     "id": "ATL-09",
@@ -500,16 +500,16 @@
     "title": "Seed→Promise衔接丢失上下文",
     "priority": "P1",
     "stage": "5",
-    "status": "decision: P1 seed 升格上下文本轮未迁",
-    "note": "decision: P1 seed 升格上下文本轮未迁"
+    "status": "done",
+    "note": "promote_seed 带走 reason/evidence/clues"
   },
   {
     "id": "PRM-07",
     "title": "伏笔-角色绑定缺失",
     "priority": "P1",
     "stage": "5",
-    "status": "decision: P1 involved_characters 字段远期",
-    "note": "decision: P1 involved_characters 字段远期"
+    "status": "done",
+    "note": "promise.involved_characters"
   },
   {
     "id": "PRM-08",
@@ -668,8 +668,8 @@
     "title": "ledger站为空壳，全书完成后胶囊消失",
     "priority": "P1",
     "stage": "3",
-    "status": "decision: P1 ledger 站仪式闭环远期",
-    "note": "decision: P1 ledger 站仪式闭环远期"
+    "status": "done",
+    "note": "全书定稿后账本站点亮，胶囊恭喜完成"
   },
   {
     "id": "JNY-04",
@@ -717,7 +717,7 @@
     "priority": "P0",
     "stage": "2",
     "status": "done",
-    "note": "pending_proposal 持久化+GET"
+    "note": "execute=false 走 store 持久化，GET /orchestration/proposal/{id} 可取"
   },
   {
     "id": "DIR-02",
@@ -733,15 +733,15 @@
     "priority": "P0",
     "stage": "4",
     "status": "done",
-    "note": "reset-step force_rollback"
+    "note": "PilotApproveReq.force_rollback/to_state；reset-step 改状态并清冻产物"
   },
   {
     "id": "DIR-04",
     "title": "SSE /live端点零测试覆盖",
     "priority": "P0",
     "stage": "4",
-    "status": "decision: P0 SSE 集成测本机不起 Surreal，源码结构+live 重连已落地",
-    "note": "decision: P0 SSE 集成测本机不起 Surreal，源码结构+live 重连已落地"
+    "status": "done",
+    "note": "ASGI /live 三事件形状 + _normalize_live_note CREATE/UPDATE/DELETE"
   },
   {
     "id": "DIR-05",
@@ -749,7 +749,7 @@
     "priority": "P0",
     "stage": "4",
     "status": "done",
-    "note": "overdue 硬闸双向：超阈阻断 / 兑现后 count 下降"
+    "note": "overdue 硬闸：超阈 409，兑现后解除"
   },
   {
     "id": "DIR-06",
@@ -805,7 +805,7 @@
     "priority": "P1",
     "stage": "3",
     "status": "done",
-    "note": "build_ctx revision_letter_digest"
+    "note": "build_revision_letter 进 build_ctx 并写入生成嘱咐"
   },
   {
     "id": "DIR-13",
@@ -813,15 +813,15 @@
     "priority": "P1",
     "stage": "3",
     "status": "done",
-    "note": "build_ctx scene_grid"
+    "note": "experience.scene_grid 进 build_ctx 并写入生成嘱咐"
   },
   {
     "id": "DIR-14",
     "title": "MAX\\_QUALITY\\_ROUNDS全失败后草稿未落库",
     "priority": "P1",
     "stage": "5",
-    "status": "decision: P1 8 轮熔断保最佳候选本轮未改 pipeline 落库",
-    "note": "decision: P1 8 轮熔断保最佳候选本轮未改 pipeline 落库"
+    "status": "done",
+    "note": "8 轮熔断保留最佳候选 best_kept"
   },
   {
     "id": "DIR-15",
@@ -965,7 +965,7 @@
     "priority": "P0",
     "stage": "2",
     "status": "done",
-    "note": "ingest_integrity + checkpoint"
+    "note": "purge 在 checkpoint 守卫内；heal_ingest_if_needed 可自愈"
   },
   {
     "id": "DED-04",
@@ -973,7 +973,7 @@
     "priority": "P0",
     "stage": "2",
     "status": "done",
-    "note": "apply_change_pack 半包回滚"
+    "note": "patch 恢复 before；add 才整条删"
   },
   {
     "id": "DED-05",
@@ -1005,15 +1005,15 @@
     "priority": "P0",
     "stage": "4",
     "status": "done",
-    "note": "degrade_chapter_state"
+    "note": "抽取失败冻降级章末态，下章 prev_state 能接"
   },
   {
     "id": "DED-09",
     "title": "Discussion路径无质量检查",
     "priority": "P1",
     "stage": "5",
-    "status": "decision: P1 Discussion 校验远期",
-    "note": "decision: P1 Discussion 校验远期"
+    "status": "done",
+    "note": "discussion quality_flags 对照已立的人/规矩"
   },
   {
     "id": "DED-10",
@@ -1028,8 +1028,8 @@
     "title": "advisory分支正文悬空",
     "priority": "P1",
     "stage": "3",
-    "status": "decision: P1 advisory TTL 远期",
-    "note": "decision: P1 advisory TTL 远期"
+    "status": "done",
+    "note": "advisory 72h + POST /chapters/{seq}/accept-advisory"
   },
   {
     "id": "DED-12",
@@ -1037,23 +1037,23 @@
     "priority": "P1",
     "stage": "4",
     "status": "done",
-    "note": "ChapterHealthReport /chapters/{seq}/health"
+    "note": "health 读 playbook/post_analysis/chapter_review 三套真结果"
   },
   {
     "id": "DED-13",
     "title": "canon\\_candidate无自动过期/清理",
     "priority": "P1",
     "stage": "4",
-    "status": "decision: P1 candidate TTL 远期",
-    "note": "decision: P1 candidate TTL 远期"
+    "status": "done",
+    "note": "pending candidate 30 天 expired"
   },
   {
     "id": "DED-14",
     "title": "fact supersede无跨章广播",
     "priority": "P1",
     "stage": "4",
-    "status": "decision: P1 supersede 广播本轮未改",
-    "note": "decision: P1 supersede 广播本轮未改"
+    "status": "done",
+    "note": "supersede_fact 后 _emit_cache_invalidation fact+proposition"
   },
   {
     "id": "DED-15",
@@ -1084,16 +1084,16 @@
     "title": "draft冻结成功但state失败时上层误判",
     "priority": "P1",
     "stage": "4",
-    "status": "decision: P1 draft/state 细分本轮未改 _run_draft 返回",
-    "note": "decision: P1 draft/state 细分本轮未改 _run_draft 返回"
+    "status": "done",
+    "note": "草稿已冻时 state_ok=False，ok 仍为 True"
   },
   {
     "id": "DED-19",
     "title": "craft\\_skills无自动选择",
     "priority": "P1",
     "stage": "3",
-    "status": "decision: P1 技法强制触发远期",
-    "note": "decision: P1 技法强制触发远期"
+    "status": "done",
+    "note": "craft_skills 强制注入限知视角/知情差"
   },
   {
     "id": "DED-20",

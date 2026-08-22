@@ -31,6 +31,16 @@ class PlaybookOpsMixin:
             return None
         return _row(rows[0]) if rows else None
 
+    def clear_frozen_for_seq(self, seq: int) -> None:
+        for table in TABLES:
+            try:
+                self._execute_write(
+                    f"UPDATE {table} SET status='superseded' WHERE seq=$seq AND status='frozen'",
+                    {"seq": int(seq)},
+                )
+            except Exception:
+                pass
+
     def get_by_sha(self, table: str, sha: str) -> dict[str, Any] | None:
         if table not in TABLES:
             return None

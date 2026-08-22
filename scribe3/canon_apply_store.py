@@ -34,17 +34,23 @@ def apply_item_to_store(st: Any, item: ChangeItem | dict) -> dict[str, Any]:
         pass
 
     bare = target.split(":")[-1] if target else ""
+    before = _snapshot_before(st, module, bare, target, op)
     try:
         if module == "character":
-            return _sync_after_apply(st, module, _apply_character(st, bare, target, field, after, op))
+            rec = _sync_after_apply(st, module, _apply_character(st, bare, target, field, after, op))
+            return _attach_before(rec, before, op)
         if module == "world_rule":
-            return _sync_after_apply(st, module, _apply_world_rule(st, bare or target, field, after, op))
+            rec = _sync_after_apply(st, module, _apply_world_rule(st, bare or target, field, after, op))
+            return _attach_before(rec, before, op)
         if module == "faction":
-            return _sync_after_apply(st, module, _apply_faction(st, bare or target, field, after, op))
+            rec = _sync_after_apply(st, module, _apply_faction(st, bare or target, field, after, op))
+            return _attach_before(rec, before, op)
         if module == "item":
-            return _sync_after_apply(st, module, _apply_item(st, bare or target, field, after, op))
+            rec = _sync_after_apply(st, module, _apply_item(st, bare or target, field, after, op))
+            return _attach_before(rec, before, op)
         if module == "term":
-            return _sync_after_apply(st, module, _apply_term(st, bare or target, field, after, op))
+            rec = _sync_after_apply(st, module, _apply_term(st, bare or target, field, after, op))
+            return _attach_before(rec, before, op)
         if module == "fact":
             return _apply_fact(st, target, field, after, op)
         if module == "knowledge":
@@ -63,6 +69,60 @@ def apply_item_to_store(st: Any, item: ChangeItem | dict) -> dict[str, Any]:
     except Exception as e:
         _log.warning("apply_item_to_store fail module=%s target=%s: %s", module, target, e)
         return {"status": "error", "error": str(e)[:200], "item_id": item_id, "module": module}
+
+
+def _attach_before(rec: dict, before: dict | None, op: str) -> dict:
+    if not isinstance(rec, dict):
+        return rec
+    rec.setdefault("op", op or rec.get("op") or "")
+    if before is not None:
+        rec["before"] = before
+    return rec
+
+
+def _snapshot_before(st, module: str, bare: str, target: str, op: str):
+    if str(op or "").strip() == "add":
+        return None
+    try:
+        if module == "character":
+            oid = target if str(target).startswith("role:") else f"role:{bare}"
+            getter = getattr(st, "entity", None)
+            if callable(getter):
+                e = getter(oid)
+                if e is None:
+                    return None
+                traits = getattr(e, "traits", None)
+                return {
+                    "oid": oid,
+                    "name": getattr(e, "name", None),
+                    "traits": dict(traits) if isinstance(traits, dict) else traits,
+                }
+            getter = getattr(st, "get_character", None)
+            if callable(getter):
+                return getter(bare or target)
+        if module == "faction":
+            getter = getattr(st, "get_faction", None)
+            if callable(getter):
+                row = getter(bare or target)
+                return dict(row) if isinstance(row, dict) else row
+        if module == "item":
+            getter = getattr(st, "get_item", None)
+            if callable(getter):
+                row = getter(bare or target)
+                return dict(row) if isinstance(row, dict) else row
+        if module == "term":
+            getter = getattr(st, "get_term", None)
+            if callable(getter):
+                row = getter(bare or target)
+                return dict(row) if isinstance(row, dict) else row
+        if module == "world_rule":
+            getter = getattr(st, "get_world_rule", None)
+            if callable(getter):
+                row = getter(bare or target)
+                return dict(row) if isinstance(row, dict) else row
+    except Exception:
+        return None
+    return None
 
 
 def _sync_after_apply(st, module: str, result: dict) -> dict:

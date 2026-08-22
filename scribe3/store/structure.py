@@ -73,7 +73,12 @@ class StructureMixin:
                 continue
             all_edges.append({"src": k.knower_id, "dst": k.proposition_id, "rel": "knows"})
         for r in self.relations_at(ch):
-            all_edges.append({"src": f"role:{r['src']}", "dst": f"role:{r['dst']}", "rel": r["relation"]})
+            all_edges.append({
+                "src": f"role:{r['src']}", "dst": f"role:{r['dst']}",
+                "rel": r["relation"],
+                "weight": float(r.get("weight") or 1),
+                "directed": True,
+            })
         # 通用实体关系(势力↔势力/角色等,两端已是 role:/faction: 本体 id)
         try:
             erels = self.entity_relations_at(ch) if hasattr(self, "entity_relations_at") else []

@@ -571,6 +571,26 @@ def _undo_applied(store: Any, rec: dict[str, Any]) -> bool:
         return False
     module = str(rec.get("module") or "")
     op = str(rec.get("op") or "")
+    before = rec.get("before")
+    # patch：把旧值写回去；add 才整条删
+    if op != "add" and isinstance(before, dict):
+        if module == "character" and rec.get("oid") and hasattr(store, "update_record"):
+            fields = before.get("traits") if isinstance(before.get("traits"), dict) else before
+            store.update_record(rec["oid"], fields)
+            return True
+        if module == "faction" and rec.get("name") and hasattr(store, "add_faction"):
+            kw = {k: v for k, v in before.items() if k != "name"}
+            store.add_faction(rec["name"], **kw)
+            return True
+        if module == "item" and rec.get("name") and hasattr(store, "patch_item"):
+            store.patch_item(rec["name"], {k: v for k, v in before.items() if k != "name"})
+            return True
+        if module == "term" and rec.get("name") and hasattr(store, "patch_term"):
+            store.patch_term(rec["name"], {k: v for k, v in before.items() if k != "name"})
+            return True
+        if module == "world_rule" and rec.get("name") and hasattr(store, "patch_world_rule"):
+            store.patch_world_rule(rec["name"], {k: v for k, v in before.items() if k != "name"})
+            return True
     if module == "character" and rec.get("oid") and hasattr(store, "delete_record"):
         return bool(store.delete_record(rec["oid"], cleanup_refs=True))
     if module == "faction" and rec.get("name") and hasattr(store, "delete_faction"):

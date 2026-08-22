@@ -149,6 +149,11 @@ def promote_seed_payload(seed: dict) -> dict[str, Any]:
     text = (seed.get("text") or "").strip()
     if len(text) < 2:
         raise ValueError("seed text 过短")
+    reason = str(seed.get("reason") or seed.get("detail") or "")[:200]
+    evidence = seed.get("evidence") or seed.get("quote") or ""
+    clues = []
+    if evidence or reason:
+        clues.append({"text": str(evidence or reason)[:200], "kind": "seed"})
     return {
         "text": text[:120],
         "setup_chapter": seed.get("seq"),
@@ -156,4 +161,8 @@ def promote_seed_payload(seed: dict) -> dict[str, Any]:
         "seed_id": seed.get("id"),
         "requires_approval": True,
         "note": "须经现有伏笔/promise 门控写入,禁止自动 plant",
+        "resolution": reason,
+        "clues": clues,
+        "reason": reason,
+        "evidence": evidence,
     }

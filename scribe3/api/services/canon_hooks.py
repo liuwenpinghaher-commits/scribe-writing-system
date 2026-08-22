@@ -281,6 +281,11 @@ def discussion_change_pack(
     if persist:
         _persist_pack_items(st, d, seq=None, source=source)
     d["debt"] = st.count_canon_debt() if st is not None and hasattr(st, "count_canon_debt") else {}
+    try:
+        from scribe3.discussion_quality import validate_discussion_claims
+        d["quality_flags"] = validate_discussion_claims(text or "", snap if isinstance(snap, dict) else {})
+    except Exception:
+        d["quality_flags"] = []
     return d
 
 

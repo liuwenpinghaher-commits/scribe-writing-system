@@ -125,6 +125,18 @@ def cast_cards(st: Any) -> list[dict[str, str]]:
     return out
 
 
+def _craft_skill_triggers(focalizer: str, secrets: list[str] | None) -> list[str]:
+    """DED-19：关键场面强制带上技法，不靠模型自己想起。"""
+    skills: list[str] = []
+    if str(focalizer or "").strip():
+        skills.append("限知视角")
+    if secrets:
+        if "限知视角" not in skills:
+            skills.append("限知视角")
+        skills.append("知情差")
+    return skills
+
+
 def book_imagery(st: Any) -> str:
     getter = getattr(st, "get_intent", None)
     if not callable(getter):
@@ -142,9 +154,20 @@ def prev_chapter_state(store: Any, seq: int) -> dict[str, Any] | None:
     if int(seq) <= 1:
         return None
     fn = getattr(store, "get_frozen", None)
-    if not callable(fn):
-        return None
-    rec = fn("chapter_state", int(seq) - 1)
+    rec = fn("chapter_state", int(seq) - 1) if callable(fn) else None
+    if isinstance(rec, dict):
+        return rec
+    lister = getattr(store, "list_versions", None)
+    if callable(lister):
+        try:
+            rows = lister("chapter_state", int(seq) - 1) or []
+        except Exception:
+            rows = []
+        for rec in reversed(list(rows)):
+            if not isinstance(rec, dict):
+                continue
+            if rec.get("degraded") or rec.get("status") in ("needs_human", "frozen"):
+                return rec
     return rec if isinstance(rec, dict) else None
 
 
@@ -745,8 +768,25 @@ def _revision_letter_digest(world: Any, seq: int) -> str:
             if row:
                 return str(row)[:800]
     try:
-        from scribe3.experience.letter import digest_for_chapter
-        return str(digest_for_chapter(world, seq) or "")[:800]
+        from scribe3.experience.letter import build_revision_letter
+        from scribe3.experience.state import get_letter_overlay
+        work = str(getattr(world, "db_name", None) or "main")
+        letter = build_revision_letter(
+            world, work=work, status_overlay=get_letter_overlay(work),
+        )
+        items = letter.get("items") if isinstance(letter, dict) else None
+        if not items:
+            return ""
+        open_qs = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            if it.get("status") and it.get("status") != "open":
+                continue
+            q = str(it.get("question") or it.get("kind") or "").strip()
+            if q:
+                open_qs.append(q)
+        return "；".join(open_qs)[:800]
     except Exception:
         return ""
 
@@ -757,19 +797,32 @@ def _scene_grid_digest(world: Any, seq: int) -> str:
         try:
             row = fn(seq)
             if isinstance(row, dict):
-                return str(row.get("digest") or row.get("summary") or row)[:800]
+                return _format_scene_grid(row, seq)
             if row:
                 return str(row)[:800]
         except Exception:
             pass
     try:
-        from scribe3.experience.scene_grid import diagnose_scene_grid
-        out = diagnose_scene_grid(world, seq)
-        if isinstance(out, dict):
-            return str(out.get("digest") or out.get("summary") or "")[:800]
-        return str(out or "")[:800]
+        from scribe3.experience.state import get_scene_grid
+        work = str(getattr(world, "db_name", None) or "main")
+        grid = get_scene_grid(work, int(seq)) or {}
+        return _format_scene_grid(grid, seq)
     except Exception:
         return ""
+
+
+def _format_scene_grid(grid: dict, seq: int) -> str:
+    from scribe3.experience.scene_grid import diagnose_scene_grid, normalize_scene_grid
+    g = normalize_scene_grid(grid)
+    issues = diagnose_scene_grid(g, seq=seq) or []
+    filled = [f"{k}:{g.get(k)}" for k in ("goal", "conflict", "disaster", "reaction", "dilemma", "decision") if g.get(k)]
+    msgs = [str(i.get("message") or i.get("code") or "") for i in issues if isinstance(i, dict)]
+    parts = []
+    if filled:
+        parts.append("；".join(filled))
+    if msgs:
+        parts.append("断链：" + "；".join(m for m in msgs if m))
+    return " ".join(parts)[:800]
 
 
 def build_ctx(
@@ -805,7 +858,7 @@ def build_ctx(
             return ""
 
     from scribe3.context_snapshot import snapshot_get_or_set
-    cache_key = f"{getattr(world, 'db_name', '')}:{seq}:{foc}"
+    cache_key = f"{id(world)}:{getattr(world, 'db_name', '')}:{seq}:{foc}"
 
     def _cached_slot(name, fn):
         return snapshot_get_or_set(f"{cache_key}:{name}", lambda: _slot(name, fn))
@@ -869,6 +922,7 @@ def build_ctx(
             "scene_grid",
             lambda: _scene_grid_digest(world, seq),
         ),
+        "craft_skills": _craft_skill_triggers(foc, secret_list(world)),
         "_guide_fail": list(guide_fail),
         "_volume_ledger_skip": ledger_skip,
     }

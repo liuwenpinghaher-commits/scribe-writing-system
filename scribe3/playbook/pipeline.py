@@ -197,6 +197,8 @@ def _quality_loop(
     last_verdict: dict[str, Any] | None = None
     last_struct: dict[str, Any] = {"ok": False, "code": "no_attempt"}
     last_art: Any = None
+    best_art: Any = None
+    best_rank = -1
     quality = 0
     infra_fails = 0
     fail_reasons: list[str] = []
@@ -216,6 +218,8 @@ def _quality_loop(
                 return {"ok": False, "code": "infra", "message": str(extra_exc), "layer": name}
             continue
         last_art = art
+        if best_art is None:
+            best_art = art
         target = extract(art) if extract else art
         text = _artifact_body(target)
         from scribe3.pipeline_trace import current_trace_buffer
@@ -238,6 +242,10 @@ def _quality_loop(
         )
         playbook_span_end(sid_g, status="ok", actual="present" if text.strip() else "empty")
         last_struct = struct(target)
+        rank = 2 if last_struct.get("ok") else 1
+        if rank >= best_rank and art is not None:
+            best_art = art
+            best_rank = rank
         sid_s = playbook_span_start("playbook.struct")
         code = str(last_struct.get("code") or "")
         playbook_note_gate(
@@ -326,9 +334,10 @@ def _quality_loop(
         "layer": name,
         "struct": last_struct,
         "review": last_verdict,
-        "artifact": last_art,
+        "artifact": best_art if best_art is not None else last_art,
         "rounds": quality,
         "fail_reasons": fail_reasons,
+        "best_kept": True,
     }
 
 
@@ -670,11 +679,15 @@ def _run_draft(store, seq, ctx, llm_fn, *, force, persist):
             )
         out["chapter_state"] = state_out.get("artifact")
         if not state_out.get("ok"):
-            out["ok"] = False
+            # DED-18：草稿已冻，不要把整章当成没写成。上层只补章末态。
+            out["ok"] = True
+            out["state_ok"] = False
             out["code"] = state_out.get("code") or "chapter_state_extract"
             out["message"] = state_out.get("message") or "章末态没抽出"
             out["blockers"] = state_out.get("blockers") or []
             out["state_struct"] = state_out.get("struct")
+        else:
+            out["state_ok"] = True
     return out
 
 
@@ -895,11 +908,21 @@ def extract_chapter_state(
         try:
             art = gen_state(ctx, llm_fn)
         except InfraError as exc:
+            if persist:
+                from scribe3.degrade_state import persist_degraded_chapter_state
+                persist_degraded_chapter_state(
+                    store, seq, prev=ctx.get("prev_state"), reason="infra",
+                )
             return {"ok": False, "code": "infra", "message": str(exc), "layer": "chapter_state"}
         except ParseError as exc:
             infra_fails += 1
             last_struct = {"ok": False, "code": "json", "message": str(exc)}
             if infra_fails >= 3:
+                if persist:
+                    from scribe3.degrade_state import persist_degraded_chapter_state
+                    persist_degraded_chapter_state(
+                        store, seq, prev=ctx.get("prev_state"), reason="json",
+                    )
                 return {"ok": False, "code": "infra", "message": str(exc), "layer": "chapter_state"}
             continue
         last_art = art
@@ -925,14 +948,14 @@ def extract_chapter_state(
         "code": last_struct.get("code") or "chapter_state_extract",
         "note": last_struct.get("message") or "章末态没抽出",
     }]
-    if persist and last_art and not store.get_frozen("chapter_state", int(seq)):
-        rec = dict(last_art) if isinstance(last_art, dict) else {"text": last_art}
-        rec["seq"] = int(seq)
-        rec["status"] = "needs_human"
-        rec["version"] = store.next_version("chapter_state", int(seq))
-        rec["schema"] = "chapter_state.v1"
-        rec["playbook_version"] = PLAYBOOK_VERSION
-        store.insert("chapter_state", rec)
+    if persist:
+        from scribe3.degrade_state import persist_degraded_chapter_state
+        extra = dict(last_art) if isinstance(last_art, dict) else None
+        persist_degraded_chapter_state(
+            store, seq, prev=ctx.get("prev_state"),
+            reason=str(last_struct.get("code") or "chapter_state_extract"),
+            extra=extra,
+        )
     return {
         "ok": False,
         "code": "chapter_state_extract",
@@ -942,6 +965,7 @@ def extract_chapter_state(
         "blockers": blockers,
         "artifact": last_art,
         "rounds": quality,
+        "degraded": True,
     }
 
 

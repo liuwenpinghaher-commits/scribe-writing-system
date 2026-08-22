@@ -676,12 +676,9 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
         result = dict(req.proposal)
         result["status"] = "awaiting_hermes_approval"
         result["note"] = "生产请经 Hermes 审批卡；execute=false 不落库"
-        try:
-            from scribe3.pending_proposals import save_pending_proposal
-            st = _store_for(work)
-            result = save_pending_proposal(st, result)
-        except Exception:
-            pass
+        from scribe3.pending_proposals import save_pending_proposal
+        st = _store_for(work)
+        result = save_pending_proposal(st, result)
         return {"work": work, "proposal": result, "ui_events": [], "ui_target": None, "focus_policy": "soft"}
 
     result = apply_proposal_ops(

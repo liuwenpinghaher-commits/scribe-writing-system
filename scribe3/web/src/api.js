@@ -295,7 +295,7 @@ export const api = {
   pilotPause: () => post('/pilot/pause'),
   pilotRunStatus: () => j('/pilot/run-status'),
   pilotDismiss: (seq) => post('/pilot/dismiss', { seq }),         // R1-4:pilot 僵尸态退出
-  pilotResetStep: (seq) => post('/pilot/reset-step', { seq }),   // R1-4:stalled/parked 解卡重跑当前步
+  pilotResetStep: (seq, extra = {}) => post('/pilot/reset-step', { seq, ...extra }),   // R1-4:stalled/parked 解卡；force_rollback 解开冻产物
   // Hermes Runs/Approval:长任务事件流 + 人类审批闭环
   // H-10 全系统预算:日帽(app+MCP 共享台账)+ token 真实用量(trace 聚合)
   aiUsage: (days = 7) => j(`/ai/usage?days=${days}`),

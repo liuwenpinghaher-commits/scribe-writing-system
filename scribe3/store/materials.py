@@ -9,6 +9,25 @@ from scribe3.store.core_preamble import *  # noqa: F403
 
 _log = logging.getLogger("scribe3")
 
+
+def rank_materials_hybrid(query: str, items: list[dict]) -> list[dict]:
+    """BM25 命中后再按标题/摘要贴近度排。无向量时仍是 hybrid 的字面层。"""
+    q = (query or "").strip().lower()
+    if not q or not items:
+        return list(items or [])
+    scored = []
+    for m in items:
+        title = str(m.get("title") or "").lower()
+        blob = "\n".join([
+            title, str(m.get("body") or ""), str(m.get("summary") or ""),
+        ]).lower()
+        score = blob.count(q)
+        if q in title:
+            score += 3
+        scored.append((score, m))
+    scored.sort(key=lambda x: -x[0])
+    return [m for _, m in scored]
+
 # 导入 job 默认 TTL(秒):24h
 _IMPORT_JOB_TTL_SEC = 24 * 3600
 
@@ -73,6 +92,7 @@ class MaterialsMixin:
         limit: int | None = None,
         cursor: int = 0,
         origin: str | None = None,
+        mode: str = "bm25",
     ) -> dict:
         """服务端视图过滤 + 偏移分页;返回 {items, next_cursor, total}。
 
@@ -120,6 +140,8 @@ class MaterialsMixin:
                 str(m.get("summary") or ""),
                 " ".join(m.get("tags") or []), " ".join(m.get("ref_tags") or []),
             ]).lower()]
+            if str(mode or "").strip().lower() == "hybrid":
+                rows = rank_materials_hybrid(q, rows)
 
         total = len(rows)
         if limit is None:
@@ -229,12 +251,24 @@ class MaterialsMixin:
         return (rows[0].get("embedding") if rows else None)
 
     def add_material_reference(self, material_id, chapter, dimension=None,
-                               reason=None, via="manual") -> None:
-        """记一次参考(溯源)+ 强化(recall_count++/last_recalled_at)。"""
-        self._execute_write(
-            "CREATE material_reference SET material_id=$m, chapter=$c, "
-            "dimension=$d, reason=$r, via=$v",
-            {"m": material_id, "c": int(chapter), "d": dimension, "r": reason, "v": via})
+                               reason=None, via="manual", ref_kind: str | None = None) -> None:
+        """记一次参考(溯源)+ 强化(recall_count++/last_recalled_at)。
+
+        ref_kind: injection=正文吃进去；inspiration=只借鉴。缺省按 via 推断。
+        """
+        kind = (ref_kind or "").strip().lower()
+        if kind not in ("injection", "inspiration"):
+            kind = "injection" if str(via or "") in ("write", "brief") else "inspiration"
+        try:
+            self._execute_write(
+                "CREATE material_reference SET material_id=$m, chapter=$c, "
+                "dimension=$d, reason=$r, via=$v, ref_kind=$rk",
+                {"m": material_id, "c": int(chapter), "d": dimension, "r": reason, "v": via, "rk": kind})
+        except Exception:
+            self._execute_write(
+                "CREATE material_reference SET material_id=$m, chapter=$c, "
+                "dimension=$d, reason=$r, via=$v",
+                {"m": material_id, "c": int(chapter), "d": dimension, "r": reason, "v": via})
         self._execute_write(
             "UPDATE type::record('material',$m) SET recall_count += 1, "
             "last_recalled_at = time::now()", {"m": material_id})

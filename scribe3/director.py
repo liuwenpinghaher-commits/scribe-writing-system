@@ -403,6 +403,8 @@ def _journey(st, has_open_chapter: bool) -> dict[str, Any]:
 
     if intent_ok and world_ok and struct_ok:
         current = "serialize"
+    if struct_ok and not has_open_chapter:
+        current = "ledger"
 
     stations = []
     seen_current = False
@@ -428,7 +430,12 @@ def _journey(st, has_open_chapter: bool) -> dict[str, Any]:
     stations = []
     for i, (sid, label) in enumerate(JOURNEY_STATIONS):
         if sid == "ledger":
-            stt = "todo"
+            if current == "ledger":
+                stt = "current"
+            elif struct_ok and not has_open_chapter:
+                stt = "done"
+            else:
+                stt = "todo"
         elif i < ci:
             stt = "done"
         elif i == ci:
@@ -438,6 +445,25 @@ def _journey(st, has_open_chapter: bool) -> dict[str, Any]:
         stations.append({"id": sid, "label": label, "status": stt})
 
     return {"stations": stations, "current_station": current}
+
+
+def _ledger_report(st) -> dict[str, Any]:
+    chs = _chapters(st)
+    n = len(chs)
+    finalized = 0
+    for c in chs:
+        try:
+            if read_state(st, int(c.get("seq") or 0))["state"] == "finalized":
+                finalized += 1
+        except Exception:
+            pass
+    done = n > 0 and finalized == n
+    return {
+        "chapter_count": n,
+        "finalized_count": finalized,
+        "congrats": "恭喜完成" if done else "",
+        "quality_note": "全书站点已走完，这里给你看完成统计。" if done else "账本站等全书定稿后才亮。",
+    }
 
 
 def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> dict[str, Any]:
@@ -587,6 +613,7 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
             break
 
     journey = _journey(st, has_open_chapter=has_open)
+    journey["focus_chapter"] = picked
     ui_directive = {
         "entry": "manuscript",
         "phase": phase,
@@ -658,6 +685,17 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
         next_step = dict(next_step)
         next_step["creative_suggestions"] = creative
 
+    ledger = _ledger_report(st)
+    if journey.get("current_station") == "ledger":
+        next_step = {
+            "id": "book_complete",
+            "title": "恭喜完成",
+            "why": ledger.get("quality_note") or "这本书写完了。",
+            "how_chat": "这本书写完了。可以翻账本，或开下一本。",
+            "prompt": "恭喜完成。请给全书完成统计和质量总评，并建议下一本怎么开。",
+        }
+        suggested = next_step["prompt"]
+
     return {
         "work": work,
         "journey": journey,
@@ -675,5 +713,6 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
         "canon_debt": canon_debt,
         "bible_motif_gap": motif_gap,
         "motif_seed_proposal": motif_proposal,
+        "ledger": ledger,
         "note": "P0 合成自 pilot+章列表+intent；非文学评分",
     }

@@ -489,6 +489,14 @@ def run_chapter_loop(*, chapter: int, generate, post_check, persist_version,
                        "note": f"{max_rounds} 轮回炉仍 blocking,待人裁决;正文未落库未 ingest,各轮稿在版本库"})
     else:
         # advisory:绝不自动重写(宪法);清单待批,人批后走既有 save-chapter→/ingest 链路。
-        result.update({"verdict": "advisory",
-                       "note": "advisory 不自动重写:草稿已留版本,建议清单待作者裁决;正文未自动落库"})
+        from scribe3.advisory_ttl import mark_advisory_pending
+        pending = mark_advisory_pending(
+            chapter, prose, tri.get("advisory_items") or [],
+        )
+        result.update({
+            "verdict": "advisory",
+            "note": "advisory 不自动重写:草稿已留版本,建议清单待作者裁决;正文未自动落库",
+            "advisory_expires_at": pending.get("expires_at"),
+            "accept_path": f"/chapters/{chapter}/accept-advisory",
+        })
     return result

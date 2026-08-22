@@ -63,6 +63,7 @@ def _store_write_budget_report(report: dict[str, Any] | None) -> None:
 
 # PR-EH-10: prompt blocks
 from scribe3.api.services.write_assemble_blocks import (  # noqa: E402
+    _live_known_members,
     _faction_prompt_block,
     _field_text,
     _card_line,
@@ -127,6 +128,7 @@ def _record_write_soft_fail(kind: str) -> None:
 
 # ── write_assemble 包 rebind 白名单 SSOT（app_impl._rebind_services 必须消费本表）──
 WRITE_ASSEMBLE_REBIND_NAMES: tuple[str, ...] = (
+    "_live_known_members",
     "_faction_prompt_block",
     "_field_text",
     "_card_line",

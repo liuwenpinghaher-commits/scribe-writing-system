@@ -6,6 +6,29 @@ from typing import Any
 
 from scribe3.store.core_preamble import *  # noqa: F403
 
+CANDIDATE_TTL_DAYS = 30
+
+
+def candidate_is_expired(row: dict | None, *, now_ts: float | None = None, ttl_days: int = CANDIDATE_TTL_DAYS) -> bool:
+    """纯函数：created_at 超过 ttl 即过期。"""
+    import time
+    if not row:
+        return True
+    created = row.get("created_at")
+    ts = None
+    if isinstance(created, (int, float)):
+        ts = float(created)
+    elif isinstance(created, str):
+        try:
+            from datetime import datetime
+            ts = datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp()
+        except Exception:
+            ts = None
+    if ts is None:
+        return False
+    now = time.time() if now_ts is None else float(now_ts)
+    return now - ts > int(ttl_days) * 86400
+
 
 class CanonCandidatesMixin:
     def ensure_canon_candidate_schema(self) -> None:
@@ -52,12 +75,25 @@ class CanonCandidatesMixin:
         )
         return local
 
+    def expire_stale_canon_candidates(self, ttl_days: int = 30) -> int:
+        """DED-13：pending 超过 30 天标 expired。"""
+        try:
+            self._execute_write(
+                "UPDATE canon_candidate SET status='expired', decided_at=time::now() "
+                "WHERE status='pending' AND created_at < time::now() - 30d",
+            )
+        except Exception:
+            return 0
+        return 0
+
     def list_canon_candidates(
         self,
         status: str = "pending",
         module: str | None = None,
         seq: int | None = None,
     ) -> list[dict]:
+        if status == "pending":
+            self.expire_stale_canon_candidates()
         q = (
             "SELECT meta::id(id) AS id, seq, source, extractor, module, op, target, field, "
             "before_json, after_json, evidence, confidence, risk, layer, status, "

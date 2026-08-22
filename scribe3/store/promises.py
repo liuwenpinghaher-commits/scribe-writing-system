@@ -79,7 +79,8 @@ class PromisesMixin:
 
     def plant_promise(self, text: str, setup_chapter: int, kind: str = "promise",
                       tier: str = "chapter", resolution: str = "",
-                      strict: bool = False) -> dict:
+                      strict: bool = False,
+                      involved_characters: list | None = None) -> dict:
         """种下伏笔。返回 {id, text, setup_chapter, tier, kind, payoff_min, payoff_max, status}。
 
         resolution(方案B任务21):悬念存档答案;book/arc 长期悬念强制校验在 REST/MCP 层,
@@ -93,13 +94,22 @@ class PromisesMixin:
         pmin = setup_chapter + lo
         pmax = None if hi is None else setup_chapter + hi
         # 用 _query 拿 CREATE 返回的 record id(与 add_volume 同范式)
-        created = self._query(
-            "CREATE promise SET text=$t, setup_chapter=$s, payoff_chapter=NONE, status='open', "
-            "kind=$k, tier=$tier, payoff_min=$pmin, payoff_max=$pmax, "
-            "resolution=$resolution",
-            {"t": text, "s": setup_chapter, "k": kind,
+        inv = [str(x).strip() for x in (involved_characters or []) if str(x).strip()]
+        params = {"t": text, "s": setup_chapter, "k": kind,
              "tier": tier, "pmin": pmin, "pmax": pmax,
-             "resolution": resolution or None})
+             "resolution": resolution or None, "inv": inv or None}
+        try:
+            created = self._query(
+                "CREATE promise SET text=$t, setup_chapter=$s, payoff_chapter=NONE, status='open', "
+                "kind=$k, tier=$tier, payoff_min=$pmin, payoff_max=$pmax, "
+                "resolution=$resolution, involved_characters=$inv",
+                params)
+        except Exception:
+            created = self._query(
+                "CREATE promise SET text=$t, setup_chapter=$s, payoff_chapter=NONE, status='open', "
+                "kind=$k, tier=$tier, payoff_min=$pmin, payoff_max=$pmax, "
+                "resolution=$resolution",
+                params)
         row = created[0] if created else {}
         rid = row.get("id")
         if rid is None:
@@ -123,12 +133,15 @@ class PromisesMixin:
             "payoff_min": pmin,
             "payoff_max": pmax,
             "resolution": resolution or None,
+            "involved_characters": inv,
         }
 
     def _normalize_promise_row(self, r: dict) -> dict:
         """list/get 共用:clues/tier/窗口兼容补全。"""
         if r.get("clues") is None:
             r["clues"] = []
+        if r.get("involved_characters") is None:
+            r["involved_characters"] = []
         # 兼容旧行(未跑 052 迁移前创建):tier 回退 chapter,窗口按 setup 补算。
         # book 层 payoff_max 合法为 None,不补;setup_chapter 为 None 时不补。
         if r.get("tier") is None:

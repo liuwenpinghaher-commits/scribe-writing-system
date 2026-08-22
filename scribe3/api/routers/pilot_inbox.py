@@ -255,23 +255,24 @@ def pilot_run_status(work: str = "main"):
     return _pilot_run_state.get(work) or {"running": False, "stopped": ""}
 
 def pilot_reset(req: PilotApproveReq, work: str = "main"):
-    """stalled/parked 解卡:清 parked 标记(状态不回退——版本库无损,重跑当前步即可)。"""
+    """stalled/parked 解卡。force_rollback 时退到指定状态并清冻产物，避免 checked 卡死。"""
     from scribe3.pilot import read_state, write_state
     st = _store_for(work)
     s = read_state(st, req.seq)
     parked = ""
     state = s["state"]
     force = bool(getattr(req, "force_rollback", False) or getattr(req, "force", False))
+    target = str(getattr(req, "to_state", None) or "").strip()
     if force:
         parked = ""
-        # DIR-03：允许退回指定状态，解开冻产物卡死
-        target = getattr(req, "to_state", None) or "drafting"
-        state = str(target)
+        state = target or "drafting"
         try:
-            if hasattr(st, "clear_frozen_for_seq"):
-                st.clear_frozen_for_seq(req.seq)
+            from scribe3.playbook.memory_store import clear_frozen_for_seq
+            clear_frozen_for_seq(st, req.seq)
         except Exception:
-            pass
+            clr = getattr(st, "clear_frozen_for_seq", None)
+            if callable(clr):
+                clr(req.seq)
     write_state(st, req.seq, state, parked=parked)
     return {"seq": req.seq, "state": state, "parked": parked, "force_rollback": force}
 

@@ -40,11 +40,14 @@ except Exception:
 
 def list_materials_ep(kind: str | None = None, limit: int | None = Query(default=None, ge=1, le=500),
                       cursor: int = Query(default=0, ge=0), q: str = "", view: str = "all",
-                      origin: str | None = None, work: str = "main"):
-    """素材列表:服务端 view/q/origin 过滤 + 偏移分页。limit 缺省返回数组(兼容旧客户端)。"""
+                      origin: str | None = None, work: str = "main",
+                      mode: str = "bm25"):
+    """素材列表:服务端 view/q/origin 过滤 + 偏移分页。limit 缺省返回数组(兼容旧客户端)。
+    mode=hybrid 时在命中集上再按标题贴近度排。"""
     _check_material_kind(kind)
     page = _store_for(work).list_materials_page(
-        kind=kind, view=view or "all", q=q or "", limit=limit, cursor=cursor, origin=origin)
+        kind=kind, view=view or "all", q=q or "", limit=limit, cursor=cursor, origin=origin,
+        mode=mode or "bm25")
     if limit is None:
         return page["items"]
     return page
@@ -224,8 +227,11 @@ def add_material_reference_ep(mid: str, req: MaterialReferenceIn, work: str = "m
     st = _store_for(work)
     if st.get_material(mid) is None:
         raise HTTPException(status_code=404, detail=f"material '{mid}' 不存在")
-    st.add_material_reference(mid, req.chapter, req.dimension, req.reason, via="manual_insert")
-    return {"ok": True}
+    st.add_material_reference(
+        mid, req.chapter, req.dimension, req.reason,
+        via="manual_insert", ref_kind=req.ref_kind or "inspiration",
+    )
+    return {"ok": True, "ref_kind": req.ref_kind or "inspiration"}
 
 def material_refs_ep(mid: str, work: str = "main"):
     """正向溯源:这条素材用在了哪些章。"""

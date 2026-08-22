@@ -213,6 +213,19 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
           </ol>
         </section>
 
+        {snap?.ledger?.congrats ? (
+          <section
+            className="rounded-lg border border-brand/30 bg-brand/10 p-4"
+            data-testid="journey-ledger-complete"
+          >
+            <div className="text-f14 font-medium text-brand">{snap.ledger.congrats}</div>
+            <p className="mt-1 text-meta text-ink/80">
+              已定稿 {snap.ledger.finalized_count}/{snap.ledger.chapter_count} 章。
+              {snap.ledger.quality_note ? ` ${snap.ledger.quality_note}` : ''}
+            </p>
+          </section>
+        ) : null}
+
         {/* 章流水线 */}
         {lane && (
           <section aria-labelledby="journey-lane-h" className="rounded-lg border border-line/60 bg-soft/30 p-4">
