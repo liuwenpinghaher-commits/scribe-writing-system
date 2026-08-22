@@ -1,4 +1,4 @@
-"""playbook.3.2.3 identity + generate/judge prompts. 改法官问卷或门槛才升版本。"""
+"""playbook.3.2.4 identity + generate/judge prompts. 改法官问卷或门槛才升版本。"""
 from __future__ import annotations
 
 import json
@@ -80,16 +80,60 @@ VOLUME_LEDGER_DISCIPLINE = (
     "今晚只办这一章该办的那一笔。后面几章的账可以在章末当没做完的事挂着，不许今晚演完。"
 )
 
+PACE_EXEMPT = (
+    "若今晚要办的是给后面某笔做准备（把一件东西送到位置、埋下一句、只揭一角），"
+    "只要这件事本身发生了，就算办了——不要因为没有当场高潮就判不过。"
+)
+
+IRON_RULES = (
+    "1. 今晚只办这一章该办的那一笔。后面的可以挂着，不许演完。\n"
+    "2. 今晚还不能拆穿的事，一个字都不要漏。\n"
+    "3. 该在场的人各自做事，不能只站着。\n"
+    "4. 账当场付成一个动作。\n"
+    "5. 贴着这个焦点者看见、听见、摸到的写，不替别人想。\n"
+    "6. 书里的人不知道自己在章里。不要升华，不要说教。\n"
+    "7. 世界按这本书已经立下的规矩变贵，不许另造一套。"
+)
+
 
 def _volume_ledger_block(ctx: dict) -> str:
     body = (ctx or {}).get("volume_ledger") or "（无）"
     return f"【本卷还要办的】\n{VOLUME_LEDGER_DISCIPLINE}\n{body}"
 
 
+def _forbid_bits(ctx: dict) -> str:
+    d = (ctx or {}).get("duty") if isinstance((ctx or {}).get("duty"), dict) else {}
+    bits = (ctx or {}).get("forbidden_reveal") or d.get("forbidden_reveal") or (ctx or {}).get("secret_list") or "（无）"
+    return bits
+
+
+def _iron_enabled() -> bool:
+    try:
+        from scribe3.feature_flags import flag_truthy
+        return flag_truthy("SCRIBE3_IRON_RULES_DUAL_ANCHOR")
+    except Exception:
+        return True
+
+
+def _iron_head(ctx: dict) -> str:
+    if not _iron_enabled():
+        return ""
+    return f"【今晚钉住】\n{IRON_RULES}\n今晚还不能拆穿：{_forbid_bits(ctx)}\n"
+
+
+def _iron_tail(ctx: dict) -> str:
+    if not _iron_enabled():
+        return ""
+    return (
+        f"\n写完再核一次：今晚还不能拆穿的事（{_forbid_bits(ctx)}）有没有漏出去？"
+        "后面几章的夜有没有提前演完？\n"
+    )
+
+
 def duty_generate(ctx: dict) -> str:
     return f"""你在为第 {ctx.get("seq")} 章立"责任"——这一章必须办成的事。
 这份责任卡直接驱动下游写戏：写戏的严格按你立的来，立歪了整章歪。
-
+{_iron_head(ctx)}
 【全书定位】
 卷纲：{ctx.get("volume_outline") or "（无）"}
 北极星：{ctx.get("north_star") or "（无）"}
@@ -120,7 +164,7 @@ def duty_generate(ctx: dict) -> str:
    整章只有焦点者一个人的责任卡，不成立。
 4. forbidden_reveal——从秘密清单里选本章还不能揭的。
 5. 第二人要能在这场戏里做事，不能只站着。
-
+{_iron_tail(ctx)}
 输出 JSON（不输出任何别的文字）：
 {{"must_happen": "...", "bill": "...", "who": ["..."],
  "forbidden_reveal": ["..."], "line_to_touch": "线id 或 null"}}
@@ -167,7 +211,7 @@ def duty_judge(ctx: dict) -> str:
 5. forbidden_reveal 有没有漏掉"照这章的写法极可能说漏嘴"的秘密？
 6. 这章除了焦点者，有没有第二个有意志的在场者？（能说话或能对抗；远远看着不算）
 7. 这章摸起来还是这本书吗？（全书意象域未设则本问 yes；若这章要跨到另一个世界的质感，责任卡必须先在场上放一个同时属于两个世界的物件作桥，否则 no）
-8. 打开本卷还要办的几笔：这份责任是不是第 {ctx.get("seq")} 章该办的那一笔？后面的可以挂着当没做完的事。有没有把后面某章的夜提前写成了这一夜？
+8. 打开本卷还要办的几笔：这份责任是不是第 {ctx.get("seq")} 章该办的那一笔？后面的可以挂着当没做完的事。有没有把后面某章的夜提前写成了这一夜？{PACE_EXEMPT}
 
 {VERDICT_SCHEMA}
 """
@@ -176,7 +220,7 @@ def duty_judge(ctx: dict) -> str:
 def play_generate(ctx: dict) -> str:
     d = ctx.get("duty") or {}
     return f"""写第 {ctx.get("seq")} 章的戏。这是给全书定"这一章发生什么"的一篇短戏，不是给读者的正文。
-
+{_iron_head(ctx)}
 【本章责任】（责任卡已冻结，严格照此写，不得另办一件事）
 - 要办的一件事：{d.get("must_happen")}
 - 要付的账：{d.get("bill")}
@@ -215,6 +259,7 @@ def play_generate(ctx: dict) -> str:
 - 如果这页已经能当正文交给读者 → 删到只剩钉子，重写。
 - 如果你只能用"他想通了/他决定了"来概括这章 → 重写。
 - 如果删掉任何一个在场的人这章照样成立 → 那个人就不该在场。
+{_iron_tail(ctx)}
 """
 
 
@@ -263,7 +308,7 @@ def play_judge(ctx: dict) -> str:
 9. 对照上章末态，在场角色的身体状态、持有物、位置有矛盾吗？（无末态则 yes）
 10. 上章记下、到这章该响的悬念，这章戏里碰到了吗？（没有到期条目则 yes）
 11. 这章戏里新写出的可见事实，有没有跟上一章已经写死的事实打架？（无末态则 yes）
-12. 这场戏有没有把本卷后面的夜提前演完？章末挂着没做完的事不算演完。
+12. 这场戏有没有把本卷后面的夜提前演完？章末挂着没做完的事不算演完。{PACE_EXEMPT}
 
 {VERDICT_SCHEMA}
 """
@@ -380,7 +425,7 @@ def draft_generate(ctx: dict) -> str:
         f"\n【上一稿没过，照这个改，不要只换词】{hint}\n" if hint else ""
     )
     return f"""按这场戏和演绎，写一遍糙稿（2000-4000 字）。{hint_block}
-
+{_iron_head(ctx)}
 【戏（设计图，不是文）】{ctx.get("play_text")}
 【契约】{ctx.get("contract_json")}
 【演绎（矿与限知，施工材料）】{ctx.get("deduction_json")}
@@ -416,6 +461,7 @@ def draft_generate(ctx: dict) -> str:
 - 明喻（像/仿佛/似的）全文至多每 800 字一个；能用直陈就不用比喻。
   两千字稿最多两处。宁可写「黑线贴着静脉走」，不要写「像细铁丝」。
   写完自己数：去空白不足 2000 字，或「像/仿佛/似的」超标，整篇作废重写。
+{_iron_tail(ctx)}
 """
 
 
@@ -434,7 +480,7 @@ def draft_judge(ctx: dict) -> str:
 4. 有没有泄露禁止拆穿的事？
 5. 有没有章末升华或元叙述（含"上一章/这一章/下一章"）？
 6. 视角守住焦点者限知了吗？
-7. 是连续场面还是概括叙述？
+7. 是连续场面还是概括叙述？{PACE_EXEMPT}
 8. 把糙稿和戏并排放：删掉戏里已有的句子，糙稿还剩实质内容吗？
    （引一处糙稿有而戏没有的对白或感官细节作证据）
 9. 对照上章末态，在场角色的身体状态、持有物、位置有矛盾吗？（无末态则 yes）
@@ -454,7 +500,7 @@ def final_generate(ctx: dict) -> str:
         f"\n【上一稿没过，照这个改，不要只换词】{hint}\n" if hint else ""
     )
     return f"""把这份糙稿打磨成正文（面向读者的最终文本）。{hint_block}
-
+{_iron_head(ctx)}
 【糙稿（蓝本，结构照此）】{ctx.get("draft_text")}
 【本章必须兑现的】
 - 要办的事：{ctx.get("goal_text")}
@@ -486,6 +532,7 @@ def final_generate(ctx: dict) -> str:
   不进叙述层，除非角色说出口）。
 - 复述排演的叙述原句（对话若已是声口对的原句可保留）。
 - 泄露禁止拆穿的事。
+{_iron_tail(ctx)}
 """
 
 
@@ -525,7 +572,7 @@ def final_judge(ctx: dict) -> str:
 2. 视角守住焦点者限知了吗？
 3. 有没有踩禁令（升华/连续同类比喻/元叙述/泄密）？明喻是否密过每 800 字一个？正文里有没有出现"上一章/这一章/下一章"这类章边界词？（有则 no）
 4. 把开头念出声。第一处让你卡住的句子引出来。没有就说没有。
-5. 有没有哪句是作者在使劲，不是人在做事？引出来。没有就说没有。
+5. 有没有哪句是作者在使劲，不是人在做事？引出来。没有就说没有。{PACE_EXEMPT}
 6. 对照上章末态，在场角色的身体状态、持有物、位置有矛盾吗？（无末态则 yes）
 7. 上章记下、到这章该响的悬念，这章碰到了吗？（没有到期条目则 yes）
 8. 这章新写出的可见事实，有没有跟上一章已经写死的事实打架？（无末态则 yes）
@@ -577,4 +624,4 @@ def identity_for(kind: str) -> str:
     return IDENTITY_NOVELIST
 
 
-assert PLAYBOOK_VERSION == "playbook.3.2.3"
+assert PLAYBOOK_VERSION == "playbook.3.2.4"

@@ -8,12 +8,18 @@ _log = logging.getLogger("scribe3.codex_digest")
 
 DIGEST_ATTRIBUTE = "codex_digest"
 SOURCE = "codex_digest"
-_VALUE_MAX = 400
+_VALUE_MAX = 200
+_KEY_FIELDS = {
+    "character": ("name", "gender"),
+    "faction": ("name",),
+    "place": ("name",),
+    "item": ("name",),
+}
 
 # 每种实体取哪几簇做摘要（字段簇，不是通过条件）
 _KIND_GROUPS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "character": (
-        ("identity", ("name", "alias", "occupation", "appearance")),
+        ("identity", ("name", "alias", "gender", "occupation", "appearance")),
         ("want", ("surface_goal", "deep_need", "fear")),
         ("voice", ("speech_style", "personality_detail")),
     ),
@@ -50,9 +56,11 @@ def digest_payloads(kind: str, entity_id: str, row: dict[str, Any] | None) -> li
             val = _clip(data.get(key) or "")
             if val:
                 bits.append(f"{key}：{val}")
+        if group == "identity" and any(_has_secret_mark(data, k) for k in data):
+            bits.append("secret：标了私密")
         if not bits:
             continue
-        joined = "；".join(bits)
+        joined = _clip("；".join(bits))
         total_parts.append(joined)
         out.append({
             "attribute": DIGEST_ATTRIBUTE,
@@ -78,7 +86,44 @@ def digest_payloads(kind: str, entity_id: str, row: dict[str, Any] | None) -> li
             "source_entity": entity_id,
             "entity_id": entity_id,
         })
+    blob = " ".join(p.get("value") or "" for p in out)
+    if not _keys_preserved(kind, data, blob):
+        _log.warning("digest key-fields missing, fallback raw identity entity=%s", entity_id)
+        raw_bits = []
+        for key in _KEY_FIELDS.get(str(kind or ""), ("name",)):
+            val = _clip(data.get(key) or "")
+            if val:
+                raw_bits.append(f"{key}：{val}")
+        if any(_has_secret_mark(data, k) for k in data):
+            raw_bits.append("secret：标了私密")
+        fallback = "；".join(raw_bits)[:_VALUE_MAX] or _clip(data.get("name") or entity_id)
+        return [{
+            "attribute": DIGEST_ATTRIBUTE,
+            "field_group": "raw",
+            "value": fallback,
+            "source_entity": entity_id,
+            "entity_id": entity_id,
+        }]
     return out
+
+
+def _has_secret_mark(data: dict[str, Any], key: str) -> bool:
+    k = str(key)
+    return k.endswith("_secret") and bool(data.get(key))
+
+
+def _keys_preserved(kind: str, data: dict[str, Any], blob: str) -> bool:
+    for key in _KEY_FIELDS.get(str(kind or ""), ()):
+        val = str(data.get(key) or "").strip()
+        if val and val not in blob:
+            return False
+    secret_on = any(_has_secret_mark(data, k) for k in data)
+    if secret_on and "私密" not in blob and "secret" not in blob.lower():
+        # 不把秘密正文写进摘要，只要求标记还在
+        marked = any(str(k).endswith("_secret") and str(k).replace("_secret", "") in blob for k in data)
+        if not marked:
+            return False
+    return True
 
 
 def sync_entity_digests(store: Any, kind: str, entity_id: str, row: dict[str, Any] | None) -> dict[str, int | bool]:

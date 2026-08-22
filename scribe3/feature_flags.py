@@ -172,6 +172,20 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
         "structure",
         "caution",
     ),
+    Flag(
+        "SCRIBE3_IRON_RULES_DUAL_ANCHOR",
+        "1",
+        "写章嘱咐开头结尾各钉一次今晚不能拆穿的事（七条责任）",
+        "playbook",
+        "safe",
+    ),
+    Flag(
+        "SCRIBE3_HINT_NO_ACCUM",
+        "1",
+        "质量环改稿提示只留上一轮；过三轮换角度看",
+        "playbook",
+        "safe",
+    ),
 )
 
 

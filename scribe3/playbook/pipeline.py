@@ -107,6 +107,23 @@ def _roster(ctx: dict[str, Any]) -> list[dict[str, str]]:
     return gender_roster(ctx.get("prev_state"), ctx.get("cast_cards"))
 
 
+def _settled_note(duty: Any, contract: Any, seq: int) -> str:
+    """定稿后记一句本章办成了什么。只记录，不挡存。"""
+    happen = ""
+    if isinstance(duty, dict):
+        happen = str(duty.get("must_happen") or "").strip()
+    fields = {}
+    if isinstance(contract, dict):
+        fields = contract.get("fields") if isinstance(contract.get("fields"), dict) else {}
+    decision = ""
+    if isinstance(fields.get("decision"), dict):
+        decision = str(fields["decision"].get("text") or "").strip()
+    bit = happen or decision
+    if not bit:
+        return ""
+    return f"第{int(seq)}章办成了：{bit}"[:200]
+
+
 def _continuity_judge(ctx: dict[str, Any]) -> dict[str, Any]:
     return {
         "prev_state": ctx.get("prev_state"),
@@ -530,6 +547,7 @@ def _run_draft(store, seq, ctx, llm_fn, *, force, persist):
     exempt = contract_nail_quotes(contract, bite_q)
     hint = [""]
     seen: list[str] = []
+    rounds = [0]
 
     def _draft_struct(d):
         prev = ctx.get("prev_state") or {}
@@ -542,8 +560,18 @@ def _run_draft(store, seq, ctx, llm_fn, *, force, persist):
             expected_pov=(prev.get("narrative_pov") if int(seq) > 1 else None),
         )
         code = str(hit.get("code") or "") if not hit.get("ok") else ""
-        if code and code not in seen:
-            seen.append(code)
+        rounds[0] += 1
+        try:
+            from scribe3.feature_flags import flag_truthy
+            no_accum = flag_truthy("SCRIBE3_HINT_NO_ACCUM")
+        except Exception:
+            no_accum = True
+        if code:
+            if no_accum:
+                seen.clear()
+                seen.append(code)
+            elif code not in seen:
+                seen.append(code)
         tics = list_syntax_tics(text)
         phrases = [str(h.get("phrase") or "") for h in tics if h.get("phrase")]
         hint[0] = draft_struct_hint(
@@ -551,6 +579,10 @@ def _run_draft(store, seq, ctx, llm_fn, *, force, persist):
             last_message="" if hit.get("ok") else str(hit.get("message") or ""),
             tic_phrases=phrases if len(tics) >= 2 else None,
         )
+        if no_accum and rounds[0] >= 3:
+            hint[0] = (
+                (hint[0] + " 换个角度：贴着另一个在场的人看见的那一面，重写这一场。").strip()
+            )
         return hit
 
     result = _quality_loop(
@@ -648,6 +680,7 @@ def _run_final(store, seq, ctx, llm_fn, *, force, persist):
         "deduction_epistemic": _json((deduce or {}).get("characters")),
     }
     hint = [""]
+    final_rounds = [0]
 
     def _final_struct(d):
         text = d.get("text") if isinstance(d, dict) else str(d)
@@ -657,7 +690,14 @@ def _run_final(store, seq, ctx, llm_fn, *, force, persist):
             characters=_roster(ctx),
             expected_pov=((ctx.get("prev_state") or {}).get("narrative_pov") if int(seq) > 1 else None),
         )
+        final_rounds[0] += 1
         hint[0] = "" if hit.get("ok") else str(hit.get("message") or hit.get("code") or "")
+        try:
+            from scribe3.feature_flags import flag_truthy
+            if flag_truthy("SCRIBE3_HINT_NO_ACCUM") and final_rounds[0] >= 3 and hint[0]:
+                hint[0] = hint[0] + " 换个角度：贴着另一个在场的人看见的那一面，重写这一场。"
+        except Exception:
+            pass
         return hit
 
     result = _quality_loop(
@@ -681,6 +721,14 @@ def _run_final(store, seq, ctx, llm_fn, *, force, persist):
         prose = result["artifact"].get("text") if isinstance(result["artifact"], dict) else result["artifact"]
         if callable(persist_fn):
             persist_fn(seq, prose, play_sha=play.get("sha"), contract_sha=contract.get("sha"))
+        try:
+            note = _settled_note(duty, contract, seq)
+            updater = getattr(store, "update_chapter_meta", None)
+            if callable(updater) and note:
+                updater(int(seq), {"settled_note": note})
+            result["settled_note"] = note
+        except Exception:
+            pass
         from scribe3.playbook.envelope import artifact_sha
         frozen = store.get_frozen("chapter_state", seq) or {}
         state_out = _realign_state_to_source(
