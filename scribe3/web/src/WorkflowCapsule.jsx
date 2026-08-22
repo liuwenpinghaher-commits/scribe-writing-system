@@ -131,7 +131,8 @@ export function applyWorkflowContinue(snap, { onSel, onJumpChapter } = {}) {
   }
   // 旅程下一步 → 激活编排工作包（async，不阻塞 UI）
   import('./lib/orchestrateSend.js').then(({ orchestrateBeforeSend }) => {
-    const domainHint = phase === 'outline' ? 'chapter.outline'
+    const domainHint = phase === 'design' ? 'chapter.design'
+      : phase === 'outline' ? 'chapter.outline'
       : phase === 'beats' ? 'chapter.beats'
         : phase === 'deduce' ? 'chapter.deduce'
           : null

@@ -1,0 +1,102 @@
+[
+  {
+    "ts": "2026-08-12T16:31:29.442150+00:00",
+    "msg": "plan_fields",
+    "syn_cn": 126,
+    "truth_cn": 115,
+    "beats": 3
+  },
+  {
+    "ts": "2026-08-12T16:31:29.738338+00:00",
+    "msg": "orch",
+    "status": 200,
+    "summary": "ch3 full plan",
+    "prop_status": "applied",
+    "errors": []
+  },
+  {
+    "ts": "2026-08-12T16:31:30.127520+00:00",
+    "msg": "gate_b_after_plan",
+    "ok": true,
+    "blocking": []
+  },
+  {
+    "ts": "2026-08-12T16:31:30.127718+00:00",
+    "msg": "prose_ready",
+    "cn": 920
+  },
+  {
+    "ts": "2026-08-12T16:31:30.153463+00:00",
+    "msg": "local_anti_meta",
+    "ok_for_claim": true,
+    "hits": []
+  },
+  {
+    "ts": "2026-08-12T16:31:30.154198+00:00",
+    "msg": "local_reader_ready",
+    "machine": false,
+    "phase": "red",
+    "cover": {
+      "ok": false,
+      "degraded": false,
+      "beat_ratio": 0.0,
+      "valid": 0,
+      "total": 3
+    }
+  },
+  {
+    "ts": "2026-08-12T16:31:30.703797+00:00",
+    "msg": "save_try1",
+    "status": 409,
+    "detail": "{'code': 'blocked', 'message': '定稿门闩:blocking 质控未清,默认禁止落 final(可显式 danger_draft)', 'verdict': 'blocking', 'blocking': [{'detector': 'find_degeneration', 'kind': 'adjacent_repeat', 'quote': '', 'note':"
+  },
+  {
+    "ts": "2026-08-12T16:31:31.305820+00:00",
+    "msg": "save_danger",
+    "status": 200,
+    "anti": true,
+    "phase": "red"
+  },
+  {
+    "ts": "2026-08-12T16:31:31.898244+00:00",
+    "msg": "ch3_final",
+    "title": "第三章 · 空锅声",
+    "prose_cn": 920,
+    "syn": 126,
+    "beats": 3,
+    "truth": 115,
+    "foc": "role:qin_huiqi"
+  },
+  {
+    "ts": "2026-08-12T16:31:32.150898+00:00",
+    "msg": "craft_gates",
+    "gate_b": true,
+    "gate_a": true
+  },
+  {
+    "ts": "2026-08-12T16:31:33.225514+00:00",
+    "msg": "post_check",
+    "status": 200,
+    "ok_for_claim": true,
+    "phase": "red",
+    "may_claim": false
+  },
+  {
+    "ts": "2026-08-12T16:31:33.477823+00:00",
+    "msg": "reader_ack",
+    "status": 200,
+    "ok": true
+  },
+  {
+    "ts": "2026-08-12T16:31:33.800437+00:00",
+    "msg": "reader_claim",
+    "status": 409,
+    "code": "reader_claim",
+    "allowed": null
+  },
+  {
+    "ts": "2026-08-12T16:31:34.054609+00:00",
+    "msg": "storyline",
+    "promise_mode": "omit"
+  }
+]

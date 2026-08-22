@@ -58,6 +58,11 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter, onWorkflowContin
   // F3:右坞「恢复到此版本」→ bump → 经 RestoreContext 通知中区 WriteLayout 重拉本章正文,
   // 恢复即同步编辑器(否则续编辑会用旧内容覆盖刚恢复的版本)。
   const [restoreTick, setRestoreTick] = useState(0)
+  useEffect(() => {
+    const h = () => setRestoreTick((t) => t + 1)
+    window.addEventListener('s3-restore-chapter', h)
+    return () => window.removeEventListener('s3-restore-chapter', h)
+  }, [])
   const [delVol, setDelVol] = useState(null)   // {vid,label,body} 删卷确认
   const [addingVol, setAddingVol] = useState(false)  // 新建卷输入
   const initedRef = useRef(false)

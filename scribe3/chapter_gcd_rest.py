@@ -11,10 +11,11 @@ from typing import Any
 GCD_FIELD_KEYS = frozenset({
     "goal", "conflict", "disaster", "turn", "reaction", "dilemma",
     "decision", "cost", "hook", "text", "done", "beat_type",
+    "choice", "underwater",
 })
 # 闸外入口只许改 GCD 短字段；text 锁定，避免把场面纸截成口号。
 GCD_MUTABLE_KEYS = frozenset(GCD_FIELD_KEYS - {"text"})
-GCD_FIELD_MAX = 200
+GCD_FIELD_MAX = 800
 
 
 def _as_beat_list(raw: Any) -> list:

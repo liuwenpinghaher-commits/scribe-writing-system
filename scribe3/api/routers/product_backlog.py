@@ -169,7 +169,9 @@ def storyline_hub_ep(
 
 def chapter_stage_get_ep(seq: int, work: str = "main"):
     """O19：当前阶段。"""
-    from scribe3.chapter_stage import stage_from_chapter_dict, PHASES, stage_machine_enabled
+    from scribe3.chapter_stage import (
+        stage_from_chapter_dict, PHASES, active_phases, stage_machine_enabled,
+    )
     ch = {}
     try:
         from scribe3.api import app_impl as core
@@ -182,7 +184,7 @@ def chapter_stage_get_ep(seq: int, work: str = "main"):
         "seq": int(seq),
         "work": work,
         "phase": phase,
-        "phases": list(PHASES),
+        "phases": list(active_phases()),
         "enabled": stage_machine_enabled(),
         "severity": "advisory",
     }
@@ -194,7 +196,7 @@ def chapter_stage_advance_ep(seq: int, req: dict | None = None, work: str = "mai
     action=set + phase=…：soft 写任意合法 phase（作者 local 同步）。
     """
     from scribe3.chapter_stage import (
-        transition, stage_from_chapter_dict, stage_machine_hard, normalize_phase, PHASES,
+        transition, stage_from_chapter_dict, stage_machine_hard, normalize_phase, PHASES, active_phases,
     )
     payload = req if isinstance(req, dict) else {}
     action = str(payload.get("action") or "advance")
@@ -209,7 +211,7 @@ def chapter_stage_advance_ep(seq: int, req: dict | None = None, work: str = "mai
     # soft set：next = payload.phase（须合法）
     if action.strip().lower() == "set":
         tgt = normalize_phase(str(payload.get("phase") or payload.get("next") or ""))
-        if tgt not in PHASES:
+        if tgt not in active_phases():
             return {
                 "ok": False,
                 "blocked": False,
@@ -220,7 +222,7 @@ def chapter_stage_advance_ep(seq: int, req: dict | None = None, work: str = "mai
                 "severity": "advisory",
                 "seq": int(seq),
                 "work": work,
-                "phases": list(PHASES),
+                "phases": list(active_phases()),
             }
         result = transition(tgt, "set")
         result["current"] = cur

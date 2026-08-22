@@ -90,6 +90,31 @@ class TestGetWorkRowQuery:
         assert any("slug = $s" in q for q in queries)
         assert not any("type::record('work'" in q for q in queries)
 
+    def test_get_work_row_allows_hyphen_slug(self, monkeypatch):
+        """obs-scratch 一类连字符 slug 必须能读到注册表行，不能 404。"""
+        import scribe3.auth.ownership as own
+
+        class _FakeDb:
+            def query(self, q, params=None):
+                if "slug = $s" in q:
+                    return [{
+                        "slug": params["s"],
+                        "title": "运行分析·探针书",
+                        "owner_user_id": "admin",
+                        "archived": None,
+                    }]
+                return []
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(
+            "scribe3.store.core_preamble._reg_conn", lambda url=None: _FakeDb()
+        )
+        assert own.get_work_row("obs-scratch")["slug"] == "obs-scratch"
+        assert own.get_work_row("bad slug") is None
+        assert own.get_work_row("bad/slug") is None
+
 
 class TestOwnershipPure:
     def test_effective_owner_and_filter(self):

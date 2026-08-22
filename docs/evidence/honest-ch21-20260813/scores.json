@@ -1,0 +1,58 @@
+{
+  "title": "第七章 · 炉册点名",
+  "prose_cn": 1195,
+  "dims": {
+    "D1": 10.0,
+    "D2": 10.0,
+    "D3": 10.0,
+    "D4": 9.7,
+    "D5": 9.5,
+    "D6": 8.8,
+    "D7": 9.8
+  },
+  "composite": 9.69,
+  "quotes": {
+    "D1": "distinct_conf=14, unique_dialogue=43",
+    "D2": "distinct_turn_cost=15, contract_ok=True, field_bonus=1.50",
+    "D3": "unique_dlg_lines=26, distinct_body=14, cool=0, dlg_share=0.87",
+    "D4": "conflict_beats valid=4/4 prop_like=0",
+    "D5": "prior_present=13/13, core_present=6",
+    "D6": "ok_for_claim=True claim_hits=0 soft=0 cn=1195",
+    "D7": "distinct_sense=12, cost_linked=True"
+  },
+  "conflict_beats": {
+    "ok": true,
+    "total": 4,
+    "valid": 4,
+    "prop_like": [],
+    "items": [
+      {
+        "text": "点名人逼念亡者真名",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "灰狸当众扯袖要揭铜",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "灰七指伪页却被迫加账",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "冷锅婆讨债压场挡闲嘴",
+        "shape_ok": true,
+        "reasons": []
+      }
+    ]
+  },
+  "contract_ok": true,
+  "anti_meta_ok": true,
+  "rubric": "anti_stuffing_v2",
+  "delta": 0.08,
+  "accepted": true,
+  "honest": true,
+  "seq": 21
+}

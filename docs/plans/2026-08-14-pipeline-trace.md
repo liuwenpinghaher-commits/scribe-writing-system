@@ -2,7 +2,7 @@
 
 > **已被取代（2026-08-14）**  
 > 本文不再是「系统运行分析账本」SSOT。按本文落地的 chain+span 仍被判定为「只有运行结果」。  
-> 现行设计：[`docs/plans/2026-08-14-pipeline-analysis-log.md`](2026-08-14-pipeline-analysis-log.md)（逐步 `pipeline_log` 主对象）。本文保留作考古，勿再当实现合同。
+> **现行设计**：[2026-08-14-pipeline-runtime-analysis.md](2026-08-14-pipeline-runtime-analysis.md)。中间方案 `2026-08-14-pipeline-analysis-log.md` 亦已降级。本文保留作考古，勿再当实现合同。
 
 | 项 | 值 |
 |----|----|

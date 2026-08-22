@@ -152,7 +152,7 @@ def test_secret_agenda_visible_in_author_dialogue_even_without_any_knows_edge(st
     _sync(store, FACTION)
     # 特意不建任何 KnowledgeEdge、不传 focalizer——纯作者/主编讨论场景。
 
-    block = _codex_block(store, reveal=True, focalizer="", chapter=5)   # for_generation 默认 False
+    block = _codex_block(store, reveal=True, focalizer="", chapter=5, request_text=FACTION)
     assert "连核心层都不知道的真相" in block, (
         "作者/主编对话(for_generation=False)应看到 secret_agenda——它不走 knows 边判据")
 
@@ -176,7 +176,7 @@ def test_unflagging_secret_cleanly_deletes_bridge_and_reveals_plaintext(store):
         {"eid": ENTITY_ID})
     assert rows == [], "解密后不应残留桥接命题"
 
-    block = _codex_block(store, reveal=False, focalizer="", chapter=5)
+    block = _codex_block(store, reveal=False, focalizer="", chapter=5, request_text=FACTION)
     assert "曾经的秘密,现已解密" in block, "作者显式取消 secret 后,字段应正常明文注入(声明式解密,非 bug)"
 
 
@@ -196,7 +196,7 @@ def test_unflagging_secret_without_resync_is_still_safe_because_flag_gates_first
     assert row.get("origin_secret") is False
     assert row.get("origin") == "曾经的秘密,现已解密"   # 值本身未变
 
-    block = _codex_block(store, reveal=False, focalizer="", chapter=5)
+    block = _codex_block(store, reveal=False, focalizer="", chapter=5, request_text=FACTION)
     assert "曾经的秘密,现已解密" in block, (
         "row.origin_secret=False 时直接明文注入,不受残留桥接命题影响——"
         "字段级 secret 位是唯一权威开关")
@@ -223,7 +223,7 @@ def test_chapter_default_direction_is_conservative_not_leaky(store):
         "方向是漏注入(保守),不是泄露")
 
     block_with_chapter = _codex_block(store, reveal=False, focalizer="role:后来知情", chapter=5,
-                                      for_generation=True)
+                                      for_generation=True, request_text=FACTION)
     assert "迟到的秘密" in block_with_chapter, "传入真实章号后,该知情的应正常可见"
 
 

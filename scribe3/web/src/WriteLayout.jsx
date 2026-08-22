@@ -738,7 +738,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
   }
 
   const topbarMid = (
-    <div className="shrink-0 border-b border-line/60 bg-surface/95 px-3 h-11 flex items-center gap-2 min-w-0 backdrop-blur-sm">
+    <div className="relative z-40 shrink-0 border-b border-line/60 bg-surface/95 px-3 h-9 flex items-center gap-2 min-w-0 backdrop-blur-sm">
       {/* (Task 7:章节导航子块已删——单套章导航在 ChapterStudio 的 ObjectFrame。) */}
       {/* 中:视角 — 可伸缩并截断,绝不把别人挤掉 */}
       <div className="flex items-center gap-1.5 min-w-0 flex-1">
@@ -752,7 +752,8 @@ export function WriteLayout({ work, seq, sceneIdx }) {
       </div>
 
       {/* 右:状态 + 操作 — 全部 shrink-0,永不被裁 */}
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-1.5 shrink-0">
+        <PulseBar seq={chapter} onChat={(p) => { setSeedQuote(p); focusChiefTab() }} />
         {/* 护栏芯片 */}
         {(() => {
           // 与 PRODUCT_QC_LIST_KEYS 对齐：优先 total；否则对数值键求和（含 god_view 等扩维）
@@ -906,43 +907,6 @@ export function WriteLayout({ work, seq, sceneIdx }) {
           )
         })()}
 
-        {/* 探索模式：create_mode=explore */}
-        <label
-          className={`inline-flex items-center gap-1 h-7 px-2 rounded-md border text-meta cursor-pointer select-none shrink-0 ${
-            exploreMode
-              ? 'border-brand/40 bg-brand/10 text-brand'
-              : 'border-line bg-soft text-faint hover:text-ink'
-          }`}
-          title="探索模式：准备项不全也能先存草稿；要正式定稿仍须补齐大纲、节拍等"
-          data-testid="explore-mode-toggle"
-        >
-          <input
-            type="checkbox"
-            className="accent-brand"
-            checked={exploreMode}
-            onChange={(e) => setExploreMode(e.target.checked)}
-          />
-          探索
-        </label>
-        {/* 危险草稿旁路:默认关;勾选后存稿跳过定稿门闩(宪法显式危险) */}
-        <label
-          className={`inline-flex items-center gap-1 h-7 px-2 rounded-md border text-meta cursor-pointer select-none shrink-0 ${
-            dangerDraft
-              ? 'border-danger/50 bg-danger/10 text-danger'
-              : 'border-line bg-soft text-faint hover:text-ink'
-          }`}
-          title="勾选后保存时不拦「质检未过」——仅紧急草稿用，可能带问题落库"
-          data-testid="danger-draft-toggle"
-        >
-          <input
-            type="checkbox"
-            className="accent-danger"
-            checked={dangerDraft}
-            onChange={(e) => setDangerDraft(e.target.checked)}
-          />
-          <AlertTriangle size={12} />
-          危险草稿
-        </label>
         {ingestFail && (
           <button
             type="button"
@@ -997,6 +961,23 @@ export function WriteLayout({ work, seq, sceneIdx }) {
                 {ingesting ? <Loader2 size={13} className="text-brand shrink-0 animate-spin" /> : <DatabaseZap size={13} className="text-faint shrink-0" />}
                 {ingesting ? '反哺中…' : '反哺设定库'}
               </button>
+              <label
+                data-testid="explore-mode-toggle"
+                className="w-full flex items-center gap-2 px-3 h-8 text-f13 text-ink hover:bg-soft cursor-pointer whitespace-nowrap"
+                title="探索模式：准备项不全也能先存草稿；要正式定稿仍须补齐大纲、节拍等"
+              >
+                <input type="checkbox" className="accent-brand" checked={exploreMode} onChange={(e) => setExploreMode(e.target.checked)} />
+                探索模式
+              </label>
+              <label
+                data-testid="danger-draft-toggle"
+                className="w-full flex items-center gap-2 px-3 h-8 text-f13 text-ink hover:bg-soft cursor-pointer whitespace-nowrap"
+                title="勾选后保存时不拦「质检未过」——仅紧急草稿用，可能带问题落库"
+              >
+                <AlertTriangle size={13} className="text-faint shrink-0" />
+                <input type="checkbox" className="accent-danger" checked={dangerDraft} onChange={(e) => setDangerDraft(e.target.checked)} />
+                危险草稿
+              </label>
               <button onClick={() => { setSaveMenu(false); setFocusMode((v) => !v) }}
                 className="w-full flex items-center gap-2 px-3 h-8 text-f13 text-ink hover:bg-soft cursor-pointer whitespace-nowrap">
                 <AlignCenter size={13} className="text-faint shrink-0" />专注模式
@@ -1023,17 +1004,13 @@ export function WriteLayout({ work, seq, sceneIdx }) {
 
   const center = (
     <div className="flex flex-col h-full min-w-0">
-      {/* 作品意图独占全宽可换行；脉搏/记忆另起一行，避免横排把意图条挤成单行截断 */}
-      <div className="flex flex-col min-w-0 w-full bg-surface/95">
-        <div className="min-w-0 w-full max-w-full">
+      {/* 意图独占整行；脉搏灯改挂顶栏，不再和意图抢宽、折行占高 */}
+      {!focusMode && (
+        <div className="min-w-0 w-full" data-testid="write-meta-row">
           <NorthStarBar />
         </div>
-        <div className="flex flex-wrap items-center gap-1 min-w-0 px-1 py-0.5 border-b border-line/50">
-          {/* 主编主动化 T2:六维脉搏条——信号自动可见,「聊这个」预填右栏写作对话 */}
-          <PulseBar seq={chapter} onChat={(p) => { setSeedQuote(p); focusChiefTab() }} />
-        </div>
-        <ChapterMemoryRefs chapter={chapter} />
-      </div>
+      )}
+      {!focusMode && <ChapterMemoryRefs chapter={chapter} />}
       {topbarMid}
       {lastSel && (
         <div className="flex flex-wrap gap-1.5 px-3 py-2 border-b border-line/50 bg-surface/95">
@@ -1048,8 +1025,8 @@ export function WriteLayout({ work, seq, sceneIdx }) {
       )}
       <div className="flex-1 min-h-0 overflow-y-auto bg-canvas">
         {/* 正文阅读岛:两侧留白更大,中间白卡承载稿纸感 */}
-        <div className="max-w-[48rem] mx-auto px-5 sm:px-8 py-8 md:py-10">
-          <div className="px-1 sm:px-2 py-2 md:py-3 min-h-[52vh]">
+        <div className="max-w-[56rem] mx-auto px-4 sm:px-6 py-4" data-testid="prose-island">
+          <div className="px-1 py-1 min-h-[52vh]">
           {stash && stash.seq === chapter && (
             <div className="mb-4 px-3 py-2 rounded-md border border-warn/30 bg-warn/10 text-f12 text-ink flex items-center gap-3">
               <span className="flex-1">检测到本章未保存的暂存稿({(stash.prose || '').length} 字,{new Date(stash.ts).toLocaleTimeString()}),与当前正文不一致。</span>

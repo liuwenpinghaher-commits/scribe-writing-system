@@ -43,6 +43,25 @@ def test_sample_1_story_move_flag_off_green():
     assert row["verdict"] == "green"
 
 
+def test_draft_skips_editor_chrome_expected_false():
+    facts = make_facts(phase="draft", normalized_phase="draft")
+    assert expected_for("identity", facts)[0] is False
+    assert expected_for("write_protocol", facts)[0] is False
+    facts_final = make_facts(phase="final", normalized_phase="final")
+    assert expected_for("identity", facts_final)[0] is True
+
+
+def test_drama_vacuum_not_expected_when_contract_present():
+    facts = make_facts(
+        phase="draft",
+        normalized_phase="draft",
+        drama_vacuum_flag=True,
+        should_drama_vacuum=True,
+        contract_has_scene=True,
+    )
+    assert expected_for("drama_vacuum", facts)[0] is False
+
+
 def test_sample_2_drama_vacuum_has_goal_or_conflict_green():
     facts = make_facts(
         drama_vacuum_flag=True,

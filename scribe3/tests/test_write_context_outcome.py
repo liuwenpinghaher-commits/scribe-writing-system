@@ -46,7 +46,7 @@ def test_unified_engine_failure_never_runs_legacy_scattered_chain(store, monkeyp
     ("changed_key", "source_kind"),
     [
         ("secret_guard", "secret_guard"),
-        ("codex", "codex"),
+        ("codex", "codex_named"),
         ("craft", "craft"),
         ("avoid", "avoid"),
         ("purpose", "purpose"),
@@ -72,6 +72,10 @@ def test_dynamic_domain_input_changes_its_registered_manifest_source(
     }
     monkeypatch.setattr(A, "_secret_guard_block", lambda *_: holder["secret_guard"])
     monkeypatch.setattr(A, "_codex_block", lambda *args, **kwargs: holder["codex"])
+    monkeypatch.setattr(
+        A, "_codex_segments",
+        lambda *args, **kwargs: (holder["codex"], "", {}),
+    )
     monkeypatch.setattr(A, "_avoid_directive", lambda *_: holder["avoid"])
     monkeypatch.setattr(A, "_purpose_workflow_block", lambda *args, **kwargs: holder["purpose"])
     monkeypatch.setattr(

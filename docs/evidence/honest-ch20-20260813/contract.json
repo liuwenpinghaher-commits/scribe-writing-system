@@ -1,0 +1,14 @@
+{
+  "schema": "narrative_contract.v1",
+  "version": 1,
+  "desire": "灰七要守住真匙并挨过夜审点名",
+  "obstacle": "冷锅婆堵门讨剩下的半炉香，灰狸扯袖要跟去侧门",
+  "turn": "他先交出半炉热灰换今晚过关，钥匙死不给",
+  "cost": "脚印被点破，侧门今夜碰不得，爹的字更近",
+  "conflict_beats": [
+    {"text": "冷锅婆顶腹讨过期香债"},
+    {"text": "灰狸扯门框要跟去侧门"},
+    {"text": "灰七不给钥匙只先还半炉"}
+  ],
+  "source": "author"
+}

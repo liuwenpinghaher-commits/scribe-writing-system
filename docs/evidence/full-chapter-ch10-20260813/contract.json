@@ -1,0 +1,20 @@
+{
+  "schema": "narrative_contract.v1",
+  "version": 1,
+  "desire": "灰七要弄清炉册爹字又不交出真匙",
+  "obstacle": "冷锅婆逼香债并用爹字侧门要挟，灰狸纠缠",
+  "turn": "他拒交匙以守夜审盯伪册换半笔勾账",
+  "cost": "账仍重，夜审与爹字更近，侧门仍禁",
+  "conflict_beats": [
+    {
+      "text": "冷锅婆顶腹逼还香债"
+    },
+    {
+      "text": "灰狸扯袖抢看炉册"
+    },
+    {
+      "text": "灰七拒交匙换半笔勾账"
+    }
+  ],
+  "source": "author"
+}

@@ -9,6 +9,10 @@ needs_question_backfill 标记应写回的行。
 """
 from __future__ import annotations
 
+import json
+import os
+import re
+from pathlib import Path
 from typing import Any
 
 DEFAULT_UNCLEAR_QUESTION = "能再说具体一点吗？（落到哪一章 / 想改什么）"
@@ -16,7 +20,11 @@ DEFAULT_UNCLEAR_QUESTION = "能再说具体一点吗？（落到哪一章 / 想�
 # 数字越小越靠前；未知 kind 落末尾
 KIND_PRIORITY: dict[str, int] = {
     "needs_human": 10,
+    "hermes_approval": 12,
     "pilot_parked": 20,
+    "selection_l2": 22,
+    "selection_l1": 24,
+    "selection_failed": 26,
     "pilot_outline": 30,
     "pilot_delivered": 40,
     "idea_unclear": 50,
@@ -112,6 +120,165 @@ def idea_inbox_item(row: dict) -> dict:
         item["resolve"] = {"kind": "idea_resolve", "payload": rid}
     if kind == "idea_unclear" and backfilled:
         item["question_backfilled"] = True
+    return item
+
+
+def selection_inbox_item(tier: str, chapter: int, body: dict | None) -> dict | None:
+    """选择环落盘结果 → 收件箱。已点选/已终选不进；等人或失败要进。"""
+    b = body if isinstance(body, dict) else {}
+    v = _strip(b.get("verdict"))
+    t = _strip(tier).lower() or "l1"
+    if t == "l1":
+        if v == "picked":
+            return None
+        if v == "all_failed":
+            return {
+                "id": f"selection_l1:{chapter}:failed",
+                "kind": "selection_failed",
+                "seq": chapter,
+                "tier": "L1",
+                "message": f"第 {chapter} 章轻选失败，请在主编「选择」里重跑。",
+                "action": {"kind": "open_select", "payload": chapter, "tier": "l1"},
+            }
+        if v == "awaiting_pick" or (b.get("variants") and v != "picked"):
+            n = len(b.get("variants") or [])
+            return {
+                "id": f"selection_l1:{chapter}",
+                "kind": "selection_l1",
+                "seq": chapter,
+                "tier": "L1",
+                "message": f"第 {chapter} 章轻选有 {n or 2} 条短包待点选（采用为草稿种子）。",
+                "action": {"kind": "open_select", "payload": chapter, "tier": "l1"},
+            }
+        return None
+    # L2
+    if v in {"finalized", "picked"}:
+        return None
+    if v == "all_failed":
+        return {
+            "id": f"selection_l2:{chapter}:failed",
+            "kind": "selection_failed",
+            "seq": chapter,
+            "tier": "L2",
+            "message": f"第 {chapter} 章三候选生成失败，请在主编「选择」里重跑。",
+            "action": {"kind": "open_select", "payload": chapter, "tier": "l2"},
+        }
+    if v == "all_filtered":
+        return {
+            "id": f"selection_l2:{chapter}:filtered",
+            "kind": "selection_l2",
+            "seq": chapter,
+            "tier": "L2",
+            "message": f"第 {chapter} 章三候选均被过滤，请在主编「选择」里强制重出或改驱动。",
+            "action": {"kind": "open_select", "payload": chapter, "tier": "l2"},
+        }
+    if v == "awaiting_human" or (b.get("candidates") and v not in {"finalized", "picked"}):
+        n = len([c for c in (b.get("candidates") or []) if not c.get("filtered")])
+        return {
+            "id": f"selection_l2:{chapter}",
+            "kind": "selection_l2",
+            "seq": chapter,
+            "tier": "L2",
+            "message": f"第 {chapter} 章选择环有 {n or 3} 条整章候选待终选（须留理由）。",
+            "action": {"kind": "open_select", "payload": chapter, "tier": "l2"},
+        }
+    return None
+
+
+_L1_NAME = re.compile(r"select_l1_ch(\d+)")
+_L2_NAME = re.compile(r"select_ch(\d+)")
+
+
+def _latest_select_result_files(work: str) -> tuple[dict[int, Path], dict[int, Path]]:
+    """journal 目录里每章最新 L1 / L2 结果文件（按 mtime）。"""
+    base = os.environ.get("SCRIBE3_LOOP_JOURNAL_DIR") or os.path.expanduser(
+        "~/.scribe3-loop-journals"
+    )
+    root = Path(base) / work
+    l1: dict[int, Path] = {}
+    l2: dict[int, Path] = {}
+    if not root.is_dir():
+        return l1, l2
+    for fp in root.glob("select_l1_ch*.result.json"):
+        m = _L1_NAME.search(fp.name)
+        if not m:
+            continue
+        ch = int(m.group(1))
+        prev = l1.get(ch)
+        if prev is None or fp.stat().st_mtime >= prev.stat().st_mtime:
+            l1[ch] = fp
+    for fp in root.glob("select_ch*.result.json"):
+        if "select_l1_ch" in fp.name:
+            continue
+        m = _L2_NAME.search(fp.name)
+        if not m:
+            continue
+        ch = int(m.group(1))
+        prev = l2.get(ch)
+        if prev is None or fp.stat().st_mtime >= prev.stat().st_mtime:
+            l2[ch] = fp
+    return l1, l2
+
+
+def load_selection_inbox_items(work: str) -> tuple[list[dict], bool]:
+    """扫选择环落盘 → 收件箱条目。返回 (items, degraded)。"""
+    out: list[dict] = []
+    degraded = False
+    try:
+        l1, l2 = _latest_select_result_files(work)
+    except Exception:
+        return [], True
+    for ch, fp in l1.items():
+        try:
+            body = json.loads(fp.read_text(encoding="utf-8"))
+        except Exception:
+            degraded = True
+            continue
+        it = selection_inbox_item("l1", ch, body)
+        if it:
+            out.append(it)
+    for ch, fp in l2.items():
+        try:
+            body = json.loads(fp.read_text(encoding="utf-8"))
+        except Exception:
+            degraded = True
+            continue
+        it = selection_inbox_item("l2", ch, body)
+        if it:
+            out.append(it)
+    return out, degraded
+
+
+def mark_select_result_verdict(path: Path | str, verdict: str) -> None:
+    """终选后把落盘 verdict 改掉，避免收件箱一直挂着。"""
+    p = Path(path)
+    if not p.is_file():
+        return
+    body = json.loads(p.read_text(encoding="utf-8"))
+    if not isinstance(body, dict):
+        return
+    body["verdict"] = verdict
+    p.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+
+
+def hermes_approval_inbox_item(pending: dict | None, *, seq: int | None = None) -> dict | None:
+    """在途 Hermes 待批写入 → 收件箱。终态/过期不应进来。"""
+    if not isinstance(pending, dict):
+        return None
+    run_id = _strip(pending.get("run_id"))
+    if not run_id:
+        return None
+    msg = _strip(pending.get("message")) or "主编有一条写入等待你批准。"
+    item: dict[str, Any] = {
+        "id": f"hermes_approval:{run_id}",
+        "kind": "hermes_approval",
+        "message": f"主编待批准写入：{msg[:120]}",
+        "action": {"kind": "open_chief", "payload": seq, "run_id": run_id},
+        "run_id": run_id,
+        "approval_id": pending.get("approval_id"),
+    }
+    if seq is not None:
+        item["seq"] = seq
     return item
 
 

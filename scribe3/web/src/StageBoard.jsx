@@ -10,6 +10,7 @@ const DEFAULT_PHASES = ['outline', 'beats', 'deduce', 'draft', 'final']
 const PHASE_LABEL = {
   outline: '大纲',
   beats: '节拍',
+  design: '章设计',
   deduce: '演绎',
   draft: '草稿',
   final: '正文',

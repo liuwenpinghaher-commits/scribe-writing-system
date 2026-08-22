@@ -125,7 +125,7 @@ export function emptyDetailCopy(entryKey) {
     case 'search':
       return { title: '搜索', hint: '在左侧输入关键词搜索，再点结果查看详情。' }
     case 'review':
-      return { title: '校验', hint: '在左侧选择校验命中项查看说明与定位。' }
+      return { title: '校验', hint: '确定性命中台账；日常请看正文护栏与全量体检。' }
     case 'references':
       return { title: '参考作品', hint: '在左侧打开参考作品工作台。' }
     default:

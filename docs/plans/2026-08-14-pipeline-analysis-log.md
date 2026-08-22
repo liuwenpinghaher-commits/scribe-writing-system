@@ -1,15 +1,17 @@
 # 铜炉 Pipeline Analysis Log：逐步运行分析账本
 
-> **本文取代** [`docs/plans/2026-08-14-pipeline-trace.md`](2026-08-14-pipeline-trace.md)，成为「系统运行分析账本」的 **SSOT**。  
-> 旧文保留作考古：它把「每步全部信息」定义成瘦 span 列（`input.source` / `compute.fn` / `output.chars` / `verdict`），并**明确拒绝**持久化可读日志流。现网实现按该合同落地后，用户再次判定为「只有运行结果」。  
-> **不要**把旧文当增量补丁的底稿；本设计重画主对象：分析员读的是 **逐步日志行**，不是对照行、也不是 span 字段卡。
+> **已被取代（2026-08-14）**  
+> 本文不再是「系统运行分析」SSOT。按本文落地的 141 `pipeline_log` + 闭集 `append_log` + 240 字模板已上 demo，用户第三次判定为「只有运行结果」。  
+> **现行设计**：[2026-08-14-pipeline-runtime-analysis.md](2026-08-14-pipeline-runtime-analysis.md)（飞行记录仪：真实工件 + 完整事件）。本文保留作考古，勿再当实现合同。
+>
+> ~~本文取代 [`docs/plans/2026-08-14-pipeline-trace.md`](2026-08-14-pipeline-trace.md)，成为「系统运行分析账本」的 **SSOT**。~~
 
 | 项 | 值 |
 |----|----|
 | **文档标题** | 写 / 存 / 宣称 / 工具跳：一次一条链，每步一条 span，步内是可检索的全部信息日志 |
 | **作者** | Grok Design |
 | **日期** | 2026-08-14 |
-| **状态** | Draft |
+| **状态** | Draft（rev.2 评审修订） |
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` |
 | **仓库** | `/home/admin/projects/scribe-writing-system` |
 | **入库路径** | `docs/plans/2026-08-14-pipeline-analysis-log.md` |
@@ -22,7 +24,7 @@
 > **读法（工程师）**  
 > 1. 先读「对照用户合同」与 Key Decisions。  
 > 2. Proposed Design §1–§8 是实现合同；§5 是每步必须 emit 的日志清单。  
-> 3. PR Plan 按序独立合；观测 emit 不得阻断写路径。  
+> 3. PR Plan：git 可独立合，**demo 默认 UI 必须接线≥换皮**。观测 emit 不得阻断写路径。  
 > 4. 能由第一性原理钉死的不进 Open Questions。
 
 ---
@@ -35,14 +37,16 @@
 
 | # | 合同 | 已上线 pipeline-trace（2026-08-14 代码） | 本设计 |
 |---|------|------------------------------------------|--------|
-| 1 | **每步全部信息日志** | **未满足。** 每步一条瘦 span：`input.source`（目录静态串）+ `compute.fn`（目录静态串）+ `output.chars/digest` + `expected/actual/verdict`。`events[]` 几乎只给 L2 `op/tag`。没有可读 `logs[]`，分析员**不能**不重跑就还原「读了什么字段、判了哪条谓词、走了哪条分支、丢了谁」。见下方诊断。 | 每步一条 span（身份/时序/父子）+ **若干条 append-only `pipeline_log` 行**。一行 = 墙钟 + level + step_key + 中文 message + 白名单 attrs。主对象是日志行。 |
+| 1 | **每步全部信息日志** | **未满足。** 每步一条瘦 span：`input.source`（目录静态串）+ `compute.fn`（目录静态串）+ `output.chars/digest` + `expected/actual/verdict`。`events[]` 几乎只给 L2 `op/tag`。没有可读 `logs[]`，分析员**不能**不重跑就还原「读了什么字段、判了哪条谓词、走了哪条分支、丢了谁」。见下方诊断。 | 全目录每步都有 `required_logs`。主对象是闭集 `append_log(code, **typed)` 渲出的中文行。**禁止**从 `note_push` / `classify_actual` / `meta.source` 合成 `read.source` / `pred.eval`。 |
 | 2 | **步骤身份一眼可辨** | 半满足。后端目录有 `step_title` / `step_key` / `layer`；UI 列表仍把 `statusChip`（空/红/绿）和「该跑/实际」放第一眼。 | 日志行强制带中文 `step_title` + 稳定 `step_key` + `layer`；UI 按步分组，组头是人话名，行前缀 `[assemble.seg.story_ember]`。芯片不是主视觉。 |
-| 3 | **整条链路可关联查询** | **未满足。** 只有 `parent_span_id`（目录写死的树）和读时算的 `prev/next_trace_id`。`from_span_id` **从未写入**。没有「本步产出 digest 被谁消费」的边。查询是链列表 / 按 `step_key` 列 span，**不能**「本周所有余烬空的日志行」或「这条输出怎么变成下一步输入」。 | 三类边显式落库：树（`parent_span_id`）、消费（`assoc.consume` 日志 + `from_span_id`）、跨次（读时邻接）。`GET /debug/pipeline-logs` 按 step/code/时间检索；单链详情可从任意日志跳全链。 |
-| 4 | **保留一周** | 半满足。TTL 7 + `_store_for` 上 `maybe_purge`（6h 节流）已挂。但清的是瘦 span；没有日志表可清。`created_at` READONLY，不能靠回填测 TTL。 | 继承 7 天 + 同钩；**先 DELETE `pipeline_log` 再 span 再 chain**。旧 140 行无日志也可活到 TTL。 |
-| 5 | **用途 = 系统运行分析** | **未满足。** 钩子用 `classify_actual` / `row_verdict` 收尾；headline 优先红因，空则「对照齐全」；UI 默认 inspector 是该跑×实际；对照 tab 仍在。这是 Run 卡换皮。 | 回答：跑了什么、为何存在、收了什么、算了什么、发出什么、丢/跳/失败了什么、多久、卡在哪、**后步如何用前步产出**。红绿是派生 overlay，非默认 UI，非主记录。 |
+| 3 | **整条链路可关联查询** | **未满足。** 只有 `parent_span_id`（目录写死的树）和读时算的 `prev/next_trace_id`。`from_span_id` **从未写入**。没有「本步产出 digest 被谁消费」的边。查询是链列表 / 按 `step_key` 列 span，**不能**「本周所有余烬空的日志行」或「这条输出怎么变成下一步输入」。 | **唯一** produce/consume 矩阵（§8）。边 SSOT = `assoc.*` 日志。`GET /debug/pipeline-logs?step_key=&code=&empty=true&since=` **P0** 可计数。`got=true` 无 hex 则不落 consume 且单测红。 |
+| 4 | **保留一周** | 半满足。TTL 7 + `_store_for` 上 `maybe_purge`（6h 节流）已挂。但清的是瘦 span；没有日志表可清。`created_at` READONLY，不能靠回填测 TTL。 | 继承 7 天 + 同钩；**先 DELETE `pipeline_log` 再 span 再 chain**（随 PR2，P0）。旧 140 行无日志也可活到 TTL。手工 purge 下限 1 天。 |
+| 5 | **用途 = 系统运行分析** | **未满足。** 钩子用 `classify_actual` / `row_verdict` 收尾；headline 优先红因，空则「对照齐全」；UI 默认 inspector 是该跑×实际；对照 tab 仍在。这是 Run 卡换皮。 | 回答：跑了什么、为何存在、收了什么、算了什么、发出什么、丢/跳/失败了什么、多久、卡在哪、**后步如何用前步产出**。红绿是派生 overlay，非默认 UI，非主记录。headline **永不**「对照齐全」。 |
 | 6 | **再次设计最优方案** | 上一份设计自称已满足同一段用户原话，却把「全部信息」定义成「不要真实日志」。 | **重画主对象**。复用已工作的 id mint / catalog / fail-soft store / 7d 钩 / 管理页位置。**替换**字段合同与 UI。 |
 
 **禁止再做成「span 元数据 + 对照 tab」。** 那正是现网已经交货、已被否的东西。
+
+**禁止把瘦 verdict 拆成中文 log 交差。** `append_log` 不是 `f"{actual_reason}"` 的包装。`read.source` / `pred.eval` 必须来自数据源函数里的运行时值。单测钉死：章 `end_hook=""` vs 章有 hook 但 `_push("")`，两条链的 `read.source.attrs.empty` **必须不同**。
 
 ---
 
@@ -57,9 +61,11 @@
         谓词 prev_end_hook=false → 本段 empty（empty_story_ember）
 12:01:03.014  INFO  [上章余烬 · assemble.seg.story_ember]
         产出 fuel_block chars=0 digest=∅
-12:01:03.015  ASSOC [收集三燃料 · assemble.collect_fuel]
+12:01:03.015  INFO  [收集三燃料 · assemble.collect_fuel]  code=assoc.consume
         消费 assemble.seg.story_ember（from_span=…, digest=∅, got=false）
 ```
+
+`assoc.consume` 是 **code**，不是 level。schema `level` 只有 `debug|info|warn|error`。
 
 本设计交付 **一书一库** 的分析账本：
 
@@ -91,7 +97,7 @@
 | 5 | **算了什么？走了哪条分支？** | **不能。** `compute.fn` 也是目录静态串 | `branch.taken` / `pred.eval` / `keep.item` / `drop.item` |
 | 6 | **发出了什么？谁消费了？** | 半能。只有 `chars` + `digest`；无人记录「被谁当输入」 | `emit.shape` + `assoc.produce` / `assoc.consume` |
 | 7 | 丢/跳/失败了什么？多久？ | L2 仅 `events[].tag`；无逐步半裁叙事 | 每次半裁/整段丢一行日志 |
-| 8 | 本周这个步空过几次？ | **不能。** `GET /debug/pipeline-spans?step_key=` 返回的是 span 摘要，不是日志行 | `GET /debug/pipeline-logs?step_key=&code=` |
+| 8 | 本周这个步空过几次？ | **不能。** `GET /debug/pipeline-spans?step_key=` 返回的是 span 摘要，不是日志行 | **P0** `GET /debug/pipeline-logs?step_key=&code=read.source&empty=true&since=` 直接计数 |
 
 ### 现网为何仍是「只有运行结果」（代码诊断，2026-08-14）
 
@@ -182,11 +188,11 @@ sequenceDiagram
 
 | 优先级 | 目标 | 验收口径 |
 |--------|------|----------|
-| **P0** | `pipeline_log` 表 + buffer `append_log` + 白名单；assemble 关键步（load / fuel / ember / L2 / guard）按 §5 **必发**日志；`GET /debug/pipeline-logs` 能按 `trace_id` 与 `step_key` 取回中文行 | demo 写一次 → 单链详情默认看到余烬/L2 的中文日志；行上带 `step_key`；响应无 prompt |
-| **P0** | 关联可跳：余烬 `emit` 的 digest 出现在 `collect_fuel` / `budget.l2` 的 `assoc.consume`；`from_span_id` 非空 | 点一条 consume 日志能打开源 span |
+| **P0** | 闭集 `append_log(code, **typed)` + 全目录 `required_logs` + 表 141 + 批量写 + purge 含 log | 纯函数：余烬 `read/pred/emit` 不能由 `note_push` 合成；缺行 `obs.incomplete`；`log_count` 打穿 publicize |
+| **P0** | assemble **必改数据源**：`load_chapter_story_inputs` / `collect_story_fuel_segments` / `apply_l2_trim` 的 `dropped`；§8 矩阵边；`from_span_id` 空则单测红 | demo 写一次 → 余烬 `read.source.empty` 反映章字段，不是 `_push` 长度 |
+| **P0** | `GET /debug/pipeline-logs?step_key=&code=&empty=&value=&since=` 跨请求可计数 | 「本周余烬空几次」= 该查询的 `count`，不必解析中文 |
 | **P1** | llm / tool / persist / save / claim 逐步日志（usage 数字、chunk 计数、tool **键名**、真实 duration） | 成功链含 `llm.generate` 的 start/usage/end；loop 不留 `in_progress` |
-| **P2** | 管理台改名为「运行分析账本」；默认 **按步分组的日志流**；对照降到「派生」且非并列主 tab | 分析员第一眼不是红绿芯片 |
-| **P3** | 7 天 purge 含 log；`GET logs?step_key=&code=&since=` 能答「本周余烬空几次」 | 不重启；手工 `POST purge` 仍可用 |
+| **P2** | 管理台「运行分析账本」默认按步日志流；**接线（PR4）先于或同于改 UI**；对照进「更多」 | 默认 DOM 第一行是 log `message`；无「对照齐全」「对照红」 |
 
 ### Non-Goals
 
@@ -214,7 +220,7 @@ sequenceDiagram
 Handler 入口 mint 恰好一次 request_id（= trace_id）
   → 先写入 manifest_trace["request_id"] 再 start_chain / assemble
   → 每步 start_span（身份/墙钟/父）
-  → 步内 append_log（中文叙事 + 白名单 attrs）——这是主账
+  → 步内 append_log(code, **typed)（模块渲 message）——这是主账
   → end_span 只写摘要（status / 计数 / digest），不再当「全部信息」
   → 阶段 flush：已 end 的 span + 已缓冲的 log 批量 INSERT
   → 关联：parent_span_id + assoc.produce/consume 日志 + span.links.from_span_id
@@ -255,197 +261,350 @@ flowchart TB
 
 **否决「扔掉 span 只留 log」**：没有 span 就没有 running 游标、真实 duration、父子树、阶段 flush 的身份。span 是目录项，log 是内容。
 
-### 3. 日志行合同（「全部信息」的精确定义）
+### 3. 闭集 `append_log`（「全部信息」如何发出）
 
-默认落库 / 默认 API **只允许**这些键（`public_log` 白名单）：
+调用方 **不得** 传自由 `message` 或任意 `attrs` dict。唯一入口：
 
 ```python
+# scribe3/pipeline_trace.py — 零 I/O
+# 禁止：append_log(span, "read.source", message="…", attrs={...})
+# 禁止：append_log(..., code="read.source") 由 note_push / classify_actual / meta.source 代填
+
+def append_log(self, span_id: str, code: str, **kw) -> str:
+    """只接受 CODE_SPEC[code] 登记过的 typed kwargs。message 由模板渲染。"""
+```
+
+`CODE_SPEC` 闭集（未列 code → 改写成 `other`，`attrs.missing` 记下原 code；**没有** log.`notes` 字段）：
+
+| code | 默认 level | 必填 kwargs（类型） | 可选 | message 模板（模块内，调用方不可覆盖） |
+|------|------------|---------------------|------|----------------------------------------|
+| `step.start` | info | — | — | 开始 {step_title} |
+| `step.end` | info | `status`: enum32 | `duration_ms`: float | 结束 {status} {duration_ms}ms |
+| `read.source` | info | `source`: enum64, `empty`: bool, `chars_in`: int | `field_set`: list_name, `digest_in`: hex64, `from_span_id`: hex16 | 读取 {source}：{空\|N 字} |
+| `pred.eval` | info | `pred`: enum32, `value`: bool\|enum32, `reason`: enum32 | — | 谓词 {pred}={value}（{reason}） |
+| `branch.taken` | info | `fn`: enum64, `branch`: enum32 | — | 走 {fn}:{branch} |
+| `keep.item` | info | `name`: enum32 | `chars`: int, `tokens_est`: int | 保留 {name} |
+| `drop.item` | warn | `name`: enum32, `op`: drop\|half_cut\|keep_beats | `reason`: enum32, `chars_before`: int, `tag`: enum64 | {op} {name} |
+| `skip.reason` | info | `reason`: enum32 | — | 整步跳过：{reason} |
+| `emit.shape` | info | `shape`: enum32, `chars`: int | `tokens_est`: int, `digest`: hex64, `keys`: list_name, `counts`: object-int, `hit_count`: int, `kinds`: list_name, `outcome_id`: enum64, `status`: enum32 | 产出 {shape} {chars} 字 |
+| `assoc.produce` | info | `digest`: hex64\|empty, `chars`: int | `shape`: enum32 | 产出可供下游消费 |
+| `assoc.consume` | info | `from_step_key`: enum64, `got`: bool | `from_span_id`: hex16, `digest`: hex64\|empty | 消费 {from_step_key} |
+| `error.raised` | error | `class`: enum64, `summary`: str240_redacted | — | 失败 {class} |
+| `usage.model` | info | `provider`: enum32, `chunk_count`: int | `model`: enum64, `input_tokens`: int, `output_tokens`: int | 模型 {provider} in={input_tokens} out={output_tokens} chunks={chunk_count} |
+| `budget.cap` | info | `cap`: int, `used`: int | `remaining`: int | 帽 {cap} · 已用 {used} |
+| `flag.eval` | info | `flag`: enum64, `value`: bool | — | 旗 {flag}={value} |
+| `obs.incomplete` | warn | `missing`: list_name | — | 本步未发齐日志：{missing} |
+| `other` | warn | — | `missing`: list_name | 未登记 code |
+
+类型钉死：
+
+- `enum32` / `enum64`：`^[a-z0-9_.:-]+$`，超长截断到 32/64，**不是**自由中文。
+- `list_name`：元素同 enum32，最多 32 个。
+- `hex16` / `hex64`：只 hex。
+- `str240_redacted`：仅 `error.raised.summary`；过现网红线擦除后再截 240。
+- `bool` / `int` / `float`：类型不对则丢该 kw。
+- **没有**自由长串槽给 `reason` / `source` / `message`。`source` 必须属于下面 `SOURCE_TAGS`，不是 end_hook 原文。
+
+**`SOURCE_TAGS`（PR1 `frozenset`，未登记 → `append_log` 把 `source` 改成 `other`）：**
+
+```
+chapter_prev_end_hook, chapter_story_io, chapter_recall, chapter_causal,
+compile_manifest, internal, flag, chapter_field, request_extra,
+identity_block, protocol_block, prefix_block, secret_guard_block,
+focalizer_banner, fuel_block, envelope_block, tool_arg_keys, llm_input
+```
+
+各 `assemble.seg.{name}` 的默认 `source` = catalog 里该段的稳定 id（与 `SEG_SOURCE` 键同名、蛇形），也必须列入此集。未登记段用 `other`。
+
+`emit.shape` 的可选 kwargs **必须**覆盖步骤合同点名的键：`hit_count`/`kinds`（guard）、`outcome_id`/`status`（persist）。PR1 单测：`append_log(..., "emit.shape", shape="outcome", chars=0, outcome_id="a"*16, status="succeeded")` 之后 `attrs.outcome_id` / `attrs.status` 仍在。禁止靠「§6 白名单有、CODE_SPEC 没有 → 丢弃」把这些键吃掉。
+
+**`assoc.consume` 唯一规则（与 §5.3 / §5.7 / §8 同一句，禁止第三种写法）：**
+
+| 情况 | 是否写 `assoc.consume` | `from_span_id` |
+|------|------------------------|----------------|
+| `got=true` | 写 | **必须** 16 hex。非 hex → **不落该行**，单测红 |
+| `got=false` 且源 span 已 `start_span`（函数抛错但 span 在） | 写 | 该 span 的 hex，`got=false` |
+| `got=false` 且源 span **从未创建** | **禁止写** | 只发 `obs.incomplete`（`missing` 含 `assoc.consume:{from_step_key}`） |
+
+`from_span_id` 对 `got=true` 是必填；对 `got=false` 仅当源 span 已 mint 才出现。CODE_SPEC 把它放在**可选**列，完整性由上表执行，不靠「缺 hex 仍 CONTENT 进库」。
+
+`ts` 在 buffer 里是 `datetime`（UTC，与 `start_chain.started_at` 同型）。`public_log` 给 API 时可格式化 ISO；**`public_log_row_for_store()` 传 datetime，禁止 ISO 字符串写入 `TYPE datetime` 列。**
+
+`level` 规则：读写/决策 = `info`；该有却空、整段丢、泄漏、`obs.incomplete` = `warn`；抛错 = `error`。`debug` 默认不落库。`assoc.*` **不是** level。
+
+**硬禁（单测锁，PR1）：**
+
+```python
+NOTE_PUSH_FORBIDDEN_CODES = frozenset({
+    "read.source", "pred.eval", "assoc.produce", "assoc.consume",
+    "drop.item", "budget.cap", "usage.model",
+})
+# note_push 只允许 emit.shape / skip.reason / step.end
+# classify_actual / row_verdict / meta.source / meta.compute_fn
+# 不得作为 read.source.empty 或 pred.eval.value 的来源
+```
+
+余烬对照夹具（PR1 **必须**经零 I/O 函数，禁止测试里直接构造已填好的 `empty`）：
+
+```python
+def ember_read_kwargs(end_hook: str, pushed_chars: int) -> dict:
+    """chars_in / empty 只看章字段 end_hook，不看 _push 长度。"""
+    n = len((end_hook or "").strip())
+    return {"source": "chapter_prev_end_hook", "chars_in": n, "empty": n == 0}
+
+def pred_value_from_named(fn_value, *, chars_in: int | None = None) -> bool:
+    """§4.1 第四列命名函数的返回值。禁止 pred.value = not empty / chars_in>0。"""
+    return bool(fn_value)
+```
+
+| 夹具 | 输入 | 期望 |
+|------|------|------|
+| A | `ember_read_kwargs("", 0)` | `empty=true`, `chars_in=0` |
+| B | `ember_read_kwargs("有钩子字", 0)` | `empty=false`, `chars_in>0`（即使 pushed_chars=0） |
+| C | `pred_value_from_named(True)` 且 `ember_read_kwargs` 非本夹具：`structure_diversity` 旗开 + 块空 | `pred.value=true` **且** `read.source.empty=true` |
+
+夹具 B 证明：空产出 ≠ 没读到。夹具 C 证明：旗/相位谓词 **不得**从 `chars_in`/`empty` 推导。§4.1 第四列的命名函数（如 `structure_diversity_inject_enabled()`、`is_revision_request(...)`、`has_reread_ack`）是该步 `pred.eval.value` 的**唯一**来源。`read.source.empty` 只描述输入/产出块空否。PR4 断言真实 `load_chapter_story_inputs` 走 `ember_read_kwargs`（或同一实现）。
+
+#### 3.1 落库 / 读面形状
+
+`public_log`（API）与 `public_log_row_for_store`（141 列闭集）键：
+
+`log_id, trace_id, span_id, seq, ts, level, step_key, step_title, layer, code, message, attrs, work, chapter, kind, schema_ver`
+
+禁止进 store 行：`created_at`、`id` 以外的附加键、`line`、`flushed`、`text`、`prompt`。`truncated=true` 只活在 `attrs`。
+
+列表项 **必须** 提升机读字段（P0，否则「本周余烬空」要解析中文）：
+
+```json
 {
-  "log_id": "c0ffee12ab34cd56",      # 16 hex
-  "trace_id": "…",                   # = request_id
-  "span_id": "a1b2c3d4e5f67890",
-  "seq": 3,                          # 该 span 内从 1 递增
-  "ts": "2026-08-14T12:01:03.012Z",  # 墙钟，应用层写入（不是 created_at）
-  "level": "info",                   # debug|info|warn|error
-  "step_key": "assemble.seg.story_ember",
-  "step_title": "上章余烬",
-  "layer": "assemble",
-  "code": "read.source",             # 稳定机器码，供过滤
-  "message": "读取上章 end_hook：字段空",
-  "attrs": {                         # 只允许 §6 白名单键
-    "source": "chapter[n-1].narrative_drive.end_hook",
-    "field_set": ["end_hook"],
-    "empty": True,
-    "chars_in": 0
-  },
-  "work": "shu_xxx",
-  "chapter": 16,
-  "kind": "write",
-  "schema_ver": "pipeline_log.v1"
+  "log_id": "…", "ts": "…Z", "level": "info",
+  "step_key": "assemble.seg.story_ember", "step_title": "上章余烬",
+  "layer": "assemble", "code": "read.source",
+  "message": "读取 chapter_prev_end_hook：空",
+  "empty": true, "value": null, "from_span_id": null,
+  "trace_id": "…", "span_id": "…", "chapter": 16, "kind": "write"
 }
 ```
 
-人话渲染（UI 一行，API 也可预拼 `line` 只读字段，不落库）：
+`empty` / `value` / `from_span_id` 从 `attrs` 提升。HTTP 过滤 **只接受** `empty=true` / `empty=false`（与现网其它旗一致；`1`/`0` 不收）。在 Surreal 侧滤 `attrs.empty` / `attrs.value`，禁止先拉 20 再 Python 滤。
 
-```text
-12:01:03.012  INFO  [上章余烬 · assemble.seg.story_ember]  读取上章 end_hook：字段空
-```
-
-**稳定 `code`（禁止自由发挥；未登记 code 落库前改成 `other` 并 `notes` 记一次）：**
-
-| code | 何时 | 典型 attrs |
-|------|------|------------|
-| `step.start` | `start_span` | — |
-| `step.end` | `end_span` | `status`, `duration_ms` |
-| `read.source` | 读到/没读到输入 | `source`, `field_set`, `chars_in`, `digest_in`, `empty`, `from_span_id` |
-| `pred.eval` | 期望/门闩谓词 | `pred`, `value`（bool/enum）, `reason` |
-| `branch.taken` | 走了哪条实现分支 | `branch`, `fn` |
-| `keep.item` | 保留一个命名物 | `name`, `chars`, `tokens_est` |
-| `drop.item` | 丢掉/半裁 | `name`, `op`(`drop`/`half_cut`/`keep_beats`), `reason`, `chars_before` |
-| `skip.reason` | 整步跳过 | `reason` |
-| `emit.shape` | 产出结构 | `shape`, `chars`, `tokens_est`, `digest`, `keys` |
-| `assoc.produce` | 声明「本步产出可被消费」 | `digest`, `shape`, `chars` |
-| `assoc.consume` | 声明「本步消费了谁」 | `from_span_id`, `from_step_key`, `digest`, `got` |
-| `error.raised` | 失败 | `class`, `summary`（≤240，过红线擦除） |
-| `usage.model` | 模型用量 | `provider`, `model`, `input_tokens`, `output_tokens`, `chunk_count` |
-| `budget.cap` | 预算数字 | `cap`, `used`, `remaining` |
-| `flag.eval` | 运行时旗 | `flag`, `value`（bool） |
-
-`level` 规则：决策/读写 = `info`；半裁/跳过/空但预期可空 = `info`；该有却空、整段丢、泄漏命中 = `warn`；抛错 = `error`。`debug` 只给开发旗，默认不落库。
-
-### 4. 步骤身份与骨架（复用 catalog，补 required_logs）
+### 4. 全目录完整性规则（不是静态 `tuple[str]` 交差）
 
 `pipeline_trace_catalog.py` 已有稳定 `step_key` + 中文 `step_title` + `layer` + `parent_of`。**不改名已入库的 key。**
 
-给 `StepDef` 增加：
+静态 `required_logs: tuple[str, ...]` **表达不了** L2「有 drop 才必发」、fuel「三路 XOR」、revision「可 skip」。PR1 落地的类型是可执行规则：
 
 ```python
-required_logs: tuple[str, ...]  # 该步 P0 必须出现的 code
-# 例：story_ember → ("read.source", "pred.eval", "emit.shape")
+@dataclass(frozen=True)
+class LogReq:
+    always: tuple[str, ...]           # 每步必现的 code
+    # 条件规则名；实现见 completeness_check()，禁止只在表格散文里写 * / 或 / ×
+    rules: tuple[str, ...] = ()       # "l2_drops" | "fuel_xor" | "optional_skip" | "handler_409"
+
+def completeness_check(step_key: str, logs: list[LogRec], *, ctx: dict) -> list[str]:
+    """返回 missing 列表。空 = 齐。PR1 纯函数。"""
 ```
 
-未发齐 `required_logs` 的步：flush 时自动补一条 `warn` / `code=skip.reason` / `message=本步未发齐日志` / `attrs.missing=[...]`。这是观测完整度，不是写路径错误。
+`ctx` 只含观测已有的计数，不含 prompt：`dropped_tags: list[str]`、`fuel_got: set[str]`、`child_spans_started: set[str]`、`gate_raised: bool`。
 
-父子树 **保持** 现网 `parent_of`（`assemble.seg.story_ember` → `assemble.collect_fuel` 等）。UI 高亮祖先/子孙仍用这棵树。
+| `rules` 名 | 语义（可执行） |
+|------------|----------------|
+| `l2_drops` | `dropped_tags` **为空** ⇒ 不得要求 `drop.item`/`assoc.consume`，也 **不得** 因此 `obs.incomplete`。非空 ⇒ **每个 tag** 恰好 ≥1 条 `drop.item`（`attrs.tag` 或 `name` 对得上）且 ≥1 条 `assoc.consume`（`from_step_key=assemble.seg.{name}`）。少一条 ⇒ missing 含该 tag |
+| `fuel_xor` | `{story_ember, story_recall, story_causal}` 每个 name 恰好一条 `keep.item` **或** 一条 `skip.reason`（互斥）。`assoc.consume` 条数 = `1 + len(child_spans_started)`（1=load；子 span 已 `start` 才计）。load 从未 start ⇒ 不写 consume(load)，missing 含 `assoc.consume:assemble.load_story_inputs` |
+| `optional_skip` | `skip.reason` 可选；有或无都不 incomplete。`BASE` 仍必齐 |
+| `handler_409` | 仅当 `gate_raised` 才要求 `error.raised` |
 
-### 5. 每步必发日志（P0 清单；这是产品条）
+未发齐：自动补 **一条** `obs.incomplete`（`level=warn`, `missing=[…]`）。**禁止**占用 `skip.reason`。
 
-「全部信息」按步定义。**禁止**只 `end_span(actual=empty)` 交差。
+PR1 纯函数锁：`dropped_tags=[]` 的 L2 **不得** incomplete；`dropped_tags` 两条而只有一条 `drop.item` ⇒ 必须 incomplete。
 
-#### 5.1 通用模板（所有 `assemble.seg.*`）
+父子树保持现网 `parent_of`。
 
-| 序 | code | 中文 message 模板 | attrs |
-|----|------|-------------------|-------|
-| 1 | `step.start` | 开始 {step_title} | |
-| 2 | `read.source` | 读取 {source}：{空\|N 字} | `source`, `field_set`, `chars_in`, `digest_in?`, `from_span_id?` |
-| 3 | `pred.eval` | 谓词 {pred}={value}（{reason}） | `pred`, `value`, `reason` |
-| 4 | `branch.taken` 或 `skip.reason` | 走 {branch} / 跳过：{reason} | `fn`, `branch` / `reason` |
-| 5 | `emit.shape` | 产出 {shape} {N} 字 | `shape`, `chars`, `digest` |
-| 6 | `assoc.produce` | 产出可供下游消费 digest={短} | `digest`, `chars` |
-| 7 | `step.end` | 结束 {status} {duration_ms}ms | `status`, `duration_ms` |
+#### 4.1 全表（P0 覆盖；pred 名对齐 `run_card.expected_for`）
 
-`source` / `fn` 仍可从 catalog 取**默认标签**，但 `chars_in` / `empty` / `value` / `branch` 必须是**这次运行**的值。
+公共骨架 `BASE = LogReq(always=(step.start, read.source, pred.eval, emit.shape, step.end))`。下表「required」列写 `always` + `rules`，不是散文星号。
 
-#### 5.2 高价值步（必须比模板更细）
+| step_key | required（always + rules） | pred / reason（true 臂 / false 臂） | `pred.eval.value` 唯一来源（禁止从 empty/chars 推导旗/相位） |
+|----------|---------------------------|-------------------------------------|--------------------------------------------------------------|
+| `assemble.seg.identity` | BASE | `always_l0` / `always_l0` | 恒 `true`（`always_l0`）；`read.chars_in` 才看 `_editor_identity_block()` 长度 |
+| `assemble.seg.write_protocol` | BASE | `always_l0` | 恒 `true`；长度只进 `read`/`emit` |
+| `assemble.seg.prefix` | BASE | `always_l0` | 恒 `true` |
+| `assemble.seg.revision` | BASE + `optional_skip` | `is_revision` / `not_revision` | **`is_revision_request(...)`**，不是块空否 |
+| `assemble.seg.structure_diversity` | BASE | `flag_on` / `flag_off` | **`structure_diversity_inject_enabled()`**（旗开块空 = 夹具 C） |
+| `assemble.seg.continue_snapshot` | BASE | `reread_ok` / `reread_ack_required` | **`has_reread_ack`**；snapshot 空只进 `read.empty` |
+| `assemble.seg.secret_guard` | BASE | `secret_guard_nonempty` / `secret_guard_empty` | **`bool(strip(_secret_guard_block(...)))`** 在计算函数返回时取样；只记 nonempty/reveal_only，无 marker |
+| `assemble.seg.focalizer` | BASE | `always_l0` | 恒 `true`；banner 长度只进 `read`/`emit` |
+| `assemble.seg.narrative_contract` | BASE + consume load（源 span 已 start 才写） | `has_scene_fields` / `no_scene_fields` | **`contract_has_scene_fields(contract)`**；键空只进 `read` |
+| `assemble.seg.story_ember` | BASE + consume load + produce | `prev_end_hook` / `no_end_hook` | **`bool(prior_consequences.strip())`**，经 `ember_read_kwargs`；不是 `_push` 长度 |
+| `assemble.seg.story_recall` | 同上 | `write_always_recall` | 恒 `true`；`recall_context` 长度只进 `read`/`emit` |
+| `assemble.seg.story_causal` | 同上 | `has_prev_chapter` / `first_chapter` | **`chapter > 1`**（`has_prev_chapter`），不是 causal 文本空否 |
+| `assemble.seg.event_drive` | BASE | `engine_no_scene` / `scene_uses_hook_or_engine_off` | **`narrative_engine and not contract_has_scene`** |
+| `assemble.seg.event_drive_hook` | BASE | `engine_scene_hook` / `no_hook` | **`narrative_engine and contract_has_scene`** |
+| `assemble.seg.drama_contract` | BASE | `always_l0` | 恒 `true`；长度只进 `read`/`emit` |
+| `assemble.seg.drama_vacuum` | BASE | `no_goal_and_conflict` / `has_gcd_or_flag_off` | **`should_inject_drama_vacuum`** |
+| `assemble.seg.outline` | BASE | `has_outline_src` / `empty_outline_src` | **`has_synopsis or has_beats`** |
+| `assemble.seg.envelope` | BASE | `always_l1` | 与 `compile.envelope` 分工：段只记 `_push` 后 chars；八块 token 在 compile 步 |
+| `assemble.seg.codex` | BASE | `envelope_v2` / `v1` | **`envelope_v2_enabled()`**；长度只进 `emit` |
+| `assemble.seg.seed_words` | BASE | `seeds_present` / `no_seeds` | **`bool(chapter.seed_words)`** |
+| `assemble.seg.craft` | BASE | `has_craft_rules` / `no_craft_rules` | **`bool(list_craft_rules())`** |
+| `assemble.seg.phase_role` | BASE | `phase_set` / `no_phase` | **`bool(phase)`** |
+| `assemble.seg.avoid` | BASE + `optional_skip` | `default_omit` / `default_omit` | 恒 `false` |
+| `assemble.seg.revelation_discipline` | BASE | `has_focalizer` / `no_focalizer` | **`bool(focalizer)`** |
+| `assemble.seg.sincerity` | BASE + `optional_skip` | `merged_into_prefix` | 恒 `false` |
+| `assemble.seg.purpose` | BASE | `has_purpose` / `no_purpose` | **`bool(chapter.purpose)`** |
+| `assemble.seg.volume_intro` | BASE | `vol_intro` / `no_vol_intro` | **`volume_intro_flag and has_volume_intro`** |
+| `assemble.seg.brief_must` | BASE | `has_brief` / `no_brief` | **`bool(chapter.brief_must)`** |
+| `assemble.seg.pressure_drive` | BASE | `has_pd` / `no_pd` | **`bool(chapter.pressure)`** |
+| `assemble.seg.author_prefs` | BASE | `has_prefs` / `no_prefs` | **`bool(chapter.prefs)`** |
+| `assemble.seg.voice_anchor` | BASE | `has_voice` / `no_voice` | **`bool(voice or chapter.voice)`** |
+| `assemble.seg.reference_craft` | BASE | `ref_briefs` / `no_ref_or_wrong_phase` | **`draft_final and has_reference_briefs`** |
+| `assemble.seg.storyline_polish` | BASE | `sl_meta` / `sl_off_or_empty` | **`storyline_inject and has_storyline_meta`** |
+| `assemble.seg.discourse_soft` | BASE | `discourse_on` / `discourse_off` | **`discourse_advisory and has_discourse`** |
+| `assemble.seg.story_move` | BASE | `move_approved` / `flag_off_or_plan_missing` | **`move_library and move_plan_approved`** |
+| `assemble.seg.deduction_final` | BASE | `draft_final_deduction` / `wrong_phase_or_no_deduction` | **`draft_final and has_deduction`** |
+| `assemble.seg.material_recall` | BASE | `draft_final_materials` / `wrong_phase_or_no_materials` | **`draft_final and has_materials`** |
+| `assemble.seg.final_reminder` | BASE | `always_l0` | 恒 `true`；长度只进 `emit` |
+| `assemble.seg.scene_truth_proj` | BASE | `phase_deduce` / `not_deduce` | **`phase == "deduce"`** |
+| `assemble.seg.request_constraint` | BASE | `has_extra` / `no_extra` | **`bool(strip(extra_instructions))`**，无正文 |
+| `assemble.seg.tool_scope` | BASE | `with_tools` / `no_tools` | **`bool(with_tools)`** |
+| `assemble.seg.craft_skills_index` | BASE | `with_tools` / `no_tools` | **`bool(with_tools)`** |
+| `assemble.seg.benchmark_advisory` | BASE | `bench_on` / `bench_off_or_wrong_phase` | **`draft_final and benchmark_inject`** |
+| 未登记 `assemble.seg.{name}` | BASE | `unregistered` | `expected=false` |
 
-**`assemble.load_story_inputs`**
+非段：
 
-- `read.source`：`field_set` = 实际非空键名（`contract`, `evidence_must_show`, `voice`, `prior_consequences`, `recall_context`, `causal_graph`）。禁止值。
-- `emit.shape`：`keys` = 同上；`counts` = `{evidence_must_show: N}`。
-- `assoc.produce`：digest = 对「键名排序 + 各字段长度」做 sha256，不是正文。
+| step_key | required（always + rules） | 运行时来源 |
+|----------|---------------------------|------------|
+| `handler.reread_gate` | always=(start, pred.eval, step.end) + `handler_409` | `check_generate_reread_gate` |
+| `handler.context_enforce` | 同上 | `ContextService.enforce` |
+| `assemble.precompute` | always=(start, step.end) | 子 span 已各自记账 |
+| `assemble.load_story_inputs` | always=(start, read.source, emit.shape, assoc.produce, step.end) | **必改** `load_chapter_story_inputs` |
+| `assemble.collect_fuel` | always=(start, step.end) + **`fuel_xor`** | **必改** `collect_story_fuel_segments` |
+| `assemble.freeze_expected` | always=(start, pred.eval, step.end) | `collect_expected_facts` 成败 → `pred.value` |
+| `budget.l2` | always=(start, budget.cap, step.end) + **`l2_drops`** | **必改** `apply_l2_trim.dropped` |
+| `budget.o1` | 同形 + `l2_drops`（ctx 用 `total_enforce.dropped`） | 同上 |
+| `compile.envelope` | start, emit.shape（八块 token + selected/rejected **计数与 names 列表**）, step.end | `after_compile` 读 envelope；**不要**一人名一行 keep |
+| `compile.manifest` | start, emit.shape, assoc.produce, step.end | `manifest_hash` / `actual_input_hash` |
+| `compile.engine` | start, step.end | 包 `compile()` |
+| `guard.epistemic` | start, pred.eval(`has_focalizer`), emit.shape(`hit_count`,`kinds`), step.end | `guard_write_instructions` |
+| `llm.generate` | start, read.source, assoc.consume(manifest), usage.model, emit.shape(`digest`=output_hash), step.end | stream/collect；digest 用 Outcome `output_hash`，**不要**另造 `output_hash` 键 |
+| `tool.{safe}` | start, read.source(`keys`=参数键名), emit.shape, assoc.consume(llm), step.end | `tool.started` / `output` |
+| `persist.outcome` | start, assoc.consume(llm), emit.shape(`outcome_id`,`status`), step.end | persist |
+| `persist.turn_bind` / `persist.chapter` | start, emit.shape, step.end | 成败 + 字数 |
+| `save.loop_busy` 等五门 | always=(start, pred.eval, step.end) + `optional_skip` | 现网 `_rc_rows` **翻译成 pred**，禁止只抄 `actual` |
+| `claim.reader_claim` / `claim.scaffold_gate_b` | 同上 | 仅现网两扇门 |
 
-**`assemble.collect_fuel`**
+### 5. 高价值步的数据源（必改函数，删除「必要时」）
 
-- 对 `story_ember` / `story_recall` / `story_causal` 各一条 `keep.item` 或 `skip.reason`（`empty_*`）。
-- 三条 `assoc.consume`：`from_step_key=assemble.load_story_inputs`，`from_span_id` 必填（load 失败则 `got=false`）。
-- 子 span（余烬等）的 `from_span_id` = load 或 collect 的 span，**禁止再只写目录静态 source**。
+**禁止**只在 `_push` / `note_push` / `after_compile`「旁边」猜。下列函数 **P0 必改**（可只加观测旁路，不改返回字节）：
 
-**`assemble.seg.story_ember`**（用户点名场景）
+| 函数 | 文件 | 必须发出 |
+|------|------|----------|
+| `load_chapter_story_inputs` | `write_assemble_context.py` L1175–1223 | `field_set` 实际非空键；`prior_consequences` = `chapter[n-1].narrative_drive.end_hook` **长度与 digest**（L1216）。这是余烬 `read.source` 的唯一合法来源 |
+| `collect_story_fuel_segments` | 同文件 L1153–1172 | 三个 name 各自 got / empty |
+| `apply_l2_trim` 的 `dropped` | `context_budget.py` L892+ | `after_join` **逐 tag** `drop.item` + `assoc.consume`；**每一条 drop 都必须在**（PR4/PR8 硬验收） |
+
+#### 5.1 `assemble.load_story_inputs`
+
+- `read.source`：`source=chapter_story_io`，`field_set` = 非空键名（`contract`, `evidence_must_show`, `voice`, `prior_consequences`, `recall_context`, `causal_graph`）。禁止值。
+- `emit.shape`：`keys` 同上；`counts.evidence_must_show=N`。
+- `assoc.produce`：digest = sha256(排序键 + 各字段**长度**)，不是正文。
+- `buf.mark_produced("assemble.load_story_inputs")`。
+
+#### 5.2 余烬 / 召回 / 前因（consume load → produce 自己）
 
 ```text
-INFO  读取 chapter[n-1].narrative_drive.end_hook：字段空
-INFO  谓词 prev_end_hook=false → 本段 empty（empty_story_ember）
-INFO  产出 fuel_block 0 字
+load.produce(D0)
+  → ember.consume(load, D0) + ember.read.source(chars_in=len(prior_consequences), empty=chars_in==0)
+  → ember.pred.eval(pred=prev_end_hook, value=chars_in>0, reason=prev_end_hook|no_end_hook)
+  → ember.emit.shape(fuel_block, chars=formatter 后长度)
+  → ember.produce(D1)
 ```
 
-有 hook 时：`chars_in` / `digest_in`（hash **原文但不存原文**）+ `emit.shape` 的 chars。
+`story_recall` / `story_causal` 同形（pred 见 §4.1）。
 
-**`compile.envelope`**
+#### 5.3 `assemble.collect_fuel`
 
-- `emit.shape`：八块名 `focus/global/canonical/recent/procedural/reference/uncertainty/provenance` 的 `tokens_est`（`context_models.ContextBlock.name`）。
-- `keep.item` / `skip.reason`：selected / rejected **名字或 source_id**，不要正文。计数必有。
-- 现网 assemble 在 compile 返回后已能从 envelope / `usage_digest` 取数字（`write_assemble_v1.py` L1288–1293）——P0 在 `after_compile` 补发，不必改 assembler 算法。
+**唯一矩阵（不要再写「三条 consume 都指向 load」）：**
 
-**`budget.l2` / `budget.o1`**
+- 完整性走 **`fuel_xor`**（§4）：三 name 各一条 keep **或** skip；consume 条数 = 1+已 start 的子 span。
+- consume load / ember / recall / causal：**遵循 §3 consume 唯一规则**。load 已 start 但函数失败 → `got=false` + 该 hex。load **从未** start → 不写 consume(load)，只 `obs.incomplete`。
+- 子段 `got` = 该 name 是否有文本。
+- `links.from_span_id`（单值）= **load**（仅当 load span 已 mint）；`links.from_span_ids` = 已 mint 的 load + 子 span。
 
-- 一条 `budget.cap`：`effective_l2_cap` / `l2_est` / `remaining`。
-- `dropped` 里 **每一**个 tag 一行 `drop.item`（`name`, `op=drop|half_cut|keep_beats`, `tag`）。
-- 对每个被裁 name 一条 `assoc.consume`（from 对应 `assemble.seg.{name}`）。
-- 现网 `l2_events_from_dropped` 只产 `{op,tag}` 且一次塞进 `events[]`——**改成逐条 log**；span.events 可继续镜像前 16 条以便旧 UI，但不再是 SSOT。
+#### 5.4 `budget.l2` / `o1`
 
-**`guard.epistemic`**
+- `budget.cap`：`effective_l2_cap` / `used=l2_est` / `remaining`。
+- `dropped` **每一个** tag → 一行 `drop.item`（`name`, `op`, `tag`）+ 一行 `assoc.consume`（from `assemble.seg.{name}`）。
+- 帽策略见 §7：L2 预留配额，**先保 drop.item / assoc.consume**。
+- span.events 可镜像前 16 条 tag，非 SSOT。
 
-- `pred.eval`：`has_focalizer`。
-- `emit.shape`：`hit_count`, `kinds`（种类名，不是 marker 明文）。
-- 泄漏：`error.raised` 后 `step.end failed`；仍先记再 raise。
+#### 5.5 `compile.envelope`
 
-**`llm.generate`**
+- **不要** selected/rejected 一人名一行（会先撞帽）。
+- 一条 `emit.shape`：`counts` = 八块 `tokens_est`（`focus/global/canonical/recent/procedural/reference/uncertainty/provenance`）+ `selected_n` / `rejected_n`；`names` = rejected 的 source_id/名字列表（≤32）。
+- 数字可在 `after_compile` 从 envelope / `usage_digest` 读（`write_assemble_v1.py` L1288–1293），**不改** assembler 算法。
 
-- `step.start` 在 INSERT running 时就发（与现网 `start_llm` 同时）。
-- `read.source`：`from_span_id=compile.manifest`，`digest_in=actual_input_hash`（已有，不存 instructions）。
-- `usage.model`：`provider`, `model`, `input_tokens`, `output_tokens`, `chunk_count`（stream 里 `text.delta` 计数，**不存 delta**）。
-- `emit.shape`：`output_hash`（Outcome 已有）。
-- `ended_at` / `duration_ms` 仍必须真实（已修的合同保持）。
+#### 5.6 其余
 
-**`tool.{safe_name}`**
+- `guard.epistemic`：`pred=has_focalizer`；`hit_count` / `kinds`（种类名，非 marker）；泄漏先 `error.raised` 再 raise。
+- `llm.generate`：start 与 running INSERT **同一次 batch**；`assoc.consume` ← `compile.manifest`；`digest` = `output_hash`；`chunk_count` 内存累加，delta 不落行。
+- `tool.*`：`keys` = 参数**键名**排序。现网 `start_tool` 只 `input.name`（hooks L280）必须扩。
+- `persist.outcome`：consume llm；`status` ∈ `OUTCOME_STATUSES`。
+- save/claim：`pred.eval` + end/skip，中文模板，不抄 `actual=present`。
 
-- `read.source`：`keys` = 工具参数**键名**排序列表。禁止值。
-- `emit.shape`：`chars` / digest of output，无正文。
-- 现网 `start_tool` 只 `input.name`（hooks L280）——必须扩成键名。
-
-**`persist.outcome`**
-
-- `assoc.consume` ← `llm.generate`。
-- `emit.shape`：`outcome_id`, `status`（`succeeded|failed|incomplete_stream|cancelled`，与 `context_outcome.OUTCOME_STATUSES` 一致）。
-
-**save.* / claim.***
-
-- 每扇门：`pred.eval` + `skip.reason` 或 `step.end`。可从现网 `_rc_rows` 翻译，但 **message 必须中文叙事**，不能只抄 `actual=present`。
-
-#### 5.3 钩子改法（相对现网）
+#### 5.7 钩子改法
 
 | 现网函数 | 改后 |
 |----------|------|
-| `timed_call` | start + `step.start`；成功 `emit.shape`（有/无）+ end；异常 `error.raised` |
-| `note_push` | **不再是唯一出口**。只补 `emit.shape` / `skip.reason` 并 end。read/pred 必须在计算函数里 `append_log` |
-| `after_join` | 逐 tag `drop.item` + cap + consume；仍 flush |
-| `after_compile` | envelope 八块 token + manifest hash + produce |
-| `after_guard` | 见上 |
-| `mark_facts` | 每条用到的 expected 谓词可在 freeze 步记 `pred.eval`（name+bool+reason），不要再只 `status=ok` |
-| `start_llm` / `end_tool` / `finish_ok` | 补日志；finish 时把缓冲的 llm/tool 日志随 span UPDATE/INSERT 刷出 |
-| `emit_gate_spans` | 每行门变成 pred+end 日志，不是抄对照 row |
+| `timed_call` | start + `step.start`；成功不可单独当 read；异常 `error.raised` |
+| `note_push` | **只** `emit.shape` / `skip.reason` / `end`。触碰 `NOTE_PUSH_FORBIDDEN_CODES` 则忽略并 debug 一次 |
+| `after_join` | 逐 tag drop + cap + consume；仍 flush |
+| `after_compile` | envelope 一条 emit + manifest produce |
+| `after_guard` | 见 5.6 |
+| `mark_facts` | freeze 步一条 `pred.eval(facts_ok)` |
+| `start_llm` / `end_tool` / `finish_ok` | 日志并进同批；`finish_chain` 后 **驱逐** `_BUFFERS[tid]` |
+| `emit_gate_spans` | pred+end，不是抄对照 row |
 
-**计时锚点保持旧合同**：`start_span` 包计算函数，`_push` 只补 output。禁止把 duration 锚回 `_push`。
+**计时锚点保持**：`start_span` 包计算函数，`_push` 只补 output。
+
+**Buffer API（PR1 就必须有，禁止只在 PR4 口头约定）：**
+
+```python
+class TraceBuffer:
+    def mark_produced(self, step_key: str) -> None: ...
+    def consume(self, dest_span_id: str, from_step_key: str, *, got: bool) -> dict | None:
+        """查 _produced[from_step_key]。按 §3 唯一规则：
+        got=true 且无 hex → 不写行，返回 None（单测红）；
+        got=false 且源 span 已 mint → 写 consume(got=false, from_span_id=hex)；
+        源 span 从未创建 → 不写 consume，由 completeness_check 记 missing。
+        成功则写入 dest.links.from_span_ids。主 from_span_id 按 §8。"""
+```
+
+`got=true` 却无 hex 的 `assoc.consume` → **不落库**，PR1 纯函数单测失败。不得只靠 demo 点一下。
 
 ### 6. 白名单：全部信息包含什么、不包含什么
 
 `pipeline_trace.py` 现有 `FORBIDDEN_KEYS`（`text/instructions/markers/prompt/arguments/secret/leak_markers/input_text`）继续有效，并扩到 **log.attrs 的键集合**。
 
-**attrs 允许键（闭集，未列即丢）：**
+**attrs 允许键（闭集，未列即丢）。与 §3 CODE_SPEC 对齐：**
 
 ```
-source, source_kind, field_set, keys, name, names,
-chars, chars_in, chars_before, tokens_est, bytes,
-digest, digest_in, hash, empty, got, nonempty, title_only, reveal_only,
+source, field_set, keys, name, names,
+chars, chars_in, chars_before, tokens_est,
+digest, digest_in, empty, got,
 from_span_id, from_step_key, to_span_id, to_step_key,
 fn, branch, pred, value, reason, op, tag,
 flag, cap, used, remaining, status, duration_ms,
 shape, counts, hit_count, kinds, chunk_count,
 provider, model, input_tokens, output_tokens,
-outcome_id, manifest_id, missing
+outcome_id, manifest_id, missing,
+class, summary, truncated
 ```
 
-`value` **只允许** bool / int / float / 短 enum（≤32 字、匹配 `^[a-z0-9_.:-]+$`）。其它类型丢弃并 `warn` 一次。
+`output_hash` **并入** `digest`，不要第二键。`value` 只允许 bool / int / float / enum32。`class`/`summary` 仅 `error.raised`。`truncated` 仅截断标记。
+
+每个 code 只许写 CODE_SPEC 里的 kwargs；多传的键在 `append_log` 丢弃，进不了 FLEXIBLE 对象。SCHEMAFULL 不执行 attrs 闭集，所以 **应用层闭集是唯一闸**。
 
 **禁止出现在 message 与 attrs 的内容：**
 
@@ -461,89 +620,104 @@ outcome_id, manifest_id, missing
 
 ### 7. 缓冲、刷盘、帽
 
-热路径禁止每条日志同步 CREATE。现网 span 已经在 `for` 里逐条 CREATE（`pipeline_trace_ops.py` L38–48）——141 **必须**改成一次 round-trip 的批量，日志更要走批量。
+热路径禁止每条日志同步 CREATE。现网 span 已经在 `for` 里逐条 CREATE（`pipeline_trace_ops.py` L38–48）——必须改成一次 round-trip 的批量。
 
-```text
-FOR $r IN $rows {
-  CREATE ONLY type::record('pipeline_log', $r.log_id) CONTENT $r;
-};
-```
+**`public_log_row_for_store(rec) -> dict`**：只输出 141 已 DEFINE 的列。禁止 `created_at`（READONLY `time::now()`，显式写入会拒）。禁止 `id` 以外附加键。`ts` = `datetime` UTC，不是 ISO 字符串。`level` 必须是四值之一。不要把 `LogRec.__dict__` / `SpanRec.__dict__` 塞进 `CONTENT`。
 
-PR2 在 demo **试写书**上冒烟该语句。若 3.2.4 拒 FOR-IN：退回「一条 `_execute_write` 里用 `;` 串最多 32 条 CREATE」，禁止 Python 300 次往返。span INSERT 同期改掉。
+**批量三级，同一 fixture 行在试写书上逐级冒烟（PR2）：**
 
-刷盘时机 **沿用** 现网 flush0 / after_join / after_compile / after_guard / llm running / tool / finish（`pipeline_trace_hooks.py` + `write_assemble_v1.py` L1124–1126, L971, L1357 一带）。每次 flush：
+1. **优先** `INSERT IGNORE INTO pipeline_log $rows RETURN NONE`（单参数、单 round-trip；本仓库外部文档 `docs/external/surrealdb-docs/.../insert.md` 的一等语法）。  
+2. 失败再 `FOR $r IN $rows { CREATE ONLY type::record('pipeline_log', $r.log_id) CONTENT $r; }`。  
+3. 再失败：一条 `_execute_write` 里 `;` 串最多 32 条 `CREATE ONLY … SET`，bind 互不撞名（`$r0_log_id` … `$r31_log_id`）。`ONLY` 冲突：丢本包 + `notes=flush_failed`，可接受。  
 
-1. `drain_ready()` 已 end span  
-2. `drain_logs()` 已缓冲、尚未 flushed 的 log（含仍 running 的 llm 已产生的 start/chunk 计数——chunk 用内存计数，**不要每 delta 一条 log**）  
-3. 一批 INSERT logs + 一批 INSERT spans + UPDATE chain（`log_count`, `cursor`）
+三种都要用 **同一完整 fixture 行** 断言写入成功；再用 **故意多键** 的一行断言 SCHEMAFULL 拒绝且 fail-soft（写路径仍绿、零行进库）。**禁止**把「缺字段 CREATE」当成冒烟成功。
+
+span 同期改批量：继续 **显式 SET 列** 或同一 payload 白名单，不要 `CONTENT $span_dict`。
+
+`insert_running_span`：llm `step.start` 日志必须与 running span **同一 batch**，禁止额外往返。
+
+刷盘沿用 flush0 / after_join / after_compile / after_guard / llm running / tool / finish。每次：`drain_ready` + `drain_logs` + UPDATE chain（`log_count`,`cursor`）。chunk 内存计数，delta 不落行。
+
+**阶段行数（中位，不是一次 300）：**
+
+| 阶段 | span | log（估） | 另 |
+|------|------|-----------|----|
+| flush0（compile 前） | ~12 | ~60 | 1× chain UPDATE |
+| after_join | ~35 | ~150–200 | 1× UPDATE |
+| after_compile | 2–4 | ~8–20 | 1× UPDATE |
+| after_guard | 1 | ~6 | 1× UPDATE |
+| llm running | 1 | 1–2（同批） | 1× INSERT running |
+| 每个 tool | 1 | 3–5 | start 同批 / end UPDATE |
+| finish | persist 1–2 | ~8 | `finish_chain` 后 **evict** `_BUFFERS[tid]`（仅终态；`in_progress` 保留） |
+
+现网 `_BUFFERS` 只加不删（`pipeline_trace_store.py` `remember_buffer`）。本设计 **必须** 在 `finish_chain` 成功写终态后 `pop`。否则每链 300 条 `LogRec` 常驻。
+
+延迟：**不写死 p95&lt;40ms**（demo 3.2.4 + 6 个二级索引未经证）。PR2 试写书记墙钟；flush 若明显拖写路径 → `PIPELINE_LOG=0` 回滚。失败丢包 + `notes=flush_failed`，不重试打爆。
 
 | 帽 | 值 | 超了 |
 |----|-----|------|
-| 单 log message | 240 字 | 截断 + `attrs.truncated=true`（`truncated` 加入允许键） |
-| 单 log attrs JSON | 1.5 KB | 丢最长的 list（`names`/`field_set`） |
-| 单 span 日志条数 | 48 | 停 append；`notes` 加 `log_cap`；补一条 warn |
-| 单链日志条数 | 2048 | 同上，`chain.notes` 加 `log_cap` |
+| 单 log message | 240 字 | 截断 + `attrs.truncated=true` |
+| 单 log attrs JSON | 1.5 KB | 丢最长 list |
+| 单 span 默认 | **48** | 停 append；`chain.notes` 加 `log_cap`；补 `obs.incomplete` |
+| `budget.l2` / `budget.o1` / `compile.envelope` | **96** | 配额：先 `drop.item` + `assoc.consume` + `budget.cap`，再 start/end。**禁止**先砍 drop 序列 |
+| 单链日志 | 2048 | 同上 |
 | 单链 span | 128（已有） | 保持 |
-| 单 span JSON（摘要） | 4 KB（已有） | 保持；**日志不进这个 JSON** |
-| 批量每包 | 64 行 | 多包顺序 flush，失败丢本包 |
+| 单 span JSON（摘要） | 4 KB | 日志不进这个 JSON |
+| 批量每包 | 64 | 多包顺序 flush |
 
-`chunk_count`：内存 `+=1`，只在 llm `step.end` / `usage.model` 写一次数字。
+信封用计数 + `names` 列表，避免一人名一行把 96 帽打满。L2「每一条 drop 都在」是 PR4/PR8 硬验收。
 
-### 8. 关联如何产生、如何查
+### 8. 唯一 produce / consume 矩阵（SSOT）
+
+上一份把 `from_span_id` 写进 span.links 却零写入。本表是 **唯一** 接线合同。`assoc.*` 日志是边的 SSOT；`span.links` 只是 UI 快路径。两者冲突时 **信 log**。`GET .../assocs` **只**投影 `code in (assoc.produce, assoc.consume)`，不扫 `links`。
 
 ```mermaid
 flowchart LR
-  Load["load_story_inputs\nproduce digest D0"]
-  Ember["story_ember\nread end_hook · produce D1"]
-  Fuel["collect_fuel\nconsume Load + Ember"]
-  L2["budget.l2\nconsume Ember/…"]
-  Man["compile.manifest\nproduce input_hash"]
-  LLM["llm.generate\nconsume manifest"]
-  Out["persist.outcome\nconsume llm"]
-  Load --> Ember
+  Load["load produce D0"]
+  Ember["ember consume Load → produce D1"]
+  Rec["recall consume Load → produce D2"]
+  Cau["causal consume Load → produce D3"]
+  Fuel["fuel consume Load+D1+D2+D3"]
+  L2["L2 consume 被裁/保留的 seg"]
+  Man["manifest produce input_hash"]
+  LLM["llm consume manifest"]
+  Out["outcome consume llm"]
+  Load --> Ember --> Fuel
+  Load --> Rec --> Fuel
+  Load --> Cau --> Fuel
   Load --> Fuel
-  Ember --> Fuel
   Ember --> L2
-  Man --> LLM
-  LLM --> Out
+  Man --> LLM --> Out
 ```
 
-落库形态（P0 **不**建第四表）：
+| # | producer `mark_produced` | digest 含义 | consumer `consume(from)` | 消费者 `links.from_span_id`（单值主输入） |
+|---|--------------------------|-------------|--------------------------|------------------------------------------|
+| 1 | `assemble.load_story_inputs` | 键排序 + 各字段长度 | `assemble.seg.story_ember` | **load** |
+| 2 | 同上 | 同上 | `assemble.seg.story_recall` | **load** |
+| 3 | 同上 | 同上 | `assemble.seg.story_causal` | **load** |
+| 4 | 同上 | 同上 | `assemble.seg.narrative_contract` | **load** |
+| 5 | 同上 | 同上 | `assemble.collect_fuel` | **load**（主） |
+| 6 | `assemble.seg.story_ember` | fuel_block 长度 hash | `assemble.collect_fuel` | 进入 `from_span_ids` |
+| 7 | `assemble.seg.story_recall` | 同上 | `assemble.collect_fuel` | 进入 `from_span_ids` |
+| 8 | `assemble.seg.story_causal` | 同上 | `assemble.collect_fuel` | 进入 `from_span_ids` |
+| 9 | `assemble.seg.{name}`（有产出） | block digest | `budget.l2`（该 name 出现在 dropped 或 kept） | L2 主输入 = `compile.engine` 或不设单值；`from_span_ids` = 各 seg |
+| 10 | `compile.manifest` | `actual_input_hash` | `llm.generate` | **manifest** |
+| 11 | `llm.generate` | `output_hash` → `digest` | `persist.outcome` | **llm** |
+| 12 | `llm.generate` | — | `tool.*` | **llm** |
 
-1. **树**：现有 `parent_span_id`（catalog）。  
-2. **产出/消费**：`pipeline_log.code in (assoc.produce, assoc.consume)`。  
-3. **摘要**：`span.links` 增补  
-
-```python
-links = {
-  "from_span_id": "…",          # 主输入来源（一个）
-  "from_span_ids": ["…"],       # 多输入
-  "produce_digest": "hex|null",
-  "manifest_id": "…",
-  "outcome_id": "…",
-}
-```
-
-4. **同章前后次**：仍读时 `neighbor_traces`（已有），不存。  
-5. **Buffer 索引**：`TraceBuffer._produced[step_key] = {span_id, digest}`，消费方 `consume(step_key)` 自动填 `from_span_id`。
+`collect_fuel` **不是**「三条 consume 都指向 load」。它吃 load **以及** 三个子 span。余烬 digest 必须出现在 fuel 的 `assoc.consume`（Goals P0 / Overview）。
 
 查询：
 
 ```text
-# 这一次的全部信息日志（默认墙钟）
-GET /debug/pipeline-traces/{trace_id}/logs?work=
-
-# 本周余烬空
-GET /debug/pipeline-logs?work=&step_key=assemble.seg.story_ember&code=pred.eval&since=
-
-# 谁吃了这个 span 的产出
+GET /debug/pipeline-traces/{trace_id}/logs?work=          # 单链；UI 用详情自带 logs，不要再打这个
+GET /debug/pipeline-logs?work=&step_key=&code=&empty=true&since=   # P0 跨请求计数
 GET /debug/pipeline-traces/{trace_id}/assocs?work=
-
-# 从任意 log_id / span_id 跳链（现有 q= 扩展）
 GET /debug/pipeline-traces?work=&q={log_id|span_id|trace_id|outcome_id}
 ```
 
-`q=log_id`：`SELECT trace_id FROM pipeline_log WHERE log_id=$id LIMIT 1`。
+`q=log_id`：`SELECT trace_id FROM pipeline_log WHERE log_id=$id LIMIT 1`，返回前 `public_log`。  
+`since`/`until` 走 **`created_at`**（TTL 同源）。UI「时间」筛选必须标「按入库时间」，不要按 `ts` 却查 `created_at`。
 
 ### 9. 管理页（主对象 = 日志流）
 
@@ -557,7 +731,7 @@ GET /debug/pipeline-traces?work=&q={log_id|span_id|trace_id|outcome_id}
 │ 请求列表      │ 默认：步骤日志                               │
 │ 16:02 第16章  │ 头条：余烬 end_hook 空 · L2 丢 material_recall│
 │ 余烬空·L2丢…  │ 12.8s · 47 步 · 312 行日志                   │
-│              │ [步骤日志] [关联] [派生对照]                  │
+│              │ [步骤日志] [关联]   更多 ▾ 派生对照           │
 │              │                                              │
 │              │ ▼ 上章余烬  assemble.seg.story_ember  装段/L2 │
 │              │   12:01:03.012 INFO 读取 end_hook：字段空     │
@@ -566,9 +740,11 @@ GET /debug/pipeline-traces?work=&q={log_id|span_id|trace_id|outcome_id}
 │              │ ▼ L2 补充裁剪  budget.l2                      │
 │              │   12:01:03.040 INFO 帽 2400 · 已用 3100       │
 │              │   12:01:03.041 WARN 整段丢 material_recall    │
-│              │   12:01:03.042 ASSOC 消费 story_ember digest=∅│
+│              │   12:01:03.042 INFO [assoc.consume] 消费余烬  │
 └──────────────┴────────────────────────────────────────────┘
 ```
+
+顶栏只有 **步骤日志** 与 **关联** 两个主控件。对照在「更多」里，**禁止**做成第三并列 tab（现网 L301–305 的失败形态）。`assoc.consume` 画成 code 徽章，level 仍是 INFO。
 
 交互钉死：
 
@@ -580,7 +756,9 @@ GET /debug/pipeline-traces?work=&q={log_id|span_id|trace_id|outcome_id}
 6. 列表主列用 **日志生成的 headline**（第一条 warn，否则第一条空因，否则 llm usage）。**禁止**「对照齐全」「N 对照红」做主文案。`red_count` 可留 API 字段，UI 默认不展示。  
 7. `statusChip` 不得再把 `empty` 一律涂红当主色；空因用日志 `warn` 左边一条竖线即可。  
 8. 进行中：组头显示「进行中 Ns」，来自 `cursor_step_key`（现有 live headline 逻辑改读 cursor + 最新 log）。  
-9. 顶部步骤键 + 日志码过滤走 `GET /debug/pipeline-logs`，结果仍按请求聚合，点进去是全链日志。
+9. 顶部步骤键 + 日志码 + **empty** 过滤走 `GET /debug/pipeline-logs`，结果按请求聚合，点进去用详情自带 `logs[]`（`include=logs` 默认开），**禁止**详情页再打一遍 `/logs`。  
+10. 旧链 `log_count==0`：横幅「旧账·仅有步骤摘要」。`log_count` 必须出现在列表 JSON（缺省 0）。  
+11. **本 UI 不得在 PR4 接线前作为 demo 默认页上线**（PR3 可合 API，不切默认页）。
 
 ### 10. 与 140 / 旧卡 / 瘦 span 的关系
 
@@ -596,12 +774,29 @@ GET /debug/pipeline-traces?work=&q={log_id|span_id|trace_id|outcome_id}
 
 | 旗 | 默认 | 含义 |
 |----|------|------|
-| `SCRIBE3_PIPELINE_TRACE` | `1` | 开链 / 写 span。0 = 整条观测零 I/O |
+| `SCRIBE3_PIPELINE_TRACE` | `1` | 开链 / 写 span。0 = 整条观测零 I/O（蕴含不写 log） |
 | `SCRIBE3_PIPELINE_LOG` | `1` | 写 `pipeline_log`。0 = 骨架仍在、无流水 |
 | `SCRIBE3_RUN_CARD` | `1` | 是否派生对照摘要 |
 | `SCRIBE3_RUN_CARD_PERSIST` | `0` | 保持现网：不 CREATE `write_run_card` |
 | `SCRIBE3_PIPELINE_TRACE_PREVIEW` | `0` | 保持关 |
-| `SCRIBE3_PIPELINE_TRACE_TTL_DAYS` | `7` | 三表同一 TTL |
+| `SCRIBE3_PIPELINE_TRACE_TTL_DAYS` | `7` | **三表** chain/span/log 同一 TTL |
+
+PR2 精确登记（`feature_flags.py`）：
+
+```python
+Flag("SCRIBE3_PIPELINE_LOG", "1",
+     "写 pipeline_log 流水；0=只写 chain/span 骨架不挡写", "observability", "safe")
+# 改现网 TTL 描述：
+Flag("SCRIBE3_PIPELINE_TRACE_TTL_DAYS", "7",
+     "pipeline_chain/span/log TTL 天", "observability", "safe")
+```
+
+`log_count` 必须打穿现网三处，否则旧账横幅是空话（PR1/PR2）：
+
+- `PUBLIC_CHAIN_KEYS` 加入 `log_count`（现网 L26–33 没有）
+- `snapshot_chain_patch()` 写 `log_count = 已缓冲 log 条数`
+- `publicize_chain_list_item()` 返回 `log_count: int`（缺省 **0**）
+- CREATE chain 时 `log_count=0`
 
 `TRACE=0` ⇒ 日志也不写。`LOG=0` 不得挡写。
 
@@ -632,39 +827,25 @@ id 合同 **一字不改**：handler 恰好一次 mint；assemble 禁止 `uuid4(
 ```text
 GET  /debug/pipeline-logs
      ?work=&trace_id=&span_id=&step_key=&code=&level=
-     &chapter=&kind=&since=&until=&limit=100
+     &empty=&value=&chapter=&kind=&since=&until=&limit=100
 GET  /debug/pipeline-traces/{trace_id}/logs?work=&step_key=&code=
 GET  /debug/pipeline-traces/{trace_id}/assocs?work=
-POST /debug/pipeline-traces/purge   # 已有；实现改为先删 log
+POST /debug/pipeline-traces/purge   # 已有；先删 log；days 下限 1（现网 max(1,int)）
 ```
 
 | 参数 | 作用 |
 |------|------|
 | `trace_id` / `span_id` | 精确 |
-| `step_key` | 精确匹配（用 `pipeline_log_step_idx`） |
-| `code` | 精确；可用 `code_prefix=pred.` 走 `string::starts_with`（若 Surreal 版本不便，P0 只做精确） |
-| `level` | 精确 |
-| `since` / `until` | `created_at`（TTL 同源）。列表过滤禁止「先拉 20 再 Python 滤」 |
+| `step_key` / `code` / `level` / `kind` | 精确（`kind` 与 HTTP 对齐，mixin 必须有） |
+| `empty` | **只** `true`/`false` → `attrs.empty`（P0）。不收 `1`/`0` |
+| `value` | 精确匹配 `attrs.value` |
+| `since` / `until` | **`created_at`**。禁止先拉再滤 |
 
-列表项（无 attrs 大包；详情再给 attrs）：
+列表项见 §3.1（含 `empty`/`value`/`from_span_id`）。详情才给完整 `attrs`。
 
-```json
-{
-  "log_id": "…",
-  "ts": "…Z",
-  "level": "info",
-  "step_key": "assemble.seg.story_ember",
-  "step_title": "上章余烬",
-  "layer": "assemble",
-  "code": "read.source",
-  "message": "读取上章 end_hook：字段空",
-  "trace_id": "…",
-  "span_id": "…",
-  "chapter": 16
-}
-```
+单链 `GET /debug/pipeline-traces/{id}`：`include=logs` **默认开**，响应带 `logs[]`。管理台详情 **只吃这个数组**，不要再请求 `/logs`（避免 300 行双拉）。旧 UI 在 PR6 前不要切默认页到「分析账本」。
 
-单链 `/logs` 返回按 `ts, seq` 排序的全量行（硬顶 2048）。`/assocs`：
+`/assocs` 只从 produce/consume 日志投影（含没有对应 consume 的 produce 孤边）：
 
 ```json
 {
@@ -674,7 +855,7 @@ POST /debug/pipeline-traces/purge   # 已有；实现改为先删 log
       "from_span_id": "…",
       "from_step_key": "assemble.seg.story_ember",
       "to_span_id": "…",
-      "to_step_key": "budget.l2",
+      "to_step_key": "assemble.collect_fuel",
       "digest": null,
       "log_id": "…"
     }
@@ -686,8 +867,8 @@ POST /debug/pipeline-traces/purge   # 已有；实现改为先删 log
 
 | 路由 | 变化 |
 |------|------|
-| `GET /debug/pipeline-traces` | 列表项加 `log_count`；`q` 增加 `log_id` |
-| `GET /debug/pipeline-traces/{id}` | 加 `logs[]`（可 `?include=logs` 默认 **开**——这是主载荷）。`spans[]` 仍给。`contrast_summary` 保留但不做 UI 默认 |
+| `GET /debug/pipeline-traces` | 列表项 **必有** `log_count: int`（缺省 0）；`q` 增加 `log_id` |
+| `GET /debug/pipeline-traces/{id}` | `logs[]` 默认开；`spans[]` 仍给；`contrast_summary` 保留但不做 UI 默认 |
 | `GET /debug/pipeline-spans` | 保持；用于「按步找链」 |
 | `GET /debug/run-cards*` | 保持现网兼容矩阵，本设计不重开 |
 
@@ -751,7 +932,7 @@ DEFINE INDEX IF NOT EXISTS pipeline_log_created_idx ON pipeline_log FIELDS creat
 
 主键纪律与 140 相同：纯 hex，`CREATE ONLY type::record('pipeline_log', $log_id)`。禁止冒号进 record id。
 
-`ts` 是应用层墙钟（分析用）。TTL **只看** `created_at`（READONLY `time::now()`）——**禁止**用回填 `created_at` 测 TTL。验收：手工 `POST /debug/pipeline-traces/purge?days=7` + 单测只锁 SQL 顺序；若要看删行，在试写书 INSERT 后立刻 `days=0` **禁止**（以免误删）。TTL 正确性靠「purge 函数对 `created_at < now()-Nd` 发 DELETE」的契约测试，不靠改历史行。
+`ts` 是应用层墙钟（分析用，datetime）。TTL **只看** `created_at`（READONLY `time::now()`）——**禁止**回填 `created_at`。现网 `POST .../purge` 已是 `max(1, int(days))`（`misc_routes.py` L1460），**没有** `days=0` 清空口。验收：单测锁 DELETE 顺序（log → span → chain）；试写书插入后 **不**调用 purge。手工 purge 下限 1 天。purge 含 log 是 **P0 / PR2**，不是 P3。
 
 **可变字段：** log 行 CREATE 后不 UPDATE（真 append-only）。span 仍仅 llm/tool 允许 running→终态。chain 增 `log_count`。
 
@@ -760,12 +941,17 @@ DEFINE INDEX IF NOT EXISTS pipeline_log_created_idx ON pipeline_log FIELDS creat
 ```python
 class PipelineTraceOpsMixin:
     def insert_pipeline_logs(self, rows: list[dict]) -> None: ...
-    def list_pipeline_logs(self, *, trace_id=None, span_id=None, step_key=None,
-                           code=None, level=None, chapter=None,
-                           since=None, until=None, limit=100) -> list[dict]: ...
+    def list_pipeline_logs(
+        self, *, trace_id=None, span_id=None, step_key=None,
+        code=None, level=None, kind=None, chapter=None,
+        empty=None, value=None, since=None, until=None, limit=100,
+    ) -> list[dict]: ...
     def get_pipeline_log(self, log_id: str) -> dict | None: ...
+    # work 在连接上（一书一库），但行上必填 work（索引用）。
     # purge_pipeline_traces_older_than: 先 DELETE log，再 span，再 chain
 ```
+
+`get_pipeline_log` / `q=log_id` 返回前必须 `public_log`。HTTP 与 mixin 参数表逐列对齐（含 `kind`/`empty`/`value`）。
 
 `insert_pipeline_spans` 同期改为同一批量合同，避免 50 次 CREATE。
 
@@ -798,7 +984,7 @@ DELETE pipeline_chain WHERE created_at < time::now() - $d d;
 
 对比：一章散文 10–40 KB；本账周量约等于数天正文，可接受。风险在 **批量 INSERT 尾延迟**，不在磁盘。
 
-纯函数 `append_log` p99 < 0.1ms。一批 64 行 INSERT p95 目标 < 40ms；失败丢包 + `notes=flush_failed`，不重试打爆。
+纯函数 `append_log` p99 < 0.1ms。批量墙钟以试写书实测为准，失败则 `LOG=0`；丢包 + `notes=flush_failed`，不重试打爆。
 
 ---
 
@@ -839,7 +1025,7 @@ Journal 是 JSON + `os.replace`，为 **DB 不可用时** 续跑 ingest **以及
 
 | 威胁 | 严重度 | 缓解 |
 |------|--------|------|
-| 日志 message 抄进 prompt / end_hook 原文 | **高** | emit API 不接收任意字符串当 attrs；message 由钩子格式化；单测禁键 + 禁长文 |
+| 日志 message 抄进 prompt / end_hook 原文 | **高** | **闭集** `append_log(code, **typed)`；message 仅模板；`reason`/`source` 是 enum 不是长串；单测夹具 B |
 | 工具参数值进 attrs | **高** | 只存键名；`arguments` 在 FORBIDDEN |
 | 跨书读日志 | **高** | L1 `?work=` + owner；与现网 debug 相同 |
 | `log_id` 枚举 | 低 | 16 hex 随机；无归属仍 403 |
@@ -860,7 +1046,7 @@ Journal 是 JSON + `os.replace`，为 **DB 不可用时** 续跑 ingest **以及
 | `pipeline_log_flush_ms` / `flush_ok` / `rows` | 结构化日志 |
 | `log_cap` / `flush_failed` | `chain.notes` |
 | 进行中超时 | 管理页标「卡在 {step_title}」；不接 pager |
-| demo 冒烟 | PR4 后：写一章 → GET logs 含余烬中文行 + L2 drop 行；PR5 后再含 llm usage |
+| demo 冒烟 | PR4：余烬 read/pred + L2 每条 drop；`?empty=true` 可计数；PR6：默认 DOM 无对照齐全/对照红 |
 
 禁止把落库成功数当 KPI。
 
@@ -880,13 +1066,15 @@ Journal 是 JSON + `os.replace`，为 **DB 不可用时** 续跑 ingest **以及
 
 | 风险 | 严重度 | 缓解 |
 |------|--------|------|
-| 141 FOR-IN 在 demo 3.2.4 不可用 | **高** | PR2 先试写书冒烟；失败改单 round-trip 多 CREATE |
-| 钩子仍只 `end_span(actual=…)` 忘了 append_log | **高** | catalog `required_logs` + 缺行自动 warn；单测锁余烬三条 code |
-| 有人「帮忙」把 end_hook 原文写进 message | **高** | emit 函数不接收自由正文；单测 |
-| UI 改完仍把芯片放第一眼 | 中 | PR6 验收钉：默认 DOM 含日志 `message`，对照表不在默认 tab |
-| 批量 300 行拖尾 | 中 | 64 分包；失败丢弃；LOG=0 回滚 |
-| 旧链无日志被当成「系统没跑」 | 低 | 旧账横幅 |
-| headline 仍走红绿 | 中 | 改 `headline_from_spans` → `headline_from_logs`，删「对照齐全」 |
+| 141 INSERT/FOR/串 CREATE 整包被 SCHEMAFULL 拒 | **高** | payload 白名单；三级退路；试写书同 fixture；多键必须失败且 fail-soft |
+| 钩子用 `note_push`+`classify_actual` 合成中文行 | **高** | `NOTE_PUSH_FORBIDDEN_CODES`；夹具 A/B；`required_logs` 缺行 `obs.incomplete` |
+| `from_span_id` 再次设计有、实现空 | **高** | §8 唯一矩阵；`consume()` 在 PR1；空则单测红 |
+| UI 先于接线改名上 demo | **高** | PR6 依赖 PR4；PR3 不合为默认页 |
+| 有人「帮忙」把 end_hook 原文写进 message | **高** | 无自由正文槽 |
+| L2 drop 被 48 帽砍掉 | 中 | L2 帽 96 + 配额先保 drop |
+| `_BUFFERS` 泄漏 300 LogRec/链 | 中 | `finish_chain` evict |
+| 旧链无日志被当成「系统没跑」 | 低 | `log_count` 打穿 publicize + 横幅 |
+| headline 仍走红绿 | 中 | PR1 即 `headline_from_logs`；回落「尚无分析日志」；**永不**「对照齐全」 |
 
 ---
 
@@ -905,8 +1093,9 @@ Journal 是 JSON + `os.replace`，为 **DB 不可用时** 续跑 ingest **以及
 1. **主对象是 `pipeline_log` 行，不是 span 列，也不是对照矩阵。**  
    理由：用户要「每个步骤的全部信息**日志**」做运行分析。现网 span 已证明「结构化摘要 + 红绿」会被读成运行结果。span 降为身份/时序/父子骨架。
 
-2. **「全部信息」= 身份 + 墙钟 + 原因谓词 + 输入出处/字段名/计数/hash + 分支 + 产出结构 + 丢/跳/失败 + 中文流水 + 显式关联。排除 prompt / 破绽词 / secret / 工具参数值。**  
-   理由：不重跑也能回答「余烬空是没读到 hook 还是 L2 裁光」。存原文既泄密也无增量信息。
+2. **「全部信息」= 可检索的运行时流水，不是 span 列的中文投影。** 身份 + 墙钟 + 谓词运行值 + 字段名/计数/hash + 分支 + 产出结构 + 丢/跳/失败 + 中文模板行 + 显式关联。排除 prompt / 破绽词 / secret / 工具参数值。  
+   **否决**：从 `classify_actual` / `meta.source` / `_push` 长度生成 `read.source` / `pred.eval`。  
+   理由：上一份 KD-5「结构化事实闭环」交货成了对照卡。差别必须写成运行时值 + 闭集 log + 消费边，不是换表名。
 
 3. **第三表 `pipeline_log`，不把数组塞进 span。**  
    理由：要「本周该步全部日志」必须有 `(work, step_key, created_at)` / `(work, code, created_at)` 索引。`events[]` 做不到；4KB 帽会先砍日志。
@@ -923,11 +1112,11 @@ Journal 是 JSON + `os.replace`，为 **DB 不可用时** 续跑 ingest **以及
 7. **双写策略：TRACE 管骨架，LOG 管流水（默认都开）；旧卡 PERSIST 保持 0；对照可派生但退出默认 UI 与 headline。**  
    理由：回滚面小；现网已停 `write_run_card` CREATE。
 
-8. **必发清单写进 catalog `required_logs`；缺行 flush 时补 warn。**  
-   理由：否则钩子会再次退化成 `actual=empty`。
+8. **完整性用 `LogReq(always, rules)` + `completeness_check`，覆盖全目录。** `l2_drops` / `fuel_xor` / `optional_skip` 可执行；`dropped=[]` 不得 incomplete。缺行 `obs.incomplete`，禁止占用 `skip.reason`。  
+   理由：静态元组无法表达条件必发，会误报或漏检。
 
-9. **热路径真批量 INSERT（FOR-IN 或单 round-trip 多 CREATE），禁止 300 次往返。llm delta 不落行。**  
-   理由：现网 span 已在逐条 CREATE，再加日志会不可接受。
+9. **热路径真批量：INSERT IGNORE → FOR-IN → 分号串 CREATE；payload 白名单；llm start 与 running 同批；finish 后 evict buffer。delta 不落行。**  
+   理由：现网 span 已在逐条 CREATE；仓库从未验证 FOR-IN。
 
 10. **UI 默认按步分组的中文日志流；对照降为派生。管理台更名「运行分析账本」。不回写作台。**  
     理由：用户已否定结果墙。身份靠组头的中文名+key+layer。
@@ -943,6 +1132,12 @@ Journal 是 JSON + `os.replace`，为 **DB 不可用时** 续跑 ingest **以及
 
 14. **不做采样。**  
     理由：每天几十次全量才能回答「那一次」。
+
+15. **`append_log(code, **typed)` 是唯一 emit API。message 由模块模板渲染。调用方不能传自由正文。**  
+    理由：自由 `message`+`attrs` 同时打穿泄密和「四字段换皮」。见 §3。
+
+16. **关联边 SSOT = `assoc.produce|consume` 日志；`links.from_span_id` 按 §8 矩阵填主输入；空则单测红。**  
+    理由：上次字段写在合同里、接线没人写。
 
 ---
 
@@ -962,8 +1157,10 @@ Journal 是 JSON + `os.replace`，为 **DB 不可用时** 续跑 ingest **以及
 - 流：`scribe3/api/services/write_stream.py` `start_llm` L87；`tool.started` L244；`finish_ok` L727
 - 读面：`scribe3/web/src/admin/RunLogsPage.jsx`；`system/planes.js`；`AdminConsole.jsx`
 - API：`scribe3/api/routers/misc_routes.py` L1312–1467
-- 旗：`scribe3/feature_flags.py` L111–115
-- 对照函数：`scribe3/run_card.py` `classify_actual` / `expected_for` / `row_verdict`
+- 旗：`scribe3/feature_flags.py` `SCRIBE3_RUN_CARD`…`SCRIBE3_PIPELINE_TRACE_TTL_DAYS`（约 L111–115）
+- 对照函数：`scribe3/run_card.py` `classify_actual` / `expected_for`（pred 名 SSOT）/ `row_verdict`
+- 读 API 至 `misc_routes.py` `post_debug_pipeline_traces_purge`（约 L1453–1467）；`days` 下限 1
+- Store publicize：`pipeline_trace.py` `PUBLIC_CHAIN_KEYS`；`pipeline_trace_store.py` `snapshot_chain_patch` / `publicize_chain_list_item`（今日无 `log_count`）
 - Outcome：`scribe3/context_outcome.py`（fail-loud, READONLY）
 - Journal（不升格）：`scribe3/pipeline_journal.py`
 - 鉴权：`docs/L1-AUTH-ISOLATION.md`；`scribe3/auth/middleware.py` `_GLOBAL_PREFIXES`
@@ -974,66 +1171,68 @@ Journal 是 JSON + `os.replace`，为 **DB 不可用时** 续跑 ingest **以及
 ## Revision Summary
 
 - 2026-08-14：因用户再次否定已上线 pipeline-trace「只有运行结果」，重画 SSOT。主对象从瘦 span / 对照卡改为 append-only `pipeline_log`；140 骨架保留；141 新表；UI 改为逐步中文日志流。旧设计文降级，不删除。
+- 2026-08-14 rev.2（评审）：闭集 `append_log`；禁止 note_push 合成 read/pred；全目录 `required_logs` + `obs.incomplete`；唯一 produce/consume 矩阵；`from_span_id` 单测红；141 payload 白名单 + INSERT/FOR/分号三级；`log_count` 打穿 publicize；列表 `empty`/`value` 过滤升 P0；L2 帽 96 先保 drop；PR 捆绑接线≥UI；headline 永不「对照齐全」；finish evict buffer；TTL 随 PR2、禁 days=0。
+- 2026-08-14 rev.3（复审）：`emit.shape` 补齐 persist/guard kwargs；`LogReq`+`completeness_check` 取代静态元组；consume 三分支唯一规则；PR1 落地 `ember_read_kwargs`/夹具 C；`SOURCE_TAGS` 闭集；HTTP `empty` 只 `true`/`false`；`headline_from_spans` 就地去掉「对照齐全」。
 
 ---
 
 ## PR Plan
 
-每个 PR 可独立审、独立合。观测异常不得阻断写/存/宣称。验证 = 纯函数单测（无 Surreal）或 **已部署 demo 冒烟**。禁止 Grok 机 `npm ci` / 全量 pytest / 本机 Surreal。
+每个 PR 可独立审、独立合进 **git**。观测异常不得阻断写/存/宣称。验证 = 纯函数单测（无 Surreal）或 **已部署 demo 冒烟**。禁止 Grok 机 `npm ci` / 全量 pytest / 本机 Surreal。
 
-### PR1 — 日志行模型 + catalog required_logs + 禁键单测
+**「可独立合」≠「可以单独上 demo 默认 UI」。** 用户可见面必须捆绑：接线（PR4）**先于或同于** 改名换页（PR6）。PR3 可合 API，**不**把管理台切成空日志流。
 
-- **标题**：`feat(obs): analysis log records in TraceBuffer`
-- **影响**：`scribe3/pipeline_trace.py`、`scribe3/pipeline_trace_catalog.py`、`scribe3/tests/test_pipeline_trace.py`
+### PR1 — 闭集 log 模型 + 全目录 required_logs + headline 永不对照齐全
+
+- **标题**：`feat(obs): closed-set analysis log records`
+- **影响**：`scribe3/pipeline_trace.py`、`scribe3/pipeline_trace_catalog.py`、`scribe3/tests/test_pipeline_trace.py`（`PUBLIC_CHAIN_KEYS` 加 `log_count`；`headline_from_logs`）
 - **依赖**：无
-- **说明**：`LogRec` + `append_log` + `public_log` + `headline_from_logs`（删除「对照齐全」作为主路径）。catalog 给高价值步填 `required_logs`。`strip_forbidden` 打 attrs。不接线 assemble，不写库。锁：余烬三条 code 的纯函数形状；禁 `prompt`/`markers`。
+- **说明**：`LogRec` + `append_log(code, **typed)` + `CODE_SPEC`（`emit.shape` 含 `outcome_id`/`status`/`hit_count`/`kinds`）+ `SOURCE_TAGS` + `ember_read_kwargs` / `pred_value_from_named` + `LogReq`/`completeness_check` + `mark_produced`/`consume`（§3 唯一规则）。夹具 A/B/C 只调用这些纯函数，禁止手填 `empty`。`headline_from_spans` **就地**改成调用 `headline_from_logs` 或删除「对照齐全」回落——这样未改 `finish_chain` 调用点也不会再写出对照尺。源码与测试禁止用户可见「对照齐全」。不接线 assemble，不写库。
 
-### PR2 — 迁移 141 + 批量 INSERT + purge 含 log
+### PR2 — 迁移 141 + 批量 + purge 含 log + 旗
 
 - **标题**：`feat(obs): pipeline_log schema and batched store`
-- **影响**：`scribe3/migrations/141_pipeline_log.surql`、`store/pipeline_trace_ops.py`、`pipeline_trace_store.py`、`feature_flags.py`（`SCRIBE3_PIPELINE_LOG`）
+- **影响**：`141_pipeline_log.surql`、`store/pipeline_trace_ops.py`、`pipeline_trace_store.py`（`snapshot_chain_patch`/`publicize_*`/`finish_chain` evict、`insert_pipeline_spans` 去 for）、`feature_flags.py`
 - **依赖**：PR1
-- **说明**：FOR-IN 或单 round-trip 多 CREATE；span INSERT 同期去 for 循环。`purge` 先 log。试写书 `_store_for` 冒烟缺字段 CREATE。`LOG=0` store no-op。不改 UI。
+- **说明**：`public_log_row_for_store` 白名单；`ts` datetime；省略 `created_at`。批量：INSERT IGNORE → FOR-IN → 分号 SET。试写书两步：(1) `_store_for` 见 141 进 `_migration`；(2) 插入完整 fixture 成功 + 多键行失败且 fail-soft。**禁止**「缺字段 CREATE」当成功。`purge` 先 log。Flag 精确构造见 §10。`LOG=0` no-op。不改 UI。
 
-### PR3 — 读 API（可先于接线合）
+### PR3 — 读 API（可合，不切默认 UI）
 
 - **标题**：`feat(obs): GET /debug/pipeline-logs`
 - **影响**：`misc_routes.py`（annotations + rebind）、`web/src/api.js`
 - **依赖**：PR2
-- **说明**：按 trace/span/step_key/code/since 过滤。`q=log_id` 跳链。永不回禁键。单链详情 `include=logs` 默认开。
+- **说明**：`step_key`/`code`/`empty`/`value`/`kind`/`since` 服务端过滤。列表项带 `empty`/`value`/`from_span_id`。链列表 `log_count: int`。`q=log_id` 经 `public_log`。`include=logs` 默认开。assocs 只投影 assoc.*。**本 PR 不上线为管理台默认页。**
 
-### PR4 — assemble / budget / guard 发真实日志 + 关联
+### PR4 — assemble 数据源函数发真实日志 + 矩阵边
 
 - **标题**：`feat(obs): emit per-step analysis logs on assemble`
-- **影响**：`pipeline_trace_hooks.py`、`write_assemble_v1.py`（计算函数旁 `append_log`；**不改** join/渲染字节）、必要时 `write_assemble_context.py` 只读字段名集合
+- **影响**：`write_assemble_context.py`（**必改** load / collect_fuel）、`pipeline_trace_hooks.py`、`write_assemble_v1.py`（接线，**不改** join/渲染字节）、`context_budget.py` 只读 `dropped`（算法不改）
 - **依赖**：PR2
-- **说明**：§5.2 load/fuel/ember/L2/guard/envelope 必发。`from_span_id` 经 buffer `_produced`。缺 `request_id` 仍 no-op。demo：GET 单链 logs 含「end_hook」字样的中文行（有或空都要有 read.source）。
+- **说明**：按 §5 / §8。`from_span_id` 空则单测红。L2 每个 drop 一行。缺 id 仍 no-op。demo：GET 单链含余烬 `read.source`+`pred.eval`；有 L2 drop 则 `drop.item` 条数 = tag 数。
 
 ### PR5 — llm / tool / persist / save / claim 日志
 
 - **标题**：`feat(obs): analysis logs on stream, collect, save, claim`
 - **影响**：`write_stream.py`、`pipeline_trace_hooks.py`、`write.py`、`chapters.py`、`misc_routes.save_chapter`
 - **依赖**：PR4
-- **说明**：usage 数字、chunk_count、tool 键名、真实 duration（保持现网 running 合同）。delta 不落行。前闸 409 补 handler 日志。demo：成功链含 `usage.model`。
+- **说明**：usage、chunk_count、tool 键名、真实 duration。start 日志与 running INSERT 同批。delta 不落行。前闸 409 补 handler 日志。demo：成功链含 `usage.model`。
 
-### PR6 — 管理台改为日志账本
+### PR6 — 管理台改为日志账本（必须 ≥ PR4）
 
 - **标题**：`feat(obs): admin analysis logbook replaces span result card`
-- **影响**：`RunLogsPage.jsx`、`AdminConsole.jsx`、`planes.js`、`runLogsPage.test.jsx`（Grok 机不跑 Playwright / `npm ci`；测文件改好即可）
-- **依赖**：PR3；有 PR4 数据才好看
-- **说明**：默认按步日志流；关联页；对照降级。标题「运行分析账本」。写作台零引用。
+- **影响**：`RunLogsPage.jsx`、`AdminConsole.jsx`、`planes.js`、`runLogsPage.test.jsx`、`pipeline_trace_store.live_headline` / 列表 DOM（原 PR7 的 UI 部分）
+- **依赖**：**PR4** + PR3（有真实日志才许切默认页）
+- **说明**：标题「运行分析账本」。默认按步日志流；关联主控件；对照进「更多」。验收钉死：默认 tab 名不是「对照」；列表不含「对照红」「对照齐全」；inspector **第一行**是 log `message`；`red_count` 退出默认 DOM。写作台零引用。Grok 机不跑 Playwright / `npm ci`。
 
-### PR7 — headline 改走日志；列表去掉对照红主文案
+### PR7 — （已并入 PR1 + PR6，不再单独合）
 
-- **标题**：`feat(obs): headline from logs not contrast`
-- **影响**：`pipeline_trace.py` `headline_from_logs`、`pipeline_trace_store.live_headline` / `publicize_chain_list_item`、`RunLogsPage.jsx` 列表
-- **依赖**：PR4、PR6
-- **说明**：删除用户可见「对照齐全」。`red_count` 退出默认 DOM。
+headline / 「对照齐全」在 PR1；列表文案在 PR6。禁止再留一个「中间态对照尺」发布。
 
 ### PR8 — demo 冒烟（不必单独合代码）
 
-- PR4：写一章 → `GET /debug/pipeline-traces/{id}/logs` 含 `assemble.seg.story_ember` 的 `read.source` + `pred.eval`；`budget.l2` 若有 drop 则有 `drop.item`。
-- PR5：再断言 `llm.generate` 的 `usage.model`；loop 链有终态。
-- `GET /debug/pipeline-logs?step_key=assemble.seg.story_ember` 返回跨请求行。
+- PR4：写一章 → 详情 `logs` 含 `assemble.seg.story_ember` 的 `read.source` + `pred.eval`；`budget.l2` 若有 drop，则 `drop.item` 条数等于 `dropped` tag 数。
+- `GET /debug/pipeline-logs?step_key=assemble.seg.story_ember&code=read.source&empty=true` 返回跨请求行且 `count` 可用。
+- 默认 UI（PR6 后）：DOM 无「对照齐全」「对照红」；第一屏是中文 log message。
+- PR5：再断言 `usage.model`；loop 链有终态。
 - 关 `PIPELINE_LOG=0` + recreate → 正文仍出；关 `PIPELINE_TRACE=0` 同。
 - 他人书 403。响应无 `instructions` / 破绽词。

@@ -34,3 +34,5 @@ def test_v1_phase_split_and_report():
     assert "scene_truth_source_from_segment_names" in src
     # draft 不把终检合同抄进正文
     assert src.count("演绎终检合同") == 1
+    assert "尚未填写场景真相" not in src
+    assert 'skip="deduce_truth_not_yet"' in src

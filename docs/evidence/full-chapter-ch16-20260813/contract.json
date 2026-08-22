@@ -1,0 +1,20 @@
+{
+  "schema": "narrative_contract.v1",
+  "version": 1,
+  "desire": "灰七要在第1轮压住讨债纠缠保住真匙与未冷之炉",
+  "obstacle": "冷锅婆讨债拦门，灰狸扯袖纠缠要铜要跟",
+  "turn": "他拒交匙并把半袋热灰倒进空锅抵账挡人",
+  "cost": "账仍咬人，匙仍烫肋，秘密未散尽",
+  "conflict_beats": [
+    {
+      "text": "冷锅婆拦门讨香债"
+    },
+    {
+      "text": "灰狸扯袖口要跟去"
+    },
+    {
+      "text": "半袋热灰倒进空锅抵账"
+    }
+  ],
+  "source": "author"
+}

@@ -521,9 +521,10 @@ describe('FourPaneShell 四栏钻取', () => {
   it('未选章时仍保留所有全书能力入口', () => {
     render(<Harness leftSeq={null} />)
 
-    for (const label of ['手稿', '设定库', '素材库', '演绎 · 角色限知', '伏笔', '母题', '搜索', '校验']) {
+    for (const label of ['手稿', '设定库', '素材库', '演绎 · 角色限知', '伏笔', '母题', '搜索']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy()
     }
+    expect(screen.queryByRole('button', { name: '校验' })).toBeNull()
   })
 
   it('左栏 active tab 按 work 隔离读取', async () => {
@@ -546,22 +547,18 @@ describe('FourPaneShell 四栏钻取', () => {
 
     await waitFor(() => expect(apiMock.promisesLedger).toHaveBeenCalledTimes(1))
     expect(apiMock.motifs).toHaveBeenCalledTimes(1)
-    expect(apiMock.qc).toHaveBeenCalledTimes(1)
     expect(apiMock.chapter).toHaveBeenCalledTimes(1)
     expect(apiMock.promisesLedger).toHaveBeenNthCalledWith(1, 'book_a')
     expect(apiMock.motifs).toHaveBeenNthCalledWith(1, 'book_a')
-    expect(apiMock.qc).toHaveBeenNthCalledWith(1, 4, 'book_a')
     expect(apiMock.chapter).toHaveBeenNthCalledWith(1, 4, 'book_a')
 
     rerender(<Harness work="book_b" leftSeq={4} />)
 
     await waitFor(() => expect(apiMock.promisesLedger).toHaveBeenCalledTimes(2))
     expect(apiMock.motifs).toHaveBeenCalledTimes(2)
-    expect(apiMock.qc).toHaveBeenCalledTimes(2)
     expect(apiMock.chapter).toHaveBeenCalledTimes(2)
     expect(apiMock.promisesLedger).toHaveBeenNthCalledWith(2, 'book_b')
     expect(apiMock.motifs).toHaveBeenNthCalledWith(2, 'book_b')
-    expect(apiMock.qc).toHaveBeenNthCalledWith(2, 4, 'book_b')
     expect(apiMock.chapter).toHaveBeenNthCalledWith(2, 4, 'book_b')
   })
 
@@ -620,10 +617,15 @@ describe('FourPaneShell 四栏钻取', () => {
     fireEvent.click(screen.getByRole('button', { name: '搜索' }))
     expect(screen.getByLabelText('全局搜索')).toBeTruthy()
     expect(screen.queryByPlaceholderText('按意思搜,如「炼丹复活」')).toBeNull()
+    expect(screen.queryByRole('button', { name: '校验' })).toBeNull()
+  })
 
-    fireEvent.click(screen.getByRole('button', { name: '校验' }))
+  it('深链仍可进校验台账（左轨不再挂入口）', async () => {
+    localStorage.setItem('s3.demo.leftTab', 'review')
+    render(<Harness leftSeq={4} />)
     expect(await screen.findByTestId('issue-list')).toBeTruthy()
     expect(screen.getByText('整句重复')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '校验' })).toBeNull()
   })
 
   it('外层顶栏切入视图时隐藏栏2,栏3全画布渲染 view', () => {
@@ -660,18 +662,18 @@ describe('FourPaneShell 四栏钻取', () => {
     expect(screen.getByTestId('detail-content').textContent).toBe('node:empty')
   })
 
-  // Task 3:栏1 八入口按「内容/工艺/检查」三组呈现,分组不得删除任何能力,
-  // 且三个组必须能被辅助技术识别(role=group + aria-label),八入口可访问名逐一保留。
-  it('八个 PC 入口按三组呈现且不丢能力', () => {
+  // Task 3:栏1 按「内容/工艺/检查」三组呈现；校验不再占一等入口。
+  it('PC 入口按三组呈现且校验不占左轨', () => {
     render(<Harness />)
 
     expect(screen.getByRole('group', { name: '内容' })).toBeTruthy()
     expect(screen.getByRole('group', { name: '工艺' })).toBeTruthy()
     expect(screen.getByRole('group', { name: '检查' })).toBeTruthy()
 
-    for (const name of ['手稿', '设定库', '素材库', '演绎 · 角色限知', '伏笔', '母题', '搜索', '校验']) {
+    for (const name of ['手稿', '设定库', '素材库', '演绎 · 角色限知', '伏笔', '母题', '搜索']) {
       expect(screen.getByRole('button', { name })).toBeTruthy()
     }
+    expect(screen.queryByRole('button', { name: '校验' })).toBeNull()
   })
 
   // Task 4: 栏宽按 work + writing 键隔离（大纲/正文共用）

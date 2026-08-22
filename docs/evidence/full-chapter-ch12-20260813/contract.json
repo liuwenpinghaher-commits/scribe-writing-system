@@ -1,0 +1,20 @@
+{
+  "schema": "narrative_contract.v1",
+  "version": 1,
+  "desire": "灰七想减掉一炉半账并确认门后有没有人",
+  "obstacle": "婆子逼侧门换账，灰狸偷跟，墙角有烟",
+  "turn": "他拒探深门只开一寸即关换半笔减账",
+  "cost": "匙齿更深，门后咳声证明有人",
+  "conflict_beats": [
+    {
+      "text": "冷锅婆逼以侧门换减账"
+    },
+    {
+      "text": "灰狸偷跟要当众揭发"
+    },
+    {
+      "text": "灰七拒探深门只开一寸抵账"
+    }
+  ],
+  "source": "author"
+}

@@ -1,0 +1,48 @@
+{
+  "title": "第六章 · 夜审前夜",
+  "prose_cn": 1298,
+  "dims": {
+    "D1": 8.1,
+    "D2": 8.2,
+    "D3": 9.3,
+    "D4": 9.4,
+    "D5": 8.6,
+    "D6": 8.4,
+    "D7": 9.8
+  },
+  "composite": 8.8,
+  "quotes": {
+    "D1": "conflict_lex_hits=30, dialogue_marks=50, conf_den=23.11",
+    "D2": "turn_cost_markers=16, contract_ok=True",
+    "D3": "dlg_lines=19/31, body_hits=23, cool_hits=0",
+    "D4": "conflict_beats valid=3/3 prop_like=0",
+    "D5": "prior_keyword_hits=12/13, multi_stakes=5",
+    "D6": "ok_for_claim=True claim_hits=0 soft=0",
+    "D7": "sense_hits=10, cost_linked=True, sense_den=7.70"
+  },
+  "conflict_beats": {
+    "ok": true,
+    "total": 3,
+    "valid": 3,
+    "prop_like": [],
+    "items": [
+      {
+        "text": "冷锅婆顶腹逼还香债",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "灰狸扯袖抢看炉册",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "灰七拒交匙换半笔勾账",
+        "shape_ok": true,
+        "reasons": []
+      }
+    ]
+  },
+  "contract_ok": true,
+  "anti_meta_ok": true
+}

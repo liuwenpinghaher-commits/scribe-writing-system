@@ -6,9 +6,11 @@ import pytest
 from scribe3.inbox import (
     DEFAULT_UNCLEAR_QUESTION,
     dedupe_degraded,
+    hermes_approval_inbox_item,
     idea_inbox_item,
     idea_unclear_question,
     needs_question_backfill,
+    selection_inbox_item,
     sort_items,
 )
 
@@ -72,6 +74,27 @@ def test_sort_items_focus_and_priority():
     assert items[0]["id"] == "p"  # seq=2 焦点
     kinds_order = [i["kind"] for i in items]
     assert kinds_order.index("pilot_outline") < kinds_order.index("daily_digest")
+
+
+def test_selection_inbox_item_waiting_and_done():
+    assert selection_inbox_item("l1", 3, {"verdict": "picked"}) is None
+    waiting = selection_inbox_item("l1", 3, {"verdict": "awaiting_pick", "variants": [{}, {}]})
+    assert waiting["kind"] == "selection_l1"
+    assert waiting["action"]["kind"] == "open_select"
+    assert waiting["seq"] == 3
+    l2 = selection_inbox_item("l2", 4, {"verdict": "awaiting_human", "candidates": [{}, {}]})
+    assert l2["kind"] == "selection_l2"
+    assert selection_inbox_item("l2", 4, {"verdict": "finalized"}) is None
+    fail = selection_inbox_item("l1", 2, {"verdict": "all_failed"})
+    assert fail["kind"] == "selection_failed"
+
+
+def test_hermes_approval_inbox_item():
+    assert hermes_approval_inbox_item({}) is None
+    it = hermes_approval_inbox_item({"run_id": "r1", "message": "写入角色"})
+    assert it["kind"] == "hermes_approval"
+    assert it["action"]["kind"] == "open_chief"
+    assert "写入角色" in it["message"]
 
 
 def test_dedupe_degraded_preserves_order():

@@ -1,0 +1,48 @@
+{
+  "title": "第五章 · 香债",
+  "prose_cn": 1250,
+  "dims": {
+    "D1": 7.8,
+    "D2": 7.6,
+    "D3": 9.1,
+    "D4": 9.4,
+    "D5": 8.6,
+    "D6": 8.3,
+    "D7": 9.8
+  },
+  "composite": 8.7,
+  "quotes": {
+    "D1": "conflict_lex_hits=25, dialogue_marks=50, conf_den=20.00",
+    "D2": "turn_cost_markers=14, contract_ok=True",
+    "D3": "dlg_lines=19/30, body_hits=21, cool_hits=0",
+    "D4": "conflict_beats valid=3/3 prop_like=0",
+    "D5": "prior_keyword_hits=12/13, multi_stakes=5",
+    "D6": "ok_for_claim=True claim_hits=0 soft=0",
+    "D7": "sense_hits=10, cost_linked=True, sense_den=8.00"
+  },
+  "conflict_beats": {
+    "ok": true,
+    "total": 3,
+    "valid": 3,
+    "prop_like": [],
+    "items": [
+      {
+        "text": "冷锅婆拦门讨香债",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "灰狸扯袖口要跟去",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "半袋热灰倒进空锅抵账",
+        "shape_ok": true,
+        "reasons": []
+      }
+    ]
+  },
+  "contract_ok": true,
+  "anti_meta_ok": true
+}

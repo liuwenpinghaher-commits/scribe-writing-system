@@ -11,14 +11,15 @@ import { Tabs } from '../ui/Tabs'
 // compact(可选,默认 false):紧凑头部——面包屑与标题合并为一行「面包屑 › 标题」,
 // 头部从三行(面包屑/标题+动作/tabs)压成两行。章工作台(ChapterStudio)启用;
 // 其余调用方(DetailPane withFrame 的 character/material)不传,默认布局零变化。
+// fill(可选):子区不自滚、改由内部编辑器吃满剩余高度。章工作台开；其它对象保持 overflow-auto。
 // 面包屑保持在 <h1> 之外:aria-labelledby 指向的可访问名仍只含对象名,不掺路径。
-export function ObjectFrame({ breadcrumb, title, status, tabs = [], activeTab, onTab, actions, children, compact = false }) {
+export function ObjectFrame({ breadcrumb, title, status, tabs = [], activeTab, onTab, actions, children, compact = false, fill = false }) {
   // useId 生成唯一标题 id:同页可能并挂多个 ObjectFrame(如 Task7 分栏),硬编码 id 会重复 → a11y 违规。
   // aria-labelledby 指向本框自己的 <h1>,让每个 region 都有唯一、正确的可访问名。
   const titleId = useId()
   return (
     <section className="flex h-full min-h-0 flex-col bg-canvas" aria-labelledby={titleId}>
-      <header className="shrink-0 border-b border-line/40 px-5 py-2.5">
+      <header className={`shrink-0 border-b border-line/40 ${compact ? 'px-4 py-1.5' : 'px-5 py-2.5'}`}>
         {!compact && breadcrumb && <div className="mb-0.5 truncate text-meta text-muted">{breadcrumb}</div>}
         <div className="flex min-h-8 items-center gap-3" data-testid={compact ? 'object-frame-titlerow-compact' : undefined}>
           {compact && breadcrumb && (
@@ -32,12 +33,12 @@ export function ObjectFrame({ breadcrumb, title, status, tabs = [], activeTab, o
           {actions}
         </div>
         {tabs.length > 0 && (
-          <div className="mt-2.5">
+          <div className={compact ? 'mt-1' : 'mt-2.5'}>
             <Tabs ariaLabel={`${title}页签`} value={activeTab} onValueChange={onTab} items={tabs} />
           </div>
         )}
       </header>
-      <div className="min-h-0 flex-1 overflow-auto">{children}</div>
+      <div className={fill ? 'min-h-0 flex-1 overflow-hidden flex flex-col' : 'min-h-0 flex-1 overflow-auto'}>{children}</div>
     </section>
   )
 }

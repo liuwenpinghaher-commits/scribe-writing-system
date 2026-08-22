@@ -59,7 +59,9 @@ def get_work_row(slug: str, url: str | None = None) -> dict[str, Any] | None:
     2.1.x ``type::record('work', $s)`` InternalError on some deployments,
     which turned every work-scoped API into HTTP 500 after L1 auth was enabled.
     """
-    if not slug or not all(c.isalnum() or c == "_" for c in slug):
+    # Hyphen is legal: create_work never banned it, and probe books use
+    # names like obs-scratch. Rejecting `-` 404s a real registry row.
+    if not slug or not all(c.isalnum() or c in "_-" for c in slug):
         return None
     from scribe3.store.core_preamble import _reg_conn
 

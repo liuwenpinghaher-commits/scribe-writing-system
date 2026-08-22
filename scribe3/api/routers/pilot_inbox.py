@@ -251,6 +251,7 @@ def decision_inbox(work: str = "main", seq: int | None = None):
     from scribe3.inbox import (
         dedupe_degraded, idea_inbox_item, needs_question_backfill,
         sort_items, idea_unclear_question,
+        load_selection_inbox_items, hermes_approval_inbox_item,
     )
     st = _store_for(work)
     items: list[dict] = []
@@ -387,6 +388,26 @@ def decision_inbox(work: str = "main", seq: int | None = None):
         except Exception as e:
             logging.getLogger("scribe3").warning("inbox pulse 失败(忽略): %s", e)
             _deg("pulse")
+    # ⑦ 选择环待点选 / 失败（藏进主编模式后必须进箱，否则人看不见）
+    try:
+        sel_items, sel_deg = load_selection_inbox_items(work)
+        items.extend(sel_items)
+        if sel_deg:
+            _deg("selection")
+    except Exception as e:
+        logging.getLogger("scribe3").warning("inbox selection 失败(忽略): %s", e)
+        _deg("selection")
+    # ⑧ 主编 Hermes 待批写入
+    try:
+        from scribe3.api.services.ai_run_runtime import _pending_approval_from_trace
+        for tr in st.list_ai_run_traces(limit=80):
+            pending = _pending_approval_from_trace(tr)
+            it = hermes_approval_inbox_item(pending)
+            if it:
+                items.append(it)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("inbox hermes 失败(忽略): %s", e)
+        _deg("hermes")
     # ⑥ digest
     try:
         dg = st.latest_chief_digest()

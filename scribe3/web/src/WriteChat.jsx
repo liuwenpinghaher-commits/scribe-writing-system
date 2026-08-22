@@ -8,6 +8,7 @@ import { applyUiEvents, uiDirectiveToEvents } from './lib/uiDirective'
 import { WriteProposalCard } from './WriteProposalCard.jsx'
 import { shouldUseHermesRun, hermesRunInstructions } from './lib/hermesRunIntent'
 import { useSelection } from './selectionContext'
+import { useChiefSlot } from './ChiefSlotContext'
 import { useChatPersist } from './useChatPersist'
 import { displayToolName } from './lib/toolName'
 import { scrollBehavior } from './lib/utils'
@@ -204,6 +205,7 @@ function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming,
 // 右轨主编对话:发消息走 POST /chat/write;改写提议 onProposal 提给中区。支持图片/文本附件。
 export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUsed, onProposalStart, onProposalChunk, onProposal, onProposalInterrupted }) {
   const { setFocus } = useSelection()
+  const { jobBusy } = useChiefSlot()
   const orchOnSel = (detail) => {
     try { window.dispatchEvent(new CustomEvent('s3-selection', { detail })) } catch { /* */ }
   }
@@ -326,7 +328,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
 
   const send = (text) => {
     const q = (text ?? input).trim()
-    if ((!q && attachments.length === 0) || busy || contextPreparing) return
+    if ((!q && attachments.length === 0) || busy || contextPreparing || jobBusy) return
     // 主编主动化 T8:「#想法 」前缀 → 想法收件箱(主编路由落位,不走写作流)
     if (q.startsWith('#想法')) {
       const idea = q.replace(/^#想法\s*/, '')
@@ -587,7 +589,8 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
             ) : (
               <Btn variant="primary"
                 onClick={() => send()}
-                disabled={contextPreparing || (!input.trim() && attachments.length === 0)}
+                disabled={contextPreparing || jobBusy || (!input.trim() && attachments.length === 0)}
+                title={jobBusy ? '选择/驾驶作业进行中，暂勿再写同章' : undefined}
                 className="h-8 min-w-[88px] shadow-none"
                 aria-label="发送"
               >

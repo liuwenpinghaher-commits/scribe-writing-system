@@ -59,6 +59,60 @@ def _clip(s: str, n: int) -> str:
     return s[: max(0, n - 1)] + "…"
 
 
+_HOOK_HEADING = re.compile(r"^#{1,3}\s+.*$", re.MULTILINE)
+_HOOK_SENT = re.compile(r"[^。！？]+[。！？]?")
+EMBER_HOOK_CAP = 180
+
+
+def extract_end_hook_from_prose(prose: str, *, cap: int = EMBER_HOOK_CAP) -> str:
+    """从定稿尾巴抽余烬。不编情节；去掉标题/围栏。空正文 → 空串。"""
+    raw = _s(prose)
+    if not raw:
+        return ""
+    try:
+        from scribe3.stage_generate import _strip_fence
+        raw = _strip_fence(raw)
+    except Exception:
+        pass
+    raw = _HOOK_HEADING.sub("", raw)
+    raw = _WS_RE.sub("", raw)
+    if not raw:
+        return ""
+    sents = [m.group(0) for m in _HOOK_SENT.finditer(raw) if _s(m.group(0))]
+    if len(sents) >= 2:
+        hook = "".join(sents[-2:])
+    else:
+        hook = raw
+    n = int(cap or EMBER_HOOK_CAP)
+    return hook[-n:] if len(hook) > n else hook
+
+
+def merge_end_hook(drive: Any, hook: str, *, locked_keep: bool = True) -> dict[str, Any]:
+    """写入 end_hook。locked 且已有钩则保留作者值。"""
+    base = dict(drive) if isinstance(drive, dict) else empty_narrative_drive(reason="ember")
+    hook = _s(hook)
+    if not hook:
+        return base
+    if locked_keep and base.get("locked") and _s(base.get("end_hook")):
+        return base
+    base["end_hook"] = hook
+    return base
+
+
+def resolve_prev_end_hook(prev_ch: Any) -> str:
+    """spine.hook 优先，其次官方 end_hook，再从正文尾巴抽。"""
+    ch = prev_ch if isinstance(prev_ch, dict) else {}
+    spine = ch.get("chapter_spine") if isinstance(ch.get("chapter_spine"), dict) else {}
+    sh = _s(spine.get("hook"))
+    if sh:
+        return sh
+    nd = ch.get("narrative_drive") if isinstance(ch.get("narrative_drive"), dict) else {}
+    hook = _s(nd.get("end_hook"))
+    if hook:
+        return hook
+    return extract_end_hook_from_prose(ch.get("prose") or "")
+
+
 def _has_threat(text: str) -> bool:
     t = _s(text)
     return bool(t) and any(x in t for x in _THREAT_LEX)

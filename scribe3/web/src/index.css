@@ -228,7 +228,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--c
   color: var(--color-ink);
   outline: none;
   caret-color: var(--color-brand);  /* 光标黛绿 */
-  max-width: 42rem;                 /* ~舒适 measure(约 38 个中文字/行)*/
+  max-width: 48rem;                 /* 栏内稿纸：略放宽，少浪费两侧空白 */
   margin: 0 auto;
   width: 100%;
   min-height: 52vh;

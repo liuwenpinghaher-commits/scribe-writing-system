@@ -56,6 +56,16 @@ describe('ObjectFrame 语义对象外框', () => {
     expect(h1.textContent).toBe('第 3 章')   // 面包屑不掺进 h1 可访问名
   })
 
+  it('fill 时子区吃满剩余高度,不在外框自己滚动', () => {
+    const { container } = render(
+      <ObjectFrame fill breadcrumb="手稿" title="第 3 章"><div>稿</div></ObjectFrame>,
+    )
+    const body = container.querySelector('section > div:last-child')
+    expect(body.className).toContain('overflow-hidden')
+    expect(body.className).toContain('flex')
+    expect(body.className).not.toContain('overflow-auto')
+  })
+
   it('默认(非 compact)不渲染紧凑标题行,面包屑仍独立成行', () => {
     render(<ObjectFrame breadcrumb="素材库" title="铃铛资料"><div /></ObjectFrame>)
     expect(screen.queryByTestId('object-frame-titlerow-compact')).toBeNull()

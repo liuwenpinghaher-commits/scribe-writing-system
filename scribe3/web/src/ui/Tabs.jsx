@@ -27,7 +27,8 @@ export function Tabs({ value, onValueChange, items, ariaLabel }) {
             if (event.key === 'ArrowRight') { event.preventDefault(); move(index, 1) }
             if (event.key === 'ArrowLeft') { event.preventDefault(); move(index, -1) }
           }}
-          className="h-8 rounded-lg px-3 text-helper text-faint transition-colors aria-selected:bg-surface aria-selected:text-brand aria-selected:shadow-sm"
+          title={item.title || undefined}
+          className="h-7 rounded-md px-2.5 text-helper text-faint transition-colors aria-selected:bg-surface aria-selected:text-brand aria-selected:shadow-sm"
         >
           {item.label}
         </button>

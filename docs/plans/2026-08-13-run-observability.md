@@ -2,8 +2,8 @@
 
 > **已被取代（2026-08-14）**  
 > 本文不再是观测 SSOT。用户否定「只有运行结果」的 Run 卡主账。  
-> 现行设计：[`docs/plans/2026-08-14-pipeline-analysis-log.md`](2026-08-14-pipeline-analysis-log.md)（逐步 `pipeline_log`）。`2026-08-14-pipeline-trace.md` 亦已降级。
-> 本文保留：期望谓词、红绿对照尺、fail-soft、禁 prompt。卡降为链上 `contrast_summary`。
+> **现行设计**：[2026-08-14-pipeline-runtime-analysis.md](2026-08-14-pipeline-runtime-analysis.md)。中间的 pipeline-trace / analysis-log 亦已降级。  
+> 本文保留：期望谓词、红绿对照尺、fail-soft。卡降为链上 `contrast_summary`。
 
 | 项 | 值 |
 |----|----|

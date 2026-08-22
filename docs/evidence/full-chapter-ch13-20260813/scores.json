@@ -1,0 +1,48 @@
+{
+  "title": "第九章 · 耳目未走",
+  "prose_cn": 1713,
+  "dims": {
+    "D1": 10.0,
+    "D2": 9.2,
+    "D3": 9.5,
+    "D4": 9.4,
+    "D5": 8.9,
+    "D6": 8.6,
+    "D7": 10.0
+  },
+  "composite": 9.4,
+  "quotes": {
+    "D1": "conflict_lex_hits=73, dialogue_marks=72, conf_den=42.62",
+    "D2": "turn_cost_markers=20, contract_ok=True",
+    "D3": "dlg_lines=23/40, body_hits=42, cool_hits=0",
+    "D4": "conflict_beats valid=3/3 prop_like=0",
+    "D5": "prior_keyword_hits=13/13, multi_stakes=5",
+    "D6": "ok_for_claim=True claim_hits=0 soft=0",
+    "D7": "sense_hits=12, cost_linked=True, sense_den=7.01"
+  },
+  "conflict_beats": {
+    "ok": true,
+    "total": 3,
+    "valid": 3,
+    "prop_like": [],
+    "items": [
+      {
+        "text": "耳目逼问门后咳声",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "冷锅婆拦门讨清香债",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "灰七拒开门热灰抵账",
+        "shape_ok": true,
+        "reasons": []
+      }
+    ]
+  },
+  "contract_ok": true,
+  "anti_meta_ok": true
+}

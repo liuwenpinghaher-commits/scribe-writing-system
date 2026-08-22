@@ -47,6 +47,21 @@ def test_format_drama_block_empty_without_gcd():
     assert format_drama_block(None) == ""
 
 
+def test_format_drama_block_iceberg_slots_keep_event_and_turn():
+    beats = [
+        {"text": "**进场：** 日头偏西，炸米糕摊子收了油。\n**事件：** 冷锅婆把空锅灰按进灰七掌心。\n**翻转：** 他用清香债挡话，她不让路。\n**出场：** 角纸还在腰封底下。\n"},
+        {"text": "**进场：** 旧库侧门朝西。\n**事件：** 他蹲下去核半道擦痕。\n**翻转：** 墙根另有一道不是他刮的痕。\n**出场：** 没推门。\n"},
+        {"text": "**进场：** 自家门口灶膛是凉的。\n**事件：** 灰狸在门槛画方框。\n**翻转：** 灰七跨进去没有点火。\n**出场：** 掌心灰泥还在。\n"},
+    ]
+    blk = format_drama_block(beats)
+    assert "必须发生" in blk
+    assert "按进" in blk or "空锅" in blk
+    assert "挡话" in blk or "不让" in blk or "核" in blk
+    assert "**进场：**" not in blk or "按进" in blk
+    assert len(blk.strip()) <= MAX_DRAMA_BLOCK
+    assert "拍1" in blk
+
+
 def test_format_drama_block_keeps_conflict_cost_drops_mru():
     blk = format_drama_block(_gcd_beats(), chapter_hook="井底有声")
     assert blk.startswith("\n\n")

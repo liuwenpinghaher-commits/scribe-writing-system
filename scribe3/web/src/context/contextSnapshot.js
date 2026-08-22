@@ -84,7 +84,7 @@ const FOCUS_ALIAS = {
   entry_capability: 'entry',
 }
 // 后端 PhaseName 枚举:垃圾 phase 不入意图(后端同样会拒)
-const PHASES = new Set(['outline', 'beats', 'deduce', 'draft', 'final'])
+const PHASES = new Set(['outline', 'beats', 'design', 'deduce', 'draft', 'final'])
 
 export function focusForNode(node) {
   if (!node) return { type: 'view', id: 'view:empty', label: '' }

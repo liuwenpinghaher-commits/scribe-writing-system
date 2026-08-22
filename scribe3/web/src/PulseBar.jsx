@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from './api'
 import { liveTouchesChapter } from './lib/liveRefresh.js'
 
@@ -36,7 +37,9 @@ export function PulseBar({ seq, onChat }) {
   const [pulse, setPulse] = useState(null)
   const [open, setOpen] = useState(null)   // 展开的维度名
   const [muteTick, setMuteTick] = useState(0)   // R2-10:静音恢复后强制重渲染
+  const [popPos, setPopPos] = useState(null)
   const wrapRef = useRef(null)
+  const popRef = useRef(null)
 
   useEffect(() => {
     if (seq == null) { setPulse(null); return }
@@ -50,25 +53,58 @@ export function PulseBar({ seq, onChat }) {
     return () => { dead = true; window.removeEventListener('s3-live', onLive) }
   }, [seq])
 
-  // 点外面关弹层
+  // 点外面关弹层（浮层 portal 到 body，不能只查 wrapRef）
   useEffect(() => {
-    const onDoc = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(null) }
+    const onDoc = (e) => {
+      if (wrapRef.current?.contains(e.target)) return
+      if (popRef.current?.contains(e.target)) return
+      setOpen(null)
+    }
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
   }, [])
 
+  useLayoutEffect(() => {
+    if (!open || !wrapRef.current) { setPopPos(null); return undefined }
+    const place = () => {
+      const r = wrapRef.current.getBoundingClientRect()
+      setPopPos({ top: Math.round(r.bottom + 4), right: Math.round(window.innerWidth - r.right) })
+    }
+    place()
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [open])
+
   if (!pulse) return null
   const dims = pulse.dimensions || []
   const cur = dims.find((d) => d.dimension === open)
+  const sevLabel = (s) => (s === 'decision' ? '需决策' : s === 'nudge' ? '有建议' : '安')
   return (
-    <div ref={wrapRef} className="relative flex items-center gap-2.5 px-2 h-7 shrink-0">
+    <div
+      ref={wrapRef}
+      className="relative flex items-center shrink-0"
+      data-testid="pulse-bar"
+      role="group"
+      aria-label="本章脉搏"
+    >
       {dims.map((d) => (
-        <button key={d.dimension} data-testid={`pulse-${d.dimension}`}
+        <button
+          key={d.dimension}
+          type="button"
+          data-testid={`pulse-${d.dimension}`}
           onClick={() => setOpen(open === d.dimension ? null : d.dimension)}
-          title={`${DIM_LABEL[d.dimension]}:${d.severity === 'decision' ? '需决策' : d.severity === 'nudge' ? '有建议' : '安'}`}
-          className="flex items-center gap-1 text-meta text-faint hover:text-ink cursor-pointer">
+          title={`${DIM_LABEL[d.dimension]} · ${sevLabel(d.severity)}`}
+          aria-label={`${DIM_LABEL[d.dimension]}：${sevLabel(d.severity)}`}
+          aria-pressed={open === d.dimension}
+          className={`w-6 h-7 grid place-items-center rounded-md cursor-pointer hover:bg-soft ${
+            open === d.dimension ? 'bg-soft' : ''
+          }`}
+        >
           <span className={`w-2 h-2 rounded-full ${SEV_DOT[d.severity] || 'bg-line'}`} />
-          {DIM_LABEL[d.dimension]}
         </button>
       ))}
       {(() => {
@@ -80,14 +116,19 @@ export function PulseBar({ seq, onChat }) {
           <button key={`m${muteTick}`}
             onClick={() => { muted.forEach((d) => { try { localStorage.removeItem(`s3.pulse.mute.${w}.${d}`) } catch { /* */ } }); setMuteTick((t) => t + 1) }}
             title={`已静音:${muted.join('/')} — 点击全部恢复`}
-            className="text-meta text-faint hover:text-ink cursor-pointer">🔕{muted.length}</button>
+            className="text-meta text-faint hover:text-ink cursor-pointer px-1">已静音{muted.length}</button>
         )
       })()}
-      {cur && (
-        <div className="absolute left-0 top-full mt-1 z-30 w-[340px] max-h-72 overflow-y-auto rounded-md border border-line bg-surface shadow-lg p-2.5 space-y-1.5">
-          <div className="text-f12 font-medium text-ink">{DIM_LABEL[cur.dimension]}{cur.degraded ? '(该维降级:没查≠没病)' : ''}</div>
+      {cur && popPos && createPortal(
+        <div
+          ref={popRef}
+          data-testid="pulse-popover"
+          className="fixed z-[80] w-[340px] max-h-72 overflow-y-auto rounded-md border border-line bg-surface shadow-[var(--shadow-pop)] p-2.5 space-y-1.5"
+          style={{ top: popPos.top, right: popPos.right }}
+        >
+          <div className="text-f13 font-medium text-ink">{DIM_LABEL[cur.dimension]}{cur.degraded ? '(该维降级:没查≠没病)' : ''}</div>
           {cur.items.map((it, i) => (
-            <div key={i} className="text-f12 leading-snug border-b border-line/40 last:border-0 pb-1.5 last:pb-0">
+            <div key={i} className="text-f13 leading-snug border-b border-line/40 last:border-0 pb-1.5 last:pb-0">
               <div className={it.severity === 'decision' ? 'text-danger' : it.severity === 'nudge' ? 'text-warn' : 'text-faint'}>
                 {it.message}
               </div>
@@ -98,7 +139,8 @@ export function PulseBar({ seq, onChat }) {
             </div>
           ))}
           {cur.dimension === 'tension' && <Sparkline curve={cur.curve} />}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )

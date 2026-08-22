@@ -45,11 +45,12 @@ def test_assemble_injection_uses_chapter_time_gate():
 
 
 def test_chat_stream_passes_chapter_to_editor_system():
-    """shipped chat_stream 源码必须把 seq 传给 _editor_system(chapter=…)。"""
+    """生产讨论入口是 assemble_discussion_system，不是 _editor_system。"""
     import scribe3.api.routers.misc_routes as misc
     src = inspect.getsource(misc.chat_stream)
+    assert "assemble_discussion_system" in src
+    assert "user_msg=msg" in src or "user_msg = msg" in src.replace(" ", "")
     assert "chapter=seq" in src or "chapter = seq" in src.replace(" ", "")
-    assert "_editor_system(st, chapter=seq)" in src or "_editor_system(st, chapter = seq)" in src.replace(" ", "")
 
 
 def test_chat_agentic_also_passes_chapter():

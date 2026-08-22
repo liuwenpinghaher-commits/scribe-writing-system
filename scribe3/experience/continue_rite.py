@@ -5,7 +5,31 @@ import hashlib
 from typing import Any
 
 
-def build_continue_snapshot(st, seq: int, *, work: str = "main") -> dict[str, Any]:
+def _focalizer_label(st, focalizer: str) -> str:
+    raw = str(focalizer or "").strip()
+    if not raw:
+        return ""
+    name = raw.split(":", 1)[-1] if raw.startswith("role:") else raw
+    try:
+        getter = getattr(st, "get_character", None) or getattr(st, "get_char", None)
+        if callable(getter):
+            row = getter(raw) or getter(name) or {}
+            if isinstance(row, dict):
+                label = str(row.get("name") or row.get("label") or "").strip()
+                if label:
+                    return label
+    except Exception:
+        pass
+    try:
+        from scribe3.deduce_helpers import _ROLE_ALIAS
+        name = _ROLE_ALIAS.get(name, name)
+    except Exception:
+        pass
+    return name
+
+
+def build_continue_snapshot(st, seq: int, *, work: str = "main",
+                            focalizer: str = "") -> dict[str, Any]:
     """从 store 只读字段构建续写快照(禁止 LLM 编造状态)。"""
     ch: dict = {}
     try:
@@ -14,7 +38,7 @@ def build_continue_snapshot(st, seq: int, *, work: str = "main") -> dict[str, An
         ch = {}
     prose = ch.get("prose") or ""
     prose_hash = hashlib.sha256(prose.encode("utf-8")).hexdigest()[:16] if prose else ""
-    focalizer = ch.get("focalizer") or ""
+    focalizer = str(focalizer or "").strip() or str(ch.get("focalizer") or "")
 
     open_promises: list[dict] = []
     overdue: list[dict] = []
@@ -54,13 +78,21 @@ def build_continue_snapshot(st, seq: int, *, work: str = "main") -> dict[str, An
         char_state = None
 
     tail = prose[-200:] if prose else ""
+    prev_hook = ""
+    if int(seq) > 1:
+        try:
+            from scribe3.narrative_drive import resolve_prev_end_hook
+            prev_hook = resolve_prev_end_hook(st.get_chapter(int(seq) - 1) or {})
+        except Exception:
+            prev_hook = ""
 
     return {
         "work": work,
         "seq": int(seq),
-        "focalizer": focalizer,
+        "focalizer": _focalizer_label(st, focalizer) or focalizer,
         "prose_hash": prose_hash,
         "prose_tail": tail,
+        "prev_end_hook": prev_hook,
         "open_promises": open_promises[:8],
         "overdue_promises": overdue[:5],
         "open_loops": open_loops,
@@ -79,6 +111,9 @@ def continue_block_text(snapshot: dict | None) -> str:
         f"- 章:{snapshot.get('seq')} 焦点:{snapshot.get('focalizer') or '—'}",
         f"- 正文戳:{snapshot.get('prose_hash') or '—'}",
     ]
+    prev_hook = (snapshot.get("prev_end_hook") or "").strip()
+    if prev_hook:
+        lines.append(f"- 上章余烬:{prev_hook[:140].replace(chr(10), ' ')}")
     ops = snapshot.get("open_promises") or []
     if ops:
         bits = "；".join(

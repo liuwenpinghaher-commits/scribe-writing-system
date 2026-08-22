@@ -96,7 +96,7 @@ export function Rail({
     <div data-testid="unified-entry-rail"
       className="w-[56px] h-full min-h-0 shrink-0 bg-surface flex flex-col border-r border-line/60">
       <div data-testid="primary-rail-scroll" className="flex-1 min-h-0 overflow-y-auto px-1 py-2.5 flex flex-col gap-2.5">
-        <GroupedRailSections groups={GROUPS} caps={caps} renderButton={primaryButton} />
+        <GroupedRailSections groups={GROUPS} caps={caps.filter((c) => !c.hidden)} renderButton={primaryButton} />
       </div>
       {secondaryCaps.length > 0 && (
         <div data-testid="collaboration-rail"

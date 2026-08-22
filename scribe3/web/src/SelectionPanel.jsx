@@ -8,6 +8,7 @@ import { AlertTriangle, ChevronDown, Eye, GitCompare, Loader2, Shield, Trophy, Z
 import { api } from './api'
 import { Btn, Empty, Tag, Textarea } from './ui'
 import { useToast } from './ui/Toast.jsx'
+import { useChiefSlot } from './ChiefSlotContext'
 
 const AXES = ['切入点', '节奏', '信息释放', '其他']
 
@@ -98,6 +99,7 @@ function LightVariantCard({ v, chosen, onChoose }) {
 
 export function SelectionPanel({ seq, onFinalized }) {
   const toast = useToast()
+  const { setJobBusy } = useChiefSlot()
   // mode: l1 | l2 — 展示哪一层结果;按钮各自触发
   const [mode, setMode] = useState('l1')
   const [state, setState] = useState('idle')   // idle|running|ready|finalizing|done|picking
@@ -108,6 +110,11 @@ export function SelectionPanel({ seq, onFinalized }) {
   const [l1Pick, setL1Pick] = useState(null)   // L1 version_id or strategy
   const [axis, setAxis] = useState('切入点')
   const [reason, setReason] = useState('')
+
+  useEffect(() => {
+    setJobBusy?.(state === 'running' || state === 'picking' || state === 'finalizing')
+    return () => setJobBusy?.(false)
+  }, [state, setJobBusy])
 
   useEffect(() => {
     if (seq == null) {
@@ -205,6 +212,7 @@ export function SelectionPanel({ seq, onFinalized }) {
       })
       setL1((prev) => prev ? { ...prev, picked: out.picked, verdict: 'picked' } : prev)
       onFinalized?.()  // restoreTick → DraftTab 重拉 /latest-draft
+      try { window.dispatchEvent(new CustomEvent('s3-restore-chapter')) } catch { /* */ }
       // 切到草稿阶段,让作者立刻看到 stage=draft 种子(验收标准 2 端到端)
       try {
         window.dispatchEvent(new CustomEvent('s3-chapter-phase', {
@@ -235,6 +243,7 @@ export function SelectionPanel({ seq, onFinalized }) {
         toast('已定稿并落库,理由已入 lesson 流')
       }
       onFinalized?.()
+      try { window.dispatchEvent(new CustomEvent('s3-restore-chapter')) } catch { /* */ }
       setState('done')
     } catch (e) {
       toast(e?.body?.detail || '终选落库失败', { tone: 'danger' })
@@ -249,7 +258,7 @@ export function SelectionPanel({ seq, onFinalized }) {
   const busy = state === 'running' || state === 'picking' || state === 'finalizing'
 
   return (
-    <div data-testid="selection-panel">
+    <div data-testid="selection-panel" data-chief-select-strip="1">
       <div className="flex items-center gap-2 mb-1.5">
         <GitCompare size={14} className="text-brand shrink-0" />
         <span className="text-f12 text-ink font-medium truncate min-w-0">选择环 · 分层多路径</span>

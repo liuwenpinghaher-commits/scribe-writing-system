@@ -148,6 +148,144 @@ class PipelineTraceOpsMixin:
         ) or []
         return [r for r in rows if isinstance(r, dict)]
 
+    def _insert_recorder_rows(self, table: str, rows: list[dict[str, Any]], id_key: str) -> None:
+        packed = []
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            rid = str(row.get(id_key) or row.get("id") or "")
+            if not rid:
+                continue
+            clean = {k: v for k, v in row.items() if not str(k).startswith("_") and k != "created_at"}
+            clean["id"] = rid
+            ts = clean.get("ts")
+            if isinstance(ts, str) and "T" in ts:
+                try:
+                    from datetime import datetime, timezone
+                    raw = ts.replace("Z", "+00:00")
+                    clean["ts"] = datetime.fromisoformat(raw)
+                    if clean["ts"].tzinfo is None:
+                        clean["ts"] = clean["ts"].replace(tzinfo=timezone.utc)
+                except Exception:
+                    clean.pop("ts", None)
+            packed.append(clean)
+        if not packed:
+            return
+        # 分包：事件 32、工件 8
+        chunk = 8 if table == "pipeline_artifact" else 32
+        for i in range(0, len(packed), chunk):
+            part = packed[i:i + chunk]
+            try:
+                self._execute_write(
+                    f"INSERT IGNORE INTO {table} $rows RETURN NONE",
+                    {"rows": part},
+                )
+                continue
+            except Exception:
+                pass
+            for r in part:
+                try:
+                    self._execute_write(
+                        f"CREATE ONLY type::record('{table}', $id) CONTENT $r",
+                        {"id": r["id"], "r": r},
+                    )
+                except Exception:
+                    continue
+
+    def insert_pipeline_events(self, rows: list[dict[str, Any]]) -> None:
+        self._insert_recorder_rows("pipeline_event", rows, "event_id")
+
+    def insert_pipeline_artifacts(self, rows: list[dict[str, Any]]) -> None:
+        self._insert_recorder_rows("pipeline_artifact", rows, "artifact_id")
+
+    def list_pipeline_events(
+        self,
+        *,
+        work: str | None = None,
+        trace_id: str | None = None,
+        step_key: str | None = None,
+        kind: str | None = None,
+        empty: bool | None = None,
+        since=None,
+        after_seq: int | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        cap = 2048 if trace_id else 500
+        lim = max(1, min(int(limit or 200), cap))
+        wh: list[str] = []
+        params: dict[str, Any] = {"lim": lim}
+        if work:
+            wh.append("work=$w")
+            params["w"] = work
+        if trace_id:
+            wh.append("trace_id=$tid")
+            params["tid"] = trace_id
+        if step_key:
+            wh.append("step_key=$sk")
+            params["sk"] = step_key
+        if kind:
+            wh.append("kind=$kd")
+            params["kd"] = kind
+        if empty is True:
+            wh.append("empty = true")
+        elif empty is False:
+            wh.append("empty = false")
+        if since is not None:
+            wh.append("created_at >= $since")
+            params["since"] = since
+        if after_seq is not None:
+            wh.append("seq > $aseq")
+            params["aseq"] = int(after_seq)
+        where = (" WHERE " + " AND ".join(wh)) if wh else ""
+        rows = self._query(
+            "SELECT * FROM pipeline_event" + where + " ORDER BY seq ASC LIMIT $lim",
+            params,
+        ) or []
+        return [r for r in rows if isinstance(r, dict)]
+
+    def count_pipeline_events(self, **kw) -> int:
+        rows = self.list_pipeline_events(**{**kw, "limit": 2048})
+        return len(rows)
+
+    def list_pipeline_artifacts(
+        self,
+        *,
+        work: str | None = None,
+        trace_id: str | None = None,
+        kind: str | None = None,
+        name: str | None = None,
+        after_id: str | None = None,
+        limit: int = 256,
+    ) -> list[dict[str, Any]]:
+        lim = max(1, min(int(limit or 256), 256))
+        wh: list[str] = []
+        params: dict[str, Any] = {"lim": lim}
+        if work:
+            wh.append("work=$w")
+            params["w"] = work
+        if trace_id:
+            wh.append("trace_id=$tid")
+            params["tid"] = trace_id
+        if kind:
+            wh.append("kind=$kd")
+            params["kd"] = kind
+        if name:
+            wh.append("name=$nm")
+            params["nm"] = name
+        where = (" WHERE " + " AND ".join(wh)) if wh else ""
+        rows = self._query(
+            "SELECT * FROM pipeline_artifact" + where + " ORDER BY created_at ASC LIMIT $lim",
+            params,
+        ) or []
+        return [r for r in rows if isinstance(r, dict)]
+
+    def get_pipeline_artifact(self, artifact_id: str) -> dict[str, Any] | None:
+        rows = self._query(
+            "SELECT * FROM pipeline_artifact WHERE artifact_id=$id LIMIT 1",
+            {"id": artifact_id},
+        ) or []
+        return rows[0] if rows else None
+
     def insert_pipeline_spans(self, rows: list[dict[str, Any]]) -> None:
         for row in rows or []:
             if not isinstance(row, dict):

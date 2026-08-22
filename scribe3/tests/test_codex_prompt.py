@@ -70,7 +70,7 @@ def test_codex_block_injects_registry_fields_not_just_name_ideology(store):
         key_figures=[{"name": "老祖", "generation": 1, "status": "active",
                      "known_abilities": "摄魂"}],
     )
-    block = _codex_block(store, reveal=True)
+    block = _codex_block(store, reveal=True, request_text="衔尾蛇秘会")
     assert "衔尾蛇秘会" in block
     assert "长老议事" in block, "旧实现只有 name+ideology[:18],新实现须结构化注入 structure 字段"
     assert "金字塔" in block, "structure.type 应被结构化注入"
@@ -80,7 +80,7 @@ def test_codex_block_injects_registry_fields_not_just_name_ideology(store):
 def test_codex_block_faction_backward_compatible_for_legacy_minimal_row(store):
     """向后兼容:只有 name+ideology 的老势力,注入效果不应退化(至少不比旧实现差)。"""
     store.add_faction("光明会", ideology="启蒙众生")
-    block = _codex_block(store, reveal=True)
+    block = _codex_block(store, reveal=True, request_text="光明会")
     assert "光明会" in block
     assert "启蒙众生" in block
 
@@ -104,7 +104,7 @@ def test_codex_block_hides_secret_field_from_focalizer_who_does_not_know(store):
     _sync(store, FACTION)
 
     block = _codex_block(store, reveal=False, focalizer="role:不知情的旁观者", chapter=5,
-                         for_generation=True)
+                         for_generation=True, request_text=FACTION)
     assert "源自前朝遗族的复国密谋" not in block, "焦点者无 KnowledgeEdge,秘密不应注入"
 
 
@@ -118,7 +118,7 @@ def test_codex_block_shows_secret_field_when_focalizer_knows(store):
     store.add_knowledge(KnowledgeEdge("role:知情人", fact_id, since_chapter=1))
 
     block = _codex_block(store, reveal=False, focalizer="role:知情人", chapter=5,
-                         for_generation=True)
+                         for_generation=True, request_text=FACTION)
     assert "源自前朝遗族的复国密谋" in block, "焦点者知情(project_frame 帧内)应注入该字段"
 
 
@@ -142,13 +142,13 @@ def test_codex_block_fail_closed_when_focalizer_missing_even_if_reveal_true(stor
     _sync(store, FACTION)
 
     block_reveal_true = _codex_block(store, reveal=True, focalizer="", chapter=5,
-                                     for_generation=True)
+                                     for_generation=True, request_text=FACTION)
     assert "连核心层都不知道的真相" not in block_reveal_true, (
         "生成路径:没有可验证身份的 focalizer 时,即便 reveal=True 也不得注入 secret 字段"
         "(fail-closed)")
 
     block_reveal_false = _codex_block(store, reveal=False, focalizer="", chapter=5,
-                                      for_generation=True)
+                                      for_generation=True, request_text=FACTION)
     assert "连核心层都不知道的真相" not in block_reveal_false
 
     # 老调用方式(不传 focalizer/chapter),但仍显式钉住生成路径:
@@ -164,7 +164,7 @@ def test_codex_block_secret_capable_visible_in_author_dialogue_without_focalizer
     store.add_faction(FACTION, origin="连核心层都不知道的真相", origin_secret=True)
     _sync(store, FACTION)
 
-    block = _codex_block(store, reveal=True, focalizer="", chapter=5)   # for_generation 默认 False
+    block = _codex_block(store, reveal=True, focalizer="", chapter=5, request_text=FACTION)
     assert "连核心层都不知道的真相" in block, (
         "作者/主编对话(for_generation=False)应直接看到作者自己标记的势力秘密")
 
@@ -173,7 +173,8 @@ def test_codex_block_non_secret_fields_unaffected_by_gating(store):
     """门控只应约束 secret_capable 且标记为真的字段;普通字段不受 focalizer 影响
     (作者/主编对话路径,for_generation 默认 False)。"""
     store.add_faction(FACTION, motto="尾衔其首,生生不息")
-    block = _codex_block(store, reveal=False, focalizer="role:任何人", chapter=1)
+    block = _codex_block(store, reveal=False, focalizer="role:任何人", chapter=1,
+                         request_text=FACTION)
     assert "尾衔其首,生生不息" in block, "非 secret 字段不应被限知门控误伤"
 
 
@@ -184,7 +185,7 @@ def test_codex_block_public_fields_still_injected_in_generation_path(store):
     等 focalizer 知情证据"。"""
     store.add_faction(FACTION, motto="尾衔其首,生生不息", leader="老祖")
     block = _codex_block(store, reveal=False, focalizer="role:任何人", chapter=1,
-                         for_generation=True)
+                         for_generation=True, request_text=FACTION)
     assert "尾衔其首,生生不息" in block, "公开字段在生成路径也应正常注入"
     assert "老祖" in block, "公开字段(领袖)在生成路径也应正常注入"
 
@@ -197,11 +198,16 @@ def test_codex_block_truncates_faction_over_length_budget(store):
     long_text = "极" * 600
     store.add_faction("长舌势力", ideology=long_text, public_face=long_text)
 
-    block = _codex_block(store, reveal=True)
+    unnamed = _codex_block(store, reveal=True)
+    assert "长舌势力" in unnamed
+    assert long_text not in unnamed, "未点名势力只留名片，禁止再走 400+长档"
+
+    block = _codex_block(store, reveal=True, request_text="长舌势力")
     section = _faction_section(block)
     assert "长舌势力" in section
-    assert "…(略)" in section, "超预算应截断并标注省略,不炸 prompt"
-    assert len(section) < len(long_text), "截断后长度应远小于原始超长字段"
+    assert long_text in section or section.count("极") >= 500
+    assert len(section) <= 2600, "点名势力走 clip_for(faction_public)=2500，不再 400+…(略)"
+    assert "…(略)" not in section
 
 
 # ============================================================
@@ -221,7 +227,8 @@ def test_codex_block_injects_relation_perception_but_never_truth_in_generation_p
         perception_b="视其为地球代理人",
         truth="秘会实为寄生外星文明的傀儡", since_chapter=1)
 
-    block = _codex_block(store, reveal=True, chapter=5, for_generation=True)
+    block = _codex_block(store, reveal=True, chapter=5, for_generation=True,
+                         request_text="秘会 天龙座")
     assert "虚与委蛇" in block, "perception_a 应注入"
     assert "地球代理人" in block, "perception_b 应注入"
     assert "寄生外星文明的傀儡" not in block, "truth 是主编独知的真相,生成路径永不注入 prompt"
@@ -237,7 +244,7 @@ def test_codex_block_injects_relation_truth_in_author_dialogue_path(store):
         a="faction:秘会乙", b="faction:天龙座乙", relation_type="臣服",
         truth="秘会乙实为寄生外星文明的傀儡", since_chapter=1)
 
-    block = _codex_block(store, reveal=True, chapter=5)   # for_generation 默认 False
+    block = _codex_block(store, reveal=True, chapter=5, request_text="秘会乙 天龙座乙")
     assert "寄生外星文明的傀儡" in block, "作者/主编对话应能看到主编独知的关系真相"
 
 
@@ -379,9 +386,9 @@ def test_editor_system_default_includes_chief_only_field_for_author_dialogue(sto
                       secret_agenda_secret=True)
     _sync(store, FACTION)
 
-    sysmsg = _editor_system(store)   # 与 chat_stream/chat_agentic_stream 的调用方式一致
+    sysmsg = _editor_system(store, request_text=FACTION)
     assert "连核心层都不知道的真相" in sysmsg, (
-        "作者/主编对话入口应看到 secret_agenda(仅主编可见 = 主编看得见)")
+        "作者/主编对话入口点名后应看到 secret_agenda(仅主编可见 = 主编看得见)")
 
 
 def test_editor_write_system_excludes_bridge_mirror_in_gated_injection_branch(store):

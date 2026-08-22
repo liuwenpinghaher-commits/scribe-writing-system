@@ -1,0 +1,63 @@
+{
+  "title": "第八章 · 侧门一寸",
+  "prose_cn": 1238,
+  "dims": {
+    "D1": 10.0,
+    "D2": 10.0,
+    "D3": 10.0,
+    "D4": 10.0,
+    "D5": 9.5,
+    "D6": 8.8,
+    "D7": 9.8
+  },
+  "composite": 9.73,
+  "quotes": {
+    "D1": "distinct_conf=12, unique_dialogue=41",
+    "D2": "distinct_turn_cost=11, contract_ok=True, field_bonus=1.50",
+    "D3": "unique_dlg_lines=27, distinct_body=11, cool=0, dlg_share=0.77",
+    "D4": "conflict_beats valid=5/5 prop_like=0",
+    "D5": "prior_present=13/13, core_present=6",
+    "D6": "ok_for_claim=True claim_hits=0 soft=0 cn=1238",
+    "D7": "distinct_sense=12, cost_linked=True"
+  },
+  "conflict_beats": {
+    "ok": true,
+    "total": 5,
+    "valid": 5,
+    "prop_like": [],
+    "items": [
+      {
+        "text": "冷锅婆逼以侧门换减账",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "灰狸偷跟要当众揭发",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "灰七拒探深门只开一寸抵账",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "点名人耳目逼问咳声来处",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "灰七拒交匙守住门后秘密",
+        "shape_ok": true,
+        "reasons": []
+      }
+    ]
+  },
+  "contract_ok": true,
+  "anti_meta_ok": true,
+  "rubric": "anti_stuffing_v2",
+  "delta": 0.04,
+  "accepted": true,
+  "honest": true,
+  "seq": 22
+}

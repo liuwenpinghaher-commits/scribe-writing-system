@@ -66,11 +66,12 @@ def _patch_embed(monkeypatch):
     monkeypatch.setattr("scribe3.embed.embed", fake)
 
 
-def _v1(store, *, chapter=1, focalizer="", phase="draft", seed_words=None):
+def _v1(store, *, chapter=1, focalizer="", phase="draft", seed_words=None, request_text=FACTION):
     """便捷包装:调用 chat_write 唯一完整组装链，不直接碰 _v1 私有函数。"""
     return _assemble_write_instructions(
         store, chapter=chapter, focalizer=focalizer, phase=phase,
-        seed_words=seed_words or [], short_mode=False, with_tools=False, work="main")
+        seed_words=seed_words or [], short_mode=False, with_tools=False, work="main",
+        request_text=request_text or "")
 
 
 # ============================================================
@@ -84,7 +85,11 @@ def test_v1_instructions_include_codex_bible_block(store, monkeypatch):
                    "decision_mechanism": "长老议事", "succession": "血脉相承"},
         goals=[{"phase": "潜伏期", "target": "夺回信物", "status": "ongoing"}],
     )
-    out = _v1(store, chapter=1)
+    out = _assemble_write_instructions(
+        store, chapter=1, focalizer="", phase="draft", seed_words=[],
+        short_mode=False, with_tools=False, work="main",
+        request_text=FACTION,
+    )
     assert "设定圣经" in out, "v1 instructions 必须含设定圣经块标签(缺口A)"
     assert "组织结构" in out and "长老议事" in out, "faction.structure 应结构化注入(CX-6 字段,不是旧的 name+ideology[:18])"
     assert "金字塔" in out, "faction.structure.type 应结构化注入"

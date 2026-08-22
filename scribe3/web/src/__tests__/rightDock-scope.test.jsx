@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { Rail } from '../shell'
 import { RightDock, useRightDockController } from '../studioDocks'
+import { ChiefSlotProvider } from '../ChiefSlotContext'
 
 // Task 8:右栏作用域分组(当前对象/章节/全局)+ 收件箱 badge 不谎报 + 面板异步态统一 AsyncState。
 // mock api.inbox(RightDock 挂载时唯一的常驻拉取)与 chapterVersions(存档 tab 懒加载)。
@@ -17,13 +18,13 @@ vi.mock('../ChiefDock', () => ({ ChiefDock: () => <div data-testid="chief-stub" 
 function Harness(props) {
   const controller = useRightDockController(props)
   return (
-    <>
+    <ChiefSlotProvider>
       <Rail side="left" caps={[]} active="" onActive={() => {}}
         secondaryCaps={controller.caps}
         secondaryActive={controller.activeKey}
         onSecondaryClick={controller.activate} />
       <RightDock active={controller.active} seq={props.seq} />
-    </>
+    </ChiefSlotProvider>
   )
 }
 
@@ -36,15 +37,17 @@ describe('RightDock 作用域与真实 badge(Task 8)', () => {
 
   it('separates object tools from global inbox', async () => {
     render(<Harness sel={{ mode: 'node', node: { type: 'chapter', ref: 1 } }} seq={1} />)
-    // 对象组:主编/选择环(随选中对象变)
+    // 对象组:主编（选择环已收进主编模式条）
     expect(screen.getByRole('group', { name: '当前对象' })).toBeTruthy()
     // 全局组内含收件箱按钮(不随章/选中变)
     const globalGroup = screen.getByRole('group', { name: '全局' })
     expect(within(globalGroup).getByRole('button', { name: /收件箱/ })).toBeTruthy()
-    // 章节组:存档/Pilot(选中章才有意义;章节辅助已迁往章工作台全宽层,不在右栏)
+    // 章节组:存档(选中章才有意义;驾驶已收进主编模式条)
     const chapterGroup = screen.getByRole('group', { name: '章节' })
     expect(within(chapterGroup).getByRole('button', { name: '存档' })).toBeTruthy()
-    expect(within(chapterGroup).getByRole('button', { name: /Pilot/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Pilot/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /选择环/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /主编驾驶/ })).toBeNull()
   })
 
   it('does not turn inbox request failure into zero pending items', async () => {
@@ -95,7 +98,7 @@ describe('RightDock 作用域与真实 badge(Task 8)', () => {
     // 裁决:chief/selection='object'(随选中对象变)
     const objectGroup = screen.getByRole('group', { name: '当前对象' })
     expect(within(objectGroup).getByRole('button', { name: '主编' })).toBeTruthy()
-    expect(within(objectGroup).getByRole('button', { name: /选择环/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /选择环/ })).toBeNull()
     // 2026-07-12 裁决:「章节辅助」capability 移出栏4(入口在章工作台头部,点击全宽层)——
     // 右栏任何分组都不得再出现此入口,栏4 专属主编对话等章节工具。
     expect(screen.queryByRole('button', { name: '章节辅助' })).toBeNull()

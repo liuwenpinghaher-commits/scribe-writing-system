@@ -39,9 +39,12 @@ describe('DeduceStage 布局', () => {
 
     const stage = screen.getByTestId('deduce-stage')
     expect(stage.className).toContain('w-full')
-    expect(stage.className).toContain('max-w-[min(1120px,calc(100%-48px))]')
+    expect(stage.className).toContain('max-w-[min(1120px,calc(100%-24px))]')
     expect(stage.className).not.toContain('max-w-[48rem]')
     expect(screen.getByTestId('deduce-readonly').className).toContain('flex-1')
+    const panel = screen.getByTestId('parallel-deduce-panel')
+    expect(panel.tagName).toBe('DETAILS')
+    expect(panel.open).toBe(false)
   })
 
   it('未绑定章节时不渲染可写编辑器，避免把内容保存到 /chapters/undefined', () => {

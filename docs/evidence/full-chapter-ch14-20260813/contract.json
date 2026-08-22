@@ -1,0 +1,20 @@
+{
+  "schema": "narrative_contract.v1",
+  "version": 1,
+  "desire": "灰七要压住假片风波保住真匙",
+  "obstacle": "灰狸揭发、婆子讨债",
+  "turn": "他夺回假片拒交匙以守炉换半笔",
+  "cost": "面子撕破，账仍在，匙更险",
+  "conflict_beats": [
+    {
+      "text": "灰狸假片当众揭发逼人"
+    },
+    {
+      "text": "冷锅婆讨债压场拦路"
+    },
+    {
+      "text": "灰七夺假片拒交匙换账"
+    }
+  ],
+  "source": "author"
+}

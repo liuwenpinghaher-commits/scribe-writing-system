@@ -67,7 +67,7 @@ def test_soft_activation_drops_soft_keeps_redline():
         {"name": "brief_must", "text": "压力必须"},
         {"name": "final_reminder", "text": "【最终提醒】限知"},
         {"name": "material_recall", "text": "无关素材拉拉杂杂"},
-        {"name": "codex", "text": "设定百科全书很长"},
+        {"name": "codex_cards", "text": "设定百科全书很长"},
         {"name": "reference_craft", "text": "参考写法无关主题"},
         {"name": "material_recall", "text": "命中关键词龙渊的素材"},
     ]
@@ -88,7 +88,7 @@ def test_soft_activation_drops_soft_keeps_redline():
         # 未命中 soft 丢弃；命中保留
         assert names.count("material_recall") == 1
         assert any("龙渊" in (p.get("text") or "") for p in kept if p["name"] == "material_recall")
-        assert "codex" not in names or "codex" in rep["dropped"]
+        assert "codex_cards" not in names or "codex_cards" in rep["dropped"]
         assert "reference_craft" in rep["dropped"]
         assert "drama_contract" in rep["kept_redline"]
         # 红线不得因激活键缺失被丢

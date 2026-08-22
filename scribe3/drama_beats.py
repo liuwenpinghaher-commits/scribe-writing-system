@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any
 
 # ── 角色 / 词表（设计 § 初版；单测锁定）──────────────────────────────────
@@ -40,6 +41,7 @@ _COST_PLACEHOLDERS = frozenset({
 # 阈值
 OVERLAP_FAKE_THRESHOLD = 0.72  # ≥ 且 全部缺 goal → drama_weak / 高压 ok=False
 MIN_FIELD = 4  # goal/conflict/turn 最短字；meaningful cost 亦用
+BEAT_TEXT_DRAMA_FLOOR = 80  # 场面纸够长即视为有戏，空 GCD 短字段不得再灌真空
 MIN_HOOK = 2  # 章末钩子最短字（检测；severity 始终 advisory · KD-NQ-16）
 DEFAULT_HARD_PRESSURE = 4  # 用户裁决 Open Q1；env SCRIBE3_DRAMA_HARD_PRESSURE 可覆盖
 
@@ -662,20 +664,30 @@ def drama_vacuum_warn_enabled() -> bool:
 def should_inject_drama_vacuum(
     beats: list | None, *, chapter_hook: str = "",
 ) -> bool:
-    """写路径真空：仅当无实质 goal 且无实质 conflict。单钩/单字代价不得熄火。"""
+    """写路径真空：无实质 goal、无实质 conflict、且场面纸也不够长。
+
+    冰山节拍常把戏写在 text（进场/事件/翻转），GCD 短字段空。
+    只看 goal/conflict 会在已有场面时仍灌「缺目标」，和 drama_contract 对打。
+    单钩/单字代价不得熄火。空列表仍算真空（给 draft/final 当「别逛」）。
+    """
     has_goal = False
     has_conflict = False
+    has_scene = False
     for b in beats or []:
-        if not isinstance(b, dict):
-            continue
-        if len(_field(b.get("goal"))) >= MIN_FIELD:
-            has_goal = True
-        if len(_field(b.get("conflict"))) >= MIN_FIELD:
-            has_conflict = True
-        if has_goal or has_conflict:
+        if isinstance(b, dict):
+            if len(_field(b.get("goal"))) >= MIN_FIELD:
+                has_goal = True
+            if len(_field(b.get("conflict"))) >= MIN_FIELD:
+                has_conflict = True
+            text = _field(b.get("text") or b.get("prose"))
+        else:
+            text = _field(b)
+        if len(text) >= BEAT_TEXT_DRAMA_FLOOR:
+            has_scene = True
+        if has_goal or has_conflict or has_scene:
             break
     _ = chapter_hook  # 钩子不算戏核
-    return not has_goal and not has_conflict
+    return not has_goal and not has_conflict and not has_scene
 
 
 def format_drama_vacuum_warn(
@@ -724,6 +736,69 @@ def _clip_field(s: Any, n: int) -> str:
     return t if len(t) <= n else t[:n]
 
 
+def _sanitize_drama_text(text: str) -> str:
+    """压缩槽提取留下的双冒号残片。"""
+    return (text or "").replace("：：", "：").replace("::", "：")
+
+
+_TEXT_SLOT_RE = re.compile(
+    r"\*\*(?P<h>进场|事件|翻转|出场|水下)\s*[：:]?\*\*\s*(?P<body>.+?)(?=\n\s*\*\*(?:进场|事件|翻转|出场|水下)|$)",
+    re.DOTALL,
+)
+
+
+def _format_text_slots(
+    beats: list | None, *, max_chars: int, focalizer: str = "",
+) -> str:
+    """冰山拍只有 text 槽时：事件/翻转优先，禁止只剩「进场：」半句。"""
+    parsed: list[dict[str, str]] = []
+    for b in beats or []:
+        raw = _field(b.get("text") if isinstance(b, dict) else b)
+        slots = {}
+        for m in _TEXT_SLOT_RE.finditer(raw):
+            body = _field(m.group("body")).split("\n", 1)[0]
+            body = body.lstrip("：:").strip()
+            if body:
+                slots[m.group("h")] = body
+        if slots:
+            parsed.append(slots)
+    if not parsed:
+        return ""
+
+    def _lines(field_cap: int, *, drop_enter: bool) -> list[str]:
+        out: list[str] = []
+        order = ("事件", "翻转", "水下", "出场") if drop_enter else ("事件", "翻转", "水下", "出场", "进场")
+        for i, slots in enumerate(parsed, 1):
+            chunks = [_clip_field(slots[k], field_cap) for k in order if slots.get(k)]
+            if chunks:
+                out.append(f"拍{i}：" + "；".join(chunks))
+        return out
+
+    def _assemble(lines: list[str], *, with_limited: bool) -> str:
+        parts = ["## 本章必须发生"]
+        parts.extend(f"- {ln}" for ln in lines)
+        if with_limited and _field(focalizer):
+            parts.append(_LIMITED_KNOWLEDGE)
+        return "\n".join(parts)
+
+    for cap, drop_enter, keep_n, limited in (
+        (36, False, 99, True),
+        (28, True, 99, True),
+        (22, True, 3, True),
+        (16, True, 2, False),
+        (16, True, 1, False),
+    ):
+        lines = _lines(cap, drop_enter=drop_enter)[:keep_n]
+        if not lines:
+            continue
+        text = _assemble(lines, with_limited=limited)
+        if len(text) <= max_chars:
+            return _sanitize_drama_text(text)
+    text = _assemble(_lines(14, drop_enter=True)[:1], with_limited=False)
+    out = text[:max_chars] if len(text) > max_chars else text
+    return _sanitize_drama_text(out)
+
+
 def _beat_walk_line(i: int, b: dict, field_cap: int) -> str:
     """一句无标签走法：谁拦/当场变了什么/留下什么痕。"""
     g = _clip_field(b.get("goal"), field_cap)
@@ -757,28 +832,9 @@ def format_drama_block(
     - 超预算先不注入 MRU/禁令套话，再缩字段、再减拍；限知免责尽量留。
     - 自带前导 ``\\n\\n``。
     """
-    slogans: list[str] = []
-    for b in beats or []:
-        if isinstance(b, dict):
-            t = _field(b.get("text"))
-        else:
-            t = _field(b)
-        if t:
-            slogans.append(t)
-
     if not beats_have_drama_gcd(beats, chapter_hook=chapter_hook):
-        # R5：仅有 slogan text 也必须注入「必须发生」，禁止空串
-        if not slogans:
-            return ""
-        parts = ["## 本章必须发生"]
-        for i, t in enumerate(slogans, 1):
-            parts.append(f"- {i}. {_clip_field(t, 48)}")
-        if _field(focalizer):
-            parts.append(_LIMITED_KNOWLEDGE)
-        body = "\n".join(parts)
-        if len(body) > max_chars:
-            body = body[: max_chars]
-        return "\n\n" + body
+        # 无 GCD 不回退千字拍文 / 进场
+        return ""
 
     norm = _normalize_beats(beats) if beats else []
     hook = _field(chapter_hook)

@@ -5,7 +5,41 @@ import re
 from typing import Any
 
 
+def _truthy_flag(val: Any) -> bool:
+    if val is True:
+        return True
+    if isinstance(val, (int, float)) and val:
+        return True
+    if isinstance(val, str) and val.strip().lower() in ("1", "true", "yes"):
+        return True
+    return False
+
+
+def _nonempty_list_or_text(val: Any) -> bool:
+    if isinstance(val, list):
+        return len(val) > 0
+    if isinstance(val, str):
+        s = val.strip()
+        return bool(s) and s not in ("[]", "null", "None")
+    return False
+
+
 def _phase_of(ch: dict[str, Any]) -> str:
+    """近程阶段：按已有层推断，禁止「有大纲就一律 outline」。"""
+    if (ch.get("prose") or "").strip() or _truthy_flag(ch.get("has_prose")):
+        return "final"
+    if (ch.get("draft") or "").strip() or _truthy_flag(ch.get("has_draft")):
+        return "draft"
+    if (
+        (isinstance(ch.get("scene_truth"), str) and ch.get("scene_truth").strip())
+        or _nonempty_list_or_text(ch.get("deductions"))
+        or _truthy_flag(ch.get("has_truth"))
+    ):
+        return "deduce"
+    if _nonempty_list_or_text(ch.get("beats")) or _truthy_flag(ch.get("has_beats")):
+        return "beats"
+    if (ch.get("synopsis") or ch.get("outline") or "").strip():
+        return "outline"
     try:
         from scribe3.chapter_stage import stage_from_chapter_dict
         p = stage_from_chapter_dict(ch)
@@ -13,13 +47,6 @@ def _phase_of(ch: dict[str, Any]) -> str:
             return p
     except Exception:
         pass
-    if (ch.get("prose") or "").strip():
-        return "draft"
-    # chapters_lite 无 prose：用 beats / scene_truth 推断
-    if ch.get("beats") or ch.get("scene_truth"):
-        return "beats"
-    if (ch.get("synopsis") or ch.get("outline") or "").strip():
-        return "outline"
     return "outline"
 
 

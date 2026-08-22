@@ -76,6 +76,12 @@ describe('WriteLayout final phase', () => {
     const captured = await screen.findByTestId('captured-write-chat')
     await waitFor(() => expect(captured.textContent).toContain('phase=final'))
     expect(captured.textContent).toContain('chapter=4')
+    const island = screen.getByTestId('prose-island')
+    expect(island.className).toContain('max-w-[56rem]')
+    expect(island.className).toContain('py-4')
+    expect(screen.getByTestId('write-meta-row')).toBeTruthy()
+    expect(screen.getByTestId('pulse-bar')).toBeTruthy()
+    expect(screen.getByTestId('write-meta-row').querySelector('[data-testid="pulse-bar"]')).toBeNull()
   })
 
   // Task 7:全 DOM 单套章导航归 ChapterStudio(ObjectFrame actions),

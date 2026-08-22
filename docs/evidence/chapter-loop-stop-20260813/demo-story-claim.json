@@ -1,0 +1,21 @@
+{
+  "ts": "2026-08-12T19:04:06.075908+00:00",
+  "reject_http": "409",
+  "reject_code": "narrative_contract_required",
+  "reject_body_head": "{'detail': {'code': 'narrative_contract_required', 'message': '叙事合同未过最小门槛（欲望/阻力/回合/代价）', 'blocking': ['narrative_contract', 'conflict_beats'], 'reader_ready': {'machine_reader_ok': False, 'human_acked': False, 'lamps': {'scaffold': {'ok': True, 'label': '可开写', 'source': 'caller_or_gate', 'blocking': []}, 'reader': {'ok': False, 'phase': 'red', 'label': '故事', 'blocking': ['narrative_contract', 'conflict_beats'], 'soft': [], 'human_ack_required': True, 'human_acked': False, 'degraded': [], 'prose_fp': 'e3b0c44298fc1c14'}}, 'claims': {'may_claim_scaffold': True, 'may_claim_readable': False, 'may_",
+  "accept_http": "200",
+  "accept_allowed": true,
+  "accept_may_claim_story": true,
+  "accept_body_head": "{'allowed': True, 'code': 'ok', 'story_ready': {'schema': 'story_ready.v1', 'flags': {'STORY_COMPLETE': True, 'SCENE_COVER_IN_CLAIM': False, 'notes': []}, 'contract': {'ok': True, 'errors': [], 'fields': {'desire': '灰七想减掉压垮的一炉半账并确认门后有没有人', 'obstacle': '婆子逼侧门换账，灰狸偷跟，耳目逼问', 'turn': '他拒探深门只开一寸换减账并拒交匙', 'cost': '匙齿更深，门后有人已暴露半寸，耳目记下'}}, 'conflict_beats': {'ok': True, 'total': 5, 'valid': 5, 'prop_like': [], 'items': [{'text': '冷锅婆逼以侧门换减账', 'shape_ok': True, 'reasons': []}, {'text': '灰狸偷跟要当众揭发', 'shape_ok': True, 'reasons': []}, {'text': '灰七拒探深门只开一寸抵账', 'shape_ok': True, 'reasons': []}, {'text': '点名人耳目逼问咳声来处', 'shape_ok': True, 'reasons': []}, {'text': '灰七拒交匙守住门后秘密', 'shape_ok': True, 'reasons': []}]}, 'guards_ok': True, 'anti_meta': {'hits': [], 'ok_for_claim': True, 'claim_blocking_ids': []}, ",
+  "ch22_prose_cn": 1238,
+  "flags": {
+    "STORY_COMPLETE": 1,
+    "SCENE_COVER_IN_CLAIM": 0
+  },
+  "deltas": [
+    0.15,
+    0.08,
+    0.04
+  ],
+  "stop": "three_consecutive_delta_lt_0.2"
+}

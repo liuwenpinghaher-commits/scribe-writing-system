@@ -1,0 +1,48 @@
+{
+  "title": "第十章 · 假片反咬",
+  "prose_cn": 1796,
+  "dims": {
+    "D1": 10.0,
+    "D2": 9.2,
+    "D3": 9.5,
+    "D4": 9.4,
+    "D5": 8.9,
+    "D6": 8.7,
+    "D7": 10.0
+  },
+  "composite": 9.4,
+  "quotes": {
+    "D1": "conflict_lex_hits=79, dialogue_marks=78, conf_den=43.99",
+    "D2": "turn_cost_markers=20, contract_ok=True",
+    "D3": "dlg_lines=25/44, body_hits=44, cool_hits=0",
+    "D4": "conflict_beats valid=3/3 prop_like=0",
+    "D5": "prior_keyword_hits=13/13, multi_stakes=5",
+    "D6": "ok_for_claim=True claim_hits=0 soft=0",
+    "D7": "sense_hits=12, cost_linked=True, sense_den=6.68"
+  },
+  "conflict_beats": {
+    "ok": true,
+    "total": 3,
+    "valid": 3,
+    "prop_like": [],
+    "items": [
+      {
+        "text": "灰狸假片当众揭发逼人",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "冷锅婆讨债压场拦路",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "灰七夺假片拒交匙换账",
+        "shape_ok": true,
+        "reasons": []
+      }
+    ]
+  },
+  "contract_ok": true,
+  "anti_meta_ok": true
+}

@@ -1,0 +1,36 @@
+[
+  {
+    "title": "ch7",
+    "composite": 9.39,
+    "dims": {
+      "D1": 9.5,
+      "D2": 9.5,
+      "D3": 9.5,
+      "D4": 9.5,
+      "D5": 9.5,
+      "D6": 8.4,
+      "D7": 9.8
+    },
+    "dominate": false,
+    "why": "comp",
+    "stuffing": [],
+    "delta": 0.0
+  },
+  {
+    "title": "ch8",
+    "composite": 9.39,
+    "dims": {
+      "D1": 9.5,
+      "D2": 9.5,
+      "D3": 9.5,
+      "D4": 9.5,
+      "D5": 9.5,
+      "D6": 8.4,
+      "D7": 9.8
+    },
+    "dominate": false,
+    "why": "comp",
+    "stuffing": [],
+    "delta": 0.0
+  }
+]

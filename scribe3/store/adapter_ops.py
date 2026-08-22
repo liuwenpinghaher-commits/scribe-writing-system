@@ -247,12 +247,17 @@ class AdapterOpsMixin:
         prose_fp: str,
         note: str = "",
         user_id: str | None = None,
+        kind: str = "reader",
+        contract_fp: str | None = None,
     ) -> dict[str, Any]:
-        local = f"{work}_{int(seq)}"
+        kind = (kind or "reader").strip() or "reader"
+        if kind not in ("reader", "story"):
+            kind = "reader"
+        local = f"{work}_{int(seq)}_{kind}"
         self._execute_write(
             "UPSERT type::record('chapter_reader_ack', $local) SET "
             "work=$work, seq=$seq, prose_fp=$fp, note=$note, "
-            "user_id=$uid, updated_at=time::now()",
+            "user_id=$uid, kind=$kind, contract_fp=$cfp, updated_at=time::now()",
             {
                 "local": local,
                 "work": work,
@@ -260,22 +265,38 @@ class AdapterOpsMixin:
                 "fp": prose_fp,
                 "note": (note or "")[:200],
                 "uid": user_id or "",
+                "kind": kind,
+                "cfp": (contract_fp or "")[:32],
             },
         )
-        return self.get_reader_ack(work, int(seq)) or {
+        return self.get_reader_ack(work, int(seq), kind=kind) or {
             "work": work, "seq": int(seq), "prose_fp": prose_fp, "note": note,
+            "kind": kind, "contract_fp": contract_fp or "",
         }
 
-    def get_reader_ack(self, work: str, seq: int) -> dict[str, Any] | None:
-        local = f"{work}_{int(seq)}"
+    def get_reader_ack(self, work: str, seq: int, kind: str = "reader") -> dict[str, Any] | None:
+        kind = (kind or "reader").strip() or "reader"
+        local = f"{work}_{int(seq)}_{kind}"
         try:
             rows = self._query(
                 "SELECT * FROM type::record('chapter_reader_ack', $local) LIMIT 1",
                 {"local": local},
             ) or []
         except Exception:
-            return None
-        return rows[0] if rows else None
+            rows = []
+        if rows:
+            return rows[0]
+        if kind == "reader":
+            legacy = f"{work}_{int(seq)}"
+            try:
+                rows = self._query(
+                    "SELECT * FROM type::record('chapter_reader_ack', $local) LIMIT 1",
+                    {"local": legacy},
+                ) or []
+            except Exception:
+                return None
+            return rows[0] if rows else None
+        return None
 
     # ── promise delete ──────────────────────────────────────
     def promise_exists(self, pid: str) -> bool:

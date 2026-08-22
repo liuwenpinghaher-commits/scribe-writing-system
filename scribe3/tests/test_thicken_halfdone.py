@@ -31,7 +31,7 @@ def test_h1_novel_adaptive_dialogue_sum_22k_not_18k():
     for name, tbl in SCENE_BUDGET_PROFILES_NOVEL.items():
         assert sum(tbl.values()) == NOVEL_ENVELOPE_TOKEN_BUDGET, name
     bb = get_block_budgets(beat_type="dialogue")
-    assert sum(bb.values()) == 22_000
+    assert sum(bb.values()) == 32_000
     # 不得静默落到 18k 场景表
     assert bb != SCENE_BUDGET_PROFILES["dialogue_heavy"]
     # 与 novel 基表至少一块不同（重配）
@@ -208,7 +208,7 @@ def test_h9_budget_report_observability_fields():
 def test_h11_sample_script_runs(tmp_path):
     from scribe3.tools.sample_budget_report import sample_local, main
     data = sample_local(beat_type="dialogue")
-    assert data["block_sum"] == 22_000
+    assert data["block_sum"] == 32_000
     assert "conclusion" in data
     out = tmp_path / "budget_sample.json"
     assert main(["--out", str(out), "--beat-type", "dialogue"]) == 0

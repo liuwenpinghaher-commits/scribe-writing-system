@@ -117,9 +117,59 @@ def test_secret_masked_on_recall_entry():
 
 def test_causal_fail_records_soft_fail():
     before = get_write_soft_fail_counters().get("empty_story_causal", 0)
-    assert _causal_chain_for_write(_Store(boom_causal=True), 5) == ""
+    text = _causal_chain_for_write(_Store(boom_causal=True), 5)
     after = get_write_soft_fail_counters().get("empty_story_causal", 0)
     assert after == before + 1
+    # 图挂了仍可用章账本回退
+    assert "第" in text or text == ""
+
+
+class _EmptyGraph:
+    """无事实、无事件，只剩章字段——样书 generate-stage 常态。"""
+
+    def get_chapter(self, seq):
+        titles = {
+            1: "第一章 · 空锅拦门",
+            2: "第二章 · 侧门擦痕",
+            3: "第三章 · 炉册点名",
+            4: "第四章 · 注入对照",
+        }
+        hooks = {1: "锅里还烫", 2: "门缝吸灰", 3: "亥正三刻，烟囱倒灌。"}
+        turns = {1: "热灰抵半债", 2: "不敢整插入", 3: "当众认债换名不出口"}
+        return {
+            "seq": int(seq),
+            "title": titles.get(int(seq), f"第{seq}章"),
+            "narrative_drive": {"end_hook": hooks.get(int(seq), "")},
+            "narrative_contract": {"turn": turns.get(int(seq), ""), "desire": "去侧门"},
+        }
+
+    def hybrid_recall(self, query, chapter, k=5):
+        return []
+
+    def events_at(self, seq):
+        return []
+
+    def open_promises(self):
+        return [{"text": "炉册夜审要点名，名里有个字像灰七爹", "setup_chapter": 1}]
+
+
+def test_recall_causal_fallback_when_graph_empty():
+    rec = _hybrid_recall_for_write(_EmptyGraph(), 4)
+    assert "炉册夜审" in rec
+    assert "亥正三刻" in rec
+    cau = _causal_chain_for_write(_EmptyGraph(), 4)
+    assert "空锅拦门" in cau
+    assert "炉册点名" in cau
+    assert "→" in cau
+    assert "第1章 第一章" not in cau
+    segs = collect_story_fuel_segments({
+        "prior_consequences": "亥正三刻",
+        "recall_context": rec,
+        "causal_graph": cau,
+    })
+    names = [s["name"] for s in segs]
+    assert "story_recall" in names
+    assert "story_causal" in names
 
 
 def test_empty_inputs_record_empty_fuels():

@@ -4,7 +4,20 @@
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Iterable
+
+_ROLE_TITLE_NOISE = re.compile(
+    r"^(?:投影|限知|视角|pov|角色|演绎)[·・.\s:：\-]*",
+    re.IGNORECASE,
+)
+_ROLE_PAREN = re.compile(r"[（(][^）)]*[）)]")
+_ROLE_ALIAS = {
+    "灰七": "覃灰七",
+    "qin_huiqi": "覃灰七",
+    "leng_guo_po": "冷锅婆",
+    "hui_li": "灰狸",
+}
 
 # 与 app_impl._DEDUCTION_HEADINGS 保持一致；写路径/检测以此为准。
 DEDUCTION_HEADINGS: tuple[str, ...] = (
@@ -15,7 +28,46 @@ DEDUCTION_HEADINGS: tuple[str, ...] = (
     "没察觉的",
 )
 
+_HEADING_ALIASES: frozenset[str] = frozenset({
+    "看到/听到", "看到听到", "看到", "听到",
+    "知道",
+    "以为(误读)", "以为误读", "以为",
+    "做了/说了", "做了说了", "做了", "说了",
+    "没察觉的", "没察觉",
+    "场景真相", "scene_truth", "真相",
+    "时空", "在场", "咬上章", "本章要",
+})
+
 _DEDUCTION_BLANK = "未能从场景真相确认。"
+
+
+def normalize_heading_text(title: str) -> str:
+    """去 #、空白，全角括号改半角。供五层标题识别。"""
+    t = re.sub(r"^#+\s*", "", str(title or "")).strip()
+    t = t.replace("（", "(").replace("）", ")").replace(" ", "")
+    return t
+
+
+def is_layer_heading(title: str) -> bool:
+    """是否五层小标题 / 场景真相，而不是角色名。
+
+    兼容「以为（误读）」全角括号——否则会被 parse 成 role:以为。
+    """
+    t = normalize_heading_text(title)
+    if not t:
+        return False
+    if t in _HEADING_ALIASES:
+        return True
+    if t.startswith(("看到/", "以为", "没察觉", "做了")):
+        return True
+    head = t.split("：", 1)[0].split(":", 1)[0]
+    return head in _HEADING_ALIASES
+
+
+def is_heading_noise_role(value: Any) -> bool:
+    """involved / character_id 是否五层标题误当成角色。"""
+    bare = str(value or "").split(":")[-1].strip()
+    return bool(bare) and is_layer_heading(bare)
 
 
 def normalize_role_id(value: Any) -> str:
@@ -32,6 +84,12 @@ def normalize_role_id(value: Any) -> str:
     bare = s.split(":", 1)[-1].strip()
     if not bare:
         return ""
+    bare = re.sub(r"^#+\s*", "", bare).strip()
+    bare = _ROLE_TITLE_NOISE.sub("", bare).strip()
+    bare = _ROLE_PAREN.sub("", bare).strip()
+    if not bare:
+        return ""
+    bare = _ROLE_ALIAS.get(bare) or bare
     return f"role:{bare}"
 
 
@@ -44,6 +102,27 @@ def role_id_keys(value: Any) -> set[str]:
     if not bare:
         return {s}
     return {s, bare, f"role:{bare}"}
+
+
+def resolve_against_cast(character_id: str, cast: Iterable[Any] | None) -> str:
+    """把 role:覃灰七 对齐到书中已有 oid（role:qin_huiqi）。对不上则原样。"""
+    nid = normalize_role_id(character_id)
+    bare = nid.split(":", 1)[-1] if nid else ""
+    if not bare:
+        return nid
+    for raw in cast or []:
+        if isinstance(raw, dict):
+            oid = str(raw.get("id") or raw.get("oid") or "")
+            name = str(raw.get("name") or raw.get("label") or "")
+        else:
+            oid = str(raw or "")
+            name = ""
+        keys = role_id_keys(oid) | role_id_keys(name)
+        if nid in keys or bare in keys or (name and (bare in name or name in bare)):
+            if oid.startswith("role:") and re.match(r"^role:[A-Za-z0-9_:-]+$", oid):
+                return oid
+            return (normalize_role_id(oid) if oid else nid) or nid
+    return nid
 
 
 def normalize_involved(ids: Iterable[Any] | None) -> list[str]:
@@ -229,15 +308,24 @@ def stale_roles(involved: Iterable[Any] | None,
     return stale
 
 
+def _prose_has_heading(text: str, heading: str) -> bool:
+    blob = (text or "").replace("（", "(").replace("）", ")")
+    if heading in blob or f"### {heading}" in (text or ""):
+        return True
+    if heading == "以为(误读)":
+        return "### 以为" in blob or "以为(误读)" in blob
+    return False
+
+
 def has_five_layer_headings(prose: str | None) -> bool:
-    """五个 markdown 三级标题是否齐全（标题文本精确匹配）。"""
+    """五个标题是否齐全。全角括号「以为（误读）」也算。"""
     text = prose or ""
-    return all(f"### {h}" in text for h in DEDUCTION_HEADINGS)
+    return all(_prose_has_heading(text, h) for h in DEDUCTION_HEADINGS)
 
 
 def missing_layer_headings(prose: str | None) -> list[str]:
     text = prose or ""
-    return [h for h in DEDUCTION_HEADINGS if f"### {h}" not in text]
+    return [h for h in DEDUCTION_HEADINGS if not _prose_has_heading(text, h)]
 
 
 def soft_gate_issues(ch: dict | None) -> dict[str, Any]:

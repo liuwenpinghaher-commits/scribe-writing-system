@@ -118,8 +118,8 @@ describe('横切视图对象回跳四栏', () => {
     fireEvent.click(screen.getByRole('button', { name: '模拟仪表盘弱章' }))
 
     await waitFor(() => expect(screen.getByTestId('detail-content').textContent).toContain('node:issue:weak:4'))
-    expect(screen.getByRole('button', { name: '校验' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('col-directory')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '校验' })).toBeNull()
   })
 
   it('图谱角色回到设定库入口并打开角色详情', async () => {

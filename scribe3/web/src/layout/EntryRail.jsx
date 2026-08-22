@@ -20,7 +20,6 @@ const CAPABILITY_GROUPS = [
   ] },
   { key: 'check', label: '检查', items: [
     { capability: 'search', label: '搜索' },
-    { capability: 'review', label: '校验' },
   ] },
 ]
 

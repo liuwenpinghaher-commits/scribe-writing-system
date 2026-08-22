@@ -429,7 +429,7 @@ def _write_snapshot(st, *, chapter, focalizer, phase, work, memory_trace_ctx=Non
         from scribe3.api import app_impl as _core
         w = _core._normalize_work(work)
         phases = getattr(_core, "_ASSEMBLER_PHASES", frozenset({
-            "outline", "beats", "deduce", "draft", "final", "plan",
+            "outline", "beats", "design", "chapter_design", "deduce", "draft", "final", "plan",
         }))
     ph = (phase or "").strip().lower()
     ph = ph if ph in phases else None
@@ -725,18 +725,34 @@ class _WriteOutcomeBinding:
         self.manifest_trace: dict = {}
 
     def persist(self, trace: dict) -> None:
+        defer = bool(
+            isinstance(self.manifest_trace, dict)
+            and self.manifest_trace.get("defer_finish")
+        )
         try:
             outcome = _save_write_context_outcome(self._store, self.manifest_trace, trace)
-        except Exception:
-            logging.getLogger("scribe3").error(
-                "Context Outcome 落库失败，终止本次生成", exc_info=True,
+        except Exception as exc:
+            # thicken 同链二次 LLM（strict 重试）会复用三元组；外层仍要写章。
+            same_triple = defer and (
+                isinstance(exc, ValueError)
+                and ("冲突" in str(exc) or "AlreadyExists" in type(exc).__name__)
             )
-            try:
-                from scribe3.pipeline_trace_hooks import finish_failed
-                finish_failed(self._store, self.manifest_trace)
-            except Exception:
-                pass
-            raise
+            if same_triple:
+                logging.getLogger("scribe3").warning(
+                    "Context Outcome 同三元组已落，defer 链继续: %s", exc,
+                )
+                outcome = None
+            else:
+                logging.getLogger("scribe3").error(
+                    "Context Outcome 落库失败，终止本次生成", exc_info=True,
+                )
+                if not defer:
+                    try:
+                        from scribe3.pipeline_trace_hooks import finish_failed
+                        finish_failed(self._store, self.manifest_trace)
+                    except Exception:
+                        pass
+                raise
         try:
             from scribe3.run_card_store import attach_outcome_to_run_card
             rid = ""
@@ -760,6 +776,8 @@ class _WriteOutcomeBinding:
             logging.getLogger("scribe3").warning(
                 "attach_outcome_to_run_card fail-soft", exc_info=True,
             )
+        if defer:
+            return
         try:
             from scribe3.pipeline_trace_hooks import finish_ok
             finish_ok(self._store, self.manifest_trace, outcome=outcome)
@@ -947,13 +965,20 @@ def _collect_write(message, instructions: str, with_tools: bool = True,
         for p in proposals:
             if isinstance(p, dict) and p.get("prose"):
                 _out += str(p.get("prose") or "")
+        if not _out.strip():
+            _out = "".join(raw_delta_acc)
         note_llm_output(_out)
     except Exception:
         logging.getLogger("scribe3").warning("note_llm_output collect fail-soft", exc_info=True)
     if on_terminal is not None:
         on_terminal(trace)
     if stream_error is not None:
-        raise RuntimeError("LLM 写作流异常，未生成完整候选稿") from None
+        logging.getLogger("scribe3").error(
+            "LLM 写作流异常: %s", stream_error, exc_info=stream_error,
+        )
+        raise RuntimeError(
+            f"LLM 写作流异常，未生成完整候选稿: {str(stream_error)[:200]}"
+        ) from None
     if trace["status"] == "failed":
         raise RuntimeError("LLM 写作流失败，未生成完整候选稿")
     if trace["status"] != "completed":

@@ -1,0 +1,20 @@
+{
+  "schema": "narrative_contract.v1",
+  "version": 1,
+  "desire": "灰七要挡住耳目不让门后暴露",
+  "obstacle": "耳目逼问、婆子讨清债、灰狸扯袖",
+  "turn": "他拒开门用热灰抵账半袋把门挡住",
+  "cost": "债未清完，三人仍盯着侧门",
+  "conflict_beats": [
+    {
+      "text": "耳目逼问门后咳声"
+    },
+    {
+      "text": "冷锅婆拦门讨清香债"
+    },
+    {
+      "text": "灰七拒开门热灰抵账"
+    }
+  ],
+  "source": "author"
+}

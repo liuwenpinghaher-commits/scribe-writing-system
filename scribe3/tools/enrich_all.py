@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""主编对话方式补全《纸命》所有设定字段。
+"""考古 / 《纸命》一次性补全脚本。禁止当产品入口。
 
-用与 UI 素材讨论完全相同的主编(hermes_complete_stream + _editor_system 联书 codex)
-逐条目生成全字段 JSON,再经 store.update_record 可靠落库。
-内容 100% 主编生成(联全书+已写4章);因表单控件批量交互不稳,落库走稳的 store 路。
+产品批量写厚请用 ``s3_generate_codex_batch``（``scribe3.codex_generate``）。
+本脚本写死 DB=book_c256380e，走 ``_editor_system`` + 正则抠 JSON + ``update_record``，
+不得从 API / MCP / catalog 调用。
+
 用法: python -m scribe3.tools.enrich_all [类名]  (不带参=全部)
 """
 import json

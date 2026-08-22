@@ -1,0 +1,48 @@
+{
+  "title": "第七章 · 炉册点名",
+  "prose_cn": 1360,
+  "dims": {
+    "D1": 8.2,
+    "D2": 8.5,
+    "D3": 9.4,
+    "D4": 9.4,
+    "D5": 8.6,
+    "D6": 8.4,
+    "D7": 9.8
+  },
+  "composite": 8.9,
+  "quotes": {
+    "D1": "conflict_lex_hits=35, dialogue_marks=50, conf_den=25.74",
+    "D2": "turn_cost_markers=17, contract_ok=True",
+    "D3": "dlg_lines=19/32, body_hits=24, cool_hits=0",
+    "D4": "conflict_beats valid=3/3 prop_like=0",
+    "D5": "prior_keyword_hits=12/13, multi_stakes=5",
+    "D6": "ok_for_claim=True claim_hits=0 soft=0",
+    "D7": "sense_hits=10, cost_linked=True, sense_den=7.35"
+  },
+  "conflict_beats": {
+    "ok": true,
+    "total": 3,
+    "valid": 3,
+    "prop_like": [],
+    "items": [
+      {
+        "text": "点名人逼念亡者真名",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "灰狸当众扯袖要揭铜",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "灰七指伪页却被迫加账",
+        "shape_ok": true,
+        "reasons": []
+      }
+    ]
+  },
+  "contract_ok": true,
+  "anti_meta_ok": true
+}

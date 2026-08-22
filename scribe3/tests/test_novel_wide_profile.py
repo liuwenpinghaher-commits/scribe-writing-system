@@ -55,7 +55,7 @@ def _segs():
         {"name": "event_drive", "layer": "redline", "text": "【事件驱动】钉"},
         {"name": "drama_contract", "layer": "redline", "text": "【戏剧合同】钉"},
         {"name": "envelope", "layer": "envelope", "text": "E" * 100},
-        {"name": "codex", "layer": "supplemental", "text": "设定" * 10},
+        {"name": "codex_named", "layer": "supplemental", "text": "设定" * 10},
         {"name": "final_reminder", "layer": "redline", "text": "【最终提醒】限知"},
     ]
 

@@ -434,6 +434,14 @@ def test_app_impl_write_path_rebind_ready():
         assert not hard, hard
 
 
+def test_phase_of_uses_progress_not_just_synopsis():
+    from scribe3.storyline_project import _phase_of
+    assert _phase_of({"synopsis": "有大纲", "beats": [{"text": "拍"}]}) == "beats"
+    assert _phase_of({"synopsis": "有大纲", "scene_truth": "真相一段"}) == "deduce"
+    assert _phase_of({"synopsis": "有大纲", "has_prose": True}) == "final"
+    assert _phase_of({"synopsis": "只有大纲"}) == "outline"
+
+
 if __name__ == "__main__":
     # 无 pytest 时直接跑
     test_craft_only_roundtrip_memory_store()

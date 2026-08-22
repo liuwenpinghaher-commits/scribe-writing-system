@@ -14,7 +14,7 @@ export const LAYOUT_MODE = Object.freeze({
 })
 
 /** 对话驱动阶段 → 协作模式 */
-const COLLAB_PHASES = new Set(['outline', 'beats', 'deduce', 'draft'])
+const COLLAB_PHASES = new Set(['outline', 'beats', 'design', 'deduce', 'draft'])
 
 /**
  * @param {{ phase?: string|null, isView?: boolean, isChapterContext?: boolean }} ctx

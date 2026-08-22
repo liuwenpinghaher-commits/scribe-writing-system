@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 import { Sparkles } from 'lucide-react'
 import { Btn } from './ui.jsx'
 import { matchStageProposal } from './lib/stageProposal'
+import { normalizeChiefMode, resolveRightTab } from './lib/chiefMode'
 
 /**
  * ChiefSlotContext —— 章写作 chat 的「落点」共享。
@@ -20,6 +21,8 @@ const ChiefSlotContext = createContext({
   chapterPhase: null, setChapterPhase: () => {},
   stageProposal: null, setStageProposal: () => {},
   chiefIntent: null, setChiefIntent: () => {},
+  chiefMode: 'talk', setChiefMode: () => {},
+  jobBusy: false, setJobBusy: () => {},
 })
 
 export function ChiefSlotProvider({ children }) {
@@ -39,6 +42,11 @@ export function ChiefSlotProvider({ children }) {
   // 块二:中区「让主编生成」入口 → 右栏预填话术通道 { phase, seq, text }。
   // DiscussionDock 匹配当前 phase/seq 后消费:预填输入框 + 聚焦(生成在主编,落地在中区)。
   const [chiefIntent, setChiefIntent] = useState(null)
+  const [chiefMode, setChiefModeRaw] = useState('talk')
+  const setChiefMode = useCallback((next) => {
+    setChiefModeRaw(normalizeChiefMode(next))
+  }, [])
+  const [jobBusy, setJobBusy] = useState(false)
   // 外部发布 seam:window 派发 CustomEvent('s3:stage-proposal', {detail}) 也走同一通道。
   // 供真机注入测试/未来外部集成模拟「主编生成完成」,与 ChiefDock 发布口径完全一致。
   useEffect(() => {
@@ -46,8 +54,20 @@ export function ChiefSlotProvider({ children }) {
     window.addEventListener('s3:stage-proposal', h)
     return () => window.removeEventListener('s3:stage-proposal', h)
   }, [])
+  // 旧右栏 tab 指令：selection/pilot → 只切模式，会话仍在主编
+  useEffect(() => {
+    const h = (e) => {
+      const { mode } = resolveRightTab(e?.detail)
+      if (mode) setChiefMode(mode)
+    }
+    window.addEventListener('s3-right-tab', h)
+    return () => window.removeEventListener('s3-right-tab', h)
+  }, [setChiefMode])
   return (
-    <ChiefSlotContext.Provider value={{ slotEl, setSlotEl, chapterPhase, setChapterPhase, stageProposal, setStageProposal, chiefIntent, setChiefIntent }}>
+    <ChiefSlotContext.Provider value={{
+      slotEl, setSlotEl, chapterPhase, setChapterPhase, stageProposal, setStageProposal, chiefIntent, setChiefIntent,
+      chiefMode, setChiefMode, jobBusy, setJobBusy,
+    }}>
       {children}
     </ChiefSlotContext.Provider>
   )

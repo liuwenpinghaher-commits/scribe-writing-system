@@ -22,6 +22,7 @@ export const PLANES = [
       { id: 'hermes', label: 'Hermes 运行时', needsWork: false },
       { id: 'models', label: '模型与服务', needsWork: false },
       { id: 'surreal', label: 'Surreal 数据面', needsWork: true },
+      { id: 'run-logs', label: '运行分析', needsWork: false },
     ],
   },
   {
@@ -32,7 +33,6 @@ export const PLANES = [
       { id: 'connection', label: '连接与密钥', needsWork: false },
       { id: 'flags', label: '灰度与紧急开关', needsWork: false },
       { id: 'accounts', label: '账号与书籍', needsWork: false },
-      { id: 'run-logs', label: '运行链路', needsWork: false },
       { id: 'audit', label: '变更审计', needsWork: false },
     ],
   },

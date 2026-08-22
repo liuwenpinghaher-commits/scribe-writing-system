@@ -1,0 +1,20 @@
+{
+  "schema": "narrative_contract.v1",
+  "version": 1,
+  "desire": "灰七要去侧门查昨夜脚印与匙齿痕迹",
+  "obstacle": "冷锅婆香债拦门加上灰狸缠斗要铜",
+  "turn": "热灰抵半债并把假片扔给灰狸打发",
+  "cost": "暂禁侧门且父名挂上夜审阴影催债",
+  "conflict_beats": [
+    {
+      "text": "冷锅婆拦门讨香债"
+    },
+    {
+      "text": "灰狸扯袖口要跟去"
+    },
+    {
+      "text": "半袋热灰倒进空锅抵账"
+    }
+  ],
+  "source": "author"
+}

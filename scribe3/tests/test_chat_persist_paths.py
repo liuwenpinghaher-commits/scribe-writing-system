@@ -277,7 +277,7 @@ def test_chat_history_non_last_assistant_still_head_truncated(store):
     """非最后的 assistant 仍走小预算头部截断(大预算只给最可能被指代的那一条)。"""
     tid = _thread_id(store)
     store.add_chat_message(chapter=0, stage="discuss", role="assistant",
-                           text="旧方案" * 500, thread_id=tid)      # 1500字,非最后
+                           text="旧方案" * 600, thread_id=tid)      # 1800字>1500,非最后
     store.add_chat_message(chapter=0, stage="discuss", role="user",
                            text="换个思路", thread_id=tid)
     store.add_chat_message(chapter=0, stage="discuss", role="assistant",
@@ -285,7 +285,7 @@ def test_chat_history_non_last_assistant_still_head_truncated(store):
     h = A._thread_history_for_prompt(store, tid)
     old = h[0]
     assert old["role"] == "assistant" and "后文截断" in old["content"]
-    assert len(old["content"]) <= 600 + 12
+    assert len(old["content"]) <= 1500 + 12
     assert h[-1]["content"] == "新方案很短"
 
 

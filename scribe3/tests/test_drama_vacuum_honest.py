@@ -30,6 +30,13 @@ def test_goal_and_conflict_suppress_vacuum():
     assert format_drama_vacuum_warn(beats=beats) == ""
 
 
+def test_thick_beat_text_suppresses_vacuum():
+    """冰山场面纸写在 text，GCD 可空；不得再灌缺目标。"""
+    beats = [{"text": "进场。冷锅婆空锅拦门。" + ("场面" * 40)}]
+    assert should_inject_drama_vacuum(beats) is False
+    assert format_drama_vacuum_warn(beats=beats) == ""
+
+
 def test_vacuum_not_in_drama_core():
     assert "drama_vacuum" not in DRAMA_CORE_NAMES
 

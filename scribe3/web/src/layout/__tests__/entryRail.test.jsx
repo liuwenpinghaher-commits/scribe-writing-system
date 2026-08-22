@@ -12,9 +12,10 @@ describe('EntryRail', () => {
   it('渲染完整左栏能力入口,并把项目改为手稿', () => {
     render(<EntryRail tree={tree} activeId="entry:manuscript" onEntry={() => {}} />)
 
-    for (const label of ['手稿', '设定', '素材', '演绎', '伏笔', '母题', '搜索', '校验']) {
+    for (const label of ['手稿', '设定', '素材', '演绎', '伏笔', '母题', '搜索']) {
       expect(screen.getByRole('button', { name: new RegExp(label) })).toBeTruthy()
     }
+    expect(screen.queryByRole('button', { name: /校验/ })).toBeNull()
     expect(screen.queryByText('项目')).toBeNull()
   })
 

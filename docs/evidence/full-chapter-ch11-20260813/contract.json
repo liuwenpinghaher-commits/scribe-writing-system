@@ -1,0 +1,20 @@
+{
+  "schema": "narrative_contract.v1",
+  "version": 1,
+  "desire": "灰七要在夜审护炉护匙且不念亡者真名",
+  "obstacle": "点名人逼名、灰狸乱揭、婆子趁机加账",
+  "turn": "他指认伪页护场却被迫加上一炉半香债",
+  "cost": "账加重，点名人盯向侧门",
+  "conflict_beats": [
+    {
+      "text": "点名人逼念亡者真名"
+    },
+    {
+      "text": "灰狸当众扯袖要揭铜"
+    },
+    {
+      "text": "灰七指伪页却被迫加账"
+    }
+  ],
+  "source": "author"
+}

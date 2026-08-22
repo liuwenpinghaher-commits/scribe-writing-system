@@ -35,8 +35,9 @@ def test_half_cut_keeps_beats_drops_synopsis():
 
 def test_half_cut_other_name_still_tail():
     s = "x" * 100
-    cut = _half_cut_segment("codex", s)
+    cut = _half_cut_segment("codex_cards", s)
     assert cut == ("x" * 50) + "…"
+    assert _half_cut_segment("codex_named", s) == s
 
 
 def test_l2_trim_keeps_beats_when_outline_is_victim():

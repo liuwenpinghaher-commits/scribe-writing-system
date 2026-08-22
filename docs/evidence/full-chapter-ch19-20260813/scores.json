@@ -1,0 +1,48 @@
+{
+  "title": "第14章 · 炉门再逼2",
+  "prose_cn": 1850,
+  "dims": {
+    "D1": 10.0,
+    "D2": 8.2,
+    "D3": 9.5,
+    "D4": 9.4,
+    "D5": 8.9,
+    "D6": 8.7,
+    "D7": 10.0
+  },
+  "composite": 9.24,
+  "quotes": {
+    "D1": "conflict_lex_hits=107, dialogue_marks=96, conf_den=57.84",
+    "D2": "turn_cost_markers=16, contract_ok=True",
+    "D3": "dlg_lines=31/51, body_hits=81, cool_hits=0",
+    "D4": "conflict_beats valid=3/3 prop_like=0",
+    "D5": "prior_keyword_hits=13/13, multi_stakes=5",
+    "D6": "ok_for_claim=True claim_hits=0 soft=0",
+    "D7": "sense_hits=12, cost_linked=True, sense_den=6.49"
+  },
+  "conflict_beats": {
+    "ok": true,
+    "total": 3,
+    "valid": 3,
+    "prop_like": [],
+    "items": [
+      {
+        "text": "冷锅婆拦门讨香债",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "灰狸扯袖口要跟去",
+        "shape_ok": true,
+        "reasons": []
+      },
+      {
+        "text": "半袋热灰倒进空锅抵账",
+        "shape_ok": true,
+        "reasons": []
+      }
+    ]
+  },
+  "contract_ok": true,
+  "anti_meta_ok": true
+}
