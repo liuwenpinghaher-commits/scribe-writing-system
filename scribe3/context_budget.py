@@ -600,6 +600,23 @@ def join_generation_segments(
 
     segs, total_rep = enforce_total_prompt_budget(segs, budget=tb)
     joined = "".join(str(s.get("text") or "") for s in segs)
+    try:
+        from scribe3.feature_flags import flag_truthy
+        if flag_truthy("SCRIBE3_PROMPT_RENDERER"):
+            from scribe3.prompt_renderer import render_slots
+            slots = {}
+            for s in segs:
+                name = str(s.get("name") or "").strip() or "slot"
+                body = str(s.get("text") or "")
+                if name in slots:
+                    slots[name] = (slots[name] + "\n" + body).strip()
+                else:
+                    slots[name] = body
+            rendered = render_slots(slots, trunk="prompt")
+            if rendered:
+                joined = rendered
+    except Exception:
+        pass
     order_idx: dict[str, int] = {}
     for i, s in enumerate(segs):
         n = str(s.get("name") or "")

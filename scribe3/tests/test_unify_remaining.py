@@ -90,6 +90,36 @@ def test_plan_volumes_accept_and_decline():
     assert out3["status"] == "declined"
 
 
+def test_join_uses_prompt_renderer_markers():
+    from scribe3.context_budget import join_generation_segments
+    joined, _rep = join_generation_segments([
+        {"name": "event_drive", "layer": "redline", "text": "【事件驱动】甲"},
+        {"name": "drama_contract", "layer": "redline", "text": "【戏剧合同】乙"},
+        {"name": "final_reminder", "layer": "redline", "text": "【最终提醒】丙"},
+    ], v2=True)
+    assert "【event_drive】" in joined or "事件驱动" in joined
+    assert joined.index("事件驱动") < joined.index("戏剧合同") < joined.index("最终提醒")
+
+
+def test_judge_adds_gate_shape():
+    from scribe3.playbook.judge import _normalize
+    raw = _normalize({
+        "verdict": "fail",
+        "answers": [{"q": 1, "answer": "no", "evidence": "原句", "reason": "没发生"}],
+        "opinion": "今晚那件事没落在纸上",
+    })
+    from scribe3.quality_gate import from_existing
+    g = from_existing({
+        "ok": raw["verdict"] == "pass",
+        "code": raw["verdict"],
+        "message": raw["opinion"],
+        "hits": raw["answers"],
+    })
+    assert g["ok"] is False
+    assert g["code"] == "fail"
+    assert g["hits"]
+
+
 def test_prompt_renderer_and_quality_shape():
     text = render_slots({"duty": "今晚按回碎片", "play": ""})
     assert "【duty】" in text
@@ -121,7 +151,7 @@ def test_visible_to_strips_secret():
 
 
 def test_beats_write_legacy_flag_registered():
-    from scribe3.feature_flags import FLAG_REGISTRY
+    from scribe3.feature_flags import FLAG_REGISTRY, flag_truthy, get_all_flags
     names = {f.name for f in FLAG_REGISTRY}
     for k in (
         "SCRIBE3_BEATS_WRITE_LEGACY",
@@ -130,8 +160,16 @@ def test_beats_write_legacy_flag_registered():
         "SCRIBE3_QUALITY_GATE_UNIFIED",
         "SCRIBE3_EPISTEMIC_ORACLE",
         "SCRIBE3_RECALL_SHADOW_VECTOR",
+        "SCRIBE3_RECALL_PLAYBOOK",
     ):
         assert k in names
+    flags = get_all_flags()
+    assert flags["SCRIBE3_RECALL_PLAYBOOK"]["default"] == "1"
+    assert flags["SCRIBE3_PROMPT_RENDERER"]["default"] == "1"
+    assert flags["SCRIBE3_QUALITY_GATE_UNIFIED"]["default"] == "1"
+    assert flags["SCRIBE3_EPISTEMIC_ORACLE"]["default"] == "1"
+    assert flags["SCRIBE3_HTTP_ERRORS_UNIFIED"]["default"] == "1"
+    assert flag_truthy("SCRIBE3_RECALL_PLAYBOOK") is True
 
 
 def test_dropped_chapter_fields_gated_in_source():

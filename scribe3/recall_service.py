@@ -204,6 +204,31 @@ def recall(
                     pass
 
     fused = _rrf(packs) if packs else []
+    if fused:
+        try:
+            from scribe3.feature_flags import flag_truthy as _ft
+            if _ft("SCRIBE3_EPISTEMIC_ORACLE") and focalizer and str(focalizer).strip() not in (
+                "", "chief", "author", "主编",
+            ):
+                from scribe3.epistemic import visible_to
+                allow = set(visible_to(store, work or "", int(chapter), focalizer))
+                if allow:
+                    visible_blobs: set[str] = set()
+                    facts_fn2 = getattr(store, "facts_at", None)
+                    if callable(facts_fn2):
+                        for f in list(facts_fn2(int(chapter)) or []):
+                            fid = str(_fact_get(f, "id") or "")
+                            if fid and fid in allow:
+                                visible_blobs.add(
+                                    f"{_fact_get(f, 'entity_id') or ''}|{_fact_get(f, 'value') or ''}"
+                                )
+                    if visible_blobs:
+                        fused = [
+                            h for h in fused
+                            if f"{h.entity_id}|{h.value}" in visible_blobs
+                        ]
+        except Exception as exc:
+            _log.info("recall epistemic skip: %s", type(exc).__name__)
     if not fused:
         return RecallPack(hits=[], skip_reason="empty", budget_tag=budget_tag, channels=channels)
     text_acc = 0

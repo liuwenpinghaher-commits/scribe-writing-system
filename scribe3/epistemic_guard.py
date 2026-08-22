@@ -81,6 +81,10 @@ def frame_known_fact_ids(store, focalizer: str, chapter: int) -> set[str]:
     if not focalizer or not hasattr(store, "facts_at"):
         return set()
     try:
+        from scribe3.feature_flags import flag_truthy
+        if flag_truthy("SCRIBE3_EPISTEMIC_ORACLE"):
+            from scribe3.epistemic import visible_to
+            return {x for x in visible_to(store, "", int(chapter) or 1, focalizer) if x}
         from scribe3.knowledge import project_frame
         frame = project_frame(store, focalizer, int(chapter) or 1)
         facts = getattr(frame, "facts", None) or []

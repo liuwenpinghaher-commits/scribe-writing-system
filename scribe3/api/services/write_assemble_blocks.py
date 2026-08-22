@@ -263,6 +263,13 @@ def _rule_named_line(row: dict) -> str:
 def _codex_known_ids(st, focalizer: str, chapter: int) -> set:
     if not focalizer:
         return set()
+    try:
+        from scribe3.feature_flags import flag_truthy
+        if flag_truthy("SCRIBE3_EPISTEMIC_ORACLE"):
+            from scribe3.epistemic import visible_to
+            return {x for x in visible_to(st, "", int(chapter or 1), focalizer) if x}
+    except Exception:
+        pass
     if not hasattr(st, "load_knowledge") and not hasattr(st, "knowledge"):
         return set()
     from scribe3.knowledge import project_frame
@@ -378,6 +385,27 @@ def _codex_segments(st, reveal: bool = True, focalizer: str = "", chapter: int |
             "world_rule", r, idx, _rule_named_line(r),
             _card_line(str((r or {}).get("name") or ""), cat),
         )
+
+    try:
+        from scribe3.feature_flags import flag_truthy
+        if flag_truthy("SCRIBE3_RECALL_PLAYBOOK") and chapter is not None:
+            from scribe3.recall_service import recall
+            pack = recall(
+                st,
+                chapter=int(chapter),
+                focalizer=focalizer or "",
+                query=request_text or mention or "",
+                budget_tag="discuss_codex",
+            )
+            hit_names = {
+                h.entity_id.replace("role:", "") for h in pack.hits if h.entity_id
+            }
+            if hit_names:
+                for kind, lines in list(card_by_kind.items()):
+                    kept = [ln for ln in lines if any(n and n in ln for n in hit_names)]
+                    card_by_kind[kind] = kept[:4] if kept else lines[:4]
+    except Exception:
+        pass
 
     cap = int(named_soft_cap) if named_soft_cap is not None else named_pack_soft_cap(work=work)
     named_items.sort(key=lambda x: x["pri"])

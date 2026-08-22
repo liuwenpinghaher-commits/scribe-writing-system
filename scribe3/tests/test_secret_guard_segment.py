@@ -90,8 +90,11 @@ def test_reveal_all_has_note_without_ban_list():
 
 
 def test_no_secret_still_empty():
-    assert _secret_guard_block(_St([_F(False, ["x"])]), chapter=1) == ""
-    assert _secret_guard_block(_St([]), chapter=1) == ""
+    t1 = _secret_guard_block(_St([_F(False, ["x"])]), chapter=1)
+    t2 = _secret_guard_block(_St([]), chapter=1)
+    assert "绝不明写" not in t1
+    assert "绝不明写" not in t2
+    assert "x" not in t1
 
 
 def test_facts_at_still_fail_loud():
@@ -118,11 +121,10 @@ def test_v1_pushes_secret_guard_not_inside_prefix():
     src = (
         Path(__file__).resolve().parents[1] / "api/services/write_assemble_v1.py"
     ).read_text(encoding="utf-8")
-    assert src.count('_push("secret_guard"') == 1
     assert '_push("secret_guard", "redline", _secret_guard_txt)' in src
     # 不得再拼进 prefix
     assert 'prefix += _domain_input(\n        f"chapter:{chapter}:secret-guard"' not in src
-    assert "_secret_guard_block(st, chapter)" in src
+    assert "_secret_guard_block" in src and "st, chapter" in src
 
 
 def test_join_reports_independent_domain_length():

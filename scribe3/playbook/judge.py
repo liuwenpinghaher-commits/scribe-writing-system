@@ -104,7 +104,21 @@ def judge(
             raise InfraError("法官返回空")
         return text
 
-    return _normalize(parse_json_with_retry(_once))
+    out = _normalize(parse_json_with_retry(_once))
+    try:
+        from scribe3.feature_flags import flag_truthy
+        if flag_truthy("SCRIBE3_QUALITY_GATE_UNIFIED"):
+            from scribe3.quality_gate import gate_result
+            shaped = gate_result(
+                ok=out.get("verdict") == "pass",
+                code=str(out.get("verdict") or "needs_human"),
+                message=str(out.get("opinion") or ""),
+                hits=list(out.get("answers") or []),
+            )
+            out.update(shaped)
+    except Exception:
+        pass
+    return out
 
 
 def majority_if_disagreed(first: dict, second: dict, third: dict | None) -> dict[str, Any]:

@@ -1357,6 +1357,21 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
         "punct_suggestions": punct_suggestions,
         "pressure": pressure_report,
     }
+    try:
+        from scribe3.feature_flags import flag_truthy
+        if flag_truthy("SCRIBE3_QUALITY_GATE_UNIFIED"):
+            from scribe3.quality_gate import from_existing
+            resp["gate"] = from_existing({
+                "ok": not any(
+                    str((i or {}).get("meta") or {}).get("severity") == "blocking"
+                    for i in (issues or []) if isinstance(i, dict)
+                ),
+                "code": "post_check",
+                "message": "",
+                "hits": issues,
+            })
+    except Exception:
+        pass
     if ai_grade is not None:
         resp["ai_grade"] = ai_grade
     # coverage honesty for clients that only read post-check
