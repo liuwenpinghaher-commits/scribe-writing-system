@@ -1361,7 +1361,11 @@ async def s3_patch_chapter_plan(
     chapter_spine: dict | None = None,
     work: str | None = None,
 ) -> dict:
-    """已废。请改用 s3_generate_stage 或 s3_patch_play / s3_patch_contract。"""
+    """已废。请改用 s3_generate_stage 或 s3_patch_play / s3_patch_contract。
+
+    保留函数体：工具名仍须可被发现，并返回 410/stage_gone 合同；
+    删掉会让客户端收到 unknown tool，对不上「这一站已经拆了」。
+    """
     return {
         "status": "error",
         "http": 410,

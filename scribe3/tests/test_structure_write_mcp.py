@@ -175,100 +175,45 @@ def test_s3_patch_chapter_plan_signatures():
         assert p in sig.parameters, f"s3_patch_chapter_plan 缺参数 {p}"
 
 
-def test_patch_chapter_plan_synopsis_beats(store):
-    M.set_store(store)
-    store.save_chapter(1, "", title="一")
-    beats = [{"text": "沈砚入城"}, {"text": "季棠试探"}]
-
-    def _write():
-        ok = store.update_chapter_meta(1, {
-            "synopsis": "开篇立人物与潮信",
-            "beats": beats,
-            "scene_truth": "城门盘查在即",
-            "involved_characters": ["沈砚"],
-            "deductions": [{"character_id": "沈砚", "prose": "### 看到/听到\n城门"}],
-        })
-        return ok if ok else False
-
-    out = M.commit_if_approved("s3_patch_chapter_plan", True, _write)
-    assert out["status"] == "written"
-    ch = store.get_chapter(1)
-    assert "潮信" in (ch.get("synopsis") or "")
-    assert isinstance(ch.get("beats"), list) and len(ch["beats"]) == 2
-    assert "盘查" in (ch.get("scene_truth") or "")
-    assert ch["involved_characters"] == ["role:沈砚"]
-    assert ch["deductions"][0]["character_id"] == "role:沈砚"
-    assert ch["deductions"][0].get("based_on_truth_rev") == ch.get("scene_truth_revision")
+def test_s3_patch_chapter_plan_gone_contract():
+    out = asyncio.run(M.s3_patch_chapter_plan(_AcceptCtx(), 1, synopsis="不该写入"))
+    assert out.get("http") == 410
+    assert out.get("code") == "stage_gone"
+    assert out.get("status") == "error"
 
 
-def test_patch_chapter_plan_decline(store):
+def test_s3_patch_chapter_plan_gone_does_not_write(store):
     M.set_store(store)
     store.save_chapter(1, "", title="一")
     store.update_chapter_meta(1, {"synopsis": "原大纲"})
-    out = M.commit_if_approved(
-        "s3_patch_chapter_plan", False,
-        lambda: store.update_chapter_meta(1, {"synopsis": "不该写入"}) or False)
-    assert out["status"] == "declined"
+    out = asyncio.run(M.s3_patch_chapter_plan(
+        _AcceptCtx(), 1, synopsis="不该写入", beats=[{"text": "沈砚入城"}],
+    ))
+    assert out.get("http") == 410
+    assert out.get("code") == "stage_gone"
     assert store.get_chapter(1).get("synopsis") == "原大纲"
 
 
-def test_patch_chapter_plan_missing_returns_error(store):
-    M.set_store(store)
-    out = M.commit_if_approved(
-        "s3_patch_chapter_plan", True,
-        lambda: store.update_chapter_meta(88888, {"synopsis": "无"}) or False)
-    assert out["status"] == "error"
-
-
-def test_s3_patch_chapter_plan_normalizes_beats_and_rejects_malformed_involved(store):
-    """真人 Run 常见的 beat 别名要归一;混入投影文本的角色字段必须在写前失败。"""
+def test_s3_patch_chapter_plan_gone_beats_alias(store):
     M.set_store(store)
     store.save_chapter(1, "", title="一")
-    store.add_entity(Entity("role:沈砚", "character", "沈砚"))
-
-    written = asyncio.run(M.s3_patch_chapter_plan(
+    out = asyncio.run(M.s3_patch_chapter_plan(
         _AcceptCtx(), 1,
         beats=[{"beat": "沈砚推门"}, {"text": "老道回避"}],
         involved_characters=["沈砚"],
     ))
-    assert written["status"] == "written"
-    assert store.get_chapter(1)["beats"] == [
-        {"text": "沈砚推门"}, {"text": "老道回避"},
-    ]
-    assert store.get_chapter(1)["involved_characters"] == ["role:沈砚"]
-
-    before = store.get_chapter(1)
-    invalid = asyncio.run(M.s3_patch_chapter_plan(
-        _AcceptCtx(), 1,
-        involved_characters=["role:'role:沈砚', 'deductions': '错误混入'"],
-    ))
-    assert invalid["status"] == "error"
-    assert "involved_characters" in invalid["error"]
-    assert store.get_chapter(1)["involved_characters"] == before["involved_characters"]
+    assert out.get("http") == 410
+    assert out.get("code") == "stage_gone"
 
 
-def test_s3_patch_chapter_plan_rejects_empty_or_incomplete_deductions_for_involved_roles(store):
-    """演绎工具收到 deductions 时，不能接受把已涉及角色留成无投影的假成功。"""
-    M.set_store(store)
-    store.save_chapter(1, "", title="一")
-    store.add_entity(Entity("role:沈砚", "character", "沈砚"))
-    store.add_entity(Entity("role:老道", "character", "老道"))
-
+def test_s3_patch_chapter_plan_rejects_empty_or_incomplete_deductions_for_involved_roles():
     empty = asyncio.run(M.s3_patch_chapter_plan(
         _AcceptCtx(), 1,
         involved_characters=["沈砚", "老道"],
         deductions=[],
     ))
-    assert empty["status"] == "error"
-    assert "deductions" in empty["error"]
-
-    incomplete = asyncio.run(M.s3_patch_chapter_plan(
-        _AcceptCtx(), 1,
-        involved_characters=["沈砚", "老道"],
-        deductions=[{"character_id": "沈砚", "prose": "### 看到/听到\\n老道沉默"}],
-    ))
-    assert incomplete["status"] == "error"
-    assert "缺少" in incomplete["error"]
+    assert empty.get("http") == 410
+    assert empty.get("code") == "stage_gone"
 
 
 def test_s3_ingest_chapter_keeps_every_direct_provider_call_bounded(store, monkeypatch):

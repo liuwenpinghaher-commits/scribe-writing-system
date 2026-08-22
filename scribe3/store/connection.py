@@ -236,9 +236,27 @@ class ConnectionMixin:
             logging.getLogger("scribe3").warning(
                 "backfill_thread_ids 失败(不阻断启动,下次可重试)", exc_info=True)
 
-    def _execute_write(self, surql: str, vars: dict) -> None:
-        """改世界状态的唯一落库点。所有 add_* 经此(开发标准不变量1)。"""
-        self._raw_query(surql, vars)
+    def _execute_write(self, surql: str, vars: dict):
+        """改世界状态的唯一落库点。所有 add_* 经此(开发标准不变量1)。
+
+        返回 raw 结果供 UPDATE…RETURN 使用；普通写调用方可忽略返回值。
+        """
+        return self._raw_query(surql, vars)
+
+    @staticmethod
+    def _rows_from_write(res) -> list[dict]:
+        """把唯一写点的 raw 结果收成行列表（与 _query 同一套形态）。"""
+        if res is None:
+            return []
+        if isinstance(res, list):
+            if res and isinstance(res[0], dict) and "result" in res[0] and "status" in res[0]:
+                return res[-1].get("result") or []
+            return [r for r in res if isinstance(r, dict)]
+        if isinstance(res, dict) and "result" in res:
+            return res["result"] or []
+        if isinstance(res, dict):
+            return [res]
+        return []
 
     # ── O28 / A4: concurrency_lock.LockStore 协议（与 TableInflightLock 同 rid）──
     @staticmethod

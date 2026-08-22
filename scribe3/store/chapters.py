@@ -862,15 +862,17 @@ class ChaptersMixin:
     def cas_refreeze_chapter(self, seq: int) -> dict:
         """只有待核对才冻住并版本+1。已冻着的再调一次不改版本。"""
         n = int(seq)
-        rows = self._query(
+        raw = self._execute_write(
             "UPDATE type::record('chapter', $seq) SET "
             "outline_status = 'frozen', "
             "outline_rev = (IF outline_rev IS NONE THEN 0 ELSE outline_rev END) + 1 "
             "WHERE outline_status INSIDE ['stale', 'review'] "
             "RETURN seq, outline_status, outline_rev",
             {"seq": n},
-        ) or []
+        )
+        rows = self._rows_from_write(raw)
         if rows:
+            _emit_cache_invalidation("chapter", getattr(self, "db_name", None), store=self)
             row = rows[0] if isinstance(rows[0], dict) else {}
             return {
                 "ok": True,
@@ -882,17 +884,26 @@ class ChaptersMixin:
         cur = self.get_chapter(n) or {}
         if not cur:
             return {"ok": False, "code": "chapter_missing", "seq": n}
-        return {
+        raw_status = cur.get("outline_status")
+        absent = (
+            raw_status is None
+            or str(raw_status).strip() == ""
+            or str(raw_status).strip().upper() == "NONE"
+        )
+        out = {
             "ok": True,
             "seq": n,
-            "outline_status": str(cur.get("outline_status") or "frozen"),
+            "outline_status": "" if absent else str(raw_status or "frozen"),
             "outline_rev": int(cur.get("outline_rev") or 0),
             "idempotent": True,
         }
+        if absent:
+            out["status_absent"] = True
+        return out
 
     def cas_refreeze_volume(self, volume_id: str) -> dict:
         vid = str(volume_id or "").strip()
-        rows = self._query(
+        raw = self._execute_write(
             "UPDATE chapter SET "
             "outline_status = 'frozen', "
             "outline_rev = (IF outline_rev IS NONE THEN 0 ELSE outline_rev END) + 1 "
@@ -901,7 +912,8 @@ class ChaptersMixin:
             "AND (archived = NONE OR archived != true) "
             "RETURN seq, outline_status, outline_rev",
             {"vid": vid},
-        ) or []
+        )
+        rows = self._rows_from_write(raw)
         seqs = []
         results = []
         for r in rows:
@@ -921,6 +933,8 @@ class ChaptersMixin:
                 "outline_rev": int(r.get("outline_rev") or 0),
                 "idempotent": False,
             })
+        if seqs:
+            _emit_cache_invalidation("chapter", getattr(self, "db_name", None), store=self)
         return {
             "ok": True,
             "volume_id": vid,

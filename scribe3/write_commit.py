@@ -75,6 +75,38 @@ def commit_if_approved(
 ) -> dict[str, Any]:
     """写门控单一落库点 + 可选审批幂等指纹。"""
     gated = frozenset(write_gated) if write_gated is not None else DEFAULT_WRITE_GATED
+    if name not in gated:
+        try:
+            from scribe3.approval_audit import record_approval_event
+            record_approval_event(
+                chain="mcp", action="commit", tool_or_pack=name, status="ungated",
+            )
+        except Exception:
+            pass
+        return {
+            "status": "declined",
+            "tool": name,
+            "code": "not_write_gated",
+        }
+    if accepted is None:
+        out_exp = {"status": "expired", "tool": name}
+        try:
+            from scribe3.approval_audit import record_approval_event
+            record_approval_event(
+                chain="mcp", action="commit", tool_or_pack=name, status="expired",
+            )
+        except Exception:
+            pass
+        return out_exp
+    if accepted is not True:
+        try:
+            from scribe3.approval_audit import record_approval_event
+            record_approval_event(
+                chain="mcp", action="commit", tool_or_pack=name, status="declined",
+            )
+        except Exception:
+            pass
+        return {"status": "declined", "tool": name}
     fp = None
     if args is not None:
         try:
@@ -101,25 +133,6 @@ def commit_if_approved(
                 }
         except Exception:
             fp = None
-    if name in gated and accepted is None:
-        out_exp = {"status": "expired", "tool": name}
-        try:
-            from scribe3.approval_audit import record_approval_event
-            record_approval_event(
-                chain="mcp", action="commit", tool_or_pack=name, status="expired",
-            )
-        except Exception:
-            pass
-        return out_exp
-    if name in gated and accepted is not True:
-        try:
-            from scribe3.approval_audit import record_approval_event
-            record_approval_event(
-                chain="mcp", action="commit", tool_or_pack=name, status="declined",
-            )
-        except Exception:
-            pass
-        return {"status": "declined", "tool": name}
     try:
         result = do_write()
     except Exception as e:

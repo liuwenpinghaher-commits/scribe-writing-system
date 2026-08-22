@@ -618,15 +618,20 @@ def settings_snapshot_for(*, is_admin_user: bool) -> list[dict]:
 
 
 def apply_restart_overrides() -> None:
-    """进程启动最早期调用(app.py / mcp.py 顶部):把 restart 项的 DB 覆盖灌进
-    os.environ,后续模块按原 env 路径读取。DB 是持久层,env 是进程生效层。"""
+    """进程启动最早期调用(app.py / mcp.py 顶部):把 restart 与热旗的 DB 覆盖灌进
+    os.environ,后续模块按原 env 路径读取。DB 是持久层,env 是进程生效层。
+
+    热旗同时由 get_flag 直读台账；此处灌注是给尚未迁 get_flag 的读取点兜底。
+    """
     ov = settings_store.get_all_overrides()
     for s in REGISTRY:
-        if s.effect != "restart" or s.key not in ov or not s.key.isupper():
+        if s.key not in ov or not s.key.isupper():
+            continue
+        if s.effect not in ("restart", "hot"):
             continue
         try:
             v = _coerce(s, json.loads(ov[s.key]))
         except Exception as e:
-            _warn_once(s.key, "restart 灌注", e)
+            _warn_once(s.key, "覆盖灌注", e)
             continue
         os.environ[s.key] = str(v).lower() if s.type == "bool" else str(v)

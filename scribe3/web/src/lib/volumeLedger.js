@@ -74,6 +74,12 @@ export function pendingOutlineLine(ch) {
   const st = String(ch?.outline_status || '').trim().toLowerCase()
   const title = ch?.title ? `《${ch.title}》` : ''
   if (st === 'stale') return `第${ch.seq}章${title}：还没冻回去，先别写演绎和草稿。核完了对主编说冻回去。`
-  if (st === 'review') return `第${ch.seq}章${title}：要你看一眼。核完了对主编说冻回去。`
+  if (st === 'review') {
+    const rev = Number(ch?.outline_rev || 0)
+    if (Number.isFinite(rev) && rev >= 3) {
+      return `第${ch.seq}章${title}：这章改太多次了。核完了对主编说冻回去。`
+    }
+    return `第${ch.seq}章${title}：这章把握高，要你看一眼。核完了对主编说冻回去。`
+  }
   return `第${ch.seq}章${title}`
 }

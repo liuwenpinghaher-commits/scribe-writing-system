@@ -15,14 +15,10 @@ def build_actions(work: str) -> dict:
     def propose_outline(st, seq):
         from scribe3.stage_generate import (
             STAGE_MAX_TOKENS,
-            iceberg_ok_for,
-            thicken_chapter_design,
+            thicken_stage,
         )
         ch0 = st.get_chapter(seq) or {}
-        if iceberg_ok_for(ch0, "design"):
-            return {"skipped": "章设计已过，不覆盖"}
         steer = _pilot_steer(st, seq)
-        thicken = thicken_chapter_design
         stage_name = "design"
 
         def llm_fn(prompt, max_tokens=STAGE_MAX_TOKENS[stage_name if stage_name != "plan" else "outline"]):
@@ -30,7 +26,8 @@ def build_actions(work: str) -> dict:
                 st, work, seq, stage_name, prompt, max_tokens=max_tokens,
             )
 
-        result = thicken(
+        result = thicken_stage(
+            stage_name,
             ch0,
             llm_fn=llm_fn,
             persist_fn=lambda fields: st.update_chapter_meta(seq, fields),

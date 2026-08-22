@@ -135,6 +135,17 @@ def test_commit_if_approved_false_return_is_error_not_written():
     assert "false" in out.get("error", "").lower()
 
 
+def test_commit_if_approved_ungated_name_refused():
+    calls = []
+    out = M.commit_if_approved("s3_not_a_real_tool", True, lambda: calls.append("did"))
+    assert calls == []
+    assert out["status"] == "declined"
+    assert out.get("code") == "not_write_gated"
+    out2 = M.commit_if_approved("s3_not_a_real_tool", False, lambda: calls.append("did"))
+    assert calls == []
+    assert out2["status"] == "declined"
+
+
 def test_commit_if_approved_error_dict_passthrough():
     out = M.commit_if_approved(
         "s3_add_fact", True,

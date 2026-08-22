@@ -1,4 +1,7 @@
-"""R8 W9: unattended auto-draft may require contract + ≥1 trace — no char floors."""
+"""parked · R8 W9: unattended auto-draft may require contract + ≥1 trace — no char floors.
+
+半成品：仅测试引用，未接入作者主路径。接线计划见 docs/plans/parked-modules.md。
+"""
 from __future__ import annotations
 
 from scribe3.narrative_contract import validate_narrative_contract

@@ -205,6 +205,28 @@ def test_outline_gate_fail_open_is_logged():
     assert "逃生口" in src
 
 
+def test_outline_gate_fail_open_emits_trace(monkeypatch):
+    seen = []
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("injected")
+
+    def _note(name):
+        seen.append(name)
+
+    monkeypatch.setattr("scribe3.feature_flags.flag_truthy", _boom)
+    monkeypatch.setattr("scribe3.pipeline_trace_hooks.note_guide_missing", _note)
+    monkeypatch.setattr(
+        "scribe3.stage_generate.run_stage",
+        lambda *a, **k: {"ok": True, "skipped": True},
+    )
+    monkeypatch.setattr("scribe3.stage_generate.build_ctx", lambda *a, **k: {})
+    monkeypatch.setattr("scribe3.stage_generate._emit_upstream_guide_span", lambda *a, **k: None)
+    from scribe3.stage_generate import thicken_stage
+    thicken_stage("design", {}, llm_fn=lambda *a, **k: "", persist_fn=None, seq=1)
+    assert "outline_gate_fail_open" in seen
+
+
 def test_settled_note_from_duty():
     note = _settled_note(
         {"must_happen": "把碎片按回裂口"},

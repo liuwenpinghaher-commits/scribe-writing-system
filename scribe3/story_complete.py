@@ -1,7 +1,7 @@
-"""故事完成宣称（narrative-mainline · story_ready / assert_story_claim）。
+"""parked · 故事完成宣称（narrative-mainline · story_ready / assert_story_claim）。
 
+半成品：仅测试引用，未接入作者主路径。接线计划见 docs/plans/parked-modules.md。
 设计：docs/plans/2026-08-13-narrative-mainline.md R2
-依赖：narrative_contract · anti_meta · reader_ready.pad_hard_claim · prose_fp
 """
 from __future__ import annotations
 

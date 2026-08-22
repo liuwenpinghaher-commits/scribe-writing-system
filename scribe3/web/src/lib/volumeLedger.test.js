@@ -47,4 +47,19 @@ describe('volumeLedger', () => {
     expect(pendingOutlineLine(o.chapters[1])).toMatch(/要你看一眼/)
     expect(pendingOutlineLine(o.chapters[1])).toMatch(/冻回去/)
   })
+
+  it('review copy distinguishes high confidence vs too many edits', () => {
+    expect(pendingOutlineLine({
+      seq: 2, title: '四十二度', outline_status: 'review', confidence: 'high', outline_rev: 1,
+    })).toMatch(/把握高/)
+    expect(pendingOutlineLine({
+      seq: 2, title: '四十二度', outline_status: 'review', outline_rev: 3,
+    })).toMatch(/改太多次/)
+    expect(pendingOutlineLine({
+      seq: 2, title: '四十二度', outline_status: 'review', confidence: 'high', outline_rev: 3,
+    })).toMatch(/改太多次/)
+    expect(pendingOutlineLine({
+      seq: 2, title: '四十二度', outline_status: 'review', confidence: 'high', outline_rev: 3,
+    })).not.toMatch(/把握高/)
+  })
 })

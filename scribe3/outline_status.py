@@ -6,6 +6,7 @@ from typing import Any
 _FROZEN = "frozen"
 _STALE = "stale"
 _REVIEW = "review"
+# 改到这个次数就升级人判（要人看一眼），不是熔断，不拦演绎/草稿。
 REFREEZE_REV_CAP = 3
 
 

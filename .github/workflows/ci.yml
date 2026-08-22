@@ -26,6 +26,10 @@ jobs:
       - run: |
           pip install -r scribe3/requirements.txt
           pip install -r scribe3/requirements-dev.txt
+      - name: Compile and import smoke
+        run: |
+          python -m compileall scribe3 -q
+          python -c "import scribe3.app"
       - run: python -m pytest scribe3/tests -q
         env:
           SCRIBE3_SURREAL_URL: ws://127.0.0.1:8001/rpc

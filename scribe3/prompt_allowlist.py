@@ -1,4 +1,7 @@
-"""Strip engineering-gate leaks from write-path segments (join-before)."""
+"""parked · Strip engineering-gate leaks from write-path segments (join-before).
+
+半成品：仅测试引用，未接入作者主路径。接线计划见 docs/plans/parked-modules.md。
+"""
 from __future__ import annotations
 
 import re

@@ -1,23 +1,16 @@
 """Surreal 深度利用 feature flags（S-1…S-8）。质量/一致性默认开。"""
 from __future__ import annotations
 
-import os
+from scribe3.feature_flags import flag_truthy
 
 _TRUE = {"1", "true", "yes", "on"}
 
 
 def _env_bool(key: str, default: bool = True) -> bool:
-    raw = os.environ.get(key)
-    if raw is None or raw == "":
-        try:
-            from scribe3.settings import get_setting
-            v = get_setting(key)
-            if v is not None:
-                return bool(v)
-        except Exception:
-            pass
+    try:
+        return flag_truthy(key)
+    except Exception:
         return default
-    return raw.strip().lower() in _TRUE
 
 
 def hybrid_search_native() -> bool:

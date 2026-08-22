@@ -260,11 +260,43 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
 )
 
 
+def _coerce_override(raw) -> str:
+    if raw is None:
+        return ""
+    if isinstance(raw, bool):
+        return "1" if raw else "0"
+    text = str(raw).strip()
+    if not text:
+        return ""
+    if text[0] in "[{tfnTFN\"0123456789-":
+        try:
+            import json
+            val = json.loads(text)
+            if isinstance(val, bool):
+                return "1" if val else "0"
+            return str(val).strip()
+        except Exception:
+            pass
+    return text
+
+
 def get_flag(name: str) -> str:
+    """读旗：SQLite 台账 > env > FLAG_REGISTRY 默认。台账故障 fail-soft。"""
+    try:
+        from scribe3.settings_store import get_override
+        ov = get_override(name)
+        if ov is not None:
+            coerced = _coerce_override(ov)
+            return coerced
+    except Exception:
+        pass
+    env = os.environ.get(name)
+    if env is not None and env != "":
+        return env
     entry = next((f for f in FLAG_REGISTRY if f.name == name), None)
     if entry is None:
-        return (os.environ.get(name) or "").strip()
-    return (os.environ.get(name) if os.environ.get(name) is not None else entry.default) or entry.default
+        return ""
+    return entry.default or ""
 
 
 def flag_truthy(name: str) -> bool:
