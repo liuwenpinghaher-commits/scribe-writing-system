@@ -100,6 +100,45 @@ def test_discuss_path_wires_shadow():
     assert "shadow_diff" in src
     assert 'path="discuss"' in src
     assert "SCRIBE3_RECALL_SHADOW" in src
+    assert "discuss_codex" in src
+    assert "not for_generation" in src
+
+
+def test_discuss_hub_keeps_hits_drops_unrelated_cards(monkeypatch):
+    from scribe3.api.services.write_assemble_blocks import _codex_segments
+    from scribe3.ontology import Fact
+    from scribe3.tests.test_antiflood_codex import _Char, _Store
+
+    monkeypatch.setenv("SCRIBE3_RECALL_PLAYBOOK", "1")
+    st = _Store(
+        chars=[_Char("柳岸青"), _Char("路人甲")],
+        terms=[{"name": "场核", "definition": "拓扑锚"}],
+    )
+    st.facts_at = lambda _n: [
+        Fact("fact:体温", "role:柳岸青", "身体", "四十二度不是病是标价", 1, secret=False),
+        Fact("fact:路人", "role:路人甲", "身份", "路人甲不该被摊开", 1, secret=False),
+    ]
+    named, cards, _ = _codex_segments(
+        st, reveal=True, chapter=1, for_generation=False,
+        request_text="柳岸青 体温",
+    )
+    joined = named + "\n" + cards
+    assert "四十二度不是病是标价" in named
+    assert "路人甲不该被摊开" not in joined
+    assert cards == ""
+
+
+def test_discuss_flag_off_still_spreads_cards(monkeypatch):
+    from scribe3.api.services.write_assemble_blocks import _codex_segments
+    from scribe3.tests.test_antiflood_codex import _Char, _Store
+
+    monkeypatch.setenv("SCRIBE3_RECALL_PLAYBOOK", "0")
+    st = _Store(chars=[_Char("柳岸青"), _Char("路人甲")])
+    named, cards, _ = _codex_segments(
+        st, reveal=True, chapter=1, for_generation=False,
+        request_text="柳岸青",
+    )
+    assert "路人甲" in cards or "路人甲" in named
 
 
 def test_hot_flags_go_through_registry():

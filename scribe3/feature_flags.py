@@ -168,7 +168,7 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag(
         "SCRIBE3_RECALL_PLAYBOOK",
         "1",
-        "写章设定槽走统一召回（默认开；关=退回旧子串+字母序凑数）",
+        "写章和对话设定槽走统一召回（默认开；关=退回旧子串+字母序凑数）",
         "recall",
         "caution",
     ),

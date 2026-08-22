@@ -170,6 +170,10 @@ def _rrf(packs: list[list[RecallHit]], k: int = 60) -> list[RecallHit]:
     return out
 
 
+def _keep_hit(h: RecallHit | None, reveal: bool) -> bool:
+    return bool(h) and (reveal or not h.secret)
+
+
 def recall(
     store: Any,
     *,
@@ -178,6 +182,7 @@ def recall(
     query: str = "",
     budget_tag: str = "playbook_codex",
     work: str | None = None,
+    reveal: bool = False,
 ) -> RecallPack:
     """六段中的可落地部分：语义/BM25/图；时态+限知 fail-closed。直取槽不接管。"""
     from scribe3.feature_flags import flag_truthy
@@ -186,12 +191,13 @@ def recall(
     packs: list[list[RecallHit]] = []
     q = " ".join([str(query or "").strip(), str(focalizer or "").replace("role:", "")]).strip()
     needles = [p for p in q.split() if len(p) >= 2]
+    reveal = bool(reveal)
 
     facts_fn = getattr(store, "facts_at", None)
     if callable(facts_fn):
         try:
             rows = list(facts_fn(int(chapter)) or [])
-            hits = [h for h in (_as_hit(f, "facts_at") for f in rows) if h and not h.secret]
+            hits = [h for h in (_as_hit(f, "facts_at") for f in rows) if _keep_hit(h, reveal)]
             if needles:
                 hits = [
                     h for h in hits
@@ -208,7 +214,7 @@ def recall(
     if callable(hybrid) and q:
         try:
             rows = list(hybrid(q, int(chapter), k=8) or [])
-            hits = [h for h in (_as_hit(f, "hybrid") for f in rows) if h and not h.secret]
+            hits = [h for h in (_as_hit(f, "hybrid") for f in rows) if _keep_hit(h, reveal)]
             packs.append(hits)
             channels.append("hybrid")
         except Exception as exc:
@@ -221,7 +227,7 @@ def recall(
     elif callable(semantic) and q:
         try:
             rows = list(semantic(q, k=8, chapter=int(chapter)) or [])
-            hits = [h for h in (_as_hit(f, "semantic") for f in rows) if h and not h.secret]
+            hits = [h for h in (_as_hit(f, "semantic") for f in rows) if _keep_hit(h, reveal)]
             packs.append(hits)
             channels.append("semantic")
         except Exception as exc:
@@ -237,7 +243,7 @@ def recall(
         if callable(graph_fn) and focalizer:
             try:
                 rows = list(graph_fn(str(focalizer).replace("role:", ""), hops=2, chapter=int(chapter)) or [])
-                hits = [h for h in (_as_hit(f, "graph") for f in rows) if h and not h.secret]
+                hits = [h for h in (_as_hit(f, "graph") for f in rows) if _keep_hit(h, reveal)]
                 packs.append(hits)
                 channels.append("graph")
             except Exception as exc:

@@ -386,27 +386,6 @@ def _codex_segments(st, reveal: bool = True, focalizer: str = "", chapter: int |
             _card_line(str((r or {}).get("name") or ""), cat),
         )
 
-    try:
-        from scribe3.feature_flags import flag_truthy
-        if flag_truthy("SCRIBE3_RECALL_PLAYBOOK") and chapter is not None:
-            from scribe3.recall_service import recall
-            pack = recall(
-                st,
-                chapter=int(chapter),
-                focalizer=focalizer or "",
-                query=request_text or mention or "",
-                budget_tag="discuss_codex",
-            )
-            hit_names = {
-                h.entity_id.replace("role:", "") for h in pack.hits if h.entity_id
-            }
-            if hit_names:
-                for kind, lines in list(card_by_kind.items()):
-                    kept = [ln for ln in lines if any(n and n in ln for n in hit_names)]
-                    card_by_kind[kind] = kept[:4] if kept else lines[:4]
-    except Exception:
-        pass
-
     cap = int(named_soft_cap) if named_soft_cap is not None else named_pack_soft_cap(work=work)
     named_items.sort(key=lambda x: x["pri"])
     kept_named: list[dict] = []
@@ -468,6 +447,56 @@ def _codex_segments(st, reveal: bool = True, focalizer: str = "", chapter: int |
         cards_text = f"{banner}\n{cards_text}"
         named_text = ""
 
+    legacy_named, legacy_cards = named_text, cards_text
+    try:
+        from scribe3.feature_flags import flag_truthy
+        if (
+            flag_truthy("SCRIBE3_RECALL_PLAYBOOK")
+            and chapter is not None
+            and not for_generation
+        ):
+            from scribe3.recall_service import pack_text, recall
+            pack = recall(
+                st,
+                chapter=int(chapter),
+                focalizer=focalizer or "",
+                query=request_text or mention or "",
+                budget_tag="discuss_codex",
+                work=work,
+                reveal=reveal,
+            )
+            body = pack_text(pack)
+            if body:
+                chunks = [banner, body]
+                if named_body:
+                    chunks.append(named_body)
+                named_text = "\n".join(chunks)
+            else:
+                facts_fn = getattr(st, "facts_at", None)
+                public = False
+                if callable(facts_fn):
+                    try:
+                        public = any(
+                            (f.get("secret") is not True if isinstance(f, dict) else not getattr(f, "secret", False))
+                            for f in (facts_fn(int(chapter)) or [])
+                        )
+                    except Exception:
+                        public = False
+                if public:
+                    try:
+                        from scribe3.pipeline_trace_hooks import note_guide_missing
+                        note_guide_missing("codex_recall_empty")
+                    except Exception:
+                        pass
+            cards_text = ""
+    except Exception:
+        named_text, cards_text = legacy_named, legacy_cards
+        try:
+            from scribe3.pipeline_trace_hooks import note_guide_missing
+            note_guide_missing("codex_recall_overlay_skip")
+        except Exception:
+            pass
+
     stats = {
         "codex_named_chars": len(named_text),
         "codex_cards_chars": len(cards_text),
@@ -477,10 +506,10 @@ def _codex_segments(st, reveal: bool = True, focalizer: str = "", chapter: int |
         ],
     }
     try:
-        from scribe3.feature_flags import flag_truthy, get_flag
+        from scribe3.feature_flags import flag_truthy
         if flag_truthy("SCRIBE3_RECALL_SHADOW") and chapter is not None:
             from scribe3.recall_service import shadow_diff
-            legacy = "\n".join(p for p in (named_text, cards_text) if p)
+            legacy = "\n".join(p for p in (legacy_named, legacy_cards) if p)
             rec = shadow_diff(
                 st, int(chapter), focalizer or "", legacy,
                 query=request_text or "", path="discuss",
