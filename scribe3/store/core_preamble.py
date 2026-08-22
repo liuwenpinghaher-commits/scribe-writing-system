@@ -212,7 +212,7 @@ def _guard_mutable_slug(slug: str) -> None:
     """main 保护 + slug 合法性——archive_work / delete_work 共用两道校验。"""
     if slug == "main":
         raise ValueError("不能删除主书 main")
-    if not all(c.isalnum() or c == "_" for c in slug):
+    if not all(c.isalnum() or c in "_-" for c in slug):
         raise ValueError("非法 slug")
 
 
@@ -249,10 +249,7 @@ def list_works(url: str | None = None) -> list[dict]:
     try:
         rows = db.query(f"SELECT * FROM work WHERE {_ACTIVE_FILTER}")
         if not rows:
-            total = db.query("SELECT * FROM work")
-            if not total:
-                db.query("CREATE work:main CONTENT { slug:'main', title:'乱世铜炉·设定参照', ord:0 }")
-                return _apply_owner_filter([{"slug": "main", "title": "乱世铜炉·设定参照", "owner_user_id": None}])
+            return []
         rows = sorted(rows, key=lambda r: r.get("ord") or 0)
         return _apply_owner_filter([_work_public_row(r) for r in rows])
     finally:
@@ -408,7 +405,7 @@ def set_work_owner(slug: str, owner_user_id: str, url: str | None = None) -> dic
     owner = (owner_user_id or "").strip()
     if not owner:
         raise ValueError("owner_user_id required")
-    if not all(c.isalnum() or c == "_" for c in slug):
+    if not all(c.isalnum() or c in "_-" for c in slug):
         raise ValueError("非法 slug")
     db = _reg_conn(url)
     try:
