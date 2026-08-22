@@ -105,3 +105,15 @@
 | 改卷工具 | `s3_patch_volume` | WRITE_GATED;正式卷「让主编写入」种子必须点名 `volume_id` |
 | 建卷工具 | `s3_add_volume` | WRITE_GATED;从「未分卷」创建正式卷 |
 | 策略 | 按需后建卷（opt-in） | 默认后建;先建卷=作者主动;禁止开书强制先建卷 |
+
+## 组十一：API 键名与产品文案映射
+
+| API 键/路径 | 产品文案（作者可见） | 说明 |
+|---|---|---|
+| `GET /chapter-pulse` → `checks` | "本章脉搏" | PulseBar 组件渲染的维度列表 |
+| `checks[].dimension` | 维度 ID（promise/arc/relation/tension/causal/quality/scene） | 不对作者显示原始 ID |
+| `checks[].severity` | info→灰/nudge→黄/decision→红 | 三级信号灯 |
+| `checks[].items[].message` | "脉搏详情"面板正文 | 人话描述，直接展示 |
+| `GET /quality` → `gate.hits` | "质量判定" | ChiefDock 质量面板 |
+| `gate.vcode` | pass→"通过"/needs_human→"待人审"/fail→"未通过" | 质量判定结果 |
+| `GET /inbox` → `items` | "决策收件箱" | PilotInbox 组件 |

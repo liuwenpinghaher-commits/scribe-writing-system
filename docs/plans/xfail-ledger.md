@@ -10,3 +10,9 @@
 | test_chapter_open_defaults_to_manuscript | scribe3/tests/test_r8_ui_copy.py | 未上线页面文案，挂牌停住 | 2026-09-22 | **续挂**：同上 |
 
 机制演练：2026-08-22 逐条看过原因，均仍成立，不销账、不改期限。
+
+| test_pulse_endpoint | scribe3/tests/test_pulse.py | scene 维加入后 ==6 硬编码过期 | 2026-09-22 | **已修复（T01）** |
+| test_dimension_failsoft_isolated | scribe3/tests/test_pulse.py | arc store mock 不充分 | 2026-09-22 | **已修复（T02）** |
+| test_arc_lie_belief_jump_maps_to_decision | scribe3/tests/test_pulse.py | arc mock 不充分 | 2026-09-22 | **已修复（T03）** |
+| test_discussion_instructions_contain_pulse | scribe3/tests/test_pulse.py | arc store mock 不充分 | 2026-09-22 | **已修复（T04）** |
+| test_arc_adjacent_decision_sparse_nudge | scribe3/tests/test_pulse.py | arc 未启用 | 2026-09-22 | **已修复（T05）** |

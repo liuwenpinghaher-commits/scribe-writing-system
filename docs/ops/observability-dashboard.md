@@ -62,4 +62,20 @@
 - Grafana 数据源：JSON file，指向 `/var/log/scribe3/observability/`
 - Grafana 模板：`deploy/prod/grafana/quality-stats-panel.json`（gate 触发率 / vcode 分布 / fail Top-5 表）
 
+### 前置要求
+
+> systemd service 使用 `EnvironmentFile=/etc/scribe3/env`。首次部署前必须创建此文件：
+>
+> ```bash
+> sudo mkdir -p /etc/scribe3
+> sudo tee /etc/scribe3/env <<'EOF'
+> SCRIBE3_ROOT=/opt/scribe3/app
+> OBSERVABILITY_LOG_DIR=/var/log/scribe3/observability
+> # 按需追加其他环境变量（如 SURREALDB_URL）
+> EOF
+> sudo chmod 600 /etc/scribe3/env
+> ```
+>
+> 若该文件不存在，`scribe3-observability.service` 将在 timer 首次触发时立即失败（systemd 不会静默忽略缺失的 EnvironmentFile）。
+
 机器数字只给人看运行是否健康，**不得当作创作质量放行判据**。

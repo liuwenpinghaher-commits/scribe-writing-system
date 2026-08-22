@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Iterable
 
@@ -655,6 +656,14 @@ def join_generation_segments(
     if renderer_equal is not None:
         rep["prompt_renderer_shadow_equal"] = bool(renderer_equal)
         rep["prompt_renderer_legacy_len"] = len(joined_legacy or "")
+    # 运行时合规：块长合计明显超帽只记 warning，不挡生成。
+    _budget_sum = sum(rep.get("domain_lengths", {}).values())
+    _env_budget = rep.get("envelope_token_budget") or get_envelope_token_budget()
+    if _env_budget and _budget_sum > _env_budget * 1.05:
+        logging.getLogger("scribe3.budget").warning(
+            "budget_overrun: sum=%d > envelope=%d (%.0f%%)",
+            _budget_sum, _env_budget, _budget_sum / _env_budget * 100,
+        )
     return joined, rep
 
 

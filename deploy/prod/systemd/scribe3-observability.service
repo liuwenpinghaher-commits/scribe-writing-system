@@ -1,6 +1,7 @@
 [Unit]
 Description=Scribe3 质量观测脚本
 After=network.target
+# 前置：/etc/scribe3/env 必须存在（见 docs/ops/observability-dashboard.md）
 
 [Service]
 Type=oneshot

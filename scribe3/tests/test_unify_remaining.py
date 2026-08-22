@@ -618,3 +618,24 @@ def test_quality_eval_shape_adds_gate():
     assert "hits" in block
     assert "dimensions_deprecated" not in block
     assert '"dimensions"' not in block
+
+
+def test_prompt_renderer_always_equal_on_flag_open(monkeypatch):
+    """旗开时 join_generation_segments 必须记录 shadow_equal=True。"""
+    monkeypatch.setenv("SCRIBE3_PROMPT_RENDERER", "1")
+    from scribe3.feature_flags import flag_truthy as _orig
+
+    def _on(name):
+        if name == "SCRIBE3_PROMPT_RENDERER":
+            return True
+        return _orig(name)
+
+    monkeypatch.setattr("scribe3.feature_flags.flag_truthy", _on)
+    from scribe3.context_budget import join_generation_segments
+    segs = [
+        {"name": "event_drive", "layer": "redline", "text": "【事件驱动】铜炉"},
+        {"name": "final_reminder", "layer": "redline", "text": "【最终提醒】收束"},
+    ]
+    _, rep = join_generation_segments(segs, v2=True)
+    assert rep.get("prompt_renderer_shadow_equal") is True, \
+        "旗开时 renderer 输出必须与 legacy 拼接语义等价"
