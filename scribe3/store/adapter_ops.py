@@ -77,6 +77,8 @@ class AdapterOpsMixin:
     ) -> None:
         msg = (err or "")[:200]
         params = {"seq": int(seq), "st": status, "er": msg}
+        # 兼容期双写 ingest_error + ingest_message；第十一轮删 ingest_error 列后只写 ingest_message。
+        # SurrealDB $st/$er 是绑定参数，不是字符串拼接。
         sets = "ingest_status=$st, ingest_error=$er, ingest_message=$er"
         if prose_fp and status == "ok":
             params["fp"] = prose_fp[:32]

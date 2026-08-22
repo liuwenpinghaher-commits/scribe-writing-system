@@ -431,10 +431,13 @@ class ChaptersMixin:
         try:
             rows = self._query(sql_full, {"seq": seq})
         except Exception:
+            # 生产确认 migration 159 跑稳一轮后再删 sql_old。
             rows = self._query(sql_old, {"seq": seq})
         if not rows:
             return None
         r = rows[0]
+        if not r.get("ingest_message"):
+            r["ingest_message"] = r.get("ingest_error") or ""
         r["beats"] = []
         r["draft"] = ""
         r["chapter_spine"] = {}

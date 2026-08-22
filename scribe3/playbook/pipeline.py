@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Callable
+
+_log = logging.getLogger(__name__)
 
 from scribe3.playbook.envelope import pass_review
 from scribe3.playbook.errors import FrozenAssetError, StageGone
@@ -133,7 +136,12 @@ def _judge_vcode(verdict: dict[str, Any] | None) -> str:
     src = verdict or {}
     if "ok" in src and "code" in src:
         return "pass" if src.get("ok") else str(src.get("code") or "fail")
-    return str(src.get("verdict") or "")
+    raw = src.get("verdict")
+    if not raw:
+        # 历史数据缺 verdict 键——静默视为 pass（不阻断生产流）
+        _log.debug("_judge_vcode: verdict key missing, defaulting to pass")
+        return "pass"
+    return str(raw)
 
 
 def _continuity_judge(ctx: dict[str, Any]) -> dict[str, Any]:

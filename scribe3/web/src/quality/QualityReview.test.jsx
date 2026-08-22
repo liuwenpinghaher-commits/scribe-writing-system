@@ -172,6 +172,22 @@ describe('QualityReview 十维三轴审阅', () => {
     await screen.findByText('连贯性与因果')
   })
 
+  it('创建评价未带回十维时直接进入旋转态，不闪空列表', async () => {
+    apiMock.qualityEvaluation.mockResolvedValue({ chapter: 7, status: 'empty' })
+    apiMock.qualityCreateSnapshot.mockResolvedValue({
+      chapter: 7, job_id: 'job-queued', status: 'queued',
+    })
+    render(<QualityReview work="demo" seq={7} />)
+    await screen.findByText(/暂无质量评价/)
+    fireEvent.change(screen.getByRole('textbox', { name: '质量合同 ID' }), {
+      target: { value: 'contract-demo' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '创建章节评价' }))
+    expect(await screen.findByTestId('quality-job-running')).toBeTruthy()
+    expect(screen.queryByText('连贯性与因果')).toBeNull()
+    expect(screen.queryByText(/暂无质量评价/)).toBeNull()
+  })
+
   it('创建新评价后忽略先前读取返回的旧冻结评价', async () => {
     let resolveInitialLoad
     apiMock.qualityEvaluation.mockImplementationOnce(() => new Promise((resolve) => {

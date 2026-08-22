@@ -14,6 +14,7 @@ const STATE_TONE = {
 }
 
 function qualityDims(evaluation) {
+  // 兼容期：优先读 gate.hits。dimensions / dimensions_deprecated 第十一轮确认消费方只读 hits 后删除。
   const hits = evaluation?.gate?.hits
   if (Array.isArray(hits) && hits.length) return hits
   if (Array.isArray(evaluation?.dimensions) && evaluation.dimensions.length) return evaluation.dimensions
@@ -275,7 +276,7 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
         contract_revision: Number(contractRevision) || 1,
         reference_fingerprint_ids,
       })
-      setEvaluation({ chapter: activeSeq, dimensions: [], ...created })
+      setEvaluation({ chapter: activeSeq, ...created })
       setAuthorDrafts({})
       setState(created?.status || 'queued')
     } catch (err) {
@@ -299,7 +300,7 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
     setRetryError('')
     try {
       const scheduled = await api.qualityRetryJob(jobId, work)
-      setEvaluation((previous) => ({ ...previous, ...scheduled, chapter: activeSeq, dimensions: [] }))
+      setEvaluation((previous) => ({ ...previous, ...scheduled, chapter: activeSeq }))
       setState(scheduled?.status || 'queued')
     } catch {
       setRetryError('重试未能提交。请稍后重试；本次冻结正文和原有证据不会被覆盖。')

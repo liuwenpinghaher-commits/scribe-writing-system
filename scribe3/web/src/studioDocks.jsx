@@ -793,10 +793,13 @@ function QCPanel({ seq }) {
           className="mb-2 rounded-md border border-danger/40 bg-danger/8 px-2 py-1.5 text-meta text-danger"
           role="status"
         >
+          {/* 兼容期：ingest_message 为新字段；ingest_error 第十一轮删列后去掉。 */}
           反哺(ingest)失败:{ingest.ingest_message || ingest.ingest_error || ingest.ingest_status}
           ——知识账本可能落后;可点写作台「反哺失败·点重试」或手点反哺。
         </div>
       )}
+      {/* 兼容期 fallback：ingest_message 为新字段（J04 引入），ingest_error 为旧字段。
+          结束条件：第十一轮确认 ingest_message 全覆盖后删除 ingest_error 分支。 */}
       {!ingest?.failed && !ingest?.pending && ingest?.ingest_status === 'ok' && (ingest?.ingest_message || ingest?.ingest_error) && (
         <div
           data-testid="qc-ingest-ok-banner"

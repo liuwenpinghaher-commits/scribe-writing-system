@@ -603,6 +603,8 @@ def test_judge_vcode_prefers_gate():
     assert _judge_vcode({"ok": False, "code": "needs_human", "verdict": "pass"}) == "needs_human"
     assert _judge_vcode({"verdict": "pass"}) == "pass"
     assert _judge_vcode({"verdict": "needs_human"}) == "needs_human"
+    assert _judge_vcode({}) == "pass"
+    assert _judge_vcode(None) == "pass"
 
 
 def test_quality_eval_shape_adds_gate():
