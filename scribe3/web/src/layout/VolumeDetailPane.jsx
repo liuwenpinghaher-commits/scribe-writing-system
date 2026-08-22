@@ -141,12 +141,13 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
   /** 正式卷：种子必须含 s3_patch_volume + volume_id（S4） */
   const askChiefVolume = () => {
     if (vid == null) return
+    const introChanged = String(form.intro || '') !== String(savedSnap?.intro || '')
     const seed = buildPatchVolumeSeed({
       volumeId: vid,
       title: form.title,
-      intro: form.intro,
       color: form.color,
       sort_order: form.sort_order,
+      ...(introChanged ? { intro: form.intro } : {}),
       chapters,
     })
     seedChiefNarrativeWrite(
@@ -430,11 +431,16 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
             <div className="space-y-1.5">
               {volumePendingHuman(outline, vid).length === 0 ? (
                 <div className="text-faint">这一卷眼下没有要你核的章。</div>
-              ) : volumePendingHuman(outline, vid).map((ch) => (
-                <div key={ch.seq} className="text-ink leading-snug">
-                  {pendingOutlineLine(ch)}
-                </div>
-              ))}
+              ) : (
+                <>
+                  {volumePendingHuman(outline, vid).map((ch) => (
+                    <div key={ch.seq} className="text-ink leading-snug">
+                      {pendingOutlineLine(ch)}
+                    </div>
+                  ))}
+                  <div className="text-faint leading-snug">对话里续写不拦，那是逃生口。正规写演绎和草稿，核完了对主编说冻回这一卷。</div>
+                </>
+              )}
             </div>
           </section>
           <section data-testid="volume-remaining-later">

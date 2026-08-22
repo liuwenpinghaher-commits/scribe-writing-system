@@ -1330,6 +1330,24 @@ async def s3_refreeze_chapter(ctx: Context, seq: int, work: str | None = None) -
     return commit_if_approved("s3_refreeze_chapter", ok, _write)
 
 
+@mcp.tool(annotations=_RW)
+async def s3_refreeze_volume(ctx: Context, volume_id: str, work: str | None = None) -> dict:
+    """核完这一卷再冻回去。只冻待核对的章，已经冻着的不动。一次审批。"""
+    vid = str(volume_id or "").strip()
+    if not vid:
+        return {"status": "error", "code": "volume_required", "message": "请点名要冻回去的那一卷。"}
+    ok = await _ask(ctx, f"核完了，把卷 {vid} 里待核对的章一次冻回去")
+
+    def _write():
+        from scribe3.outline_status import refreeze_volume
+        out = refreeze_volume(_store_for(work), vid)
+        if not out.get("ok"):
+            return False
+        return out
+
+    return commit_if_approved("s3_refreeze_volume", ok, _write)
+
+
 async def s3_patch_chapter_plan(
     ctx: Context, seq: int,
     synopsis: str | None = None,

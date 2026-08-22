@@ -236,7 +236,7 @@ def _apply_owner_filter(rows: list[dict]) -> list[dict]:
 
 
 def list_works(url: str | None = None) -> list[dict]:
-    """列所有未废弃的书。注册表全空则自动登记 main=乱世铜炉(现有数据所在 DB)。
+    """列所有未废弃的书。注册表全空就空着，不再自动捏一本主书。
 
     L1: 若请求上下文设置了 current_owner_filter,仅返回该用户拥有的书
     (无 owner_user_id 的历史书归 SCRIBE3_LEGACY_OWNER,见 ownership.effective_owner)。

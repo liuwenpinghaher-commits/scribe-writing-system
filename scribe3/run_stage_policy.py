@@ -66,6 +66,7 @@ PLAN_SCAFFOLD_ALLOWED_TOOLS = frozenset({
     "s3_patch_contract",
     "s3_patch_chapter_meta",
     "s3_refreeze_chapter",
+    "s3_refreeze_volume",
     "s3_generate_stage",
 })
 

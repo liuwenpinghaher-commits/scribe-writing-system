@@ -1,7 +1,10 @@
 """Play-contract facade. Old outline/beats chain is gone."""
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Mapping
+
+_log = logging.getLogger("scribe3.stage_generate")
 
 from scribe3.playbook.prompts import IDENTITY_NOVELIST
 from scribe3.playbook.stages import (
@@ -209,10 +212,15 @@ def thicken_stage(
                 return {
                     "ok": False,
                     "code": "outline_stale",
-                    "message": "这章的纲改过还没核对，先看章纲再写正文。",
+                    "message": "这章的纲改过还没核对。核完了对主编说冻回去。对话里续写不拦，那是逃生口。",
                 }
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.warning("outline_status gate fail-open: %s", type(exc).__name__)
+        try:
+            from scribe3.pipeline_trace_hooks import note_guide_missing
+            note_guide_missing("outline_gate_fail_open")
+        except Exception:
+            pass
     store = _as_playbook_store(st)
     n = int(seq or 1)
     if normalize_stage(stage) == "final" and not parse_force(extra):

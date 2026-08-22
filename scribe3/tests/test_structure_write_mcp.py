@@ -80,9 +80,11 @@ def test_chapter_tools_in_write_gated():
     assert "s3_add_chapter" in M.WRITE_GATED
     assert "s3_patch_chapter_meta" in M.WRITE_GATED
     assert "s3_refreeze_chapter" in M.WRITE_GATED
+    assert "s3_refreeze_volume" in M.WRITE_GATED
     assert M.requires_approval("s3_add_chapter") is True
     assert M.requires_approval("s3_patch_chapter_meta") is True
     assert M.requires_approval("s3_refreeze_chapter") is True
+    assert M.requires_approval("s3_refreeze_volume") is True
 
 
 def test_s3_add_chapter_signatures():
@@ -95,6 +97,9 @@ def test_s3_add_chapter_signatures():
     sig_r = inspect.signature(M.s3_refreeze_chapter)
     for p in ("seq", "work"):
         assert p in sig_r.parameters, f"s3_refreeze_chapter 缺参数 {p}"
+    sig_v = inspect.signature(M.s3_refreeze_volume)
+    for p in ("volume_id", "work"):
+        assert p in sig_v.parameters, f"s3_refreeze_volume 缺参数 {p}"
 
 
 def test_s3_add_chapter_accept(store):

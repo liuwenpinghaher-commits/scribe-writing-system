@@ -43,6 +43,8 @@ describe('volumeLedger', () => {
     }
     expect(volumePendingHuman(o, 'cage').map((c) => c.seq)).toEqual([1, 2])
     expect(pendingOutlineLine(o.chapters[0])).toMatch(/还没冻回去/)
+    expect(pendingOutlineLine(o.chapters[0])).toMatch(/冻回去/)
     expect(pendingOutlineLine(o.chapters[1])).toMatch(/要你看一眼/)
+    expect(pendingOutlineLine(o.chapters[1])).toMatch(/冻回去/)
   })
 })

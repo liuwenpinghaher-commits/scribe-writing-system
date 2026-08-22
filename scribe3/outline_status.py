@@ -6,6 +6,14 @@ from typing import Any
 _FROZEN = "frozen"
 _STALE = "stale"
 _REVIEW = "review"
+REFREEZE_REV_CAP = 3
+
+
+def intro_text_changed(old: Any, new: Any) -> bool:
+    """压空白后再比。原样回写不算改纲。"""
+    def _n(s: Any) -> str:
+        return " ".join(str(s or "").split())
+    return _n(old) != _n(new)
 
 
 def is_high_confidence(row: dict[str, Any] | None) -> bool:
@@ -32,7 +40,7 @@ def classify_intro_change(chapters: list[dict[str, Any]]) -> dict[str, list[int]
             continue
         if n <= 0:
             continue
-        if is_high_confidence(row):
+        if is_high_confidence(row) or _outline_rev(row) >= REFREEZE_REV_CAP:
             pending_human.append(n)
         else:
             stale.append(n)
@@ -79,12 +87,24 @@ def mark_volume_intro_changed(store: Any, volume_id: str) -> dict[str, Any]:
     return split
 
 
+def _pending_status(status: str) -> bool:
+    return status in (_STALE, _REVIEW)
+
+
 def refreeze_chapter(store: Any, seq: int) -> dict[str, Any]:
-    """stale/review → frozen，outline_rev+1。已冻结再调一次不改版本。"""
+    """stale/review → frozen，outline_rev+1。已冻结再调一次不改版本。优先库内一条语句。"""
     try:
         n = int(seq)
     except (TypeError, ValueError):
         return {"ok": False, "code": "seq_invalid"}
+    cas = getattr(store, "cas_refreeze_chapter", None)
+    if callable(cas):
+        try:
+            out = cas(n)
+            if isinstance(out, dict) and out.get("ok") is not None:
+                return out
+        except Exception:
+            pass
     getter = getattr(store, "get_chapter", None)
     if not callable(getter):
         return {"ok": False, "code": "store_unusable", "seq": n}
@@ -96,11 +116,11 @@ def refreeze_chapter(store: Any, seq: int) -> dict[str, Any]:
         return {"ok": False, "code": "chapter_missing", "seq": n}
     status = str(ch.get("outline_status") or "").strip().lower()
     rev = _outline_rev(ch)
-    if status == _FROZEN:
+    if not _pending_status(status):
         return {
             "ok": True,
             "seq": n,
-            "outline_status": _FROZEN,
+            "outline_status": status or _FROZEN,
             "outline_rev": rev,
             "idempotent": True,
         }
@@ -120,4 +140,46 @@ def refreeze_chapter(store: Any, seq: int) -> dict[str, Any]:
         "outline_status": _FROZEN,
         "outline_rev": new_rev,
         "idempotent": False,
+    }
+
+
+def refreeze_volume(store: Any, volume_id: str) -> dict[str, Any]:
+    """这一卷待核对的章一次冻回去。"""
+    vid = str(volume_id or "").strip()
+    if not vid:
+        return {"ok": False, "code": "volume_required"}
+    cas = getattr(store, "cas_refreeze_volume", None)
+    if callable(cas):
+        try:
+            out = cas(vid)
+            if isinstance(out, dict) and out.get("ok") is not None:
+                return out
+        except Exception:
+            pass
+    q = getattr(store, "_query", None)
+    seqs: list[int] = []
+    if callable(q):
+        try:
+            rows = q(
+                "SELECT seq, outline_status FROM chapter:.. "
+                "WHERE volume = type::record('volume', $vid) "
+                "AND (archived = NONE OR archived != true)",
+                {"vid": vid},
+            ) or []
+            for r in rows:
+                if not isinstance(r, dict):
+                    continue
+                st = str(r.get("outline_status") or "").strip().lower()
+                if _pending_status(st):
+                    seqs.append(int(r.get("seq") or 0))
+        except Exception:
+            seqs = []
+    seqs = [s for s in seqs if s > 0]
+    results = [refreeze_chapter(store, s) for s in seqs]
+    return {
+        "ok": all(r.get("ok") for r in results) if results else True,
+        "volume_id": vid,
+        "seqs": seqs,
+        "results": results,
+        "n": len(results),
     }

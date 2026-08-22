@@ -35,6 +35,16 @@ describe('buildPatchVolumeSeed', () => {
   it('throws without volumeId', () => {
     expect(() => buildPatchVolumeSeed({})).toThrow(/volumeId/)
   })
+
+  it('没改卷纲就不带 intro', () => {
+    const s = buildPatchVolumeSeed({
+      volumeId: 'vol-2',
+      title: '第二卷',
+      color: '#111',
+      sort_order: 2,
+    })
+    expect(s).not.toMatch(/intro 如下/)
+  })
 })
 
 describe('buildAddVolumeSeed', () => {

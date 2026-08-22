@@ -110,6 +110,7 @@ scribe3_write:
       - s3_add_chapter
       - s3_patch_chapter_meta
       - s3_refreeze_chapter
+      - s3_refreeze_volume
       - s3_patch_play
       - s3_patch_contract
       - s3_add_arc_beat
@@ -179,6 +180,7 @@ scribe3_plan_write:
     include:
       - s3_patch_chapter_meta
       - s3_refreeze_chapter
+      - s3_refreeze_volume
       - s3_generate_stage
     prompts: false
     resources: false

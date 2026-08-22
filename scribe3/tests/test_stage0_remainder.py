@@ -101,6 +101,59 @@ def test_intro_change_stale_skips_high_confidence():
     assert should_block_stage("deduce", "review") is False
 
 
+def test_intro_text_changed_ignores_whitespace():
+    from scribe3.outline_status import intro_text_changed
+    assert intro_text_changed("华山成核 / 四十二度", "华山成核 / 四十二度") is False
+    assert intro_text_changed("华山成核 / 四十二度", "  华山成核   /  四十二度\n") is False
+    assert intro_text_changed("华山成核", "四十二度") is True
+
+
+def test_rev_cap_marks_review_not_stale():
+    from scribe3.outline_status import classify_intro_change, REFREEZE_REV_CAP
+    split = classify_intro_change([
+        {"seq": 1, "confidence": "low", "outline_rev": REFREEZE_REV_CAP},
+        {"seq": 2, "confidence": "low", "outline_rev": 0},
+    ])
+    assert split["pending_human"] == [1]
+    assert split["stale"] == [2]
+
+
+def test_refreeze_volume_only_pending():
+    from scribe3.outline_status import refreeze_volume
+
+    class _St:
+        def __init__(self):
+            self.rows = [
+                {"seq": 1, "outline_status": "stale", "outline_rev": 0},
+                {"seq": 2, "outline_status": "review", "outline_rev": 1},
+                {"seq": 3, "outline_status": "frozen", "outline_rev": 2},
+            ]
+            self.ch = {r["seq"]: dict(r) for r in self.rows}
+
+        def _query(self, sql, vars=None):
+            return list(self.rows)
+
+        def update_chapter_meta(self, seq, fields):
+            self.ch[int(seq)].update(fields)
+            for r in self.rows:
+                if r["seq"] == int(seq):
+                    r.update(fields)
+            return True
+
+        def get_chapter(self, seq):
+            row = self.ch.get(int(seq))
+            return dict(row) if row else None
+
+    st = _St()
+    out = refreeze_volume(st, "cage")
+    assert out["ok"] is True
+    assert set(out["seqs"]) == {1, 2}
+    assert st.ch[1]["outline_status"] == "frozen"
+    assert st.ch[2]["outline_status"] == "frozen"
+    assert st.ch[3]["outline_status"] == "frozen"
+    assert st.ch[3]["outline_rev"] == 2
+
+
 def test_refreeze_loop_idempotent():
     from scribe3.outline_status import mark_volume_intro_changed, refreeze_chapter
 
@@ -142,6 +195,14 @@ def test_refreeze_loop_idempotent():
     assert again["outline_rev"] == 1
     missing = refreeze_chapter(st, 99)
     assert missing["ok"] is False
+
+
+def test_outline_gate_fail_open_is_logged():
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "stage_generate.py").read_text(encoding="utf-8")
+    assert "outline_gate_fail_open" in src
+    assert "fail-open" in src
+    assert "逃生口" in src
 
 
 def test_settled_note_from_duty():

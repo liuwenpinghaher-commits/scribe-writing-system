@@ -836,16 +836,98 @@ class ChaptersMixin:
             return True
         sets = ", ".join(f"{k}=$p_{k}" for k in payload)
         params = {f"p_{k}": v for k, v in payload.items()}
+        intro_changed = False
+        if "intro" in payload:
+            try:
+                from scribe3.outline_status import intro_text_changed
+                cur = self._query(
+                    "SELECT intro FROM type::record('volume', $vid) LIMIT 1",
+                    {"vid": vid},
+                ) or []
+                old_intro = (cur[0].get("intro") if cur else "") or ""
+                intro_changed = intro_text_changed(old_intro, payload.get("intro"))
+            except Exception:
+                intro_changed = True
         self._execute_write(
             f"UPDATE type::record('volume', $vid) SET {sets}",
             {"vid": vid, **params})
-        if "intro" in payload:
+        if intro_changed:
             try:
                 from scribe3.outline_status import mark_volume_intro_changed
                 mark_volume_intro_changed(self, vid)
             except Exception:
                 pass
         return True
+
+    def cas_refreeze_chapter(self, seq: int) -> dict:
+        """只有待核对才冻住并版本+1。已冻着的再调一次不改版本。"""
+        n = int(seq)
+        rows = self._query(
+            "UPDATE type::record('chapter', $seq) SET "
+            "outline_status = 'frozen', "
+            "outline_rev = (IF outline_rev IS NONE THEN 0 ELSE outline_rev END) + 1 "
+            "WHERE outline_status INSIDE ['stale', 'review'] "
+            "RETURN seq, outline_status, outline_rev",
+            {"seq": n},
+        ) or []
+        if rows:
+            row = rows[0] if isinstance(rows[0], dict) else {}
+            return {
+                "ok": True,
+                "seq": n,
+                "outline_status": str(row.get("outline_status") or "frozen"),
+                "outline_rev": int(row.get("outline_rev") or 0),
+                "idempotent": False,
+            }
+        cur = self.get_chapter(n) or {}
+        if not cur:
+            return {"ok": False, "code": "chapter_missing", "seq": n}
+        return {
+            "ok": True,
+            "seq": n,
+            "outline_status": str(cur.get("outline_status") or "frozen"),
+            "outline_rev": int(cur.get("outline_rev") or 0),
+            "idempotent": True,
+        }
+
+    def cas_refreeze_volume(self, volume_id: str) -> dict:
+        vid = str(volume_id or "").strip()
+        rows = self._query(
+            "UPDATE chapter SET "
+            "outline_status = 'frozen', "
+            "outline_rev = (IF outline_rev IS NONE THEN 0 ELSE outline_rev END) + 1 "
+            "WHERE volume = type::record('volume', $vid) "
+            "AND outline_status INSIDE ['stale', 'review'] "
+            "AND (archived = NONE OR archived != true) "
+            "RETURN seq, outline_status, outline_rev",
+            {"vid": vid},
+        ) or []
+        seqs = []
+        results = []
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            try:
+                s = int(r.get("seq") or 0)
+            except (TypeError, ValueError):
+                continue
+            if s <= 0:
+                continue
+            seqs.append(s)
+            results.append({
+                "ok": True,
+                "seq": s,
+                "outline_status": str(r.get("outline_status") or "frozen"),
+                "outline_rev": int(r.get("outline_rev") or 0),
+                "idempotent": False,
+            })
+        return {
+            "ok": True,
+            "volume_id": vid,
+            "seqs": seqs,
+            "results": results,
+            "n": len(results),
+        }
 
     def delete_volume(self, vid: str) -> bool:
         """删卷:先把该卷下所有章的 volume 置 NONE(不删章),再删卷记录。返回 True 若存在并删除,False 若不存在。"""

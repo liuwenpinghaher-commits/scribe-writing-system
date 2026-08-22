@@ -102,6 +102,11 @@ mode_hot() {
     --exclude 'tests' \
     --exclude '.venv' \
     "$ROOT/scribe3/" "$TMP/scribe3/"
+  echo "==> compileall"
+  python3 -m compileall -q -f "$TMP/scribe3" || {
+    echo "compileall 失败，禁止上铜炉" >&2
+    exit 1
+  }
   tar -C "$TMP" -czf "$TMP/scribe3-hot.tgz" scribe3
   ls -lh "$TMP/scribe3-hot.tgz"
   "${SCP[@]}" "$TMP/scribe3-hot.tgz" "$REMOTE:/tmp/scribe3-hot.tgz"

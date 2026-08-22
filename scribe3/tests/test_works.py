@@ -9,9 +9,9 @@ def test_create_and_list_works(store):
     assert any(w["title"] == "拾骨记" and w["slug"] == "shigu" for w in works)
 
 
-def test_list_auto_registers_main(store):
-    works = list_works(url=store.url)   # 空注册表 → 自动登记 main
-    assert any(w["slug"] == "main" for w in works)
+def test_list_empty_registry_stays_empty(store):
+    works = list_works(url=store.url)
+    assert not any(w["slug"] == "main" for w in works)
 
 
 def test_books_are_isolated(store):

@@ -99,8 +99,10 @@ describe('VolumeDetailPane', () => {
     const box = await screen.findByTestId('volume-pending-human')
     expect(box.textContent).toMatch(/华山成核/)
     expect(box.textContent).toMatch(/还没冻回去/)
+    expect(box.textContent).toMatch(/冻回去/)
     expect(box.textContent).toMatch(/四十二度/)
     expect(box.textContent).toMatch(/要你看一眼/)
+    expect(box.textContent).toMatch(/逃生口/)
     expect(box.textContent).not.toMatch(/金縢裂纹/)
   })
 

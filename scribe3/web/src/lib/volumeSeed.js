@@ -25,7 +25,7 @@ function chapterAccountSeedLines(chapters = []) {
 export function buildPatchVolumeSeed({
   volumeId,
   title = '',
-  intro = '',
+  intro,
   color = '',
   sort_order = 0,
   chapters = [],
@@ -40,11 +40,13 @@ export function buildPatchVolumeSeed({
     `- title=${title || '（保持或清空请说明）'}`,
     `- color=${color || '（空）'}`,
     `- sort_order=${sort_order}`,
-    `- intro 如下（按本卷每一章各写一笔账，禁止只写其中一章的夜）:`,
-    intro?.trim() ? intro.trim() : '（空 · 空则写路径不注入 volume_intro）',
-    ...chapterAccountSeedLines(chapters),
-    '未获批准不得声称已落库。',
   ]
+  if (intro !== undefined) {
+    lines.push('- intro 如下（按本卷每一章各写一笔账，禁止只写其中一章的夜。没改卷纲就不要带 intro）:')
+    lines.push(intro?.trim() ? intro.trim() : '（空 · 空则写路径不注入 volume_intro）')
+  }
+  lines.push(...chapterAccountSeedLines(chapters))
+  lines.push('未获批准不得声称已落库。')
   return lines.join('\n')
 }
 
