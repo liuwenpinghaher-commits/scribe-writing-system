@@ -615,4 +615,6 @@ def test_quality_eval_shape_adds_gate():
     block = src[start:end]
     assert "from_existing" in block
     assert "quality_eval" in block
-    assert "dimensions_deprecated" in block
+    assert "hits" in block
+    assert "dimensions_deprecated" not in block
+    assert '"dimensions"' not in block

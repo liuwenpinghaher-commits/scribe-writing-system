@@ -142,8 +142,8 @@ def test_p1_2_drive_public_apis_fake_store():
                 return [{"pilot_state": "idle", "pilot_state_at": 1, "pilot_parked": ""}]
             if "ingest_prose_fp" in sql:
                 return [{"ingest_prose_fp": "abc", "ingest_status": "ok"}]
-            if "qc_issues" in sql or ("ingest_status" in sql and "ingest_error" in sql):
-                return [{"ingest_status": "ok", "ingest_error": None, "qc_issues": []}]
+            if "qc_issues" in sql or ("ingest_status" in sql and "ingest_message" in sql):
+                return [{"ingest_status": "ok", "ingest_message": None, "qc_issues": []}]
 
             if "attribute = '获知'" in sql:
                 return [{"local": "x1", "value": "已知事实"}]

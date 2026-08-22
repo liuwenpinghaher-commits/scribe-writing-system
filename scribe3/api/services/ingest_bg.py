@@ -40,7 +40,7 @@ def _ingest_busy(work: str, seq: int) -> bool:
 def mark_chapter_ingest_status(
     st, seq: int, status: str, err: str = "", *, prose_fp: str | None = None,
 ) -> None:
-    """单源:落 chapter.ingest_status / ingest_message（兼容期仍双写 ingest_error）。
+    """单源:落 chapter.ingest_status / ingest_message。
 
     同步 /ingest、后台 _bg_ingest、loop finalize、统一终选 apply 共用。
     status=ok 且传 prose_fp 时一并写入 ingest_prose_fp，供同正文跳过二次 purge。

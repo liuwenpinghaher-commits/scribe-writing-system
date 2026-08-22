@@ -14,12 +14,8 @@ const STATE_TONE = {
 }
 
 function qualityDims(evaluation) {
-  // 兼容期：优先读 gate.hits。dimensions / dimensions_deprecated 第十一轮确认消费方只读 hits 后删除。
   const hits = evaluation?.gate?.hits
-  if (Array.isArray(hits) && hits.length) return hits
-  if (Array.isArray(evaluation?.dimensions) && evaluation.dimensions.length) return evaluation.dimensions
-  if (Array.isArray(evaluation?.dimensions_deprecated)) return evaluation.dimensions_deprecated
-  return []
+  return Array.isArray(hits) ? hits : []
 }
 
 function ScoreInput({ value, onChange, label, path }) {
@@ -176,6 +172,7 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
   const [retryError, setRetryError] = useState('')
   // 创建/重试会切换到新的冻结 job；旧请求晚返回时不得覆盖新 job 的空壳状态。
   const evaluationEpoch = useRef(0)
+  const evaluationRef = useRef(null)
 
   useEffect(() => {
     let live = true
@@ -191,6 +188,7 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
   const load = useCallback((background = false) => {
     const requestEpoch = evaluationEpoch.current
     if (activeSeq == null) {
+      evaluationRef.current = null
       setEvaluation(null)
       setState('idle')
       return
@@ -199,6 +197,9 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
     api.qualityEvaluation(activeSeq, work)
       .then((ev) => {
         if (requestEpoch !== evaluationEpoch.current) return
+        const prev = evaluationRef.current
+        if (ev && prev && ev.job_id === prev.job_id && ev.status === prev.status) return
+        evaluationRef.current = ev
         setEvaluation(ev)
         setState(ev?.status || 'ready')
         if (ev?.status !== 'queued' && ev?.status !== 'running') setRetrying(false)
@@ -276,7 +277,9 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
         contract_revision: Number(contractRevision) || 1,
         reference_fingerprint_ids,
       })
-      setEvaluation({ chapter: activeSeq, ...created })
+      const next = { chapter: activeSeq, ...created }
+      evaluationRef.current = next
+      setEvaluation(next)
       setAuthorDrafts({})
       setState(created?.status || 'queued')
     } catch (err) {
@@ -300,7 +303,11 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
     setRetryError('')
     try {
       const scheduled = await api.qualityRetryJob(jobId, work)
-      setEvaluation((previous) => ({ ...previous, ...scheduled, chapter: activeSeq }))
+      setEvaluation((previous) => {
+        const next = { ...previous, ...scheduled, chapter: activeSeq }
+        evaluationRef.current = next
+        return next
+      })
       setState(scheduled?.status || 'queued')
     } catch {
       setRetryError('重试未能提交。请稍后重试；本次冻结正文和原有证据不会被覆盖。')

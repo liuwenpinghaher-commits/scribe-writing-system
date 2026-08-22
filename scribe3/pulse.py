@@ -240,7 +240,7 @@ def _quality_dim(st, seq: int) -> dict:
     ist = ch.get("ingest_status")
     if ist in ("failed", "parse_failed"):
         items.append(_item(
-            f"本章反哺(ingest)未成功:{ch.get('ingest_error') or ist}——知识账本落后,后续章简报吃陈旧数据",
+            f"本章反哺(ingest)未成功:{ch.get('ingest_message') or ist}——知识账本落后,后续章简报吃陈旧数据",
             "nudge", _chat_action("本章反哺失败了,帮我看看要不要手动重跑?")))
     qc = ch.get("qc_issues")
     qn = len(qc) if isinstance(qc, list) else (qc or 0)

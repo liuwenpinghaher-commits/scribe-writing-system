@@ -18,18 +18,19 @@ const DIMENSIONS = [
 ]
 
 function evaluation({ withAuthor = false, conflicted = false } = {}) {
+  const hits = DIMENSIONS.map((label, i) => ({
+    dimension: label,
+    state: 'evaluable',
+    system: { score: 3, effect: '稳', mechanism: '机制' + i, evidence: [{ chapter_version_id: 'chapter_version:abc', quote: '原文证据', start_utf16: 0, end_utf16: 4, content_hash: 'a'.repeat(64) }], confidence: 0.8 },
+    reference: { score: 4, mode: 'close' },
+    author: withAuthor ? { score: 4 } : null,
+    decision_index: withAuthor ? 3.6 : null,
+    conflicted: conflicted && i === 0,
+  }))
   return {
     chapter_version_id: 'chapter_version:abc',
     chapter: 7,
-    dimensions: DIMENSIONS.map((label, i) => ({
-      dimension: label,
-      state: 'evaluable',
-      system: { score: 3, effect: '稳', mechanism: '机制' + i, evidence: [{ chapter_version_id: 'chapter_version:abc', quote: '原文证据', start_utf16: 0, end_utf16: 4, content_hash: 'a'.repeat(64) }], confidence: 0.8 },
-      reference: { score: 4, mode: 'close' },
-      author: withAuthor ? { score: 4 } : null,
-      decision_index: withAuthor ? 3.6 : null,
-      conflicted: conflicted && i === 0,
-    })),
+    gate: { hits },
     status: 'ready',
   }
 }
@@ -132,7 +133,7 @@ describe('QualityReview 十维三轴审阅', () => {
 
   it('运行中不渲染作者裁决表单', async () => {
     apiMock.qualityEvaluation.mockResolvedValue({
-      chapter: 7, job_id: 'job-7', status: 'running', dimensions: [],
+      chapter: 7, job_id: 'job-7', status: 'running',
     })
     render(<QualityReview work="demo" seq={7} />)
     await act(async () => { await Promise.resolve() })
@@ -155,7 +156,7 @@ describe('QualityReview 十维三轴审阅', () => {
   })
 
   it('从明确章节、合同和已批准指纹创建质量快照', async () => {
-    apiMock.qualityEvaluation.mockResolvedValue({ chapter: 7, dimensions: [], status: 'empty' })
+    apiMock.qualityEvaluation.mockResolvedValue({ chapter: 7, status: 'empty' })
     render(<QualityReview work="demo" seq={7} />)
     await screen.findByText(/暂无质量评价/)
     fireEvent.change(screen.getByRole('textbox', { name: '质量合同 ID' }), {
@@ -194,7 +195,7 @@ describe('QualityReview 十维三轴审阅', () => {
       resolveInitialLoad = resolve
     }))
     apiMock.qualityCreateSnapshot.mockResolvedValue({
-      chapter: 7, job_id: 'job-new', status: 'queued', dimensions: [],
+      chapter: 7, job_id: 'job-new', status: 'queued',
     })
     render(<QualityReview work="demo" seq={7} />)
     fireEvent.change(screen.getByRole('textbox', { name: '质量合同 ID' }), {
@@ -205,10 +206,12 @@ describe('QualityReview 十维三轴审阅', () => {
     resolveInitialLoad({
       ...evaluation(),
       job_id: 'job-old',
-      dimensions: evaluation().dimensions.map((dimension) => ({
-        ...dimension,
-        system: { ...dimension.system, evidence: [{ ...dimension.system.evidence[0], quote: '旧冻结证据' }] },
-      })),
+      gate: {
+        hits: evaluation().gate.hits.map((dimension) => ({
+          ...dimension,
+          system: { ...dimension.system, evidence: [{ ...dimension.system.evidence[0], quote: '旧冻结证据' }] },
+        })),
+      },
     })
     expect(await screen.findByTestId('quality-job-running')).toBeTruthy()
     expect(screen.queryByText('旧冻结证据')).toBeNull()

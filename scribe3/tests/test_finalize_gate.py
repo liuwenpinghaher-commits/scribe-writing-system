@@ -42,7 +42,7 @@ class FakeStore:
             "seq": int(seq), "prose": prose, "title": title,
             "focalizer": focalizer,
             "ingest_status": prev.get("ingest_status"),
-            "ingest_error": prev.get("ingest_error"),
+            "ingest_message": prev.get("ingest_message"),
         }
         self.saved.append((int(seq), prose))
 
@@ -70,7 +70,7 @@ class FakeStore:
     def set_chapter_ingest_status(self, seq, status, err="", *, prose_fp=None):
         sql = (
             "UPDATE type::record('chapter',$seq) SET "
-            "ingest_status=$st, ingest_error=$er, ingest_message=$er"
+            "ingest_status=$st, ingest_message=$er"
         )
         params = {"seq": int(seq), "st": status, "er": err or ""}
         if prose_fp and status == "ok":
@@ -110,7 +110,6 @@ class FakeStore:
         if "ingest_status" in (sql or "") and "seq" in params:
             ch = self.chapters.setdefault(int(params["seq"]), {"seq": int(params["seq"])})
             ch["ingest_status"] = params.get("st")
-            ch["ingest_error"] = params.get("er", "")
             ch["ingest_message"] = params.get("er", "")
             if "fp" in params and params.get("fp") is not None:
                 ch["ingest_prose_fp"] = params.get("fp")
@@ -278,7 +277,7 @@ def test_s3_save_chapter_shares_finalize_gate(monkeypatch):
 
 def test_build_ingest_status_row_honesty():
     """纯函数契约:failed 永不 ok。"""
-    r = build_ingest_status_row(1, {"ingest_status": "failed", "ingest_error": "LLM挂了"})
+    r = build_ingest_status_row(1, {"ingest_status": "failed", "ingest_message": "LLM挂了"})
     assert r["failed"] is True and r["ok"] is False
     r2 = build_ingest_status_row(1, {"ingest_status": "ok"}, pending=True)
     assert r2["ok"] is False and r2["pending"] is True
@@ -292,18 +291,18 @@ def test_real_ingest_status_handler_failed_not_ok(monkeypatch):
     st = FakeStore()
     st.chapters[7] = {
         "seq": 7, "prose": "正文。",
-        "ingest_status": "failed", "ingest_error": "LLM挂了",
+        "ingest_status": "failed", "ingest_message": "LLM挂了",
     }
     st.chapters[8] = {
         "seq": 8, "prose": "另一章。",
-        "ingest_status": "ok", "ingest_error": "",
+        "ingest_status": "ok", "ingest_message": "",
     }
     A = _install_fake_store(monkeypatch, st)
     monkeypatch.setattr(A, "_pending_ingest", set(), raising=False)
     row = A.ingest_status(seq=7, work="test")
     assert row["failed"] is True
     assert row["ok"] is False
-    assert "LLM" in (row.get("ingest_error") or "")
+    assert "LLM" in (row.get("ingest_message") or "")
     ok_row = A.ingest_status(seq=8, work="test")
     assert ok_row["ok"] is True and ok_row["failed"] is False
     listing = A.ingest_status(seq=None, work="test")
@@ -319,7 +318,7 @@ def test_real_ingest_retry_forced_failure_then_success(monkeypatch):
     """
     st = FakeStore()
     st.chapters[5] = {"seq": 5, "prose": "需反哺的正文。", "title": "五",
-                      "ingest_status": None, "ingest_error": ""}
+                      "ingest_status": None, "ingest_message": ""}
     A = _install_fake_store(monkeypatch, st)
     monkeypatch.setattr(A, "_pending_ingest", set(), raising=False)
     import threading
@@ -343,7 +342,7 @@ def test_real_ingest_retry_forced_failure_then_success(monkeypatch):
     ch_after_fail = st.get_chapter(5)
     assert ch_after_fail.get("ingest_status") == "failed", (
         "生产 /ingest 异常必须经 mark_chapter_ingest_status 落 failed,不得靠测试手写")
-    assert "forced_fail" in (ch_after_fail.get("ingest_error") or "")
+    assert "forced_fail" in (ch_after_fail.get("ingest_message") or "")
     # 真有 _execute_write 调用
     assert any("ingest_status" in (sql or "") for sql, _ in st.writes)
     before = A.ingest_status(seq=5, work="test")
@@ -355,7 +354,7 @@ def test_real_ingest_retry_forced_failure_then_success(monkeypatch):
     ch_after_ok = st.get_chapter(5)
     assert ch_after_ok.get("ingest_status") == "ok", (
         "retry 成功必须 mark ok,否则 UI 角标永不消")
-    assert (ch_after_ok.get("ingest_error") or "") == ""
+    assert (ch_after_ok.get("ingest_message") or "") == ""
     after = A.ingest_status(seq=5, work="test")
     assert after["ok"] is True and after["failed"] is False
     assert calls["n"] == 2
@@ -368,10 +367,10 @@ def test_mark_chapter_ingest_status_shared_helper(monkeypatch):
     st.chapters[3] = {"seq": 3, "prose": "x"}
     A.mark_chapter_ingest_status(st, 3, "failed", "boom")
     assert st.get_chapter(3)["ingest_status"] == "failed"
-    assert "boom" in st.get_chapter(3)["ingest_error"]
+    assert "boom" in st.get_chapter(3)["ingest_message"]
     A.mark_chapter_ingest_status(st, 3, "ok")
     assert st.get_chapter(3)["ingest_status"] == "ok"
-    assert st.get_chapter(3)["ingest_error"] == ""
+    assert st.get_chapter(3)["ingest_message"] == ""
 
 
 def test_two_chapter_frame_advance_witness_knows():

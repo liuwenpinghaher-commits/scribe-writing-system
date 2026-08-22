@@ -139,7 +139,7 @@ def _judge_vcode(verdict: dict[str, Any] | None) -> str:
     raw = src.get("verdict")
     if not raw:
         # 历史数据缺 verdict 键——静默视为 pass（不阻断生产流）
-        _log.debug("_judge_vcode: verdict key missing, defaulting to pass")
+        _log.info("_judge_vcode: verdict key missing, defaulting to pass")
         return "pass"
     return str(raw)
 
@@ -191,6 +191,7 @@ def _quality_loop(
     judge_ctx: Callable[[Any], dict[str, Any]],
     llm_fn: Callable,
     extract: Callable[[Any], Any] | None = None,
+    seq: Any = None,
 ) -> dict[str, Any]:
     last_sha = ""
     last_verdict: dict[str, Any] | None = None
@@ -276,6 +277,13 @@ def _quality_loop(
         last_sha = sha
         sid_j = playbook_span_start("playbook.judge")
         vcode = _judge_vcode(verdict)
+        seq_note = seq
+        if seq_note is None:
+            try:
+                seq_note = (judge_ctx(art) or {}).get("seq")
+            except Exception:
+                seq_note = None
+        _log.info("vcode=%s seq=%s sha=%s", vcode, seq_note if seq_note is not None else "?", sha[:8] if sha else "?")
         playbook_note_gate(
             sid_j, ok=vcode == "pass",
             code="" if vcode == "pass" else (vcode or "needs_human"),
@@ -397,6 +405,7 @@ def _run_duty(store, seq, ctx, llm_fn, *, force, persist):
             **_continuity_judge(ctx),
         },
         llm_fn=llm_fn,
+        seq=seq,
     )
     return _finish(store, "duty_card", "duty_card.v1", seq, result, persist=persist, rewrite=force)
 
@@ -425,6 +434,7 @@ def _run_design(store, seq, ctx, llm_fn, *, force, rewrite, persist):
                 **_continuity_judge(ctx),
             },
             llm_fn=llm_fn,
+            seq=seq,
         )
         if not result.get("ok"):
             return result
@@ -475,6 +485,7 @@ def _run_design(store, seq, ctx, llm_fn, *, force, rewrite, persist):
             "contract_json": _json(c),
         },
         llm_fn=llm_fn,
+        seq=seq,
     )
     if not result.get("ok"):
         result["play"] = play_frozen
@@ -533,6 +544,7 @@ def _run_deduce(store, seq, ctx, llm_fn, *, force, persist):
             **_continuity_judge(ctx),
         },
         llm_fn=llm_fn,
+        seq=seq,
     )
     out = _finish(store, "chapter_deduce", "chapter_deduce.v1", seq, result,
                   persist=persist, rewrite=force, source_sha=play.get("sha") or "")
@@ -619,6 +631,7 @@ def _run_draft(store, seq, ctx, llm_fn, *, force, persist):
             **_continuity_judge(ctx),
         },
         llm_fn=llm_fn,
+        seq=seq,
     )
     out = _finish(store, "chapter_draft", "chapter_draft.v1", seq, result,
                   persist=persist, rewrite=force, source_sha=play.get("sha") or "")
@@ -735,6 +748,7 @@ def _run_final(store, seq, ctx, llm_fn, *, force, persist):
             **_continuity_judge(ctx),
         },
         llm_fn=llm_fn,
+        seq=seq,
     )
     if result.get("ok") and persist:
         persist_fn = getattr(store, "save_chapter_prose", None)

@@ -66,7 +66,7 @@ def test_dimension_failsoft_isolated(store, monkeypatch):
 def test_ingest_failed_surfaces_in_quality(store):
     store.save_chapter(2, "正文。", title="二")
     store._execute_write(
-        "UPDATE type::record('chapter',2) SET ingest_status='failed', ingest_error='LLM挂了'",
+        "UPDATE type::record('chapter',2) SET ingest_status='failed', ingest_message='LLM挂了'",
         {})
     out = P.chapter_pulse(store, 2)
     q = _dims(out)["quality"]

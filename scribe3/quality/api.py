@@ -636,23 +636,16 @@ def _shape_evaluation(evaluation, seq: int, *, quality: QualityStore) -> dict[st
         # 只暴露本次冻结评价绑定的不可变版本 ID，供审计确认结论没有滞留在
         # 旧正文版本；正文和模型输入仍不离开现有受控读取边界。
         "chapter_version_ids": [unit.chapter_version_id for unit in evaluation.units],
-        "dimensions": dimensions,  # 兼容一版；消费方应读 gate.hits。第十一轮确认消费方切换后删除本行
-        "dimensions_deprecated": dimensions,  # 兼容期结束=第十一轮确认消费方切换后删除本行
         "weights": weights.model_dump(mode="json"),
         "status": "ready",
     }
-    try:
-        from scribe3.feature_flags import flag_truthy
-        if flag_truthy("SCRIBE3_QUALITY_GATE_UNIFIED"):
-            from scribe3.quality_gate import from_existing
-            out["gate"] = from_existing({
-                "ok": out.get("status") == "ready",
-                "code": "quality_eval",
-                "message": "",
-                "hits": dimensions,
-            })
-    except Exception:
-        pass
+    from scribe3.quality_gate import from_existing
+    out["gate"] = from_existing({
+        "ok": out.get("status") == "ready",
+        "code": "quality_eval",
+        "message": "",
+        "hits": dimensions,
+    })
     return out
 
 
@@ -685,7 +678,6 @@ def _job_state_payload(*, job_id: str, status, seq: int) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "chapter": seq,
         "job_id": job_id,
-        "dimensions": [],
         "status": status.status,
     }
     if status.status in ("retryable_failed", "failed"):
@@ -720,7 +712,7 @@ def get_evaluation(seq: int, request: Request, work: str = "main"):
     store = _store_for_request(request, work)
     job_id = _latest_job_id_for_seq(store, seq)
     if job_id is None:
-        return {"chapter": seq, "dimensions": [], "status": "empty"}
+        return {"chapter": seq, "status": "empty"}
     quality = QualityStore(store)
     status = _recoverable_job_status(quality, job_id)
     if status.status != "completed":

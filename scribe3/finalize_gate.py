@@ -342,7 +342,7 @@ def build_ingest_status_row(
     """
     ch = ch or {}
     stt = ch.get("ingest_status")
-    err = ch.get("ingest_message") or ch.get("ingest_error") or ""
+    err = ch.get("ingest_message") or ""
     is_pending = bool(pending)
     hold_reason = (ch.get("ingest_hold_reason") or "").strip()
     hold_until = float(ch.get("ingest_hold_until") or 0)
@@ -364,7 +364,6 @@ def build_ingest_status_row(
     return {
         "seq": int(ch_seq),
         "ingest_status": display,
-        "ingest_error": "" if is_pending else err,
         "ingest_message": "" if is_pending else err,
         "ok": ok,
         "failed": failed,

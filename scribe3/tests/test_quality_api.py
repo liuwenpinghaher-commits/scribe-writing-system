@@ -11,6 +11,10 @@ from scribe3.quality.api import quality_router, quality_eval_router
 from scribe3.quality.api import _chapter_version_ids_for_seq
 
 
+def _hits(payload):
+    return list(((payload or {}).get("gate") or {}).get("hits") or [])
+
+
 @pytest.fixture
 def client(store):
     app = FastAPI()
@@ -353,8 +357,10 @@ class TestQualityEvaluationEndpoints:
         # 质量结论必须可追溯到冻结版本，供长程审计确认没有对旧稿打分；
         # 这里只暴露不可变版本 ID，不返回正文、提示词或参考原文。
         assert body["chapter_version_ids"] == [f"chapter_version:{frozen_version}"]
-        assert len(body["dimensions"]) == 10
-        first = body["dimensions"][0]
+        assert "dimensions" not in body
+        assert "dimensions_deprecated" not in body
+        assert len(_hits(body)) == 10
+        first = _hits(body)[0]
         assert first["system"]["score"] == 4
         assert first["system"]["evidence"][0]["quote"] == QUOTE
         assert first["author"] is None
@@ -362,7 +368,7 @@ class TestQualityEvaluationEndpoints:
 
         got = client.get("/quality/evaluation", params={"seq": 1})
         assert got.status_code == 200
-        assert len(got.json()["dimensions"]) == 10
+        assert len(_hits(got.json())) == 10
 
         author = client.post("/quality/author-judgment", json={
             "work": store.db_name, "seq": 1,
@@ -390,9 +396,9 @@ class TestQualityEvaluationEndpoints:
             "contract_id": "contract:api", "contract_revision": 1,
         })
         assert first_job.status_code == 202
-        old_evidence = client.get("/quality/evaluation", params={
+        old_evidence = _hits(client.get("/quality/evaluation", params={
             "work": store.db_name, "seq": 1,
-        }).json()["dimensions"][0]["system"]["evidence"][0]
+        }).json())[0]["system"]["evidence"][0]
         assert old_evidence["chapter_version_id"] == f"chapter_version:{old_version}"
 
         store.add_chapter_version(
@@ -447,7 +453,8 @@ class TestQualityEvaluationEndpoints:
 
         assert response.status_code == 200
         assert response.json()["chapter"] == 1
-        assert response.json()["dimensions"] == []
+        assert "dimensions" not in response.json()
+        assert _hits(response.json()) == []
         assert response.json()["status"] == "queued"
         assert client.get("/quality/evaluation-traces", params={
             "work": store.db_name, "seq": 1,
@@ -472,7 +479,8 @@ class TestQualityEvaluationEndpoints:
         }).json()
         assert queued["chapter"] == 1
         assert queued["job_id"] == created.json()["job_id"]
-        assert queued["dimensions"] == []
+        assert "dimensions" not in queued
+        assert _hits(queued) == []
         assert queued["status"] == "queued"
 
     def test_retry_queues_only_a_retryable_frozen_job(self, client, store, monkeypatch):
@@ -582,7 +590,8 @@ class TestQualityEvaluationEndpoints:
 
         assert response.status_code == 200
         assert response.json()["status"] == "running"
-        assert response.json()["dimensions"] == []
+        assert "dimensions" not in response.json()
+        assert _hits(response.json()) == []
 
     def test_author_verdict_persists_reason_evidence_counter_evidence_and_decision(self, client, store, monkeypatch):
         _seed_contract(store)
@@ -623,7 +632,7 @@ class TestQualityEvaluationEndpoints:
 
         reread = client.get("/quality/evaluation", params={"work": store.db_name, "seq": 1})
         assert reread.status_code == 200
-        first = reread.json()["dimensions"][0]["author"]
+        first = _hits(reread.json())[0]["author"]
         assert first["score"] == 2
         assert first["decision"] == "revise"
         assert first["reason"] == verdict["reason"]
@@ -679,7 +688,8 @@ class TestQualityEvaluationEndpoints:
             "work": store.db_name, "seq": 1,
         }).json()
         assert evaluation["status"] == "retryable_failed"
-        assert evaluation["dimensions"] == []
+        assert "dimensions" not in evaluation
+        assert _hits(evaluation) == []
         assert evaluation["error_code"] == "DeepSeekTransportError"
 
 
@@ -755,9 +765,9 @@ class TestQualityContractEndpoints:
             "reference_fingerprint_ids": [fingerprint.fingerprint_id],
         })
         assert created.status_code == 202
-        evidence = client.get("/quality/evaluation", params={
+        evidence = _hits(client.get("/quality/evaluation", params={
             "work": store.db_name, "seq": 1,
-        }).json()["dimensions"][0]["system"]["evidence"][0]
+        }).json())[0]["system"]["evidence"][0]
         author = client.post("/quality/author-judgment", json={
             "work": store.db_name, "seq": 1, "dimension": "coherence_causality", "score": 5,
             "reason": "作者确认此处的因果有足够的叙事推动力。",
@@ -769,7 +779,7 @@ class TestQualityContractEndpoints:
         assert evaluation.status_code == 200
         body = evaluation.json()
         assert body["weights"] == {"author": 0.6, "system": 0.25, "reference": 0.15}
-        assert body["dimensions"][0]["decision_index"] == pytest.approx(4.6)
+        assert _hits(body)[0]["decision_index"] == pytest.approx(4.6)
 
 
 class TestMultipartImportAndApprovedList:

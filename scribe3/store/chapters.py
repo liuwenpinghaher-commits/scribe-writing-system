@@ -1,7 +1,11 @@
 """SurrealStore mixin: chapters."""
 from __future__ import annotations
 
+import logging
+
 from scribe3.store.core_preamble import *  # noqa: F403
+
+_log = logging.getLogger(__name__)
 from scribe3.chapter_meta_codec import (  # noqa: F401
     CHAPTER_JSON_LIST_META_KEYS,
     CHAPTER_JSON_META_KEYS,
@@ -412,32 +416,16 @@ class ChaptersMixin:
             "archived,"
             "(IF archived_at IS NONE THEN NONE ELSE <string>archived_at END) AS archived_at,"
             "archive_reason,"
-            "ingest_status,ingest_error,ingest_message,ingest_prose_fp "
+            "ingest_status,ingest_message,ingest_prose_fp "
             "FROM type::record('chapter',$seq)"
         )
-        sql_old = (
-            "SELECT seq,title,label,(IF volume THEN meta::id(volume) ELSE NONE END) AS volume,"
-            "focalizer,prose,synopsis,"
-            "scene_truth_revision,involved_characters,purpose_text,deltas,"
-            "pressure_drive,narrative_drive,narrative_contract,"
-            "prose_lock,play_sha,contract_sha,playbook_version,"
-            "reveal_secret_ids,"
-            "archived,"
-            "(IF archived_at IS NONE THEN NONE ELSE <string>archived_at END) AS archived_at,"
-            "archive_reason,"
-            "ingest_status,ingest_error,ingest_prose_fp "
-            "FROM type::record('chapter',$seq)"
-        )
-        try:
-            rows = self._query(sql_full, {"seq": seq})
-        except Exception:
-            # 生产确认 migration 159 跑稳一轮后再删 sql_old。
-            rows = self._query(sql_old, {"seq": seq})
+        rows = self._query(sql_full, {"seq": seq})
         if not rows:
             return None
         r = rows[0]
-        if not r.get("ingest_message"):
-            r["ingest_message"] = r.get("ingest_error") or ""
+        if "ingest_message" not in r or not r["ingest_message"]:
+            _log.debug("get_chapter seq=%s: ingest_message missing, defaulting to empty", seq)
+            r["ingest_message"] = ""
         r["beats"] = []
         r["draft"] = ""
         r["chapter_spine"] = {}

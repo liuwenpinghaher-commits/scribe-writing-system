@@ -41,7 +41,7 @@ def test_bg_ingest_records_failed_status(store, monkeypatch):
     A._bg_ingest("test", 3)
     ch = store.get_chapter(3)
     assert ch.get("ingest_status") == "failed"
-    assert "LLM挂了" in (ch.get("ingest_error") or "")
+    assert "LLM挂了" in (ch.get("ingest_message") or "")
 
 
 def test_bg_ingest_records_ok_status(store, monkeypatch):
@@ -52,7 +52,7 @@ def test_bg_ingest_records_ok_status(store, monkeypatch):
     A._bg_ingest("test", 4)
     ch = store.get_chapter(4)
     assert ch.get("ingest_status") == "ok"
-    assert not ch.get("ingest_error")
+    assert not ch.get("ingest_message")
 
 
 # ===== 3. save_chapter embedding fail-soft(审计 E-1,存稿命门)=====

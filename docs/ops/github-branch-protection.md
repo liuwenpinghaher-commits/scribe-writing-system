@@ -17,4 +17,4 @@
 
 期间最低防线仍是 `ci.yml` compileall 冒烟。
 
-第十轮（2026-08-22）：P0 催办已执行，**设置仍未勾上**。详见 `docs/ops/branch-protection-checklist.md` 与 `docs/evidence/2026-08-22-branch-protection-attempt.md`。有管理员 token 可跑 `scripts/apply_branch_protection.sh`。
+第十轮 / 第十一轮（2026-08-22）：催办已执行，**设置仍未勾上**。详见 `docs/ops/branch-protection-checklist.md` 与 `docs/evidence/2026-08-22-branch-protection-attempt.md`。有管理员 token 可跑 `scripts/apply_branch_protection.sh`。

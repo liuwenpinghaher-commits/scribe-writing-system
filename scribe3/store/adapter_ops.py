@@ -56,20 +56,14 @@ class AdapterOpsMixin:
 
     # ── chapter quality / ingest fields ─────────────────────
     def get_chapter_ingest_status_fields(self, seq: int) -> dict[str, Any]:
-        try:
-            rows = self._query(
-                "SELECT ingest_status, ingest_error, ingest_message "
-                "FROM type::record('chapter',$seq)",
-                {"seq": int(seq)},
-            ) or []
-        except Exception:
-            rows = self._query(
-                "SELECT ingest_status, ingest_error FROM type::record('chapter',$seq)",
-                {"seq": int(seq)},
-            ) or []
+        rows = self._query(
+            "SELECT ingest_status, ingest_message "
+            "FROM type::record('chapter',$seq)",
+            {"seq": int(seq)},
+        ) or []
         row = rows[0] if rows else {}
-        if row and not row.get("ingest_message"):
-            row["ingest_message"] = row.get("ingest_error") or ""
+        if row:
+            row.setdefault("ingest_message", "")
         return row
 
     def set_chapter_ingest_status(
@@ -77,9 +71,8 @@ class AdapterOpsMixin:
     ) -> None:
         msg = (err or "")[:200]
         params = {"seq": int(seq), "st": status, "er": msg}
-        # 兼容期双写 ingest_error + ingest_message；第十一轮删 ingest_error 列后只写 ingest_message。
         # SurrealDB $st/$er 是绑定参数，不是字符串拼接。
-        sets = "ingest_status=$st, ingest_error=$er, ingest_message=$er"
+        sets = "ingest_status=$st, ingest_message=$er"
         if prose_fp and status == "ok":
             params["fp"] = prose_fp[:32]
             sets += ", ingest_prose_fp=$fp"

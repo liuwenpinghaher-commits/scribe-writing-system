@@ -1,6 +1,6 @@
-# 观测看板定义（第十轮）
+# 观测看板定义（第十轮，第十一轮板块一已可跑）
 
-这是定义，不是已经挂上的大屏。四个板块都能从现有接口或表里读到一部分；标了「需新增埋点」的，下一轮再补，不能拿空格子当已经在看。
+四个板块都能从现有接口或表里读到一部分；标了「需新增埋点」的，下一轮再补，不能拿空格子当已经在看。
 
 推荐可视化：先用现有 debug 接口做简易脚本；量上来再进 Grafana。机器数字只给人看运行是否健康，**不得当作创作质量放行判据**。
 
@@ -12,7 +12,11 @@
 | vcode 分布 | pass / needs_human / fail 占比 | `playbook/pipeline.py` `_judge_vcode` 结果；关旗缺结论现默认 pass | 现有：写章 span / 判定日志。建议在 span 上记 `vcode`（已有则复用） |
 | fail 原因 Top-5 | 人话原因出现次数 | `gate.message` / `hits`；作业 `error_message` | 现有字段。不要把空串当 fail（第十轮已修） |
 
-可直接采：评价记录、质量作业状态。需新增埋点：按日聚合的 vcode 直方图（若 span 尚未带该字段）。
+**已可运行**：`python scripts/observability_quality_stats.py --book <book_id> --days 7`
+
+默认打本机 `http://127.0.0.1:8000/debug/pipeline-events`。连不上时打印原因退出，不甩栈。铜炉上可把 `--base-url` 指到容器内后端。
+
+可直接采：评价记录、质量作业状态、判定 span。需新增埋点：按日聚合的 vcode 直方图（若 span 尚未带该字段）。
 
 ## 2. 写作管线
 
@@ -29,7 +33,7 @@
 | 指标 | 含义 | 数据来源 | 采集 |
 | --- | --- | --- | --- |
 | 成功率 | `ingest_status=ok` 的章 / 有反哺记录的章 | `chapter.ingest_status`；`GET /ingest/status` | 现有表字段 |
-| 失败原因分布 | 失败条里的人话 | `ingest_message`（旧数据可回落到 `ingest_error`，第十一轮删旧列） | 现有字段。按前缀或全文归类 |
+| 失败原因分布 | 失败条里的人话 | `ingest_message`（旧列已删） | 现有字段。按前缀或全文归类 |
 | 平均设定学习条数 | 成功反哺时学到几条 | ingest 成功文案「学到了 N 条设定」；ingest 结果 `applied` | 现有文案可解析。更稳需把 `applied` 写成独立字段（需新增埋点） |
 
 可直接采：ingest 状态接口。需新增埋点：结构化 `applied` 计数，避免从人话里抠数字。

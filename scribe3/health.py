@@ -54,7 +54,7 @@ def health_report(store, up_to: int) -> HealthReport:
             if stt in ("failed", "parse_failed"):
                 ingest_failures.append({
                     "seq": ch, "status": stt,
-                    "error": (row.get("ingest_error") or "")[:200],
+                    "error": (row.get("ingest_message") or "")[:200],
                 })
         except Exception:
             continue

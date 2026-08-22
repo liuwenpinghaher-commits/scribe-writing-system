@@ -11,7 +11,13 @@
 
 本文件只备材料。真正生效以 GitHub 设置页为准。
 
-催办：第十轮 P0 落地催办已执行。**尚未生效。**
+催办：第十一轮阻断级催办已执行。**尚未生效。**
+
+第十一轮核验（2026-08-22）：
+
+- GitHub MCP `list_branches`：`main.protected=false`
+- 本机仍无 `GITHUB_TOKEN`；`./scripts/apply_branch_protection.sh` 因缺令牌退出
+- 截图目标路径：`docs/evidence/2026-08-22-branch-protection-live.png`（未产生）
 
 第十轮核验（2026-08-22）：
 
