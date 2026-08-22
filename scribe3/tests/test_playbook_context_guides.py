@@ -107,6 +107,18 @@ def test_split_world_must_not_fake_frozen():
     assert "四十二度不是病是标价" in ctx["codex_recall"]
 
 
+def test_codex_recall_does_not_alphabet_pad_unrelated():
+    world = _World()
+    world._facts = [
+        Fact("fact:体温", "role:柳岸青", "身体", "四十二度不是病是标价", 1, secret=False),
+        Fact("fact:路人", "role:赵三", "身份", "路人甲不该被字母序塞进来", 1, secret=False),
+    ]
+    ctx = build_ctx(world, 1, focalizer="role:柳岸青", playbook=_FrozenOnly())
+    assert "四十二度不是病是标价" in ctx["codex_recall"]
+    assert "路人甲" not in ctx["codex_recall"]
+    assert "看不见场核坐标" not in ctx["codex_recall"]
+
+
 def test_fact_dataclass_and_dict_both_filter_secret():
     world = _World()
     world._facts = [

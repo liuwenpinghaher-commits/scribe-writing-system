@@ -539,6 +539,63 @@ def _needles(focalizer: str, title: str, syn: str) -> list[str]:
     return out
 
 
+def _rule_lines(world: Any, needles: list[str], *, pad: bool) -> list[str]:
+    rules: list[Any] = []
+    rfn = getattr(world, "list_world_rules", None)
+    if callable(rfn):
+        try:
+            rules = list(rfn() or [])
+        except Exception:
+            rules = []
+
+    def _hit(blob: str) -> bool:
+        return any(n in blob for n in needles)
+
+    rule_hits = [
+        r for r in rules
+        if isinstance(r, dict) and _hit(f"{r.get('name') or ''}|{r.get('cost') or ''}")
+    ]
+    if not rule_hits:
+        pool = [r for r in rules if isinstance(r, dict)]
+        rule_hits = (sorted(pool, key=lambda r: str(r.get("name") or "")) if pad else pool)[:3]
+    else:
+        rule_hits = rule_hits[:3]
+    lines: list[str] = []
+    for r in rule_hits:
+        name = strip_seed_pad(str(r.get("name") or ""))
+        cost = strip_seed_pad(str(r.get("cost") or ""))
+        if name:
+            lines.append(f"{name}（代价：{cost}）" if cost else name)
+    return lines
+
+
+def _legacy_codex_recall(world: Any, seq: int, needles: list[str], public: list[Any]) -> str:
+    def _hit(blob: str) -> bool:
+        return any(n in blob for n in needles)
+
+    matched = [
+        f for f in public
+        if _hit(f"{_fact_get(f, 'entity_id')}|{_fact_get(f, 'attribute')}|{_fact_get(f, 'value')}")
+    ]
+    if len(matched) < 2:
+        matched = sorted(
+            public,
+            key=lambda f: (str(_fact_get(f, "entity_id") or ""), str(_fact_get(f, "attribute") or "")),
+        )[:4]
+    parts: list[str] = ["这些已经为真，不许另造。"]
+    for f in matched:
+        eid = str(_fact_get(f, "entity_id") or "").replace("role:", "")
+        attr = strip_seed_pad(str(_fact_get(f, "attribute") or ""))
+        val = strip_seed_pad(str(_fact_get(f, "value") or ""))
+        if attr or val:
+            parts.append(f"{eid} / {attr}：{val}")
+    parts.extend(_rule_lines(world, needles, pad=True))
+    text = "\n".join(parts)
+    if text == "这些已经为真，不许另造。":
+        return ""
+    return text[:_CODEX_BUDGET]
+
+
 def playbook_codex_recall(
     world: Any, seq: int, focalizer: str, *, rows: list[dict[str, Any]] | None = None,
 ) -> str:
@@ -556,60 +613,12 @@ def playbook_codex_recall(
             _log.warning("facts_at failed: %s", exc)
             facts = []
     public: list[Any] = [f for f in facts if _fact_get(f, "secret") is not True]
-
-    def _hit(blob: str) -> bool:
-        return any(n in blob for n in needles)
-
-    matched = [
-        f for f in public
-        if _hit(f"{_fact_get(f, 'entity_id')}|{_fact_get(f, 'attribute')}|{_fact_get(f, 'value')}")
-    ]
-    if len(matched) < 2:
-        matched = sorted(
-            public,
-            key=lambda f: (str(_fact_get(f, "entity_id") or ""), str(_fact_get(f, "attribute") or "")),
-        )[:4]
-    rules: list[Any] = []
-    rfn = getattr(world, "list_world_rules", None)
-    if callable(rfn):
-        try:
-            rules = list(rfn() or [])
-        except Exception:
-            rules = []
-    rule_hits = [
-        r for r in rules
-        if isinstance(r, dict) and _hit(f"{r.get('name') or ''}|{r.get('cost') or ''}")
-    ]
-    if not rule_hits:
-        rule_hits = sorted(
-            [r for r in rules if isinstance(r, dict)],
-            key=lambda r: str(r.get("name") or ""),
-        )[:3]
+    from scribe3.feature_flags import flag_truthy
+    if not flag_truthy("SCRIBE3_RECALL_PLAYBOOK"):
+        text = _legacy_codex_recall(world, seq, needles, public)
     else:
-        rule_hits = rule_hits[:3]
-    parts: list[str] = ["这些已经为真，不许另造。"]
-    for f in matched:
-        eid = str(_fact_get(f, "entity_id") or "").replace("role:", "")
-        attr = strip_seed_pad(str(_fact_get(f, "attribute") or ""))
-        val = strip_seed_pad(str(_fact_get(f, "value") or ""))
-        if attr or val:
-            parts.append(f"{eid} / {attr}：{val}")
-    for r in rule_hits:
-        name = strip_seed_pad(str(r.get("name") or ""))
-        cost = strip_seed_pad(str(r.get("cost") or ""))
-        if name:
-            parts.append(f"{name}（代价：{cost}）" if cost else name)
-    text = "\n".join(parts)
-    if text == "这些已经为真，不许另造。":
         text = ""
-    else:
-        text = text[:_CODEX_BUDGET]
-    try:
-        from scribe3.feature_flags import flag_truthy
-        if flag_truthy("SCRIBE3_RECALL_SHADOW"):
-            from scribe3.recall_service import shadow_diff
-            shadow_diff(world, seq, focalizer, text, query=" ".join(needles), path="playbook")
-        if flag_truthy("SCRIBE3_RECALL_PLAYBOOK"):
+        try:
             from scribe3.recall_service import pack_text, recall
             pack = recall(
                 world,
@@ -618,16 +627,30 @@ def playbook_codex_recall(
                 query=" ".join(needles),
                 budget_tag="playbook_codex",
             )
-            alt = pack_text(pack)
-            if alt:
-                return alt[:_CODEX_BUDGET]
-    except Exception as exc:
-        _log.info("codex_recall overlay skip: %s", type(exc).__name__)
-        try:
-            from scribe3.pipeline_trace_hooks import note_guide_missing
-            note_guide_missing("codex_recall_overlay_skip")
-        except Exception:
-            pass
+            parts: list[str] = []
+            body = pack_text(pack)
+            if body:
+                parts.append(body)
+            rules = _rule_lines(world, needles, pad=False)
+            if rules:
+                if not parts:
+                    parts.append("这些已经为真，不许另造。")
+                parts.extend(rules)
+            text = "\n".join(parts)[:_CODEX_BUDGET]
+        except Exception as exc:
+            _log.info("codex_recall hub skip: %s", type(exc).__name__)
+            try:
+                from scribe3.pipeline_trace_hooks import note_guide_missing
+                note_guide_missing("codex_recall_overlay_skip")
+            except Exception:
+                pass
+            text = _legacy_codex_recall(world, seq, needles, public)
+    try:
+        if flag_truthy("SCRIBE3_RECALL_SHADOW"):
+            from scribe3.recall_service import shadow_diff
+            shadow_diff(world, seq, focalizer, text, query=" ".join(needles), path="playbook")
+    except Exception:
+        pass
     return text
 
 

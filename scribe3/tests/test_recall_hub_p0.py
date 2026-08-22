@@ -69,9 +69,9 @@ def test_suggest_budget_short_vs_million():
 def test_recall_flags_registered():
     flags = get_all_flags()
     assert flags["SCRIBE3_RECALL_SHADOW"]["default"] == "1"
-    assert flags["SCRIBE3_RECALL_PLAYBOOK"]["default"] == "0"
+    assert flags["SCRIBE3_RECALL_PLAYBOOK"]["default"] == "1"
     assert flags["SCRIBE3_OUTLINE_STATUS_GATE"]["default"] == "1"
-    assert flag_truthy("SCRIBE3_RECALL_PLAYBOOK") is False
+    assert flag_truthy("SCRIBE3_RECALL_PLAYBOOK") is True
 
 
 def test_pack_text_empty():

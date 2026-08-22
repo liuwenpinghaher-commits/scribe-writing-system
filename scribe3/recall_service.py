@@ -140,6 +140,23 @@ def recall(
     channels: list[str] = []
     packs: list[list[RecallHit]] = []
     q = " ".join([str(query or "").strip(), str(focalizer or "").replace("role:", "")]).strip()
+    needles = [p for p in q.split() if len(p) >= 2]
+
+    facts_fn = getattr(store, "facts_at", None)
+    if callable(facts_fn):
+        try:
+            rows = list(facts_fn(int(chapter)) or [])
+            hits = [h for h in (_as_hit(f, "facts_at") for f in rows) if h and not h.secret]
+            if needles:
+                hits = [
+                    h for h in hits
+                    if any(n in f"{h.entity_id}|{h.attribute}|{h.value}" for n in needles)
+                ]
+            if hits:
+                packs.append(hits)
+            channels.append("facts_at")
+        except Exception as exc:
+            _log.info("recall facts_at skip: %s", type(exc).__name__)
 
     hybrid = getattr(store, "hybrid_recall", None)
     semantic = getattr(store, "semantic_recall", None)

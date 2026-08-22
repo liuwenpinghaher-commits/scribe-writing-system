@@ -13,7 +13,7 @@ def test_get_flag_db_beats_env_beats_default(monkeypatch, tmp_path):
     monkeypatch.setenv("SCRIBE3_SETTINGS_DB", str(tmp_path / "flags.sqlite3"))
     monkeypatch.delenv(key, raising=False)
 
-    assert ff.get_flag(key) == "0"
+    assert ff.get_flag(key) == "1"
 
     monkeypatch.setenv(key, "1")
     assert ff.get_flag(key) == "1"
