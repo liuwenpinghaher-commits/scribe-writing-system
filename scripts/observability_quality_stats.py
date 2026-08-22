@@ -91,8 +91,25 @@ def main(argv: list[str] | None = None) -> int:
         "limit": 2048,
     })
     url = f"{base}/debug/pipeline-events?{query}"
+    data = None
     try:
         data = _get_json(url)
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            try:
+                from scribe3.api import app_impl as core
+                st = core._store_for(args.book)
+                items = st.list_pipeline_events(
+                    work=args.book, step_key="playbook.judge", limit=2048,
+                ) or []
+                data = {"ok": True, "items": items, "source": "store"}
+                url = "store:list_pipeline_events"
+            except Exception as store_exc:  # noqa: BLE001
+                return _fail(
+                    f"{url} 需要登录（HTTP {exc.code}），进程内读取也失败：{store_exc}"
+                )
+        else:
+            return _fail(f"连不上 {url}：HTTP {exc.code}")
     except urllib.error.URLError as exc:
         return _fail(f"连不上 {url}：{exc.reason if getattr(exc, 'reason', None) else exc}")
     except TimeoutError:
