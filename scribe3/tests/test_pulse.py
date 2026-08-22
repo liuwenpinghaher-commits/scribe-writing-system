@@ -132,6 +132,7 @@ def test_discussion_instructions_contain_pulse(store, monkeypatch):
     def fake_stream(msg, system=None, **kw):
         seen["system"] = system or ""
         yield "好"
+    fake_stream.__name__ = "hermes_complete_stream"
     import scribe3.llm as L
     monkeypatch.setattr(L, "hermes_complete_stream", fake_stream)
     _ensure_arc_store(store)
