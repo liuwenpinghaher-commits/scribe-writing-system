@@ -1,4 +1,4 @@
-"""playbook.3.2.4 identity + generate/judge prompts. 改法官问卷或门槛才升版本。"""
+"""playbook.3.2.5 identity + generate/judge prompts. 改法官问卷或门槛才升版本。"""
 from __future__ import annotations
 
 import json
@@ -628,4 +628,4 @@ def identity_for(kind: str) -> str:
     return IDENTITY_NOVELIST
 
 
-assert PLAYBOOK_VERSION == "playbook.3.2.4"
+assert PLAYBOOK_VERSION == "playbook.3.2.5"

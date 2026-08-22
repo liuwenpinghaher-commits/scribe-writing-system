@@ -1,8 +1,9 @@
 """章节阶段机（O19 · 默认 soft · 不合并五阶段正文字段）。"""
 from __future__ import annotations
 
-import os
 from typing import Any
+
+from scribe3.feature_flags import flag_truthy
 
 PHASES: tuple[str, ...] = ("outline", "beats", "deduce", "draft", "final")
 _DESIGN_PHASES: tuple[str, ...] = ("design", "deduce", "draft", "final")
@@ -29,13 +30,11 @@ def active_phases() -> tuple[str, ...]:
 
 
 def stage_machine_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_STAGE_MACHINE") or "1").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    return flag_truthy("SCRIBE3_STAGE_MACHINE")
 
 
 def stage_machine_hard() -> bool:
-    raw = (os.environ.get("SCRIBE3_STAGE_MACHINE_HARD") or "0").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    return flag_truthy("SCRIBE3_STAGE_MACHINE_HARD")
 
 
 def normalize_phase(phase: str | None) -> str | None:

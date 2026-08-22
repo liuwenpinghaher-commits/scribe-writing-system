@@ -57,3 +57,23 @@ export function chapterAccountLine(ch) {
   const syn = String(ch?.synopsis || '').trim()
   return syn || '这章还没立要办的事'
 }
+
+export function volumePendingHuman(outline, volumeId) {
+  const chapters = Array.isArray(outline?.chapters) ? outline.chapters : []
+  if (volumeId == null || String(volumeId).trim() === '') return []
+  return chapters
+    .filter((c) => sameVolumeId(c.volume, volumeId))
+    .filter((c) => {
+      const st = String(c.outline_status || '').trim().toLowerCase()
+      return st === 'stale' || st === 'review'
+    })
+    .sort((a, b) => Number(a.seq) - Number(b.seq))
+}
+
+export function pendingOutlineLine(ch) {
+  const st = String(ch?.outline_status || '').trim().toLowerCase()
+  const title = ch?.title ? `《${ch.title}》` : ''
+  if (st === 'stale') return `第${ch.seq}章${title}：还没冻回去，先别写演绎和草稿`
+  if (st === 'review') return `第${ch.seq}章${title}：要你看一眼`
+  return `第${ch.seq}章${title}`
+}

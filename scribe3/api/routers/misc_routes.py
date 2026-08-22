@@ -1025,9 +1025,10 @@ def semantic_repair(seq: int, background: BackgroundTasks, work: str = "main"):
     prompt = ("你是小说语义修复器。只修复下列纪律问题，保留全部事件顺序、人物关系、已知事实、"
               "叙述视角与章节结尾；不得删减到原文85%以下，不得解释。\n"
               f"违规类型:{'、'.join(violations)}\n\n【原文】\n{original}")
+    from scribe3.llm_temps import TEMP_JUDGE
     candidate = (hermes_complete(prompt, max_tokens=max(2048, min(8192, len(original) * 2)),
                                  retries_override=1, thinking="disabled",
-                                 temperature=0,
+                                 temperature=TEMP_JUDGE,
                                  official_api=True) or "").strip()
     after = post_check(PostCheckReq(prose=candidate, focalizer=ch.get("focalizer") or "",
                                     brief=ch.get("summary") or ch.get("title") or ""), seq, work)

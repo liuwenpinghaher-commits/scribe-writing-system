@@ -762,6 +762,7 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
         complete_fn = _complete_fn
         if complete_fn is None:
             from scribe3.llm import default_timeout
+            from scribe3.llm_temps import TEMP_JUDGE
             # /post-check 是作者交互式只读体检，须限制单次尝试和输出预算；完整章节的
             # 纪律判在官方模型实测约 49 秒，高负载章节可超过 90 秒；30/90 秒都会把
             # 已连通的模型误判为降级。180 秒仍远低于生成级 600 秒，保留可控上界。
@@ -770,7 +771,7 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
                     st, work, seq, "quality_chapter", prompt, system=system,
                     timeout=min(float(default_timeout()), 180.0),
                     max_tokens=480, retries_override=1,
-                    thinking="disabled", temperature=0,
+                    thinking="disabled", temperature=TEMP_JUDGE,
                 )
         # 任务19:有到期继承开放项时拼进 brief——若调用方未传 brief,先补回
         # build_discipline_prompt 的默认纪律文案(DEFAULT_DISCIPLINE_BRIEF 单一来源,

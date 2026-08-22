@@ -83,4 +83,22 @@ describe('VolumeDetailPane', () => {
     render(<VolumeDetailPane node={{ id: 'vol:vol-2', type: 'volume', ref: 'vol-2', label: '第二卷' }} />)
     expect(await screen.findByTestId('chapter-settled-note')).toHaveTextContent('把碎片按回裂口')
   })
+
+  it('侧栏列出纲改过还没核完的章', async () => {
+    api.outline.mockResolvedValue({
+      volumes: [{ id: 'vol-2', title: '第二卷', intro: '华山成核 / 四十二度', color: '#123456', sort_order: 2 }],
+      chapters: [
+        { seq: 1, title: '华山成核', volume: 'vol-2', synopsis: '按碎片', outline_status: 'stale' },
+        { seq: 2, title: '四十二度', volume: 'vol-2', synopsis: '体温标价', outline_status: 'review' },
+        { seq: 3, title: '金縢裂纹', volume: 'vol-2', synopsis: '裂纹', outline_status: 'frozen' },
+      ],
+    })
+    render(<VolumeDetailPane node={{ id: 'vol:vol-2', type: 'volume', ref: 'vol-2', label: '第二卷' }} />)
+    const box = await screen.findByTestId('volume-pending-human')
+    expect(box.textContent).toMatch(/华山成核/)
+    expect(box.textContent).toMatch(/还没冻回去/)
+    expect(box.textContent).toMatch(/四十二度/)
+    expect(box.textContent).toMatch(/要你看一眼/)
+    expect(box.textContent).not.toMatch(/金縢裂纹/)
+  })
 })

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Callable
 
 from scribe3.review.fp import prose_fp
@@ -77,9 +76,8 @@ def run_chapter_review(
         reviewers_skipped.append("discipline_l0")
 
     # L1
-    llm_on = (os.environ.get("SCRIBE3_REVIEW_LLM") or "0").strip().lower() in (
-        "1", "true", "yes", "on",
-    )
+    from scribe3.feature_flags import flag_truthy
+    llm_on = flag_truthy("SCRIBE3_REVIEW_LLM")
     # complete_fn injection always allows L1 (tests); else need env
     if mode == "full" and (llm_on or complete_fn is not None):
         try:

@@ -1270,11 +1270,13 @@ async def s3_patch_chapter_meta(
     clear_volume: bool = False,
     prose_lock: bool | None = None,
     synopsis: str | None = None,
+    confidence: str | None = None,
     work: str | None = None,
 ) -> dict:
-    """改章身份元数据(标题/标签/卷归属/定稿锁/梗概;写,待批)。不改 beats/prose。
+    """改章身份元数据(标题/标签/卷归属/定稿锁/梗概/把握;写,待批)。不改 beats/prose。
 
     synopsis=None 表示不改;空白字符串拒绝。clear_volume=True 时清空卷归属。
+    confidence 只收 high/low：high=改纲后要人看一眼，low=改纲后先拦住演绎/草稿。
     章不存在 → status=error。"""
     fields: dict = {}
     if title is not None:
@@ -1295,6 +1297,14 @@ async def s3_patch_chapter_meta(
                 "code": "synopsis_blank", "error": "梗概不能是空白",
             }
         fields["synopsis"] = syn
+    if confidence is not None:
+        c = str(confidence).strip().lower()
+        if c not in ("high", "low"):
+            return {
+                "status": "error", "tool": "s3_patch_chapter_meta",
+                "code": "confidence_invalid", "error": "把握只能标 high 或 low",
+            }
+        fields["confidence"] = c
     if not fields:
         return {"status": "noop", "tool": "s3_patch_chapter_meta", "reason": "no fields"}
     ok = await _ask(ctx, f"改第{seq}章 {list(fields)}")
@@ -1306,6 +1316,21 @@ async def s3_patch_chapter_meta(
         return {"seq": seq, "fields": list(fields)}
 
     return commit_if_approved("s3_patch_chapter_meta", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_refreeze_chapter(ctx: Context, seq: int, work: str | None = None) -> dict:
+    """核对完这一章的纲，冻回去。之后才能写演绎和草稿。已经冻着的再调一次不算错。"""
+    ok = await _ask(ctx, f"把第{seq}章的纲冻回去")
+
+    def _write():
+        from scribe3.outline_status import refreeze_chapter
+        out = refreeze_chapter(_store_for(work), int(seq))
+        if not out.get("ok"):
+            return False
+        return {"seq": int(seq), **out}
+
+    return commit_if_approved("s3_refreeze_chapter", ok, _write)
 
 
 async def s3_patch_chapter_plan(

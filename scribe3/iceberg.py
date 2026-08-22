@@ -2,7 +2,6 @@
 """
 from __future__ import annotations
 
-import os
 import re
 from typing import Any
 
@@ -87,7 +86,8 @@ def named_pack_soft_cap(*, work: str | None) -> int:
     显式 ``SCRIBE3_CODEX_INJECT_CAP`` 正整数覆盖两档（运维逃生）。
     禁止 ``get_codex_inject_cap()`` 无 work 各算各的。
     """
-    raw = (os.environ.get("SCRIBE3_CODEX_INJECT_CAP") or "").strip()
+    from scribe3.feature_flags import get_flag
+    raw = get_flag("SCRIBE3_CODEX_INJECT_CAP").strip()
     if raw.isdigit():
         return max(500, int(raw))
     from scribe3.context_budget import resolve_write_caps
@@ -99,10 +99,8 @@ def named_pack_soft_cap(*, work: str | None) -> int:
 
 
 def iceberg_enabled() -> bool:
-    raw = os.environ.get("SCRIBE3_ICEBERG_WRITE")
-    if raw is None or str(raw).strip() == "":
-        return True
-    return str(raw).strip().lower() not in ("0", "false", "no", "off")
+    from scribe3.feature_flags import get_flag
+    return get_flag("SCRIBE3_ICEBERG_WRITE").strip().lower() not in ("0", "false", "no", "off")
 
 
 def evaluate_iceberg(
@@ -202,10 +200,8 @@ _SENTINEL_NONE = frozenset({"无", "无人", "遗失"})
 
 
 def codex_thicken_gate_enabled() -> bool:
-    raw = os.environ.get("SCRIBE3_CODEX_THICKEN_GATE")
-    if raw is None or str(raw).strip() == "":
-        return True
-    return str(raw).strip().lower() not in ("0", "false", "no", "off")
+    from scribe3.feature_flags import get_flag
+    return get_flag("SCRIBE3_CODEX_THICKEN_GATE").strip().lower() not in ("0", "false", "no", "off")
 
 
 def field_cn(value: Any) -> int:

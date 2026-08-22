@@ -3,6 +3,8 @@ import {
   remainingLaterFromOutline,
   volumeRemainingWork,
   introLooksLikeOneChapterNight,
+  volumePendingHuman,
+  pendingOutlineLine,
 } from './volumeLedger.js'
 
 describe('volumeLedger', () => {
@@ -28,5 +30,19 @@ describe('volumeLedger', () => {
   it('intro that names only one chapter looks like one night', () => {
     expect(introLooksLikeOneChapterNight('华山成核那一夜', outline.chapters)).toBe(true)
     expect(introLooksLikeOneChapterNight('华山成核 / 四十二度 / 金縢裂纹 / 灭活边缘', outline.chapters)).toBe(false)
+  })
+
+  it('pending human lists stale and review in this volume', () => {
+    const o = {
+      chapters: [
+        { seq: 1, title: '华山成核', volume: 'cage', outline_status: 'stale' },
+        { seq: 2, title: '四十二度', volume: 'cage', outline_status: 'review' },
+        { seq: 3, title: '金縢裂纹', volume: 'cage', outline_status: 'frozen' },
+        { seq: 9, title: '别卷', volume: 'other', outline_status: 'stale' },
+      ],
+    }
+    expect(volumePendingHuman(o, 'cage').map((c) => c.seq)).toEqual([1, 2])
+    expect(pendingOutlineLine(o.chapters[0])).toMatch(/还没冻回去/)
+    expect(pendingOutlineLine(o.chapters[1])).toMatch(/要你看一眼/)
   })
 })

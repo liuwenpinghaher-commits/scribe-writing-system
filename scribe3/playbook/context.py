@@ -605,7 +605,7 @@ def playbook_codex_recall(
         from scribe3.feature_flags import flag_truthy
         if flag_truthy("SCRIBE3_RECALL_SHADOW"):
             from scribe3.recall_service import shadow_diff
-            shadow_diff(world, seq, focalizer, text, query=" ".join(needles))
+            shadow_diff(world, seq, focalizer, text, query=" ".join(needles), path="playbook")
         if flag_truthy("SCRIBE3_RECALL_PLAYBOOK"):
             from scribe3.recall_service import pack_text, recall
             pack = recall(

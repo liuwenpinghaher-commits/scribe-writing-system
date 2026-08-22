@@ -6,15 +6,16 @@ Never invents scores; fail-soft → None.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
+
+from scribe3.feature_flags import get_flag
 
 _log = logging.getLogger("scribe3.quality.dim_scores")
 
 
 def quality_dim_advisory_enabled() -> bool:
     """Default ON. Set SCRIBE3_QUALITY_DIM_ADVISORY=0/false/off to disable."""
-    v = (os.environ.get("SCRIBE3_QUALITY_DIM_ADVISORY") or "1").strip().lower()
+    v = get_flag("SCRIBE3_QUALITY_DIM_ADVISORY").strip().lower()
     return v not in ("0", "false", "no", "off")
 
 

@@ -140,7 +140,10 @@ def pack_text(pack: RecallPack) -> str:
     return "\n".join(lines)
 
 
-def shadow_diff(store: Any, seq: int, focalizer: str, legacy_text: str, query: str = "") -> dict[str, Any]:
+def shadow_diff(
+    store: Any, seq: int, focalizer: str, legacy_text: str, query: str = "",
+    path: str = "",
+) -> dict[str, Any]:
     """并行算影子，输出不变。默认不走向量（避免写章路径加载 embedding）。"""
     try:
         facts_fn = getattr(store, "facts_at", None)
@@ -182,6 +185,7 @@ def shadow_diff(store: Any, seq: int, focalizer: str, legacy_text: str, query: s
     rec = {
         "ok": True,
         "seq": int(seq),
+        "path": str(path or ""),
         "legacy_len": len(legacy_text or ""),
         "shadow_len": len(shadow or ""),
         "channels": pack.channels,
@@ -205,7 +209,8 @@ def shadow_diff(store: Any, seq: int, focalizer: str, legacy_text: str, query: s
         _log.warning("recall_shadow 预算偏差=%.4f > 0.15 seq=%s", budget_delta, seq)
     _log.info("recall_shadow %s", rec)
     try:
-        from scribe3.pipeline_trace_hooks import note_guide_missing
+        from scribe3.pipeline_trace_hooks import note_guide_missing, note_recall_shadow
+        note_recall_shadow(rec)
         if pack.skip_reason:
             note_guide_missing(f"recall_shadow:{pack.skip_reason}")
     except Exception:

@@ -51,7 +51,8 @@ def policy_mode() -> str:
         from scribe3.settings import get_setting
         v = str(get_setting("SCRIBE3_INGEST_POLICY") or "auto_if_pass")
     except Exception:
-        v = os.environ.get("SCRIBE3_INGEST_POLICY") or "auto_if_pass"
+        from scribe3.feature_flags import get_flag
+        v = get_flag("SCRIBE3_INGEST_POLICY") or "auto_if_pass"
     v = (v or "auto_if_pass").strip().lower()
     if v in {"off", "0", "false", "disable"}:
         return "off"
@@ -110,8 +111,9 @@ def explore_ingest_hold_enabled() -> bool:
         from scribe3.quality_enablement_flags import explore_ingest_hold_enabled as _f
         return bool(_f())
     except Exception:
-        v = (os.environ.get("SCRIBE3_EXPLORE_INGEST_HOLD") or "1").strip().lower()
-        return v not in ("0", "false", "no", "off", "")
+        from scribe3.feature_flags import get_flag
+        v = get_flag("SCRIBE3_EXPLORE_INGEST_HOLD").strip().lower() or "1"
+        return v not in ("0", "false", "no", "off")
 
 
 def decide_ingest(
@@ -213,7 +215,8 @@ def decide_ingest(
             from scribe3.quality_enablement_flags import create_mode as _cm_fn
             _cm = _cm_fn()
         except Exception:
-            _cm = os.environ.get("SCRIBE3_CREATE_MODE") or "standard"
+            from scribe3.feature_flags import get_flag
+            _cm = get_flag("SCRIBE3_CREATE_MODE") or "standard"
     if (
         not force
         and explore_ingest_hold_enabled()

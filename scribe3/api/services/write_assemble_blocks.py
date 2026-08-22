@@ -446,6 +446,18 @@ def _codex_segments(st, reveal: bool = True, focalizer: str = "", chapter: int |
             f"{k}:{ln}" for k, lines in card_by_kind.items() for ln in lines
         ],
     }
+    try:
+        from scribe3.feature_flags import flag_truthy
+        if flag_truthy("SCRIBE3_RECALL_SHADOW") and chapter is not None:
+            from scribe3.recall_service import shadow_diff
+            legacy = "\n".join(p for p in (named_text, cards_text) if p)
+            rec = shadow_diff(
+                st, int(chapter), focalizer or "", legacy,
+                query=request_text or "", path="discuss",
+            )
+            stats["recall_shadow_threshold_ok"] = rec.get("threshold_ok")
+    except Exception:
+        pass
     return named_text, cards_text, stats
 
 

@@ -76,3 +76,43 @@ def test_recall_flags_registered():
 
 def test_pack_text_empty():
     assert pack_text(RecallPack()) == ""
+
+
+def test_shadow_threshold_secret_and_jaccard():
+    st = _World()
+    leak = shadow_diff(st, 1, "role:柳岸青", "看不见场核坐标 柳岸青 / 身体：四十二度不是病是标价")
+    assert leak["ok"] is True
+    assert leak["secret_leak_count"] >= 1
+    assert leak["threshold_ok"] is False
+    miss = shadow_diff(st, 1, "role:柳岸青", "沈烛若 / 别的：另一套账")
+    assert miss["entity_jaccard"] < 0.92
+    assert miss["threshold_ok"] is False
+    fat = shadow_diff(st, 1, "role:柳岸青", "柳岸青 / 身体：四十二度不是病是标价\n" + ("垫字" * 80))
+    assert fat["budget_delta"] > 0.15
+    assert fat["threshold_ok"] is False
+
+
+def test_discuss_path_wires_shadow():
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "api/services/write_assemble_blocks.py").read_text(
+        encoding="utf-8",
+    )
+    assert "shadow_diff" in src
+    assert 'path="discuss"' in src
+    assert "SCRIBE3_RECALL_SHADOW" in src
+
+
+def test_hot_flags_go_through_registry():
+    flags = get_all_flags()
+    assert flags["SCRIBE3_PDC"]["default"] == "0"
+    assert flags["SCRIBE3_REVIEW_LLM"]["default"] == "0"
+    assert flags["SCRIBE3_QUALITY_DIM_ADVISORY"]["default"] == "1"
+
+
+def test_lesson_fts_migration_has_bm25():
+    from pathlib import Path
+    text = (Path(__file__).resolve().parents[1] / "migrations/158_lesson_fts.surql").read_text(
+        encoding="utf-8",
+    )
+    assert "BM25" in text
+    assert "lesson_fts" in text

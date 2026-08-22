@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from typing import Any, Callable
 
@@ -95,9 +94,9 @@ def run_l1(
     marker_leaks_present: bool = False,
 ) -> dict[str, Any]:
     """Returns {issues, degraded, reviewers_run, payload_safe}."""
-    llm_env = (os.environ.get("SCRIBE3_REVIEW_LLM") or "0").strip().lower() in (
-        "1", "true", "yes", "on",
-    )
+    from scribe3.feature_flags import flag_truthy
+    from scribe3.llm_temps import TEMP_JUDGE
+    llm_env = flag_truthy("SCRIBE3_REVIEW_LLM")
     # Unit tests pass complete_fn explicitly; production needs env flag unless inject fn.
     if complete_fn is None and not llm_env:
         return {
@@ -134,7 +133,7 @@ def run_l1(
                     prompt, system=system,
                     timeout=min(float(default_timeout()), 180.0),
                     max_tokens=600, retries_override=1,
-                    thinking="disabled", temperature=0,
+                    thinking="disabled", temperature=TEMP_JUDGE,
                 )
         except Exception as e:
             return {

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any
 
 from scribe3.review.fp import prose_fp
@@ -12,9 +11,8 @@ _log = logging.getLogger("scribe3.review.snapshot")
 
 # Persist only when flag on (M4a enables by setting SCRIBE3_CHAPTER_REVIEW_PERSIST=1)
 def persist_enabled() -> bool:
-    return (os.environ.get("SCRIBE3_CHAPTER_REVIEW_PERSIST") or "0").strip().lower() in (
-        "1", "true", "yes", "on",
-    )
+    from scribe3.feature_flags import flag_truthy
+    return flag_truthy("SCRIBE3_CHAPTER_REVIEW_PERSIST")
 
 
 def save_chapter_review(store, *, work: str, seq: int, payload: dict[str, Any]) -> bool:

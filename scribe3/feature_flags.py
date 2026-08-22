@@ -186,6 +186,29 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
         "playbook",
         "safe",
     ),
+    Flag("SCRIBE3_PDC", "0", "闲笔偏科 craft 切面", "craft", "caution"),
+    Flag("SCRIBE3_QUALITY_DIM_ADVISORY", "1", "十维质量分 advisory 注入", "quality", "safe"),
+    Flag("SCRIBE3_HERMES_SOUL_LAYERS", "1", "Hermes SOUL 三层", "hermes_runtime", "safe"),
+    Flag(
+        "SCRIBE3_HERMES_SYSTEM",
+        "You are Scribe3 writing runtime. Obey epistemic and craft gates.",
+        "Hermes system 层文案",
+        "hermes_runtime",
+        "safe",
+    ),
+    Flag(
+        "SCRIBE3_HERMES_PERSONALITY",
+        "冷静、可审计的小说主编；不编造未批准正典。",
+        "Hermes personality 层文案",
+        "hermes_runtime",
+        "safe",
+    ),
+    Flag("SCRIBE3_REVIEW_LLM", "0", "章评 L1 限知 LLM 审计", "review", "caution"),
+    Flag("SCRIBE3_INGEST_POLICY", "auto_if_pass", "ingest 策略 auto_if_pass|confirm_all|off", "ingest", "caution"),
+    Flag("SCRIBE3_CHAPTER_REVIEW_PERSIST", "0", "章评快照落表", "review", "safe"),
+    Flag("SCRIBE3_CODEX_INJECT_CAP", "", "点名包软顶覆盖（空=按信封档）", "iceberg", "caution"),
+    Flag("SCRIBE3_ICEBERG_WRITE", "1", "冰山注入截断", "iceberg", "safe"),
+    Flag("SCRIBE3_CODEX_THICKEN_GATE", "1", "设定加厚门", "iceberg", "safe"),
 )
 
 

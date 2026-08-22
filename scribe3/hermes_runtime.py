@@ -21,7 +21,8 @@ def _strip_v1(url: str) -> str:
 
 def soul_layers_enabled() -> bool:
     """GAP-7：默认开启 SOUL 分层（可用 SCRIBE3_HERMES_SOUL_LAYERS=0 关闭）。"""
-    raw = (os.environ.get("SCRIBE3_HERMES_SOUL_LAYERS") or "1").strip().lower()
+    from scribe3.feature_flags import get_flag
+    raw = get_flag("SCRIBE3_HERMES_SOUL_LAYERS").strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
@@ -62,13 +63,12 @@ def build_hermes_request_body(
     if conversation_history is not None:
         body["conversation_history"] = conversation_history
     if soul_layers_enabled():
-        body["system"] = (
-            os.environ.get("SCRIBE3_HERMES_SYSTEM")
-            or "You are Scribe3 writing runtime. Obey epistemic and craft gates."
+        from scribe3.feature_flags import get_flag
+        body["system"] = get_flag("SCRIBE3_HERMES_SYSTEM") or (
+            "You are Scribe3 writing runtime. Obey epistemic and craft gates."
         )
-        body["personality"] = (
-            os.environ.get("SCRIBE3_HERMES_PERSONALITY")
-            or "冷静、可审计的小说主编；不编造未批准正典。"
+        body["personality"] = get_flag("SCRIBE3_HERMES_PERSONALITY") or (
+            "冷静、可审计的小说主编；不编造未批准正典。"
         )
         if "instructions" not in body:
             body["instructions"] = ""

@@ -10,6 +10,8 @@ import { volumeReviewPlain } from '../lib/volumeSoftHint.js'
 import {
   chapterAccountLine,
   introLooksLikeOneChapterNight,
+  pendingOutlineLine,
+  volumePendingHuman,
   volumeRemainingWork,
 } from '../lib/volumeLedger.js'
 
@@ -408,6 +410,18 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
               <div className="flex justify-between gap-3"><span className="text-faint">章节</span><span className="text-ink tnum">{chapters.length}</span></div>
               <div className="flex justify-between gap-3"><span className="text-faint">字数</span><span className="text-ink">{wcLabel(totalWords)}</span></div>
               <div className="flex justify-between gap-3"><span className="text-faint">排序</span><span className="text-ink tnum">{volume.sort_order ?? '—'}</span></div>
+            </div>
+          </section>
+          <section data-testid="volume-pending-human">
+            <div className="text-meta text-faint uppercase tracking-wider mb-2">纲改过还没核完的</div>
+            <div className="space-y-1.5">
+              {volumePendingHuman(outline, vid).length === 0 ? (
+                <div className="text-faint">这一卷眼下没有要你核的章。</div>
+              ) : volumePendingHuman(outline, vid).map((ch) => (
+                <div key={ch.seq} className="text-ink leading-snug">
+                  {pendingOutlineLine(ch)}
+                </div>
+              ))}
             </div>
           </section>
           <section data-testid="volume-remaining-later">

@@ -21,7 +21,7 @@ from scribe3.playbook.quote import PLAYBOOK_VERSION
 
 
 def test_version_324():
-    assert PLAYBOOK_VERSION == "playbook.3.2.4"
+    assert PLAYBOOK_VERSION == "playbook.3.2.5"
     assert PACE_EXEMPT in duty_judge({"seq": 1})
     assert PACE_EXEMPT in play_judge({"seq": 1})
     assert PACE_EXEMPT in draft_judge({})
@@ -42,10 +42,14 @@ def test_temps_single_source():
     assert TEMP_DESIGN == 0.6
     assert TEMP_PLAN_MAX == 0.6
     from pathlib import Path
-    src = (Path(__file__).resolve().parents[1] / "playbook/layers.py").read_text(encoding="utf-8")
+    root = Path(__file__).resolve().parents[1]
+    src = (root / "playbook/layers.py").read_text(encoding="utf-8")
     assert "temperature=0.4" not in src
     assert "TEMP_DRAFT" in src
-    assert "TEMP_JUDGE" in (Path(__file__).resolve().parents[1] / "playbook/judge.py").read_text(encoding="utf-8")
+    assert "TEMP_JUDGE" in (root / "playbook/judge.py").read_text(encoding="utf-8")
+    assert "TEMP_JUDGE" in (root / "review/l1_epistemic.py").read_text(encoding="utf-8")
+    assert "TEMP_JUDGE" in (root / "api/routers/write.py").read_text(encoding="utf-8")
+    assert "TEMP_JUDGE" in (root / "api/routers/misc_routes.py").read_text(encoding="utf-8")
 
 
 def test_iron_rules_dual_anchor_in_generate():
@@ -94,6 +98,50 @@ def test_intro_change_stale_skips_high_confidence():
     assert should_block_stage("deduce", "stale") is True
     assert should_block_stage("duty", "stale") is False
     assert should_block_stage("draft", "") is False
+    assert should_block_stage("deduce", "review") is False
+
+
+def test_refreeze_loop_idempotent():
+    from scribe3.outline_status import mark_volume_intro_changed, refreeze_chapter
+
+    class _St:
+        def __init__(self):
+            self.rows = [
+                {"seq": 1, "confidence": "low", "outline_status": "frozen", "outline_rev": 0},
+                {"seq": 2, "confidence": "high", "outline_status": "frozen", "outline_rev": 2},
+            ]
+            self.ch = {r["seq"]: dict(r) for r in self.rows}
+
+        def _query(self, _sql, _vars=None):
+            return list(self.rows)
+
+        def update_chapter_meta(self, seq, fields):
+            self.ch[int(seq)].update(fields)
+            for r in self.rows:
+                if r["seq"] == int(seq):
+                    r.update(fields)
+            return True
+
+        def get_chapter(self, seq):
+            row = self.ch.get(int(seq))
+            return dict(row) if row else None
+
+    st = _St()
+    split = mark_volume_intro_changed(st, "cage")
+    assert split["stale"] == [1]
+    assert split["pending_human"] == [2]
+    assert st.ch[1]["outline_status"] == "stale"
+    assert st.ch[2]["outline_status"] == "review"
+    out = refreeze_chapter(st, 1)
+    assert out["ok"] is True
+    assert out["idempotent"] is False
+    assert out["outline_status"] == "frozen"
+    assert out["outline_rev"] == 1
+    again = refreeze_chapter(st, 1)
+    assert again["idempotent"] is True
+    assert again["outline_rev"] == 1
+    missing = refreeze_chapter(st, 99)
+    assert missing["ok"] is False
 
 
 def test_settled_note_from_duty():

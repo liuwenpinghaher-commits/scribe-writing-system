@@ -628,6 +628,40 @@ def note_discuss_step(step_key: str, *, name: str, body: str, summary: str,
         return
 
 
+def note_recall_shadow(rec: dict[str, Any] | None) -> None:
+    """影子对照进当次链路，给翻主判据攒 threshold_ok。无 buffer 则静默。"""
+    if not rec:
+        return
+    try:
+        sid = playbook_span_start("recall.shadow")
+        from scribe3.pipeline_recorder import current_recorder
+        recd = current_recorder()
+        ok = bool(rec.get("threshold_ok"))
+        payload = {
+            "tag": "recall_shadow",
+            "threshold_ok": ok,
+            "entity_jaccard": rec.get("entity_jaccard"),
+            "secret_leak_count": rec.get("secret_leak_count"),
+            "budget_delta": rec.get("budget_delta"),
+            "seq": rec.get("seq"),
+            "path": rec.get("path") or "",
+        }
+        if recd is not None:
+            recd.emit(
+                sid, "observe",
+                summary=f"召回影子 threshold_ok={ok} path={payload['path']}",
+                payload=payload,
+            )
+        playbook_span_end(
+            sid,
+            status="ok" if ok else "warn",
+            actual="ok" if ok else "drift",
+            actual_reason="" if ok else "recall_shadow_threshold",
+        )
+    except Exception:
+        return
+
+
 def note_guide_missing(name: str) -> None:
     """上游引导抛错时落一笔，不含正文。"""
     try:

@@ -10,7 +10,7 @@ allow_word 豁免路径)。
 """
 from __future__ import annotations
 
-import os
+from scribe3.feature_flags import flag_truthy
 
 # 展示槽位(8 段);ENGINES 另含 _pdc / _novel 变体键,由 build_craft_block 择一注入。
 PUBLIC_ENGINE_KEYS: tuple[str, ...] = (
@@ -184,8 +184,7 @@ PALETTE: dict[str, dict] = {
 
 
 def _pdc_craft_skew() -> bool:
-    v = (os.environ.get("SCRIBE3_PDC") or "0").strip().lower()
-    return v in ("1", "true", "yes", "on")
+    return flag_truthy("SCRIBE3_PDC")
 
 
 def _craft_novel() -> bool:
@@ -194,9 +193,7 @@ def _craft_novel() -> bool:
         from scribe3.novel_quality_flags import craft_novel_enabled
         return bool(craft_novel_enabled())
     except Exception:
-        # fail-soft：模块不可用时回落 env，与 PDC 直读口径一致
-        v = (os.environ.get("SCRIBE3_CRAFT_NOVEL") or "1").strip().lower()
-        return v in ("1", "true", "yes", "on")
+        return flag_truthy("SCRIBE3_CRAFT_NOVEL")
 
 
 def resolve_engine_key(key: str, *, novel: bool | None = None, pdc: bool | None = None) -> str:

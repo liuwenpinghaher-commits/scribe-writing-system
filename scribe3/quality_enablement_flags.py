@@ -12,8 +12,8 @@ def _get(key: str, default: Any = None) -> Any:
         from scribe3.settings import get_setting
         return get_setting(key)
     except Exception:
-        import os
-        raw = os.environ.get(key)
+        from scribe3.feature_flags import get_flag
+        raw = get_flag(key)
         if raw is None or raw == "":
             return default
         if isinstance(default, bool):
