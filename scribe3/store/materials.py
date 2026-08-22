@@ -41,7 +41,13 @@ class MaterialsMixin:
         rid = (rows[0] if rows else {}).get("id")
         if rid is None:
             raise RuntimeError("add_material: CREATE 未返回 id")
-        return str(rid).split(":")[-1] if ":" in str(rid) else str(rid)
+        mid = str(rid).split(":")[-1] if ":" in str(rid) else str(rid)
+        if org in ("manual", "session_clip"):
+            try:
+                self.build_material_edges(mid)
+            except Exception as e:
+                logging.getLogger("scribe3").warning("build_material_edges fail %s: %s", mid, e)
+        return mid
 
     def list_materials(self, kind: str | None = None, archived: bool | None = False) -> list[dict]:
         """素材列表(可选 kind 过滤),按 updated_at DESC。"""
@@ -205,6 +211,7 @@ class MaterialsMixin:
         if cleanup_refs:
             self._cleanup_material_refs(material_id)
         self._delete_by("material", material_id)
+        _emit_cache_invalidation("material", getattr(self, "db_name", None), store=self)
         return True
 
     @staticmethod

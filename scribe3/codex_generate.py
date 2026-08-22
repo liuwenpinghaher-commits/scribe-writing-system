@@ -192,50 +192,70 @@ def _split_bags(kind: str, fields: dict) -> tuple[dict, dict, dict]:
     return public, secret, only
 
 
+def _schema_field_ask(kind: str) -> str:
+    """CDX-03：把 schema 字段键交给模型，新增字段才会被写出来。"""
+    try:
+        from scribe3.codex_schema import fields_for
+        keys = [f.key for f in fields_for(kind) if not f.deprecated]
+    except Exception:
+        keys = []
+    if not keys:
+        return ""
+    return "JSON 键（按这本书的登记表）：" + ", ".join(keys) + "。该有的写上，没有的不要编。\n"
+
+
 def spec_ask(kind: str) -> str:
+    schema_line = _schema_field_ask(kind)
     if kind == "term":
         return (
             "写这个词在这本书里怎么收账。不是词典。"
             "说清：它是什么、它不是什么、它怎样让人变贵、它的边界。"
-            "用小标题或 JSON 交卷，好让机器读懂。"
+            "用小标题或 JSON 交卷，好让机器读懂。\n"
+            + schema_line
         )
     if kind == "character":
         return (
             "写这个人在这本书里的责任。不是填表。"
             "他要什么、他会让主角付出什么、他怕什么、他不知道什么。"
             "性格、前史只为说清这四件事。"
-            "用 JSON 交卷。不要只回一个名字。"
+            "用 JSON 交卷。不要只回一个名字。\n"
+            + schema_line
         )
     if kind == "faction":
         return (
             "写这股势力在这本书里要主角付出什么。不是机构简介。"
             "他们公开要什么、私下要什么、谁来收账。"
-            "用 JSON 交卷。"
+            "用 JSON 交卷。\n"
+            + schema_line
         )
     if kind == "item":
         return (
             "写这件东西让谁变贵。不是器物说明书。"
             "谁拿着、碰它要付什么、它此刻处于什么状态。"
-            "用 JSON 交卷。"
+            "用 JSON 交卷。\n"
+            + schema_line
         )
     if kind == "world_rule":
         return (
             "写这条规矩谁打破谁付钱。不是免费超能力。"
             "代价是什么、谁例外、它管到哪里。"
-            "用 JSON 交卷。"
+            "用 JSON 交卷。\n"
+            + schema_line
         )
     if kind == "motif":
         return (
             "写这个母题在书里怎么一次次回来咬人。不是主题作文。"
             "它回声是什么、它怎样展开。"
-            "用 JSON 交卷。"
+            "用 JSON 交卷。\n"
+            + schema_line
         )
     if kind == "voice":
         return (
             "写这个人说话时让人听得出是他。不是形容词堆砌。"
-            "用 JSON 交卷。"
+            "用 JSON 交卷。\n"
+            + schema_line
         )
-    return ""
+    return schema_line
 
 
 _CHAR_SLOT_LABEL = {

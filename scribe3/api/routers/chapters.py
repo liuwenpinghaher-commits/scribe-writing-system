@@ -78,6 +78,10 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
     from scribe3.loop import run_chapter_loop
     from scribe3.pipeline_journal import PipelineJournal
     st = _store_for(work)
+    from scribe3.promise_overdue_gate import check_overdue_hard
+    overdue = check_overdue_hard(st)
+    if overdue:
+        raise HTTPException(status_code=409, detail=overdue)
     from scribe3.api.routers.write import _reject_thin_iceberg
     _reject_thin_iceberg(
         st, int(req.chapter or 1), req.phase or "draft",
@@ -600,8 +604,10 @@ def get_chapter_execution_soft_status(seq: int = Query(ge=1), work: str = "main"
     return out
 
 
-def chapter_versions(seq: int, work: str = "main"):
-    return _store_for(work).list_chapter_versions(seq)
+def chapter_versions(seq: int, work: str = "main",
+                     limit: int = 100, offset: int = 0):
+    return _store_for(work).list_chapter_versions(
+        seq, limit=limit, offset=offset)
 
 def chapter_version(vid: str, work: str = "main"):
     v = _store_for(work).get_chapter_version(vid)

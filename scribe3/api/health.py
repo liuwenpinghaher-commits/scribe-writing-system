@@ -61,6 +61,11 @@ def health(request: Request):
         }
     except Exception:
         out["locks"] = out.get("locks") or {}
+    try:
+        from scribe3.embed_health import embedding_health
+        out["embedding"] = embedding_health()
+    except Exception as e:
+        out["embedding"] = {"ok": False, "error": str(e)[:80]}
     # 写网关是否空手：附加字段，绝不翻转 ok / HTTP
     try:
         from scribe3.api.services.hermes_status import write_gateway_mcp_view

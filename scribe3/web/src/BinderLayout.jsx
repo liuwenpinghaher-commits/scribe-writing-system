@@ -81,6 +81,12 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter, onWorkflowContin
 
   useEffect(() => { initedRef.current = false; reload() }, [work])
 
+  useEffect(() => {
+    const h = () => { reload() }
+    window.addEventListener('s3-codex-tree-refresh', h)
+    return () => window.removeEventListener('s3-codex-tree-refresh', h)
+  }, [reload])
+
   // live SSE:别处改数据后服务端推事件 → 防抖 600ms 重拉项目树,保持树/大纲不 stale。
   useEffect(() => {
     let timer = null

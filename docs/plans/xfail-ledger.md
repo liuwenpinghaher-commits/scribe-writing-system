@@ -14,5 +14,5 @@
 | test_pulse_endpoint | scribe3/tests/test_pulse.py | scene 维加入后 ==6 硬编码过期 | 2026-09-22 | **已修复（T01）** |
 | test_dimension_failsoft_isolated | scribe3/tests/test_pulse.py | arc store mock 不充分 | 2026-09-22 | **已修复（T02）** |
 | test_arc_lie_belief_jump_maps_to_decision | scribe3/tests/test_pulse.py | arc mock 不充分 | 2026-09-22 | **已修复（T03）** |
-| test_discussion_instructions_contain_pulse | scribe3/tests/test_pulse.py | 受阻于 GAP-12（测试桩函数名不含 hermes 被门闸拦截） | 2026-09-22 | **受阻于 GAP-12**；已补 `fake_stream.__name__` |
+| test_discussion_instructions_contain_pulse | scribe3/tests/test_pulse.py | T04：测试桩须挂 hermes 函数名才能过 GAP-12 | 2026-09-22 | **已修复（T04）**：`fake_stream.__name__ = "hermes_complete_stream"` |
 | test_arc_adjacent_decision_sparse_nudge | scribe3/tests/test_pulse.py | arc 未启用 | 2026-09-22 | **已修复（T05）** |

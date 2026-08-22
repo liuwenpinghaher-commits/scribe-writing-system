@@ -11,6 +11,8 @@ import {
 } from 'lucide-react'
 import { RunLogsPage } from './RunLogsPage'
 import { httpErrorMessage } from '../lib/httpError'
+import { ConfirmDialog } from '../ui/Dialog.jsx'
+import { showToast } from '../ui/Toast.jsx'
 
 const TABS = [
   { key: 'overview', label: '总览', icon: LayoutDashboard },
@@ -75,6 +77,7 @@ export function AdminConsole({ onExit, hasWork = false }) {
   const [wArch, setWArch] = useState('all')
   const [newWork, setNewWork] = useState({ title: '', owner_user_id: '', slug: '' })
   const [transfer, setTransfer] = useState({ slug: '', new_owner: '' })
+  const [confirm, setConfirm] = useState(null)
 
   // audit
   const [audit, setAudit] = useState({ items: [], total: 0 })
@@ -188,48 +191,45 @@ export function AdminConsole({ onExit, hasWork = false }) {
     }
   }
 
-  const resetPwd = async () => {
+  const resetPwd = () => {
     if (!selUser || !pwd) return
-    setBusy(true)
-    setError(null)
-    try {
-      await api.adminSetPassword(selUser.username, pwd)
-      setPwd('')
-      alert('密码已重置，该用户所有会话已强制下线')
-    } catch (e) {
-      setError(e)
-    } finally {
-      setBusy(false)
-    }
+    setConfirm({
+      title: '重置密码并强制下线？',
+      body: `将重置「${selUser.username}」的密码，并踢掉所有已登录会话。不可撤销。`,
+      danger: true,
+      okMsg: '密码已重置，该用户所有会话已强制下线',
+      run: async () => {
+        await api.adminSetPassword(selUser.username, pwd)
+        setPwd('')
+      },
+    })
   }
 
-  const doForceLogout = async () => {
+  const doForceLogout = () => {
     if (!selUser) return
-    setBusy(true)
-    try {
-      await api.adminForceLogout(selUser.username)
-      alert('已强制下线')
-    } catch (e) {
-      setError(e)
-    } finally {
-      setBusy(false)
-    }
+    setConfirm({
+      title: '强制下线？',
+      body: `将踢掉「${selUser.username}」的全部会话。`,
+      danger: true,
+      okMsg: '已强制下线',
+      run: async () => { await api.adminForceLogout(selUser.username) },
+    })
   }
 
-  const doDeleteUser = async () => {
+  const doDeleteUser = () => {
     if (!selUser) return
-    if (!confirm(`永久删除账号「${selUser.username}」？不可恢复。`)) return
-    setBusy(true)
-    try {
-      await api.adminDeleteUser(selUser.username)
-      setSelUser(null)
-      await loadUsers()
-      await loadSummary()
-    } catch (e) {
-      setError(e)
-    } finally {
-      setBusy(false)
-    }
+    setConfirm({
+      title: '永久删除账号？',
+      body: `永久删除账号「${selUser.username}」。不可恢复。`,
+      danger: true,
+      okMsg: '账号已删除',
+      run: async () => {
+        await api.adminDeleteUser(selUser.username)
+        setSelUser(null)
+        await loadUsers()
+        await loadSummary()
+      },
+    })
   }
 
   const onCreateWork = async (e) => {
@@ -252,18 +252,19 @@ export function AdminConsole({ onExit, hasWork = false }) {
     }
   }
 
-  const doTransfer = async () => {
+  const doTransfer = () => {
     if (!transfer.slug || !transfer.new_owner) return
-    setBusy(true)
-    try {
-      await api.adminTransferWork(transfer.slug, transfer.new_owner)
-      setTransfer({ slug: '', new_owner: '' })
-      await loadWorks()
-    } catch (e) {
-      setError(e)
-    } finally {
-      setBusy(false)
-    }
+    setConfirm({
+      title: '转让书籍归属？',
+      body: `将把「${transfer.slug}」的主人改为「${transfer.new_owner}」。不可撤销。`,
+      danger: true,
+      okMsg: '归属已转让',
+      run: async () => {
+        await api.adminTransferWork(transfer.slug, transfer.new_owner)
+        setTransfer({ slug: '', new_owner: '' })
+        await loadWorks()
+      },
+    })
   }
 
   return (
@@ -596,13 +597,16 @@ export function AdminConsole({ onExit, hasWork = false }) {
                           <div className="flex flex-wrap gap-1">
                             {!w.archived ? (
                               <button type="button" title="废弃" className={btnCls}
-                                onClick={async () => {
-                                  if (!confirm(`废弃「${w.title}」？`)) return
-                                  try {
+                                onClick={() => setConfirm({
+                                  title: '废弃这本书？',
+                                  body: `废弃「${w.title}」。`,
+                                  danger: true,
+                                  okMsg: '已废弃',
+                                  run: async () => {
                                     await api.adminArchiveWork(w.slug)
                                     await loadWorks()
-                                  } catch (e) { setError(e) }
-                                }}>
+                                  },
+                                })}>
                                 <Archive size={12} />
                               </button>
                             ) : (
@@ -683,6 +687,30 @@ export function AdminConsole({ onExit, hasWork = false }) {
           )}
         </div>
       </div>
+      <ConfirmDialog
+        open={!!confirm}
+        title={confirm?.title}
+        body={confirm?.body}
+        danger={!!confirm?.danger}
+        confirmText="确认"
+        onConfirm={async () => {
+          const c = confirm
+          setConfirm(null)
+          if (!c?.run) return
+          setBusy(true)
+          setError(null)
+          try {
+            await c.run()
+            showToast(c.okMsg || '已完成', { tone: 'ok' })
+          } catch (e) {
+            setError(e)
+            showToast(e?.body?.detail || e?.message || '操作失败', { tone: 'danger' })
+          } finally {
+            setBusy(false)
+          }
+        }}
+        onClose={() => setConfirm(null)}
+      />
     </div>
   )
 }

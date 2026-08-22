@@ -177,6 +177,24 @@ def check_finalize_for_save(
     """
     if skip or not finalize_gate_env_enabled():
         return evaluate_finalize_gate(None, danger_draft=False, skip=True)
+    from scribe3.promise_overdue_gate import check_overdue_hard
+    overdue = check_overdue_hard(st)
+    if overdue:
+        return {
+            "allowed": False,
+            "code": "promise_overdue",
+            "verdict": "blocking",
+            "triage": {
+                "verdict": "blocking", "blocking": ["promise_overdue"],
+                "advisory_count": 0, "advisory_items": [],
+                "degraded_stages": [], "leaks": [],
+            },
+            "detail": overdue.get("detail") or overdue.get("message"),
+            "blocking": [{"detector": "promise_overdue", "kind": "overdue",
+                          "quote": "", "note": overdue.get("detail")}],
+            "advisory_items": [],
+            "overdue_count": overdue.get("overdue_count"),
+        }
     getter = getattr(st, "get_frozen", None) if st is not None else None
     if callable(getter):
         frozen_state = None

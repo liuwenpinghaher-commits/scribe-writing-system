@@ -294,6 +294,14 @@ def orch_build_proposal_ep(req: OrchProposalReq, work: str = "main"):
     return {"work": work, "proposal": prop}
 
 
+def get_pending_proposal_ep(pid: str, work: str = "main"):
+    from scribe3.pending_proposals import get_pending_proposal
+    rec = get_pending_proposal(_store_for(work), pid)
+    if not rec:
+        raise HTTPException(status_code=404, detail="proposal not found")
+    return rec
+
+
 def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
     """契约层批准/拒绝。execute=True 时用 store 执行白名单写（测试/紧急）。
 
@@ -668,6 +676,12 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
         result = dict(req.proposal)
         result["status"] = "awaiting_hermes_approval"
         result["note"] = "生产请经 Hermes 审批卡；execute=false 不落库"
+        try:
+            from scribe3.pending_proposals import save_pending_proposal
+            st = _store_for(work)
+            result = save_pending_proposal(st, result)
+        except Exception:
+            pass
         return {"work": work, "proposal": result, "ui_events": [], "ui_target": None, "focus_policy": "soft"}
 
     result = apply_proposal_ops(
@@ -731,6 +745,7 @@ def _bind_and_register():
     _bind("orch_drafts_list_ep", "/orchestration/drafts", ["GET"])
     _bind("orch_drafts_upsert_ep", "/orchestration/drafts", ["POST"])
     _bind("orch_from_discussion_ep", "/orchestration/proposal/from-discussion", ["POST"])
+    _bind("get_pending_proposal_ep", "/orchestration/proposal/{pid}", ["GET"])
 
 
 _bind_and_register()

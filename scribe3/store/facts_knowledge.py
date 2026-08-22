@@ -456,6 +456,10 @@ class FactsKnowledgeMixin:
         return self._query("SELECT * FROM faction")
 
     def delete_faction(self, name: str) -> None:
+        try:
+            self._cleanup_record_refs(f"faction:{name}")
+        except Exception:
+            pass
         self._execute_write("DELETE faction WHERE name=$n", {"n": name})
 
     def supersede_memory(self, memory_id: str, *, text: str | None = None,

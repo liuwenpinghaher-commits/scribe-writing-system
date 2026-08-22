@@ -54,13 +54,22 @@ class ProgressStatsMixin:
         word_count = (word_rows[0].get("word_count") if word_rows else 0) or 0
         return {"chapter_count": chapter_count, "word_count": word_count}
 
-    def progress(self, today: str | None = None, window: str | None = None) -> dict:
+    def progress(self, today: str | None = None, window: str | None = None,
+                 timezone: str | None = None) -> dict:
         """日字数序列 + 累计曲线 + 目标完成度 + 趋势窗口 + 最高产星期几。
         读 daily_progress + intent,纯聚合。
         window: '30' | '90' | 'all'(默认 'all')
+        timezone: 用户时区，用来算「今天」（DSH-03）。
         """
         import time as _time
         from datetime import date as _date, timedelta as _td
+        if not today and timezone:
+            try:
+                from datetime import datetime
+                from zoneinfo import ZoneInfo
+                today = datetime.now(ZoneInfo(str(timezone))).strftime("%Y-%m-%d")
+            except Exception:
+                today = None
         today = today or _time.strftime("%Y-%m-%d")
         # `date` 是 SurrealDB 保留字,ORDER BY 须用别名;字典序即日期升序
         rows = self._query(

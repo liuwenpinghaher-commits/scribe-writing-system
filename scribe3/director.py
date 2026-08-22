@@ -568,6 +568,7 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
         "phase_hint": phase,
         "parked": parked,
         "stalled": bool(pstat.get("stalled")),
+        "quality_stalled": bool(pstat.get("stalled") or parked),
         "next_action": nxt_act,
         "next_action_label": ACTION_LABELS.get(nxt_act or "", nxt_act),
         "pipeline": _pipeline(pstate),

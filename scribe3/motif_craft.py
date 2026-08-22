@@ -147,12 +147,25 @@ def schedule_motifs(
             mid = mid.split(":", 1)[1]
         phase = normalize_phase(m.get("phase"))
         touches = touch_map.get(mid) or touch_map.get(str(m.get("id") or "")) or []
+        tier = normalize_tier(m.get("tier"))
+        gap = int(cold_gap)
+        if tier == "book":
+            gap = max(gap, gap * 2)
+        elif tier == "chapter":
+            gap = max(1, gap // 2)
         heat_info = motif_heat(
             touches, next_chapter,
-            overheat_streak=overheat_streak, cold_gap=cold_gap)
+            overheat_streak=overheat_streak, cold_gap=gap)
         row = {**m, "id": mid or m.get("id"), **heat_info, "phase": phase,
-               "tier": normalize_tier(m.get("tier")),
+               "tier": tier,
                "echo_terms": parse_echo_terms(m.get("echoes"), m.get("echo_terms"))}
+        n_touch = len(touches)
+        if phase == "seed" and n_touch >= 2:
+            row["phase"] = "echo"
+        elif phase == "echo" and n_touch >= 5:
+            row["phase"] = "turn"
+        elif phase == "turn" and n_touch >= 8:
+            row["phase"] = "payoff"
         rows.append(row)
         if phase == "rest":
             neutral.append(row)

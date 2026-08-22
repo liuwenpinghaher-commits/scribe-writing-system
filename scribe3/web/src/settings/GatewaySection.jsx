@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { SettingField } from './SettingField'
 import { ConfirmDialog } from '../ui/Dialog.jsx'
+import { retryUntilOnline } from '../lib/retryOnline.js'
 
 const RESTART_PROFILES = ['scribe3', 'scribe3_write']
 
@@ -283,7 +284,17 @@ function RestartArea({ onRestarted }) {
     setRestarting(profile)
     setResult(null)
     try {
-      const r = await api.gatewayRestart(profile)
+      let r = await api.gatewayRestart(profile)
+      if (!r.online) {
+        const probed = await retryUntilOnline(
+          () => api.gatewayStatus().then((s) => ({
+            online: !!(s?.online || s?.ok || (s?.gateways && Object.values(s.gateways).some((g) => g?.online))),
+            message: s?.message || r.message,
+          })),
+          { tries: 3, waitMs: 2000 },
+        )
+        if (probed) r = { ...r, online: !!probed.online, message: probed.message || r.message }
+      }
       setResult({ profile, online: r.online, message: r.message, log: r.log })
     } catch (e) {
       setResult({ profile, online: false, message: e?.body?.detail || e.message || '重启失败' })

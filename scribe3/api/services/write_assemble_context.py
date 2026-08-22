@@ -889,7 +889,10 @@ def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", ll
         query = extract_focus_query({"beats": [draft[:200]], "mentioned": list(mentioned)})
         if not query:
             return ""
-        raw = st.material_recall(query, chapter, k=5, mentioned_entities=mentioned)
+        raw = st.material_recall(
+            query, chapter, k=5, mentioned_entities=mentioned,
+            exclude_kinds={"emotion_module"},
+        )
         cands = gate(raw, budget_chars=800)
         if not cands:
             return ""   # 门控:空库/无命中/预算裁空 → 不调 LLM 重排

@@ -8,6 +8,8 @@ import { useSelection } from '../selectionContext'
 import { scrollBehavior } from '../lib/utils'
 import { seedChiefCodexWrite } from '../lib/chiefSeed.js'
 import { StorylineHub } from './StorylineHub'
+import { safeWordGoal, wordGoalPct } from '../lib/wordGoal.js'
+import { liveTouchesTable } from '../lib/liveRefresh.js'
 
 // ── 通用 Metric(轻量,无重框套娃) ──────────────────────────────────────────
 function Metric({ icon: Icon, label, value, sub, tone = 'brand' }) {
@@ -204,9 +206,27 @@ function LedgerColumn({ icon: Icon, label, tone, rows, maxChapter, onJumpChapter
 
 function PromiseLedger({ onJumpChapter }) {
   const [led, setLed] = useState(null)
+  const [ledErr, setLedErr] = useState(null)
   const [ledKey, setLedKey] = useState(0)
   const refresh = () => setLedKey((k) => k + 1)
-  useEffect(() => { api.promisesLedger().then(setLed).catch(() => setLed(null)) }, [ledKey])
+  useEffect(() => {
+    api.promisesLedger().then((r) => { setLed(r); setLedErr(null) })
+      .catch((e) => { setLed(null); setLedErr(e?.body?.detail || e?.message || '伏笔台账加载失败') })
+  }, [ledKey])
+  useEffect(() => {
+    const onLive = (e) => {
+      if (liveTouchesTable(e?.detail, ['promise', 'foreshadow', 'chapter', 'daily_progress'])) {
+        setLedKey((k) => k + 1)
+      }
+    }
+    window.addEventListener('s3-live', onLive)
+    return () => window.removeEventListener('s3-live', onLive)
+  }, [])
+  if (ledErr) return (
+    <div className="mb-6 pb-5 border-b border-line/60">
+      <ErrorState message="伏笔台账加载失败" onRetry={refresh} />
+    </div>
+  )
   if (!led) return null
   const a = led.audit || {}
   const pws = (a.payoff_without_setup || []).length + (a.closed_without_setup || []).length
@@ -319,6 +339,16 @@ function ProgressPanel({ onGoalEdit }) {
     return () => { alive = false }
   }, [win, retryKey])
 
+  useEffect(() => {
+    const onLive = (e) => {
+      if (liveTouchesTable(e?.detail, ['chapter', 'daily_progress', 'intent'])) {
+        setRetryKey((k) => k + 1)
+      }
+    }
+    window.addEventListener('s3-live', onLive)
+    return () => window.removeEventListener('s3-live', onLive)
+  }, [])
+
   const tooltipStyle = { background: 'var(--color-surface)', border: '1px solid var(--color-line)', borderRadius: 8, fontSize: 12, color: 'var(--color-ink)' }
 
   if (err) return (
@@ -333,11 +363,11 @@ function ProgressPanel({ onGoalEdit }) {
     </div>
   )
 
-  const totalGoal = prog.total_word_goal ?? 100000
+  const totalGoal = safeWordGoal(prog.total_word_goal)
   const dailyGoal = prog.daily_word_goal ?? null
   const totalWords = prog.total_words ?? 0
   const todayWords = prog.today_words ?? 0
-  const totalPct = Math.min(100, Math.round((totalWords / totalGoal) * 100))
+  const totalPct = wordGoalPct(totalWords, totalGoal)
   const dailyPct = dailyGoal ? Math.min(120, Math.round((todayWords / dailyGoal) * 100)) : null
   const dailyMet = dailyGoal ? todayWords >= dailyGoal : null
 
@@ -658,6 +688,15 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
     return () => { alive = false }
   }, [qualityKey])
   useEffect(() => { api.intent().then(setIntent).catch(() => setIntent({})) }, [])
+  useEffect(() => {
+    const onLive = (e) => {
+      if (liveTouchesTable(e?.detail, ['chapter', 'promise', 'daily_progress', 'quality_snapshot'])) {
+        setQualityKey((k) => k + 1)
+      }
+    }
+    window.addEventListener('s3-live', onLive)
+    return () => window.removeEventListener('s3-live', onLive)
+  }, [])
 
   // 「进度」入口:数据就绪后滚动并聚焦码字进度面板
   useEffect(() => {
@@ -702,7 +741,7 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
     }
   }
   const tooltipStyle = { background: 'var(--color-surface)', border: '1px solid var(--color-line)', borderRadius: 8, fontSize: 12, color: 'var(--color-ink)' }
-  const totalGoal = intent?.total_word_goal ?? 100000
+  const totalGoal = safeWordGoal(intent?.total_word_goal)
 
   return (
     <div className="h-full overflow-y-auto bg-canvas">

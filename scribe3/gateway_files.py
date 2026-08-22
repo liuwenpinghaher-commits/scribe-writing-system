@@ -199,4 +199,9 @@ def write_file(file_id: str, content: str, *, base_sha256: str) -> dict:
         bak.write_text(old, encoding="utf-8")
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
+    try:
+        from scribe3.settings_store import append_audit
+        append_audit("gateway_file", actor="admin", payload=f"{file_id} sha={_sha(content)[:12]}")
+    except Exception:
+        pass
     return {"id": file_id, "sha256": _sha(content)}

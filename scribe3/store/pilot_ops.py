@@ -246,18 +246,21 @@ class PilotOpsMixin:
         attribute: str,
         value: str,
         source: str,
+        leak_markers: list | None = None,
     ) -> str:
         """codex_secret_bridge：CREATE 或 UPDATE 桥接命题，返回 local id。"""
+        markers = list(leak_markers or [])
         if local:
             self._execute_write(
-                "UPDATE type::record('proposition', $local) SET value=$val, secret=true, source=$src",
-                {"local": local, "val": value, "src": source},
+                "UPDATE type::record('proposition', $local) SET value=$val, secret=true, "
+                "source=$src, leak_markers=$lm",
+                {"local": local, "val": value, "src": source, "lm": markers},
             )
             return local
         self._execute_write(
             "CREATE proposition SET entity_id=$eid, attribute=$attr, value=$val, "
-            "valid_from=1, secret=true, source=$src",
-            {"eid": entity_id, "attr": attribute, "val": value, "src": source},
+            "valid_from=1, secret=true, source=$src, leak_markers=$lm",
+            {"eid": entity_id, "attr": attribute, "val": value, "src": source, "lm": markers},
         )
         return ""
 

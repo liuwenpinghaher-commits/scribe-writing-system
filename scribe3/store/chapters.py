@@ -239,9 +239,15 @@ class ChaptersMixin:
         return sc
 
     def save_chapter(self, seq: int, prose: str, title: str = "", focalizer: str | None = None,
-                     _today: str | None = None) -> None:
+                     _today: str | None = None, expected_version: int | None = None) -> None:
         """落/覆盖某章正文(UPSERT)。附带章向量 + QC缓存(字数,不再全拉正文统计)。
-        _today:测试时注入固定日期字符串(YYYY-MM-DD),生产不传。"""
+        _today:测试时注入固定日期字符串(YYYY-MM-DD),生产不传。
+        expected_version: MAN-02 乐观锁，不匹配则 ValueError(chapter_conflict)。"""
+        if expected_version is not None:
+            cur = self.get_chapter(seq) or {}
+            got = int(cur.get("rev") or 0)
+            if got != int(expected_version):
+                raise ValueError("chapter_conflict")
         # 审计 E-1:embedding 是召回辅助不是正文,故障绝不拖死存稿(命门 fail-soft)。
         try:
             from scribe3.prose_sanitize import sanitize_for_persist, fill_placeholder_title, visible_length
@@ -272,6 +278,11 @@ class ChaptersMixin:
             vec = None
         # 千万字缓存(Phase0-BE1):落库时算好场景切分 + QC 计数,聚合端点不再全表拉正文/重算。
         cache = self._compute_chapter_caches(seq, prose)
+        next_rev = 1
+        try:
+            next_rev = int((self.get_chapter(seq) or {}).get("rev") or 0) + 1
+        except Exception:
+            next_rev = 1
         # 正文变更 → 章后统一分析缓存作废（指纹不一致本也会 miss，显式清更干净）
         self._execute_write(
             "UPSERT type::record('chapter',$seq) SET seq=$seq, title=$title, "
@@ -280,11 +291,12 @@ class ChaptersMixin:
             "qc_cache_revision=$qcr, "
             "post_analysis_cache=NONE, post_analysis_fp=NONE, post_analysis_at=NONE, "
             "ingest_prose_fp=NONE, "
+            "rev=$rev, "
             "archived=false, archived_at=NONE, archive_reason=NONE RETURN NONE",
             {"seq": seq, "title": title, "foc": focalizer, "prose": prose, "v": vec, "wc": wc,
              "scn": cache["scene_count"], "scm": cache["scene_meta"], "qc": cache["qc_issues"],
              "qcc": cache["qc_causal"], "qcb": cache["qc_breakdown"],
-             "qcr": QUALITY_CACHE_REVISION})
+             "qcr": QUALITY_CACHE_REVISION, "rev": next_rev})
         # 北极星任务3:章级 scorecard 存稿即算(独立缓存表,D-008)——fail-soft,
         # scorecard 是面板不是命门,失败只告警绝不阻断存稿。
         try:
@@ -341,21 +353,50 @@ class ChaptersMixin:
              "stage": stage, "summary": summary, "stats": stats_str})
         # CREATE 返回新记录(含 id,形如 'chapter_version:xxxx');取裸 id 部分。
         rid = rows[0]["id"] if rows else None
-        return str(rid).split(":")[-1] if rid else ""
+        vid = str(rid).split(":")[-1] if rid else ""
+        try:
+            self.prune_chapter_versions(seq)
+        except Exception as _e:
+            logging.getLogger("scribe3.store").warning(
+                "chapter_version 保留策略失败(新版本已写入): %s", _e)
+        return vid
 
-    def list_chapter_versions(self, seq: int) -> list[dict]:
+    def list_chapter_versions(self, seq: int, *, limit: int | None = 100,
+                              offset: int = 0) -> list[dict]:
         """某章存档点列表(不含 prose 全文),最新在前。
-        stage 缺失(旧版本)降级为 'final'(向后兼容)。"""
-        rows = self._query(
+        stage 缺失(旧版本)降级为 'final'(向后兼容)。MAN-01：默认分页。"""
+        q = (
             "SELECT meta::id(id) AS id, seq, label, kind, qc, "
             "stage, summary, stats, created_at "
-            "FROM chapter_version WHERE seq=$seq ORDER BY created_at DESC",
-            {"seq": seq})
+            "FROM chapter_version WHERE seq=$seq ORDER BY created_at DESC"
+        )
+        params: dict = {"seq": seq}
+        if limit is not None:
+            q += " LIMIT $limit START $offset"
+            params["limit"] = max(1, int(limit))
+            params["offset"] = max(0, int(offset))
+        rows = self._query(q, params) or []
         for r in rows:
             if not r.get("stage"):
                 r["stage"] = "final"
             r.setdefault("summary", "")
         return rows
+
+    def prune_chapter_versions(self, seq: int, *, keep_recent: int = 20) -> dict:
+        """MAN-01：保留最近 N 条 + 里程碑/引用，删掉其余。"""
+        from scribe3.chapter_versions import select_versions_to_drop
+        rows = self.list_chapter_versions(seq, limit=10000, offset=0)
+        drop = select_versions_to_drop(rows, keep_recent=keep_recent)
+        for r in drop:
+            try:
+                self._execute_write(
+                    "DELETE type::record('chapter_version',$id)",
+                    {"id": r["id"]})
+            except Exception:
+                self._execute_write(
+                    "DELETE chapter_version WHERE meta::id(id)=$id",
+                    {"id": r["id"]})
+        return {"dropped": len(drop), "kept": len(rows) - len(drop)}
 
     def get_chapter_version(self, vid: str) -> dict | None:
         """单个存档点全文(回看用)。"""
@@ -994,6 +1035,13 @@ class ChaptersMixin:
         self._execute_write(
             "UPDATE type::record('chapter', $seq) SET archived=true, archived_at=time::now(), archive_reason=$reason",
             {"seq": seq, "reason": (reason or "").strip() or None})
+        try:
+            self._execute_write(
+                "UPDATE canon_candidate SET status='dismissed' "
+                "WHERE (seq=$seq OR chapter=$seq) AND (status='pending' OR status=NONE)",
+                {"seq": seq})
+        except Exception:
+            pass
         return True
 
     def restore_chapter(self, seq: int) -> bool:
@@ -1117,6 +1165,7 @@ class ChaptersMixin:
             "DELETE voice_evolution_flag WHERE trigger_chapter=$seq OR ingest_seq=$seq",
             "DELETE lesson WHERE chapter=$seq",
             "DELETE distill_marker WHERE chapter=$seq",
+            "DELETE canon_candidate WHERE seq=$seq OR chapter=$seq",
         ]:
             try:
                 self._execute_write(query, {"seq": seq})

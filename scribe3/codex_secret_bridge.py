@@ -116,11 +116,14 @@ def sync_faction_secrets(store, name: str, row: dict) -> dict:
 
         if flagged and has_value:
             text = _summarize(row.get(key))
+            from scribe3.leak_markers import auto_generate_leak_markers
+            markers = auto_generate_leak_markers(entity_id, key, text)
             if existing_local:
                 # 策略 B：镜像 UPSERT — 仅公共 API（P1-2 清零）
                 store.upsert_bridge_proposition(
                     local=existing_local, entity_id=entity_id,
                     attribute=key, value=text, source=SOURCE,
+                    leak_markers=markers,
                 )
                 counts["updated"] += 1
                 try:
@@ -143,6 +146,7 @@ def sync_faction_secrets(store, name: str, row: dict) -> dict:
                 store.upsert_bridge_proposition(
                     local=None, entity_id=entity_id,
                     attribute=key, value=text, source=SOURCE,
+                    leak_markers=markers,
                 )
                 counts["created"] += 1
                 try:
@@ -186,9 +190,12 @@ def sync_role_secrets(store, name: str, row: dict) -> dict:
         existing_local = _find_bridge_local(store, entity_id, key)
         if flagged and has_value:
             text = _summarize(row.get(key))
+            from scribe3.leak_markers import auto_generate_leak_markers
+            markers = auto_generate_leak_markers(entity_id, key, text)
             store.upsert_bridge_proposition(
                 local=existing_local, entity_id=entity_id,
                 attribute=key, value=text, source=SOURCE,
+                leak_markers=markers,
             )
             if existing_local:
                 counts["updated"] += 1

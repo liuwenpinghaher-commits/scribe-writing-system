@@ -68,6 +68,11 @@ export function applyUiEvents(events, opts = {}) {
         window.dispatchEvent(new CustomEvent('s3-chapter-phase', { detail }))
         continue
       }
+      if (ev.type === 's3-chapter-phase-hint') {
+        window.dispatchEvent(new CustomEvent('s3-chapter-phase-hint', { detail }))
+        window.dispatchEvent(new CustomEvent('s3-chapter-phase', { detail }))
+        continue
+      }
       if (ev.type === 's3-open-capability') {
         window.dispatchEvent(new CustomEvent('s3-open-capability', { detail }))
         continue

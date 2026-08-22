@@ -38,6 +38,28 @@ except Exception:
     pass  # core may be partially init during first import cycle
 
 
+def chapter_health_ep(seq: int, work: str = "main"):
+    from scribe3.chapter_health import aggregate_chapter_health
+    from scribe3.motif_heat import motif_overheat_advisory
+    st = _store_for(work)
+    pb = {}
+    try:
+        if hasattr(st, "get_frozen"):
+            d = st.get_frozen("chapter_draft", seq) or st.get_frozen("duty_card", seq) or {}
+            pb = {"status": "ok" if d else "missing", "ok": bool(d)}
+    except Exception:
+        pb = {"status": "unknown"}
+    inst = []
+    try:
+        lister = getattr(st, "list_motif_instances", None)
+        inst = lister(seq) if callable(lister) else []
+    except Exception:
+        inst = []
+    h = aggregate_chapter_health(playbook=pb, post_check={}, review={})
+    h["motif_overheat"] = motif_overheat_advisory(inst)
+    return h
+
+
 def craft_gates(seq: int | None = Query(default=None, ge=1), work: str = "main"):
     """旧工艺闸已废。存正文走 finalize_gate。"""
     out: dict = {
@@ -136,5 +158,13 @@ def _bind_and_register() -> None:
     setattr(core, 'refresh_quality', _re)
     g['refresh_quality'] = _re
     router.add_api_route('/quality/refresh', _re, methods=['POST'], name='refresh_quality')
+
+    _fn = g['chapter_health_ep']
+    _re = types.FunctionType(_fn.__code__, core.__dict__, 'chapter_health_ep', _fn.__defaults__, _fn.__closure__)
+    if _fn.__annotations__:
+        _re.__annotations__ = dict(_fn.__annotations__)
+    setattr(core, 'chapter_health_ep', _re)
+    g['chapter_health_ep'] = _re
+    router.add_api_route('/chapters/{seq}/health', _re, methods=['GET'], name='chapter_health_ep')
 
 _bind_and_register()

@@ -467,6 +467,9 @@ export function SystemHub({
           <div data-testid="skills-col-craft">
             <h4 className="text-f13 font-medium mb-2">技法</h4>
             <ul className="space-y-2">
+              {!(skills || []).length && (
+                <li className="text-meta text-faint px-1">暂无技法，可在系统中心或主编对话添加</li>
+              )}
               {(skills || []).map((s) => (
                 <li key={s.slug || s.name}>
                   <button type="button" className="text-left w-full rounded-lg border border-line px-3 py-2 hover:bg-soft cursor-pointer"
@@ -481,6 +484,9 @@ export function SystemHub({
           <div data-testid="skills-col-moves">
             <h4 className="text-f13 font-medium mb-2">招式</h4>
             <ul className="space-y-2">
+              {!(moves || []).length && (
+                <li className="text-meta text-faint px-1">暂无招式，可通过「登记新招式」添加</li>
+              )}
               {(moves || []).map((c) => (
                 <li key={c.slug}>
                   <button type="button" className="text-left w-full rounded-lg border border-line px-3 py-2 hover:bg-soft cursor-pointer"

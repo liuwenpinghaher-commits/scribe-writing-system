@@ -31,9 +31,23 @@ _KIND_GROUPS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("identity", ("name", "description", "rules")),
     ),
     "item": (
-        ("identity", ("name", "function", "origin")),
+        ("identity", ("name", "description", "current_owner", "symbolic_state")),
     ),
 }
+
+
+def kind_field_groups(kind: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """CDX-02：item 等走真实 schema 字段；未知 kind 再回落硬编码簇。"""
+    k = str(kind or "")
+    if k == "item":
+        try:
+            from scribe3.codex_schema import fields_for
+            keys = tuple(f.key for f in fields_for("item") if not f.deprecated)
+            if keys:
+                return (("identity", keys),)
+        except Exception:
+            pass
+    return _KIND_GROUPS.get(k, ())
 
 
 def _clip(value: object) -> str:
@@ -47,7 +61,7 @@ def _clip(value: object) -> str:
 def digest_payloads(kind: str, entity_id: str, row: dict[str, Any] | None) -> list[dict[str, str]]:
     """一实体可多条：总摘 + 字段簇。不落库。"""
     data = row if isinstance(row, dict) else {}
-    groups = _KIND_GROUPS.get(str(kind or ""), ())
+    groups = kind_field_groups(kind)
     out: list[dict[str, str]] = []
     total_parts: list[str] = []
     for group, keys in groups:

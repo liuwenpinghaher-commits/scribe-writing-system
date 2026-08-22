@@ -207,12 +207,13 @@ def _quality_loop(
         except InfraError as exc:
             playbook_span_end(sid_g, status="failed", actual="failed")
             return {"ok": False, "code": "infra", "message": str(exc), "layer": name}
-        except ParseError as exc:
+        except ParseError as extra_exc:
             playbook_span_end(sid_g, status="failed", actual="failed")
             infra_fails += 1
-            last_struct = {"ok": False, "code": "json", "message": str(exc)}
-            if infra_fails >= 3:
-                return {"ok": False, "code": "infra", "message": str(exc), "layer": name}
+            quality += 1
+            last_struct = {"ok": False, "code": "json", "message": str(extra_exc)}
+            if infra_fails >= 3 or quality >= MAX_QUALITY_ROUNDS:
+                return {"ok": False, "code": "infra", "message": str(extra_exc), "layer": name}
             continue
         last_art = art
         target = extract(art) if extract else art
@@ -362,15 +363,32 @@ def run_stage(
     ctx = dict(ctx or {})
     ctx.setdefault("seq", seq)
 
-    if name == "duty":
-        return _run_duty(store, seq, ctx, llm_fn, force=force, persist=persist)
-    if name == "design":
-        return _run_design(store, seq, ctx, llm_fn, force=force, rewrite=rewrite, persist=persist)
-    if name == "deduce":
-        return _run_deduce(store, seq, ctx, llm_fn, force=force, persist=persist)
-    if name == "draft":
-        return _run_draft(store, seq, ctx, llm_fn, force=force, persist=persist)
-    return _run_final(store, seq, ctx, llm_fn, force=force, persist=persist)
+    from scribe3.chapter_lock import acquire_chapter_lock, release_chapter_lock
+    work = getattr(store, "db_name", None) or ctx.get("work") or "main"
+    clr = acquire_chapter_lock("run", work, seq, store=store, ttl_seconds=600)
+    if not clr.ok:
+        return {
+            "ok": False,
+            "code": "chapter_busy",
+            "status": "busy",
+            "message": clr.detail or "本章正在执行",
+        }
+    try:
+        if name == "duty":
+            from scribe3.playbook.duty_gate import refuse_empty_synopsis
+            blocked = refuse_empty_synopsis(ctx, store=store, seq=seq)
+            if blocked:
+                return blocked
+            return _run_duty(store, seq, ctx, llm_fn, force=force, persist=persist)
+        if name == "design":
+            return _run_design(store, seq, ctx, llm_fn, force=force, rewrite=rewrite, persist=persist)
+        if name == "deduce":
+            return _run_deduce(store, seq, ctx, llm_fn, force=force, persist=persist)
+        if name == "draft":
+            return _run_draft(store, seq, ctx, llm_fn, force=force, persist=persist)
+        return _run_final(store, seq, ctx, llm_fn, force=force, persist=persist)
+    finally:
+        release_chapter_lock("run", work, seq, store=store)
 
 
 def _skip_or_force(store, table: str, seq: int, *, force: bool, rewrite: bool) -> dict[str, Any] | None:

@@ -36,15 +36,15 @@ def apply_item_to_store(st: Any, item: ChangeItem | dict) -> dict[str, Any]:
     bare = target.split(":")[-1] if target else ""
     try:
         if module == "character":
-            return _apply_character(st, bare, target, field, after, op)
+            return _sync_after_apply(st, module, _apply_character(st, bare, target, field, after, op))
         if module == "world_rule":
-            return _apply_world_rule(st, bare or target, field, after, op)
+            return _sync_after_apply(st, module, _apply_world_rule(st, bare or target, field, after, op))
         if module == "faction":
-            return _apply_faction(st, bare or target, field, after, op)
+            return _sync_after_apply(st, module, _apply_faction(st, bare or target, field, after, op))
         if module == "item":
-            return _apply_item(st, bare or target, field, after, op)
+            return _sync_after_apply(st, module, _apply_item(st, bare or target, field, after, op))
         if module == "term":
-            return _apply_term(st, bare or target, field, after, op)
+            return _sync_after_apply(st, module, _apply_term(st, bare or target, field, after, op))
         if module == "fact":
             return _apply_fact(st, target, field, after, op)
         if module == "knowledge":
@@ -63,6 +63,28 @@ def apply_item_to_store(st: Any, item: ChangeItem | dict) -> dict[str, Any]:
     except Exception as e:
         _log.warning("apply_item_to_store fail module=%s target=%s: %s", module, target, e)
         return {"status": "error", "error": str(e)[:200], "item_id": item_id, "module": module}
+
+
+def _sync_after_apply(st, module: str, result: dict) -> dict:
+    if not isinstance(result, dict) or result.get("status") != "written":
+        return result
+    if module not in ("character", "faction", "item", "term", "world_rule"):
+        return result
+    eid = result.get("oid") or result.get("name")
+    if not eid:
+        return result
+    eid_s = str(eid)
+    if module == "character" and not eid_s.startswith("role:"):
+        eid_s = f"role:{eid_s}"
+    elif module != "character" and ":" not in eid_s:
+        eid_s = f"{module}:{eid_s}"
+    try:
+        from scribe3.canon_apply_sync import after_canon_apply
+        result["sync"] = after_canon_apply(st, module, eid_s)
+    except Exception as e:
+        _log.warning("canon apply sync fail module=%s: %s", module, e)
+        result["sync_error"] = type(e).__name__
+    return result
 
 
 def _apply_character(st, bare, target, field, after, op) -> dict:

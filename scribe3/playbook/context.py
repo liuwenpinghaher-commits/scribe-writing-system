@@ -727,6 +727,51 @@ GUIDE_SLOT_KEYS = (
 )
 
 
+def _revision_letter_digest(world: Any, seq: int) -> str:
+    for name in ("get_revision_letter", "latest_revision_letter", "get_letter"):
+        fn = getattr(world, name, None)
+        if callable(fn):
+            try:
+                row = fn(seq) if fn.__code__.co_argcount >= 2 else fn()
+            except TypeError:
+                try:
+                    row = fn()
+                except Exception:
+                    row = None
+            except Exception:
+                row = None
+            if isinstance(row, dict):
+                return str(row.get("digest") or row.get("text") or row.get("body") or "")[:800]
+            if row:
+                return str(row)[:800]
+    try:
+        from scribe3.experience.letter import digest_for_chapter
+        return str(digest_for_chapter(world, seq) or "")[:800]
+    except Exception:
+        return ""
+
+
+def _scene_grid_digest(world: Any, seq: int) -> str:
+    fn = getattr(world, "get_scene_grid", None)
+    if callable(fn):
+        try:
+            row = fn(seq)
+            if isinstance(row, dict):
+                return str(row.get("digest") or row.get("summary") or row)[:800]
+            if row:
+                return str(row)[:800]
+        except Exception:
+            pass
+    try:
+        from scribe3.experience.scene_grid import diagnose_scene_grid
+        out = diagnose_scene_grid(world, seq)
+        if isinstance(out, dict):
+            return str(out.get("digest") or out.get("summary") or "")[:800]
+        return str(out or "")[:800]
+    except Exception:
+        return ""
+
+
 def build_ctx(
     store: Any,
     seq: int,
@@ -759,12 +804,18 @@ def build_ctx(
                 pass
             return ""
 
-    volume_outline = _slot("volume_outline", lambda: playbook_volume_outline(world, seq, rows))
-    north_star = _slot("north_star", lambda: playbook_north_star(world))
-    chapter_duty = _slot("chapter_duty", lambda: playbook_chapter_duty(seq, rows))
-    recent_duty = _slot("recent_duty_summary", lambda: playbook_recent_duty_summary(frozen, seq))
-    recent_scene = _slot("recent_scene_summary", lambda: playbook_recent_scene_summary(frozen, seq))
-    codex = _slot("codex_recall", lambda: playbook_codex_recall(world, seq, foc, rows=rows))
+    from scribe3.context_snapshot import snapshot_get_or_set
+    cache_key = f"{getattr(world, 'db_name', '')}:{seq}:{foc}"
+
+    def _cached_slot(name, fn):
+        return snapshot_get_or_set(f"{cache_key}:{name}", lambda: _slot(name, fn))
+
+    volume_outline = _cached_slot("volume_outline", lambda: playbook_volume_outline(world, seq, rows))
+    north_star = _cached_slot("north_star", lambda: playbook_north_star(world))
+    chapter_duty = _cached_slot("chapter_duty", lambda: playbook_chapter_duty(seq, rows))
+    recent_duty = _cached_slot("recent_duty_summary", lambda: playbook_recent_duty_summary(frozen, seq))
+    recent_scene = _cached_slot("recent_scene_summary", lambda: playbook_recent_scene_summary(frozen, seq))
+    codex = _cached_slot("codex_recall", lambda: playbook_codex_recall(world, seq, foc, rows=rows))
     epistemic = _slot(
         "characters_epistemic_history",
         lambda: playbook_epistemic_history(frozen, seq),
@@ -810,6 +861,14 @@ def build_ctx(
         "codex_recall": codex,
         "characters_epistemic_history": epistemic,
         "prev_prose_tail": prose_tail,
+        "revision_letter_digest": _cached_slot(
+            "revision_letter_digest",
+            lambda: _revision_letter_digest(world, seq),
+        ),
+        "scene_grid": _cached_slot(
+            "scene_grid",
+            lambda: _scene_grid_digest(world, seq),
+        ),
         "_guide_fail": list(guide_fail),
         "_volume_ledger_skip": ledger_skip,
     }

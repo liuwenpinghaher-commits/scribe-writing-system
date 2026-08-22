@@ -422,6 +422,26 @@ class ConnectionMixin:
     def _cleanup_record_refs(self, oid: str) -> None:
         table, local = _split(oid)
         rid = RecordID(table, local)
+        entity_id = oid if ":" in str(oid) else f"{table}:{local}"
+        try:
+            self._execute_write(
+                "DELETE proposition WHERE entity_id=$eid", {"eid": entity_id})
+        except Exception:
+            pass
+        try:
+            self._execute_write(
+                "UPDATE material SET about_entities = array::complement(about_entities, [$eid]) "
+                "WHERE about_entities CONTAINS $eid",
+                {"eid": entity_id})
+        except Exception:
+            pass
+        try:
+            self._execute_write(
+                "DELETE canon_candidate WHERE target=$eid OR entity_id=$eid "
+                "OR target=$oid OR entity_id=$oid",
+                {"eid": entity_id, "oid": oid})
+        except Exception:
+            pass
         if oid.startswith("role:"):
             self._execute_write("DELETE knows WHERE in=$rid", {"rid": rid})
             self._execute_write("DELETE involves WHERE out=$rid", {"rid": rid})
@@ -429,6 +449,17 @@ class ConnectionMixin:
             self._execute_write("DELETE knows WHERE out=$rid", {"rid": rid})
             self._execute_write("DELETE reader_knows WHERE proposition=$rid", {"rid": rid})
             self._execute_write("DELETE causes WHERE out=$rid", {"rid": rid})
+        elif table in ("faction", "item", "term", "world_rule"):
+            try:
+                self._execute_write(
+                    "DELETE knows WHERE in=$rid OR out=$rid", {"rid": rid})
+            except Exception:
+                pass
+            try:
+                self._execute_write(
+                    "DELETE character_relation WHERE in=$rid OR out=$rid", {"rid": rid})
+            except Exception:
+                pass
 
     def _compute_scorecard(self, seq: int, prose: str, focalizer: str | None,
                            precomputed_flags: dict | None = None) -> dict:

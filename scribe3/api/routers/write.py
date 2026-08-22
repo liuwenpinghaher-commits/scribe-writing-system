@@ -27,6 +27,44 @@ from scribe3.feature_flags import get_flag
 router = APIRouter(tags=['write'])
 
 
+def _reject_overdue_hard(st) -> None:
+    from scribe3.promise_overdue_gate import check_overdue_hard
+    block = check_overdue_hard(st)
+    if block:
+        raise HTTPException(status_code=409, detail=block)
+
+
+def _lock_chapter_run(work, seq, st, ttl_seconds: int = 600):
+    from scribe3.chapter_lock import acquire_chapter_lock, chapter_lock_busy_http_detail
+    clr = acquire_chapter_lock("run", work, int(seq or 1), store=st, ttl_seconds=ttl_seconds)
+    if not clr.ok:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "chapter_busy",
+                "message": chapter_lock_busy_http_detail(clr),
+            },
+        )
+    return clr
+
+
+def _unlock_chapter_run(work, seq, st) -> None:
+    from scribe3.chapter_lock import release_chapter_lock
+    try:
+        release_chapter_lock("run", work, int(seq or 1), store=st)
+    except Exception:
+        pass
+
+
+def _sse_locked_run(work, seq, st, inner):
+    def _body():
+        try:
+            yield from inner
+        finally:
+            _unlock_chapter_run(work, seq, st)
+    return sse_response(_body())
+
+
 # Import app_impl constants/models used as signature defaults (late-safe for helpers).
 def _import_core_defaults():
     from scribe3.api import app_impl as core
@@ -391,6 +429,16 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
     (每新开一个注入点都泄露过一次)对 GET 同样成立;现与 POST/loop 物理同源。
     不落库(台账 D-005,无生产调用方的兼容端点)。"""
     st = _store_for(work)
+    _reject_overdue_hard(st)
+    _lock_chapter_run(work, chapter, st)
+    try:
+        return _chat_write_locked(msg, chapter, focalizer, phase, work, short_mode, skip_iceberg, st)
+    except Exception:
+        _unlock_chapter_run(work, chapter, st)
+        raise
+
+
+def _chat_write_locked(msg, chapter, focalizer, phase, work, short_mode, skip_iceberg, st):
     from scribe3.playbook.stages import extra_authors
     if extra_authors(msg):
         raise HTTPException(status_code=422, detail={
@@ -417,7 +465,8 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
             seed_words=[], short_mode=short_mode, with_tools=_wt, work=work,
             envelope_trace=outcome_binding.manifest_trace, request_text=msg)
     from scribe3.stage_generate import stage_max_tokens
-    return sse_response(
+    return _sse_locked_run(
+        work, chapter, st,
         _stream_write(msg, instructions, expect_proposal=_write_intent,
                       with_tools=_wt, on_terminal=outcome_binding.persist,
                       max_tokens=stage_max_tokens(phase)),
@@ -427,6 +476,16 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
                     work: str = "main"):
     """POST 版写作对话(支持图片附件):前端用 fetch 流式读取。"""
     st = _store_for(work)
+    _reject_overdue_hard(st)
+    _lock_chapter_run(work, int(req.chapter or 1), st)
+    try:
+        return _chat_write_post_locked(req, request, background, work, st)
+    except Exception:
+        _unlock_chapter_run(work, int(req.chapter or 1), st)
+        raise
+
+
+def _chat_write_post_locked(req, request, background, work, st):
     from scribe3.playbook.stages import extra_authors
     if extra_authors(getattr(req, "msg", "") or ""):
         raise HTTPException(status_code=422, detail={
@@ -541,7 +600,8 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
                              turn_id=turn_id, text=user_text, chapter=req.chapter)
 
     from scribe3.stage_generate import stage_max_tokens
-    return sse_response(
+    return _sse_locked_run(
+        work, int(req.chapter or 1), st,
         _stream_write(message, instructions, expect_proposal=_write_intent,
                       with_tools=_wt,
                       on_terminal=outcome_binding.persist,

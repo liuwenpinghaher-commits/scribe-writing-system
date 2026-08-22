@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { api } from '../api'
 import { ConfirmDialog } from '../ui/Dialog.jsx'
 import { Input } from '../ui.jsx'
+import { showToast } from '../ui/Toast.jsx'
 
 const SOURCE_LABEL = { db: '已自定义', env: 'env', default: '默认' }
 
@@ -10,8 +11,17 @@ export function SettingField({ item, onChanged }) {
   const [confirm, setConfirm] = useState(null)      // {value} 或 {reset:true}
   const [err, setErr] = useState(null)
   const commit = async (value) => {
-    try { await api.putSetting(item.key, value); setDraft(null); setErr(null); onChanged?.(item.key) }
-    catch (e) { setErr(e?.body?.detail || e.message || '保存失败') }
+    try {
+      await api.putSetting(item.key, value)
+      setDraft(null)
+      setErr(null)
+      showToast(`已保存「${item.label}」`, { tone: 'ok' })
+      onChanged?.(item.key)
+    } catch (e) {
+      const msg = e?.body?.detail || e.message || '保存失败'
+      setErr(msg)
+      showToast(msg, { tone: 'danger' })
+    }
   }
   const submit = (value) => item.danger ? setConfirm({ value }) : commit(value)
   // secret 项 default 为 None(未设置)时,提示不能显示字面 "null"。
@@ -38,7 +48,7 @@ export function SettingField({ item, onChanged }) {
           </button>
         ) : item.type === 'secret' ? (
           <Input type="password" variant="bordered" size="sm" placeholder={item.is_set ? '已设置(输入以更换)' : '未设置'} aria-label={item.label}
-            className="w-48" value={draft ?? ''} onChange={(e) => setDraft(e.target.value)}
+            autoComplete="off" className="w-48" value={draft ?? ''} onChange={(e) => setDraft(e.target.value)}
             onBlur={() => draft && submit(draft)} />
         ) : (
           <Input type={item.type === 'str' ? 'text' : 'number'} variant="bordered" size="sm"
@@ -70,7 +80,14 @@ export function SettingField({ item, onChanged }) {
           const c = confirm; setConfirm(null)
           // P2:恢复默认失败不静默,与 commit 同款错误反馈
           c.reset
-            ? api.resetSetting(item.key).then(() => onChanged?.(item.key)).catch((e) => setErr(e?.body?.detail || e.message || '恢复失败'))
+            ? api.resetSetting(item.key).then(() => {
+                showToast(`已恢复「${item.label}」默认`, { tone: 'ok' })
+                onChanged?.(item.key)
+              }).catch((e) => {
+                const msg = e?.body?.detail || e.message || '恢复失败'
+                setErr(msg)
+                showToast(msg, { tone: 'danger' })
+              })
             : commit(c.value)
         }}
         onClose={() => setConfirm(null)} />

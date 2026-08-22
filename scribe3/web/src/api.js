@@ -251,6 +251,8 @@ export const api = {
   // 事件叙事位编辑(尾1):narrative_position=null 清除回退 story_chapter
   patchEventNarrative: (eid, narrative_position) =>
     patch('/events/' + enc(eid) + '/narrative', { narrative_position }),
+  patchEventCausalRoot: (eid, reason) =>
+    patch('/events/' + enc(eid) + '/causal-root', { reason }),
   // 伏笔:前端统一用 `kind`(与 GET /promises 行数据、后端 DB 字段同名);但请求体模型 PromIn
   // 读 `promise_kind`(缺省 'promise')。整行回传编辑其它字段时,若不带 promise_kind → 后端把
   // red_herring 静默重置为 promise(P1-3)。此处在线上把 kind 转译为 promise_kind,保留原值。
@@ -748,13 +750,21 @@ export const api = {
     const open = () => {
       if (stopped) return
       es = new EventSource(withTokenQuery(BASE + ww('/live')))
+      es.onopen = () => {
+        attempt = 0
+        try { onChange({ table: '_reconnect', action: 'pull' }) } catch (_) { /* */ }
+      }
       es.onmessage = (e) => { attempt = 0; try { onChange(JSON.parse(e.data)) } catch (_) { /* */ } }
       es.onerror = () => {
         try { es.close() } catch (_) { /* */ }
         es = null
         if (stopped) return
         attempt += 1
-        if (attempt > MAX_ATTEMPT) { onGiveUp?.(); return }
+        if (attempt > MAX_ATTEMPT) {
+          onGiveUp?.()
+          timer = setTimeout(() => { if (!stopped) { attempt = 0; open() } }, 30000)
+          return
+        }
         const delay = Math.min(30000, 1000 * 2 ** (attempt - 1))
         clearTimeout(timer)
         timer = setTimeout(open, delay)

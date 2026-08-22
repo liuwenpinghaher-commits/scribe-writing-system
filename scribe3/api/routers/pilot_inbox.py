@@ -47,6 +47,21 @@ def pilot_step(req: PilotStepReq, work: str = "main"):
     """
     from scribe3.pilot import NEXT, read_state, step
     st = _store_for(work)
+    try:
+        from scribe3.feature_flags import flag_truthy
+        if flag_truthy("SCRIBE3_JOURNEY_PRECHECK"):
+            intent = st.get_intent() if hasattr(st, "get_intent") else {}
+            ns = str((intent or {}).get("north_star") or (intent or {}).get("premise") or "").strip()
+            motifs = st.list_motifs() if hasattr(st, "list_motifs") else []
+            if not ns or len(motifs or []) < 1:
+                raise HTTPException(status_code=409, detail={
+                    "code": "journey_precheck",
+                    "message": "还没立北极星或母题，先走完旅程再开写",
+                })
+    except HTTPException:
+        raise
+    except Exception:
+        pass
     if not st.get_chapter(req.seq):
         raise HTTPException(status_code=404, detail=f"第 {req.seq} 章不存在(先建章或用 /pilot/run 自动建)")
     if req.steer.strip():
@@ -92,8 +107,13 @@ def pilot_step(req: PilotStepReq, work: str = "main"):
     except Exception:
         pass
     _k = (work, req.seq)
+    from scribe3.chapter_lock import acquire_chapter_lock, release_chapter_lock, chapter_lock_busy_http_detail
+    clr = acquire_chapter_lock("run", work, req.seq, store=st, ttl_seconds=600)
+    if not clr.ok:
+        raise HTTPException(status_code=409, detail=chapter_lock_busy_http_detail(clr))
     with _pilot_inflight_lock:
         if _k in _pilot_inflight:
+            release_chapter_lock("run", work, req.seq, store=st)
             raise HTTPException(status_code=409, detail=f"第 {req.seq} 章 pilot 已在推进")
         _pilot_inflight.add(_k)
     try:
@@ -103,6 +123,7 @@ def pilot_step(req: PilotStepReq, work: str = "main"):
     finally:
         with _pilot_inflight_lock:
             _pilot_inflight.discard(_k)
+        release_chapter_lock("run", work, req.seq, store=st)
 
 def add_idea(req: IdeaIn, work: str = "main"):
     """想法收件箱(主编主动化 T8):作者唯一的输入负担——丢一句话,主编路由落位。
@@ -238,8 +259,21 @@ def pilot_reset(req: PilotApproveReq, work: str = "main"):
     from scribe3.pilot import read_state, write_state
     st = _store_for(work)
     s = read_state(st, req.seq)
-    write_state(st, req.seq, s["state"], parked="")
-    return {"seq": req.seq, "state": s["state"], "parked": ""}
+    parked = ""
+    state = s["state"]
+    force = bool(getattr(req, "force_rollback", False) or getattr(req, "force", False))
+    if force:
+        parked = ""
+        # DIR-03：允许退回指定状态，解开冻产物卡死
+        target = getattr(req, "to_state", None) or "drafting"
+        state = str(target)
+        try:
+            if hasattr(st, "clear_frozen_for_seq"):
+                st.clear_frozen_for_seq(req.seq)
+        except Exception:
+            pass
+    write_state(st, req.seq, state, parked=parked)
+    return {"seq": req.seq, "state": state, "parked": parked, "force_rollback": force}
 
 def decision_inbox(work: str = "main", seq: int | None = None):
     """主编主动化 T4:决策收件箱——所有「等作者」的事项一处集中。
@@ -426,6 +460,8 @@ def decision_inbox(work: str = "main", seq: int | None = None):
         logging.getLogger("scribe3").warning("inbox digest 失败(忽略): %s", e)
         _deg("digest")
 
+    from scribe3.inbox_dismiss import filter_inbox
+    items = filter_inbox(st, items)
     sort_items(items, focus_seq)
     return {
         "items": items,
@@ -433,6 +469,14 @@ def decision_inbox(work: str = "main", seq: int | None = None):
         "degraded_sources": dedupe_degraded(degraded),
         "focus_seq": focus_seq,
     }
+
+
+def dismiss_inbox_ep(item_id: str, work: str = "main"):
+    from scribe3.inbox_dismiss import dismiss_inbox_item
+    rec = dismiss_inbox_item(_store_for(work), item_id)
+    if not rec.get("ok"):
+        raise HTTPException(status_code=422, detail=rec)
+    return rec
 
 def lessons_promotable(work: str = "main", threshold: int = 4):
     """升格候选队列(北极星任务8):importance ≥ threshold 的有效 lesson。
@@ -703,6 +747,13 @@ def _bind_and_register() -> None:
     setattr(core, 'decision_inbox', _re)
     g['decision_inbox'] = _re
     router.add_api_route('/inbox', _re, methods=['GET'], name='decision_inbox')
+    _fn_d = g['dismiss_inbox_ep']
+    _re_d = types.FunctionType(_fn_d.__code__, core.__dict__, 'dismiss_inbox_ep', _fn_d.__defaults__, _fn_d.__closure__)
+    if getattr(_fn_d, '__annotations__', None):
+        _re_d.__annotations__ = dict(_fn_d.__annotations__)
+    setattr(core, 'dismiss_inbox_ep', _re_d)
+    g['dismiss_inbox_ep'] = _re_d
+    router.add_api_route('/inbox/dismiss/{item_id}', _re_d, methods=['POST'], name='dismiss_inbox_ep')
 
     _fn = g['lessons_promotable']
     _re = types.FunctionType(_fn.__code__, core.__dict__, 'lessons_promotable', _fn.__defaults__, _fn.__closure__)

@@ -21,7 +21,11 @@ check "SCRIBE3_ROOT 已设置" "grep -q SCRIBE3_ROOT /etc/scribe3/env"
 check "日志目录可写" "[ -w ${OBSERVABILITY_LOG_DIR:-/var/log/scribe3/observability} ]"
 check "cron 脚本可执行" "[ -x deploy/prod/scripts/observability_cron.sh ]"
 check "Grafana JSON 语法合法" "python3 -c \"import json; json.load(open('deploy/prod/grafana/quality-stats-panel.json'))\""
-check "systemd timer 语法" "systemd-analyze verify deploy/prod/systemd/scribe3-observability.timer 2>&1 | grep -v 'Cannot' || true"
+if command -v systemd-analyze >/dev/null 2>&1; then
+  check "systemd timer 语法" "systemd-analyze verify deploy/prod/systemd/scribe3-observability.timer 2>&1 | grep -v 'Cannot'"
+else
+  echo "⊘ systemd timer 语法（本机无 systemd-analyze，仅 Linux 部署机检查）"
+fi
 
 echo "---"
 echo "通过: $PASS / 失败: $FAIL"

@@ -261,6 +261,14 @@ def get_rule(name: str, work: str = "main"):
     from scribe3.iceberg import attach_codex_ready
     return attach_codex_ready("world_rule", dict(row))
 
+def patch_rule(name: str, fields: dict | None = None, work: str = "main"):
+    st = _store_for(work)
+    if not st.get_world_rule(name):
+        raise HTTPException(status_code=404, detail=f"world_rule '{name}' 不存在")
+    st.patch_world_rule(name, fields or {})
+    return {"ok": True, "name": name}
+
+
 def add_rule(r: RuleIn, work: str = "main"):
     if r.scope not in _WORLD_RULE_SCOPES:
         raise HTTPException(status_code=422,
@@ -643,6 +651,13 @@ def _bind_and_register() -> None:
     setattr(core, 'get_rule', _re)
     g['get_rule'] = _re
     router.add_api_route('/world-rules/{name}', _re, methods=['GET'], name='get_rule')
+    _fn = g['patch_rule']
+    _re = types.FunctionType(_fn.__code__, core.__dict__, 'patch_rule', _fn.__defaults__, _fn.__closure__)
+    if getattr(_fn, '__annotations__', None):
+        _re.__annotations__ = dict(_fn.__annotations__)
+    setattr(core, 'patch_rule', _re)
+    g['patch_rule'] = _re
+    router.add_api_route('/world-rules/{name}', _re, methods=['PATCH'], name='patch_rule')
 
     _fn = g['add_rule']
     _re = types.FunctionType(_fn.__code__, core.__dict__, 'add_rule', _fn.__defaults__, _fn.__closure__)

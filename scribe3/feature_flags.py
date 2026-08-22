@@ -216,8 +216,8 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     ),
     Flag(
         "SCRIBE3_SECRET_BRIDGE_ROLES",
-        "0",
-        "角色类 secret 字段同步进限知命题（默认关，势力桥不受影响）",
+        "1",
+        "角色类 secret 字段同步进限知命题（默认开；关则只走势力桥）",
         "recall",
         "caution",
     ),
@@ -313,6 +313,8 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag("SCRIBE3_PREFETCH_PREFS_TEXT", "", "预取作者偏好文案", "hermes", "safe"),
     Flag("SCRIBE3_STRUCTURE_DIVERSITY_INJECT", "1", "结构多样性注入", "structure_style", "safe"),
     Flag("SCRIBE3_ENDING_FORMULA_BLOCKING", "0", "结尾套话硬拦", "structure_style", "caution"),
+    Flag("SCRIBE3_JOURNEY_PRECHECK", "0", "开写前检查北极星/母题", "journey", "caution"),
+    Flag("SCRIBE3_ALERT_WEBHOOK", "", "关键事件 webhook", "ops", "caution"),
 )
 
 

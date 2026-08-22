@@ -126,13 +126,23 @@ def parse_voice_profile_from_fold(reply: str) -> dict | None:
 
 def build_knowledge_extract_prompt(prose: str, motif_names: list[str] | None = None,
                                    promise_items: list[dict] | None = None,
-                                   belief_chars: list[dict] | None = None) -> str:
+                                   belief_chars: list[dict] | None = None,
+                                   motif_echoes: dict | None = None) -> str:
     motif_seg = ""
     motif_schema = ""
     if motif_names:
         names = "、".join(motif_names)
+        echo_line = ""
+        if motif_echoes:
+            bits = []
+            for n, terms in motif_echoes.items():
+                if terms:
+                    bits.append(f"{n}还会以「{'、'.join(list(terms)[:8])}」回来")
+            if bits:
+                echo_line = "隐性回声也算触及：" + "；".join(bits) + "。"
         motif_seg = (
             f"再抽【motif:本章触及了以下【已立母题】中的哪些({names})——"
+            f"{echo_line}"
             "只能从这些里选,严禁发明新母题;每条给母题名(motif)+本章一句体现它的引文(evidence);"
             "没触及则输出空列表】。\n")
         motif_schema = ',"motif":[{"motif":母题名,"evidence":引文}]'

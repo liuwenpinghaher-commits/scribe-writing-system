@@ -302,3 +302,9 @@ def all_storage_keys(kind: str) -> tuple[str, ...]:
         if f.secret_capable:
             keys.append(secret_flag_key(f.key))
     return tuple(keys)
+
+
+def filter_patch_fields(kind: str, fields: dict | None) -> dict:
+    """CDX-01：patch 只留 schema 登记过的存储键，不手写 tuple。未知键丢弃。"""
+    allowed = set(all_storage_keys(kind))
+    return {k: v for k, v in (fields or {}).items() if k in allowed}

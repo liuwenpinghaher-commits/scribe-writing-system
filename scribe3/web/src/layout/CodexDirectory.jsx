@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { DirectoryHeader } from './DirectoryHeader'
+import { liveTouchesTable } from '../lib/liveRefresh.js'
+import { CODEX_TREE_REFRESH_EVENT } from '../lib/codexLifecycle.js'
 import { DirectoryRow, DirectorySectionLabel, DIR_SHELL } from './DirectoryRow'
 
 const CODEX_CATS = new Set(['character', 'faction', 'item', 'term', 'world_rule', 'promise', 'motif', 'proposition'])
@@ -139,6 +141,21 @@ export function CodexDirectory({ root, selected, sel, onSelectItem }) {
       .catch(() => { if (alive) setHealth(null) })
     return () => { alive = false }
   }, [root?.id])
+
+  useEffect(() => {
+    const onLive = (e) => {
+      if (liveTouchesTable(e?.detail, [
+        'faction', 'item', 'term', 'world_rule', 'character', 'proposition',
+      ])) {
+        try { window.dispatchEvent(new CustomEvent(CODEX_TREE_REFRESH_EVENT)) } catch { /* */ }
+        if (typeof api.codexHealth === 'function') {
+          api.codexHealth().then(setHealth).catch(() => {})
+        }
+      }
+    }
+    window.addEventListener('s3-live', onLive)
+    return () => window.removeEventListener('s3-live', onLive)
+  }, [])
 
   // 跨类型服务端搜索(debounce):有 query 时优先用 /codex/search
   useEffect(() => {

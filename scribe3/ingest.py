@@ -251,6 +251,20 @@ def grep_back_verify(delta: dict, source_prose: str) -> dict:
 
     _verify_field(result_delta.get("learned") or [], "fact", "learned")
     _verify_field(result_delta.get("did") or [], "action", "did")
+    # MAT-02 / MOT-04：母题 evidence 必须能在正文里找到，编造的不算触及。
+    motif_kept = []
+    for it in result_delta.get("motif") or []:
+        if not isinstance(it, dict):
+            continue
+        ev = it.get("evidence") or ""
+        clean_ev = re.sub(r"[^\w]", "", str(ev))
+        if len(clean_ev) >= 2 and (clean_ev in clean_prose or (len(clean_ev) >= 4 and _traceable(clean_ev))):
+            motif_kept.append(it)
+        else:
+            it["unverified"] = True
+            annotated.append(f"motif.evidence:{it.get('motif') or '?'}")
+            dropped.append(it)
+    result_delta["motif"] = motif_kept
 
     return {"delta": result_delta, "dropped": dropped, "annotated": annotated}
 
@@ -264,6 +278,25 @@ def apply_delta(store, delta: dict, seq: int,
     import logging
     _log = logging.getLogger("scribe3.ingest")
     store.purge_ingest(seq)
+    from scribe3.ingest_integrity import run_ingest_apply
+
+    def _body():
+        return _apply_delta_body(store, delta, seq, open_promises)
+
+    guarded = run_ingest_apply(_body, seq)
+    if not guarded.get("ok"):
+        try:
+            if hasattr(store, "_execute_write"):
+                store._execute_write(
+                    "UPSERT ingest_checkpoint SET seq=$s, ok=false, needs_replay=true",
+                    {"s": seq})
+        except Exception:
+            pass
+        raise RuntimeError(guarded.get("detail") or "ingest apply failed")
+    return guarded.get("n") or 0
+
+
+def _apply_delta_body(store, delta, seq, open_promises):
     n = 0
     for i, it in enumerate(delta.get("learned") or []):
         who, fact = it.get("who"), it.get("fact")
@@ -566,7 +599,16 @@ def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3,
                 "extract_source": "skip_same_fp",
             }
 
-    motif_names = [m.get("name") for m in store.list_motifs() if m.get("name")]
+    _motifs = store.list_motifs() or []
+    motif_names = [m.get("name") for m in _motifs if m.get("name")]
+    motif_echoes = {}
+    for m in _motifs:
+        name = m.get("name")
+        terms = m.get("echo_terms") or m.get("echoes") or []
+        if isinstance(terms, str):
+            terms = [x.strip() for x in terms.replace("，", ",").split(",") if x.strip()]
+        if name and terms:
+            motif_echoes[name] = terms
     promise_items = [{"id": p["id"], "text": p["text"]} for p in store.open_promises()]
     # Task5: 收集有 lie 锚的角色 → prompt belief 段(只评这些角色的信念信奉度)
     belief_chars = []
@@ -602,7 +644,8 @@ def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3,
     if delta is None:
         prompt = build_knowledge_extract_prompt(prose, motif_names=motif_names,
                                                 promise_items=promise_items,
-                                                belief_chars=belief_chars)
+                                                belief_chars=belief_chars,
+                                                motif_echoes=motif_echoes or None)
         # 方案B任务12:关系触碰段拼在基础 prompt 之后(不改 critique.py 的
         # build_knowledge_extract_prompt——该文件有并行任务在改,禁碰)。
         prompt = prompt + "\n\n" + _relation_touch_prompt_addendum()

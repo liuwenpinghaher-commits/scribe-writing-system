@@ -243,6 +243,14 @@ def thicken_stage(
             pass
     store = _as_playbook_store(st)
     n = int(seq or 1)
+    if normalize_stage(stage) == "duty":
+        from scribe3.playbook.duty_gate import refuse_empty_synopsis
+        blocked = refuse_empty_synopsis(
+            {"synopsis": (ch or {}).get("synopsis"), "seq": n},
+            store=st, seq=n,
+        )
+        if blocked:
+            return blocked
     if normalize_stage(stage) == "final" and not parse_force(extra):
         if str((ch or {}).get("prose") or "").strip():
             return {"ok": True, "skipped": True, "status": "already_frozen"}

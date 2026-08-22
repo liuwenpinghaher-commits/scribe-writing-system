@@ -565,7 +565,8 @@ class RecallMixin:
         return out
 
     def material_recall(self, query: str, chapter: int | None = None, k: int = 5,
-                        mentioned_entities=None, degraded_out: list | None = None) -> list[dict]:
+                        mentioned_entities=None, degraded_out: list | None = None,
+                        exclude_kinds=None) -> list[dict]:
         """素材三通道召回(语义 HNSW + 全文 BM25 + 图 relates/about)→ RRF 融合 → 强度加权。
         archived 排除。返回按强度排序的 top-k 素材行(含 material_id/score)。
 
@@ -636,6 +637,8 @@ class RecallMixin:
             row = self.get_material(mid)
             if not row or row.get("archived"):
                 continue   # 图路邻居可能含 archived,Python 层再兜一次
+            if exclude_kinds and row.get("kind") in set(exclude_kinds):
+                continue
             row["material_id"] = mid
             row["score"] = 1.0 / (i + 1)
             cands.append(row)

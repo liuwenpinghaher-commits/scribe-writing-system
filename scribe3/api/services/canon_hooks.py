@@ -159,6 +159,8 @@ def _persist_pack_items(st: Any, pack_dict: dict, *, seq: int | None, source: st
     try:
         for p in (st.list_canon_candidates(status="pending") or []):
             seen_keys.add(dedupe_key(p))
+        for p in (st.list_canon_candidates(status="rejected") or []):
+            seen_keys.add(dedupe_key(p))
     except Exception:
         pass
 

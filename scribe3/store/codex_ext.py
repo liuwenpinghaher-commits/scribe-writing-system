@@ -3,6 +3,12 @@ from __future__ import annotations
 
 from scribe3.store.core_preamble import *  # noqa: F403
 
+
+def _codex_filter_patch(kind: str, fields: dict | None) -> dict:
+    from scribe3.codex_schema import filter_patch_fields
+    return filter_patch_fields(kind, fields)
+
+
 class CodexExtMixin:
 
     def add_relation_touch(self, a: str, b: str, chapter: int, kind: str, note: str = "") -> None:
@@ -147,9 +153,7 @@ class CodexExtMixin:
         """局部更新世界规则;不存在返回 False。"""
         if not self.get_world_rule(name):
             return False
-        allowed = {k: v for k, v in (fields or {}).items()
-                   if k in ("category", "source", "capabilities", "cost", "limitations",
-                            "exceptions", "scope", "established_chapter", "note", "name")}
+        allowed = _codex_filter_patch("world_rule", fields)
         if not allowed:
             return True
         sets = ", ".join(f"{k}=${k}" for k in allowed)
@@ -158,6 +162,10 @@ class CodexExtMixin:
         return True
 
     def delete_world_rule(self, name: str) -> None:
+        try:
+            self._cleanup_record_refs(f"world_rule:{name}")
+        except Exception:
+            pass
         self._execute_write("DELETE world_rule WHERE name=$n", {"n": name})
 
     def add_item(self, name: str, category: str | None = None,
@@ -191,9 +199,7 @@ class CodexExtMixin:
     def patch_item(self, name: str, fields: dict) -> bool:
         if not self.get_item(name):
             return False
-        allowed = {k: v for k, v in (fields or {}).items()
-                   if k in ("category", "description", "current_owner", "symbolic_state",
-                            "special_properties", "first_chapter", "name")}
+        allowed = _codex_filter_patch("item", fields)
         if not allowed:
             return True
         sets = ", ".join(f"{k}=${k}" for k in allowed)
@@ -211,6 +217,10 @@ class CodexExtMixin:
             {"ns": new_state, "ch": chapter, "note": note, "n": name})
 
     def delete_item(self, name: str) -> None:
+        try:
+            self._cleanup_record_refs(f"item:{name}")
+        except Exception:
+            pass
         self._execute_write("DELETE item WHERE name=$n", {"n": name})
 
     def add_term(self, name: str, category: str | None = None,
@@ -235,8 +245,7 @@ class CodexExtMixin:
     def patch_term(self, name: str, fields: dict) -> bool:
         if not self.get_term(name):
             return False
-        allowed = {k: v for k, v in (fields or {}).items()
-                   if k in ("category", "definition", "aliases", "first_mention_chapter", "name")}
+        allowed = _codex_filter_patch("term", fields)
         if not allowed:
             return True
         sets = ", ".join(f"{k}=${k}" for k in allowed)
@@ -245,6 +254,10 @@ class CodexExtMixin:
         return True
 
     def delete_term(self, name: str) -> None:
+        try:
+            self._cleanup_record_refs(f"term:{name}")
+        except Exception:
+            pass
         self._execute_write("DELETE term WHERE name=$n", {"n": name})
 
     def get_motif(self, motif_id: str) -> dict | None:

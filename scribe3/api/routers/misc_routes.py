@@ -656,7 +656,15 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
         import logging
         logging.getLogger("scribe3").warning(
             "strict scene 评估失败(忽略,不拦) work=%s: %s", work, e)
-    st.save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
+    try:
+        st.save_chapter(
+            req.seq, req.prose, title=req.title, focalizer=req.focalizer,
+            expected_version=getattr(req, "expected_version", None),
+        )
+    except ValueError as e:
+        if "chapter_conflict" in str(e):
+            raise HTTPException(status_code=409, detail={"code": "chapter_conflict"})
+        raise
     _rc_rows.append({"name": "persist_chapter", "expected": True, "actual": "present", "actual_reason": "saved"})
     _rc_emit(True)
     craft_compliance_out = None

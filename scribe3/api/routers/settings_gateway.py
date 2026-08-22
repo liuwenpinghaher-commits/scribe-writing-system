@@ -127,6 +127,7 @@ def settings_all():
 
 def settings_audit(limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
     # 双侧夹紧在校验层:SQLite 里 LIMIT -1 = 不限量(全表),负数必须 422 而非透传
+    # SYS-07 产品决策：已认证用户可读审计（记录在案，不另加 admin 门）。
     from scribe3 import settings_store
     return {"rows": settings_store.audit_rows(limit=limit, offset=offset)}
 
@@ -780,6 +781,11 @@ async def story_moves_propose(request: Request, work: str = "main"):
     out = propose_story_move(req if isinstance(req, dict) else {}, extra_cards=extras)
     if out.get("ok") and not out.get("merged") and out.get("card"):
         st.upsert_author_story_move(out["card"])
+    try:
+        from scribe3 import settings_store
+        settings_store.append_audit("story_move_propose", actor="author", payload=str(out.get("card") or {})[:400])
+    except Exception:
+        pass
     return out
 
 

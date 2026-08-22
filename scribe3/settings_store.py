@@ -162,6 +162,18 @@ def delete_override(key: str, *, mask: bool = False) -> None:
         conn.close()
 
 
+def append_audit(key: str, *, actor: str = "", payload: str = "") -> None:
+    """通用审计一行（招式提议/网关改文件等）。"""
+    conn = _connect()
+    try:
+        with conn:
+            conn.execute(
+                "INSERT INTO setting_audit(ts, key, old, new) VALUES(?,?,?,?)",
+                (_now(), key, actor or None, (payload or "")[:800] or None))
+    finally:
+        conn.close()
+
+
 def audit_rows(limit: int = 50, offset: int = 0) -> list[dict]:
     try:
         conn = _connect()

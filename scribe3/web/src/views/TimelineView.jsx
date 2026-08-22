@@ -33,6 +33,7 @@ import { relColor, relLabel } from '../lib/relColors'
 import { hasNarrativeData } from '../lib/timelineAxis'
 import { prefersReducedMotion } from '../lib/utils'
 import { useSelection } from '../selectionContext'
+import { liveTouchesTable } from '../lib/liveRefresh.js'
 
 // ── 章号 ⇄ 合成时间 ─────────────────────────────────────────────────────────
 // 第 N 章 → 2000-01-01 起第 (N-1) 天。一天一章,vis 缩放/堆叠按天粒度天然贴合。
@@ -371,6 +372,26 @@ function Field({ k, v }) {
   )
 }
 
+function CausalRootEditor({ eventId, initial }) {
+  const [v, setV] = useState(initial || '')
+  const [busy, setBusy] = useState(false)
+  if (!eventId) return null
+  return (
+    <div className="mt-2">
+      <div className="text-meta text-faint mb-1">因果根（为什么发生）</div>
+      <textarea className="w-full text-f12 border border-line rounded-md px-2 py-1 bg-canvas" rows={2}
+        value={v} onChange={(e) => setV(e.target.value)} />
+      <button type="button" disabled={busy}
+        className="mt-1 text-f12 px-2 py-1 rounded border border-line hover:bg-soft cursor-pointer"
+        onClick={async () => {
+          setBusy(true)
+          try { await api.patchEventCausalRoot(eventId, v) }
+          finally { setBusy(false) }
+        }}>保存因果根</button>
+    </div>
+  )
+}
+
 function DetailPanel({ raw, cat, onJump, onNavigate, onClose }) {
   if (!raw) return null
   const r = raw.refs || {}
@@ -392,6 +413,7 @@ function DetailPanel({ raw, cat, onJump, onNavigate, onClose }) {
         <Field k="地点" v={r.location} />
         <Field k="效果" v={r.effects} />
         <Field k="因果前驱" v={(r.causal_in || []).map((c) => (typeof c === 'string' ? c : `${c.id}${c.chapter != null ? '(ch' + c.chapter + ')' : ''}`))} />
+        <CausalRootEditor eventId={raw.id || r.id} initial={raw.causal_root_reason || r.causal_root_reason || ''} />
       </>
     )
   } else if (cat === 'arc') {
@@ -557,6 +579,19 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
   }, [axis])
 
   useEffect(() => { load() }, [])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const onLive = (e) => {
+      if (liveTouchesTable(e?.detail, [
+        'event', 'promise', 'char_state', 'relation', 'chapter',
+        'character_relation', 'character',
+      ])) {
+        load()
+      }
+    }
+    window.addEventListener('s3-live', onLive)
+    return () => window.removeEventListener('s3-live', onLive)
+  }, [load])
 
   const switchAxis = (ax) => { setAxis(ax); load(ax) }
 

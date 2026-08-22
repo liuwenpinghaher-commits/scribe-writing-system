@@ -433,6 +433,7 @@ class SaveChapterReq(BaseModel):
     skip_finalize_gate: bool = False
     # rev.1.2：standard|explore；explore 实质 save soft + ingest hold
     create_mode: str | None = None
+    expected_version: int | None = None
 
 
 class CheckpointReq(BaseModel):

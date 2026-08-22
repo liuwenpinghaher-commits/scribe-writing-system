@@ -14,6 +14,14 @@ class PromisesMixin:
 
     def add_promise_touch(self, promise_id: str, chapter: int,
                           evidence: str = "", ingest_seq: int | None = None) -> None:
+        # PRM-02：同 promise+章+ingest_seq 幂等，防并行 ingest 重复写。
+        if ingest_seq is not None:
+            existing = self._query(
+                "SELECT id FROM promise_touch WHERE promise_id=$p AND chapter=$c "
+                "AND ingest_seq=$iseq LIMIT 1",
+                {"p": promise_id, "c": chapter, "iseq": ingest_seq}) or []
+            if existing:
+                return
         self._execute_write(
             "CREATE promise_touch SET promise_id=$p, chapter=$c, evidence=$e"
             + (", ingest_seq=$iseq" if ingest_seq is not None else ""),
@@ -70,13 +78,17 @@ class PromisesMixin:
         return True
 
     def plant_promise(self, text: str, setup_chapter: int, kind: str = "promise",
-                      tier: str = "chapter", resolution: str = "") -> dict:
+                      tier: str = "chapter", resolution: str = "",
+                      strict: bool = False) -> dict:
         """种下伏笔。返回 {id, text, setup_chapter, tier, kind, payoff_min, payoff_max, status}。
 
         resolution(方案B任务21):悬念存档答案;book/arc 长期悬念强制校验在 REST/MCP 层,
-        store 层只负责落库,不做 tier 相关必填校验(向后兼容)。"""
+        store 层只负责落库,不做 tier 相关必填校验(向后兼容)。
+        strict=True 时 book/arc 必须有 resolution（PRM-03）。"""
         if tier not in _TIER_WINDOW:
             raise ValueError(f"非法伏笔层级 tier='{tier}'(合法: {sorted(_TIER_WINDOW)})")
+        if strict and tier in ("book", "arc") and not str(resolution or "").strip():
+            raise ValueError("book/arc 伏笔必须写清怎么收")
         lo, hi = _TIER_WINDOW[tier]
         pmin = setup_chapter + lo
         pmax = None if hi is None else setup_chapter + hi
@@ -194,8 +206,25 @@ class PromisesMixin:
             raise ValueError(
                 f"payoff_chapter({payoff_chapter}) < setup_chapter({setup}):回收不能早于埋设,拒绝写入。"
             )
-        self._execute_write("UPDATE type::record('promise',$pid) SET status='closed', "
-                            "payoff_chapter=$p", {"pid": promise_id, "p": payoff_chapter})
+        updated = self._query(
+            "UPDATE type::record('promise',$pid) SET status='closed', "
+            "payoff_chapter=$p WHERE status='open' RETURN AFTER",
+            {"pid": promise_id, "p": payoff_chapter}) or []
+        if not updated:
+            raise ValueError(
+                f"promise '{promise_id}' 不是 open（已兑现或已弃置），拒绝重复关闭"
+            )
+        try:
+            from scribe3.ontology import Fact
+            self.add_fact(Fact(
+                f"fact:promise-{promise_id}-closed",
+                f"promise:{promise_id}",
+                "payoff",
+                f"伏笔已兑现于第{payoff_chapter}章",
+                valid_from=payoff_chapter,
+            ))
+        except Exception:
+            pass
 
     def abandon_promise(self, promise_id: str) -> bool:
         """弃置伏笔:status=abandoned(账本结案,≠ red_herring,≠ closed 兑现)。

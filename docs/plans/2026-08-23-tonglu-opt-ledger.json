@@ -1,0 +1,1258 @@
+[
+  {
+    "id": "SYS-01",
+    "title": "Admin危险操作缺二次确认",
+    "priority": "P0",
+    "stage": "0",
+    "status": "done",
+    "note": "AdminConsole ConfirmDialog"
+  },
+  {
+    "id": "SYS-02",
+    "title": "settings/admin板块零toast反馈",
+    "priority": "P0",
+    "stage": "0",
+    "status": "done",
+    "note": "SettingField/Admin showToast"
+  },
+  {
+    "id": "SYS-03",
+    "title": "story-moves propose/review无审计日志",
+    "priority": "P1",
+    "stage": "5",
+    "status": "done",
+    "note": "story_moves_propose append_audit"
+  },
+  {
+    "id": "SYS-04",
+    "title": "PUT /gateway/files无结构化审计",
+    "priority": "P1",
+    "stage": "5",
+    "status": "done",
+    "note": "gateway write_file append_audit"
+  },
+  {
+    "id": "SYS-05",
+    "title": "无主动告警机制",
+    "priority": "P1",
+    "stage": "5",
+    "status": "done",
+    "note": "scribe3/alerts.py webhook"
+  },
+  {
+    "id": "SYS-06",
+    "title": "FastEmbed嵌入服务未探活",
+    "priority": "P1",
+    "stage": "5",
+    "status": "done",
+    "note": "GET /health embedding"
+  },
+  {
+    "id": "SYS-07",
+    "title": "/settings/audit无admin门禁",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: 按产品决策保留已认证用户可读审计（规格原文：或按产品决策保留）",
+    "note": "decision: 按产品决策保留已认证用户可读审计（规格原文：或按产品决策保留）"
+  },
+  {
+    "id": "SYS-08",
+    "title": "技法/招式列表空态无兜底文案",
+    "priority": "P2",
+    "stage": "5",
+    "status": "done",
+    "note": "SystemHub 空态文案"
+  },
+  {
+    "id": "SYS-09",
+    "title": "Gateway restart后无轮询探活",
+    "priority": "P2",
+    "stage": "1",
+    "status": "done",
+    "note": "retryUntilOnline 3×2s"
+  },
+  {
+    "id": "SYS-10",
+    "title": "secret输入缺autocomplete=\"off\"",
+    "priority": "P2",
+    "stage": "5",
+    "status": "done",
+    "note": "autoComplete=off"
+  },
+  {
+    "id": "SYS-11",
+    "title": "幽灵配置SCRIBE3\\_DESIGN\\_BOOK",
+    "priority": "P3",
+    "stage": "5",
+    "status": "decision: 标记 deferred，旗已在 REGISTRY，章设计校验另走 DESIGN_BOOK",
+    "note": "decision: 标记 deferred，旗已在 REGISTRY，章设计校验另走 DESIGN_BOOK"
+  },
+  {
+    "id": "SYS-12",
+    "title": "幽灵配置SCRIBE3\\_STORYLINE\\_UI",
+    "priority": "P3",
+    "stage": "5",
+    "status": "decision: 标记 deferred，前端 Gantt 未做入口",
+    "note": "decision: 标记 deferred，前端 Gantt 未做入口"
+  },
+  {
+    "id": "SYS-13",
+    "title": "SCRIBE3\\_DEFAULT\\_WORK裸environ绕过",
+    "priority": "P3",
+    "stage": "5",
+    "status": "decision: 记录在案，app_impl 裸 environ 本轮不改启动路径",
+    "note": "decision: 记录在案，app_impl 裸 environ 本轮不改启动路径"
+  },
+  {
+    "id": "SYS-14",
+    "title": "MCP catalog gate字段为展示型非运行时门控",
+    "priority": "P3",
+    "stage": "5",
+    "status": "decision: gate 字段为能力说明书非运行时门控（规格原文）",
+    "note": "decision: gate 字段为能力说明书非运行时门控（规格原文）"
+  },
+  {
+    "id": "DSH-01",
+    "title": "totalGoal=0时前端除零",
+    "priority": "P0",
+    "stage": "0",
+    "status": "done",
+    "note": "safeWordGoal/wordGoalPct"
+  },
+  {
+    "id": "DSH-02",
+    "title": "InsightView不监听s3-live事件",
+    "priority": "P1",
+    "stage": "1",
+    "status": "done",
+    "note": "InsightView s3-live"
+  },
+  {
+    "id": "DSH-03",
+    "title": "连胜计算用服务器时区非用户时区",
+    "priority": "P1",
+    "stage": "5",
+    "status": "done",
+    "note": "progress(timezone=)"
+  },
+  {
+    "id": "DSH-04",
+    "title": "/quality端点无TTL缓存但每次全查SurrealDB",
+    "priority": "P1",
+    "stage": "5",
+    "status": "decision: P1 短 TTL，本轮用 live 刷新代替全量缓存",
+    "note": "decision: P1 短 TTL，本轮用 live 刷新代替全量缓存"
+  },
+  {
+    "id": "DSH-05",
+    "title": "PromiseLedger加载失败时静默消失",
+    "priority": "P2",
+    "stage": "5",
+    "status": "done",
+    "note": "PromiseLedger ErrorState"
+  },
+  {
+    "id": "DSH-06",
+    "title": "伏笔setup章被删后UI仍显示可点击",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 跳章前校验留给前端章号存在性，台账已记",
+    "note": "decision: P2 跳章前校验留给前端章号存在性，台账已记"
+  },
+  {
+    "id": "DSH-07",
+    "title": "200+章/100+伏笔时无分页无虚拟列表",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 大规模虚拟列表远期",
+    "note": "decision: P2 大规模虚拟列表远期"
+  },
+  {
+    "id": "DSH-08",
+    "title": "set\\_intent无乐观锁并发写同字段丢失",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: 规格写配额字段可接受无 CAS",
+    "note": "decision: 规格写配额字段可接受无 CAS"
+  },
+  {
+    "id": "DSH-09",
+    "title": "跨视图切换时数据刷新依赖组件卸载/重挂载",
+    "priority": "P2",
+    "stage": "5",
+    "status": "done",
+    "note": "s3-live 递增 key 不依赖卸载"
+  },
+  {
+    "id": "CDX-01",
+    "title": "store patch白名单硬编码，新增schema字段被静默丢弃",
+    "priority": "P0",
+    "stage": "0",
+    "status": "done",
+    "note": "filter_patch_fields"
+  },
+  {
+    "id": "CDX-02",
+    "title": "codex\\_digest字段名错误（item用了不存在的字段）",
+    "priority": "P0",
+    "stage": "0",
+    "status": "done",
+    "note": "kind_field_groups 真实 schema"
+  },
+  {
+    "id": "CDX-03",
+    "title": "codex\\_generate prompt不读schema字段列表",
+    "priority": "P0",
+    "stage": "0",
+    "status": "done",
+    "note": "spec_ask 注入 schema 键"
+  },
+  {
+    "id": "CDX-04",
+    "title": "Apply后不触发sync\\_entity\\_digests",
+    "priority": "P1",
+    "stage": "1",
+    "status": "done",
+    "note": "after_canon_apply digest"
+  },
+  {
+    "id": "CDX-05",
+    "title": "Apply后不触发codex\\_secret\\_bridge同步",
+    "priority": "P1",
+    "stage": "1",
+    "status": "done",
+    "note": "after_canon_apply secret bridge"
+  },
+  {
+    "id": "CDX-06",
+    "title": "Apply后非fact实体不触发语义索引",
+    "priority": "P1",
+    "stage": "1",
+    "status": "done",
+    "note": "after_canon_apply semantic_index"
+  },
+  {
+    "id": "CDX-07",
+    "title": "Reject不学习，下次抽取反复提同样噪声",
+    "priority": "P1",
+    "stage": "5",
+    "status": "done",
+    "note": "persist_pack 预取 rejected 去重"
+  },
+  {
+    "id": "CDX-08",
+    "title": "faction/item/term/world\\_rule删除无级联清理",
+    "priority": "P1",
+    "stage": "1",
+    "status": "done",
+    "note": "_cleanup_record_refs 扩 faction/item/term"
+  },
+  {
+    "id": "CDX-09",
+    "title": "faction删除不走lifecycle",
+    "priority": "P1",
+    "stage": "1",
+    "status": "done",
+    "note": "delete_faction 走 cleanup"
+  },
+  {
+    "id": "CDX-10",
+    "title": "MCP s3\\_delete\\_codex不走lifecycle",
+    "priority": "P1",
+    "stage": "5",
+    "status": "done",
+    "note": "s3_delete_codex 走 delete_* 含 cleanup"
+  },
+  {
+    "id": "CDX-11",
+    "title": "character secret bridge默认关闭",
+    "priority": "P1",
+    "stage": "1",
+    "status": "done",
+    "note": "SECRET_BRIDGE_ROLES 默认开"
+  },
+  {
+    "id": "CDX-12",
+    "title": "codex\\_health与iceberg evaluate\\_codex\\_ready标准不一致",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 两套完备性标准语义差记录在案",
+    "note": "decision: P2 两套完备性标准语义差记录在案"
+  },
+  {
+    "id": "CDX-13",
+    "title": "canon\\_extract LLM prompt不含schema字段列表",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 extract prompt schema 列表本轮未改 canon_extract",
+    "note": "decision: P2 extract prompt schema 列表本轮未改 canon_extract"
+  },
+  {
+    "id": "CDX-14",
+    "title": "SurrealDB SCHEMAFULL表需手写migration",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: 规格写高/P2，自动 SCHEMAFULL migration 生成器本轮明确推迟",
+    "note": "decision: 规格写高/P2，自动 SCHEMAFULL migration 生成器本轮明确推迟"
+  },
+  {
+    "id": "CDX-15",
+    "title": "motif/promise仅MCP可达，前端无REST路由",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: motif/promise 仅 AI 操作，按规格可文档化",
+    "note": "decision: motif/promise 仅 AI 操作，按规格可文档化"
+  },
+  {
+    "id": "CDX-16",
+    "title": "world\\_rule无REST PATCH端点",
+    "priority": "P2",
+    "stage": "5",
+    "status": "done",
+    "note": "PATCH /world-rules/{name}"
+  },
+  {
+    "id": "CDX-17",
+    "title": "SCRIBE3\\_CODEX\\_THICKEN\\_GATE=0绕过门闸时无审计日志",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 绕过门闸审计本轮未加",
+    "note": "decision: P2 绕过门闸审计本轮未加"
+  },
+  {
+    "id": "MAT-01",
+    "title": "emotion\\_module双重注入导致token浪费",
+    "priority": "P0",
+    "stage": "3",
+    "status": "done",
+    "note": "material_recall exclude emotion_module"
+  },
+  {
+    "id": "MAT-02",
+    "title": "motif\\_instance evidence无可溯源验证",
+    "priority": "P0",
+    "stage": "5",
+    "status": "done",
+    "note": "grep_back_verify motif evidence"
+  },
+  {
+    "id": "MAT-03",
+    "title": "删除codex实体不清理material.about\\_entities",
+    "priority": "P0",
+    "stage": "1",
+    "status": "done",
+    "note": "_cleanup_record_refs 清 about_entities"
+  },
+  {
+    "id": "MAT-04",
+    "title": "delete\\_material不发cache invalidation",
+    "priority": "P0",
+    "stage": "0",
+    "status": "done",
+    "note": "delete_material invalidation"
+  },
+  {
+    "id": "MAT-05",
+    "title": "origin=manual/session\\_clip路径缺build\\_material\\_edges",
+    "priority": "P1",
+    "stage": "5",
+    "status": "done",
+    "note": "add_material 后 build_material_edges"
+  },
+  {
+    "id": "MAT-06",
+    "title": "material\\_reference溯源语义错误",
+    "priority": "P1",
+    "stage": "5",
+    "status": "decision: P1 溯源语义 injection vs inspiration 记录在案",
+    "note": "decision: P1 溯源语义 injection vs inspiration 记录在案"
+  },
+  {
+    "id": "MAT-07",
+    "title": "素材搜索无语义检索（仅BM25文本匹配）",
+    "priority": "P1",
+    "stage": "5",
+    "status": "decision: P1 hybrid 搜索本轮不新开通道",
+    "note": "decision: P1 hybrid 搜索本轮不新开通道"
+  },
+  {
+    "id": "MAT-08",
+    "title": "素材kind分类无层级/无自定义扩展",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 自定义 kind 远期",
+    "note": "decision: P2 自定义 kind 远期"
+  },
+  {
+    "id": "ATL-01",
+    "title": "归档角色泄入写作prompt",
+    "priority": "P0",
+    "stage": "0",
+    "status": "done",
+    "note": "characters() archived 过滤"
+  },
+  {
+    "id": "ATL-02",
+    "title": "势力删除无lifecycle保护",
+    "priority": "P0",
+    "stage": "1",
+    "status": "done",
+    "note": "势力删除 cleanup"
+  },
+  {
+    "id": "ATL-03",
+    "title": "正典Apply不触发限知桥同步",
+    "priority": "P0",
+    "stage": "1",
+    "status": "done",
+    "note": "apply 后 sync 限知桥"
+  },
+  {
+    "id": "ATL-04",
+    "title": "因果根编辑端点前端零接触",
+    "priority": "P0",
+    "stage": "3",
+    "status": "done",
+    "note": "patchEventCausalRoot + CausalRootEditor"
+  },
+  {
+    "id": "ATL-05",
+    "title": "角色删除不级联清理命题",
+    "priority": "P1",
+    "stage": "1",
+    "status": "done",
+    "note": "DELETE proposition on cleanup"
+  },
+  {
+    "id": "ATL-06",
+    "title": "势力known\\_members与角色实体无动态同步",
+    "priority": "P1",
+    "stage": "5",
+    "status": "decision: P1 known_members 动态同步本轮未做",
+    "note": "decision: P1 known_members 动态同步本轮未做"
+  },
+  {
+    "id": "ATL-07",
+    "title": "物品state\\_history无时间线展示",
+    "priority": "P1",
+    "stage": "5",
+    "status": "decision: P1 物品时间线组件远期",
+    "note": "decision: P1 物品时间线组件远期"
+  },
+  {
+    "id": "ATL-08",
+    "title": "关系图无权重/无方向标注",
+    "priority": "P1",
+    "stage": "5",
+    "status": "decision: P1 关系权重标注远期",
+    "note": "decision: P1 关系权重标注远期"
+  },
+  {
+    "id": "ATL-09",
+    "title": "事件无批量导入/导出",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 事件批量导入远期",
+    "note": "decision: P2 事件批量导入远期"
+  },
+  {
+    "id": "PRM-01",
+    "title": "Overdue无硬闸阻止力",
+    "priority": "P0",
+    "stage": "0",
+    "status": "done",
+    "note": "overdue 硬闸"
+  },
+  {
+    "id": "PRM-02",
+    "title": "并发写入安全缺失",
+    "priority": "P0",
+    "stage": "0",
+    "status": "done",
+    "note": "advance CAS + touch 去重 + unique 迁移"
+  },
+  {
+    "id": "PRM-03",
+    "title": "Resolution校验绕过口",
+    "priority": "P1",
+    "stage": "5",
+    "status": "done",
+    "note": "plant_promise strict"
+  },
+  {
+    "id": "PRM-04",
+    "title": "Canon advance不产生fact/proposition",
+    "priority": "P1",
+    "stage": "5",
+    "status": "done",
+    "note": "advance 后写兑现命题"
+  },
+  {
+    "id": "PRM-05",
+    "title": "伏笔超期无主动告警链路",
+    "priority": "P1",
+    "stage": "5",
+    "status": "done",
+    "note": "alerts.emit_alert 可挂 overdue"
+  },
+  {
+    "id": "PRM-06",
+    "title": "Seed→Promise衔接丢失上下文",
+    "priority": "P1",
+    "stage": "5",
+    "status": "decision: P1 seed 升格上下文本轮未迁",
+    "note": "decision: P1 seed 升格上下文本轮未迁"
+  },
+  {
+    "id": "PRM-07",
+    "title": "伏笔-角色绑定缺失",
+    "priority": "P1",
+    "stage": "5",
+    "status": "decision: P1 involved_characters 字段远期",
+    "note": "decision: P1 involved_characters 字段远期"
+  },
+  {
+    "id": "PRM-08",
+    "title": "伏笔间依赖网络缺失",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 伏笔依赖网远期",
+    "note": "decision: P2 伏笔依赖网远期"
+  },
+  {
+    "id": "PRM-09",
+    "title": "Legacy数据tier可能被误判",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 legacy tier 一次性迁移远期",
+    "note": "decision: P2 legacy tier 一次性迁移远期"
+  },
+  {
+    "id": "MOT-01",
+    "title": "echo\\_terms未参与ingest反哺链路",
+    "priority": "P1",
+    "stage": "3",
+    "status": "done",
+    "note": "echo_terms 进抽取嘱咐"
+  },
+  {
+    "id": "MOT-02",
+    "title": "phase无自动推进逻辑",
+    "priority": "P1",
+    "stage": "3",
+    "status": "done",
+    "note": "schedule_motifs 按触碰推进 phase"
+  },
+  {
+    "id": "MOT-03",
+    "title": "tier/scope后端调度完全忽略",
+    "priority": "P1",
+    "stage": "3",
+    "status": "done",
+    "note": "schedule_motifs 按 tier 调 gap"
+  },
+  {
+    "id": "MOT-04",
+    "title": "motif\\_instance evidence无溯源验证",
+    "priority": "P1",
+    "stage": "3",
+    "status": "done",
+    "note": "motif evidence 校验"
+  },
+  {
+    "id": "MOT-05",
+    "title": "母题回响无\"过度重复\"阈值告警",
+    "priority": "P1",
+    "stage": "3",
+    "status": "done",
+    "note": "motif_overheat_advisory"
+  },
+  {
+    "id": "MOT-06",
+    "title": "创建闭环无\"降级自动填占位\"路径",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 拒绝后降级占位远期",
+    "note": "decision: P2 拒绝后降级占位远期"
+  },
+  {
+    "id": "MOT-07",
+    "title": "过热抑制依赖LLM遵循指令无硬保证",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 过热硬保证本轮走 advisory",
+    "note": "decision: P2 过热硬保证本轮走 advisory"
+  },
+  {
+    "id": "TML-01",
+    "title": "时间线不订阅SSE s3-live事件",
+    "priority": "P2",
+    "stage": "1",
+    "status": "done",
+    "note": "TimelineView s3-live"
+  },
+  {
+    "id": "TML-02",
+    "title": "因果弧线SVG未实现",
+    "priority": "P2",
+    "stage": "3",
+    "status": "decision: P2 SVG 因果弧远期",
+    "note": "decision: P2 SVG 因果弧远期"
+  },
+  {
+    "id": "TML-03",
+    "title": "时间线选中伏笔后无操作入口",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 时间线伏笔兑现按钮远期",
+    "note": "decision: P2 时间线伏笔兑现按钮远期"
+  },
+  {
+    "id": "TML-04",
+    "title": "记忆否认未与canon事实交叉",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 记忆否认交叉远期",
+    "note": "decision: P2 记忆否认交叉远期"
+  },
+  {
+    "id": "TML-05",
+    "title": "全表查无WHERE（story轴模式）",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 story 轴 WHERE 优化远期",
+    "note": "decision: P2 story 轴 WHERE 优化远期"
+  },
+  {
+    "id": "TML-06",
+    "title": "缺少\"跳到第N章\"直达能力",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 跳到第 N 章输入框远期",
+    "note": "decision: P2 跳到第 N 章输入框远期"
+  },
+  {
+    "id": "TML-07",
+    "title": "选中联动不传播因果链/弧光",
+    "priority": "P2",
+    "stage": "3",
+    "status": "decision: P2 选中联动因果远期",
+    "note": "decision: P2 选中联动因果远期"
+  },
+  {
+    "id": "TML-08",
+    "title": "faction.timeline字段前端零消费",
+    "priority": "P3",
+    "stage": "5",
+    "status": "decision: P3 faction.timeline 标 deferred",
+    "note": "decision: P3 faction.timeline 标 deferred"
+  },
+  {
+    "id": "JNY-01",
+    "title": "Pilot可绕过旅程门槛直接开写",
+    "priority": "P1",
+    "stage": "3",
+    "status": "done",
+    "note": "SCRIBE3_JOURNEY_PRECHECK 409"
+  },
+  {
+    "id": "JNY-02",
+    "title": "质量熔断状态对作者不可见",
+    "priority": "P1",
+    "stage": "3",
+    "status": "done",
+    "note": "snapshot quality_stalled"
+  },
+  {
+    "id": "JNY-03",
+    "title": "ledger站为空壳，全书完成后胶囊消失",
+    "priority": "P1",
+    "stage": "3",
+    "status": "decision: P1 ledger 站仪式闭环远期",
+    "note": "decision: P1 ledger 站仪式闭环远期"
+  },
+  {
+    "id": "JNY-04",
+    "title": "8个pilot状态压缩为5个，需审批状态被隐藏",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 审批态视觉差远期",
+    "note": "decision: P2 审批态视觉差远期"
+  },
+  {
+    "id": "JNY-05",
+    "title": "前三站\"继续\"依赖NLU匹配精准度弱",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 domainHint 映射远期",
+    "note": "decision: P2 domainHint 映射远期"
+  },
+  {
+    "id": "JNY-06",
+    "title": "WorkflowCapsule轮询无backoff，消失无解释",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 胶囊 backoff 远期",
+    "note": "decision: P2 胶囊 backoff 远期"
+  },
+  {
+    "id": "JNY-07",
+    "title": "章被打回无事件通知",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 打回 toast 远期",
+    "note": "decision: P2 打回 toast 远期"
+  },
+  {
+    "id": "JNY-08",
+    "title": "停滞检测无分级",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 停滞分级远期",
+    "note": "decision: P2 停滞分级远期"
+  },
+  {
+    "id": "DIR-01",
+    "title": "Proposal审批缺乏持久化",
+    "priority": "P0",
+    "stage": "2",
+    "status": "done",
+    "note": "pending_proposal 持久化+GET"
+  },
+  {
+    "id": "DIR-02",
+    "title": "多Worker部署下同章双跑竞态",
+    "priority": "P0",
+    "stage": "2",
+    "status": "done",
+    "note": "pilot_step chapter_lock"
+  },
+  {
+    "id": "DIR-03",
+    "title": "Frozen Artifact丢失致Pilot不可自愈卡死",
+    "priority": "P0",
+    "stage": "4",
+    "status": "done",
+    "note": "reset-step force_rollback"
+  },
+  {
+    "id": "DIR-04",
+    "title": "SSE /live端点零测试覆盖",
+    "priority": "P0",
+    "stage": "4",
+    "status": "decision: P0 SSE 集成测本机不起 Surreal，源码结构+live 重连已落地",
+    "note": "decision: P0 SSE 集成测本机不起 Surreal，源码结构+live 重连已落地"
+  },
+  {
+    "id": "DIR-05",
+    "title": "Blocker双向闭环零测试",
+    "priority": "P0",
+    "stage": "4",
+    "status": "done",
+    "note": "overdue 硬闸双向：超阈阻断 / 兑现后 count 下降"
+  },
+  {
+    "id": "DIR-06",
+    "title": "s3-chapter-phase-hint事件无前端消费",
+    "priority": "P1",
+    "stage": "1",
+    "status": "done",
+    "note": "s3-chapter-phase-hint handler"
+  },
+  {
+    "id": "DIR-07",
+    "title": "faction/item/term/world\\_rule四表SSE无设定库监听",
+    "priority": "P1",
+    "stage": "1",
+    "status": "done",
+    "note": "CodexDirectory s3-live"
+  },
+  {
+    "id": "DIR-08",
+    "title": "needs\\_human收件箱无dismiss/消除出口",
+    "priority": "P1",
+    "stage": "3",
+    "status": "done",
+    "note": "POST /inbox/dismiss/{id}"
+  },
+  {
+    "id": "DIR-09",
+    "title": "lesson/pulse/digest收件箱无标记完成",
+    "priority": "P1",
+    "stage": "3",
+    "status": "done",
+    "note": "dismiss 覆盖 lesson/pulse 等同 id"
+  },
+  {
+    "id": "DIR-10",
+    "title": "/live SSE断连后重连无补偿",
+    "priority": "P1",
+    "stage": "3",
+    "status": "done",
+    "note": "EventSource onopen 全量 pull"
+  },
+  {
+    "id": "DIR-11",
+    "title": "pulse\\_decision项无dismiss机制",
+    "priority": "P1",
+    "stage": "3",
+    "status": "done",
+    "note": "pulse 项可 dismiss"
+  },
+  {
+    "id": "DIR-12",
+    "title": "letter诊断结果不注入下一章prompt",
+    "priority": "P1",
+    "stage": "3",
+    "status": "done",
+    "note": "build_ctx revision_letter_digest"
+  },
+  {
+    "id": "DIR-13",
+    "title": "scene\\_grid信息不注入生成prompt",
+    "priority": "P1",
+    "stage": "3",
+    "status": "done",
+    "note": "build_ctx scene_grid"
+  },
+  {
+    "id": "DIR-14",
+    "title": "MAX\\_QUALITY\\_ROUNDS全失败后草稿未落库",
+    "priority": "P1",
+    "stage": "5",
+    "status": "decision: P1 8 轮熔断保最佳候选本轮未改 pipeline 落库",
+    "note": "decision: P1 8 轮熔断保最佳候选本轮未改 pipeline 落库"
+  },
+  {
+    "id": "DIR-15",
+    "title": "checked态下full\\_check永远blocking无法修复",
+    "priority": "P1",
+    "stage": "5",
+    "status": "done",
+    "note": "force_rollback 解 checked 卡死"
+  },
+  {
+    "id": "DIR-16",
+    "title": "Proposal reject无审计日志",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 reject 审计走现有 approval_audit",
+    "note": "decision: P2 reject 审计走现有 approval_audit"
+  },
+  {
+    "id": "DIR-17",
+    "title": "idea路由LLM失败静默降级为unclear",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 idea 降级 toast 远期",
+    "note": "decision: P2 idea 降级 toast 远期"
+  },
+  {
+    "id": "DIR-18",
+    "title": "live onGiveUp后永久停止无探活恢复",
+    "priority": "P2",
+    "stage": "5",
+    "status": "done",
+    "note": "onGiveUp 30s 探活重连"
+  },
+  {
+    "id": "MAN-01",
+    "title": "chapter\\_version表无容量上限/无清理策略/无分页",
+    "priority": "P0",
+    "stage": "0",
+    "status": "done",
+    "note": "list LIMIT + prune 保留策略"
+  },
+  {
+    "id": "MAN-02",
+    "title": "无并发编辑冲突检测（last-write-wins）",
+    "priority": "P1",
+    "stage": "2",
+    "status": "done",
+    "note": "expected_version → 409"
+  },
+  {
+    "id": "MAN-03",
+    "title": "永久删除未级联清理canon\\_candidate",
+    "priority": "P1",
+    "stage": "1",
+    "status": "done",
+    "note": "delete_chapter_permanent 清 canon_candidate"
+  },
+  {
+    "id": "MAN-04",
+    "title": "归档未处理未决正典候选",
+    "priority": "P1",
+    "stage": "1",
+    "status": "done",
+    "note": "archive 把 pending candidate dismissed"
+  },
+  {
+    "id": "MAN-05",
+    "title": "大纲/节拍/演绎无版本记录",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 大纲节拍版本快照远期",
+    "note": "decision: P2 大纲节拍版本快照远期"
+  },
+  {
+    "id": "MAN-06",
+    "title": "chatWrite SSE无超时且无重连",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 chatWrite 超时远期",
+    "note": "decision: P2 chatWrite 超时远期"
+  },
+  {
+    "id": "MAN-07",
+    "title": "Ingest Worker无自动重试",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 ingest worker 重试远期",
+    "note": "decision: P2 ingest worker 重试远期"
+  },
+  {
+    "id": "MAN-08",
+    "title": "postCheck结果不落库且无hash失效检查",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 postCheck hash 过期远期",
+    "note": "decision: P2 postCheck hash 过期远期"
+  },
+  {
+    "id": "MAN-09",
+    "title": "选择环终选来源未持久化",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 选择环来源字段远期",
+    "note": "decision: P2 选择环来源字段远期"
+  },
+  {
+    "id": "MAN-10",
+    "title": "切章自动保存fire-and-forget无重试",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 切章 stash 重试远期",
+    "note": "decision: P2 切章 stash 重试远期"
+  },
+  {
+    "id": "MAN-11",
+    "title": "章节重排乐观更新无回滚",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 重排拒绝回滚远期",
+    "note": "decision: P2 重排拒绝回滚远期"
+  },
+  {
+    "id": "DED-01",
+    "title": "chat\\_write路径无章节锁",
+    "priority": "P0",
+    "stage": "0",
+    "status": "done",
+    "note": "chat_write 章节锁"
+  },
+  {
+    "id": "DED-02",
+    "title": "Playbook run\\_stage无内置章节锁",
+    "priority": "P0",
+    "stage": "0",
+    "status": "done",
+    "note": "run_stage 章节锁"
+  },
+  {
+    "id": "DED-03",
+    "title": "ingest apply\\_delta无事务保护",
+    "priority": "P0",
+    "stage": "2",
+    "status": "done",
+    "note": "ingest_integrity + checkpoint"
+  },
+  {
+    "id": "DED-04",
+    "title": "apply\\_change\\_pack无回滚机制",
+    "priority": "P0",
+    "stage": "2",
+    "status": "done",
+    "note": "apply_change_pack 半包回滚"
+  },
+  {
+    "id": "DED-05",
+    "title": "leak\\_markers依赖人工标注",
+    "priority": "P0",
+    "stage": "1",
+    "status": "done",
+    "note": "auto_generate_leak_markers"
+  },
+  {
+    "id": "DED-06",
+    "title": "卷纲→章纲无自动细化闭环",
+    "priority": "P0",
+    "stage": "0",
+    "status": "done",
+    "note": "empty_synopsis 硬阻断"
+  },
+  {
+    "id": "DED-07",
+    "title": "build\\_ctx与ContextAssembler两套并行上下文系统",
+    "priority": "P0",
+    "stage": "2",
+    "status": "done",
+    "note": "ContextSnapshotCache"
+  },
+  {
+    "id": "DED-08",
+    "title": "chapter\\_state抽取失败无自动恢复",
+    "priority": "P0",
+    "stage": "4",
+    "status": "done",
+    "note": "degrade_chapter_state"
+  },
+  {
+    "id": "DED-09",
+    "title": "Discussion路径无质量检查",
+    "priority": "P1",
+    "stage": "5",
+    "status": "decision: P1 Discussion 校验远期",
+    "note": "decision: P1 Discussion 校验远期"
+  },
+  {
+    "id": "DED-10",
+    "title": "\\_quality\\_loop计数器逻辑缺陷",
+    "priority": "P1",
+    "stage": "5",
+    "status": "done",
+    "note": "ParseError 递增 quality"
+  },
+  {
+    "id": "DED-11",
+    "title": "advisory分支正文悬空",
+    "priority": "P1",
+    "stage": "3",
+    "status": "decision: P1 advisory TTL 远期",
+    "note": "decision: P1 advisory TTL 远期"
+  },
+  {
+    "id": "DED-12",
+    "title": "三套质量体系无统一聚合视图",
+    "priority": "P1",
+    "stage": "4",
+    "status": "done",
+    "note": "ChapterHealthReport /chapters/{seq}/health"
+  },
+  {
+    "id": "DED-13",
+    "title": "canon\\_candidate无自动过期/清理",
+    "priority": "P1",
+    "stage": "4",
+    "status": "decision: P1 candidate TTL 远期",
+    "note": "decision: P1 candidate TTL 远期"
+  },
+  {
+    "id": "DED-14",
+    "title": "fact supersede无跨章广播",
+    "priority": "P1",
+    "stage": "4",
+    "status": "decision: P1 supersede 广播本轮未改",
+    "note": "decision: P1 supersede 广播本轮未改"
+  },
+  {
+    "id": "DED-15",
+    "title": "build\\_ctx soft\\_fail静默降级",
+    "priority": "P1",
+    "stage": "4",
+    "status": "done",
+    "note": "build_ctx guide_fail 已记 degraded slots"
+  },
+  {
+    "id": "DED-16",
+    "title": "volume\\_ledger flag默认关",
+    "priority": "P1",
+    "stage": "4",
+    "status": "decision: P1 volume_ledger 旗默认已有跳过日志",
+    "note": "decision: P1 volume_ledger 旗默认已有跳过日志"
+  },
+  {
+    "id": "DED-17",
+    "title": "recall\\_service图通道默认关闭",
+    "priority": "P1",
+    "stage": "3",
+    "status": "done",
+    "note": "GRAPH_RELATION_RECALL 默认已开"
+  },
+  {
+    "id": "DED-18",
+    "title": "draft冻结成功但state失败时上层误判",
+    "priority": "P1",
+    "stage": "4",
+    "status": "decision: P1 draft/state 细分本轮未改 _run_draft 返回",
+    "note": "decision: P1 draft/state 细分本轮未改 _run_draft 返回"
+  },
+  {
+    "id": "DED-19",
+    "title": "craft\\_skills无自动选择",
+    "priority": "P1",
+    "stage": "3",
+    "status": "decision: P1 技法强制触发远期",
+    "note": "decision: P1 技法强制触发远期"
+  },
+  {
+    "id": "DED-20",
+    "title": "scene\\_grid诊断注入路径不完整",
+    "priority": "P1",
+    "stage": "3",
+    "status": "done",
+    "note": "scene_grid 进 build_ctx"
+  },
+  {
+    "id": "DED-21",
+    "title": "LLM抽取失败静默降级无告警",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 抽取失败告警走 alerts",
+    "note": "decision: P2 抽取失败告警走 alerts"
+  },
+  {
+    "id": "DED-22",
+    "title": "ingest grep\\_back\\_verify标注\"未明确\"仍写入",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 未验证事实标 annotated 已有，不计入 motif heat",
+    "note": "decision: P2 未验证事实标 annotated 已有，不计入 motif heat"
+  },
+  {
+    "id": "DED-23",
+    "title": "chat\\_write与Playbook路径质量标准不同",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 对话式产出标注远期",
+    "note": "decision: P2 对话式产出标注远期"
+  },
+  {
+    "id": "DED-24",
+    "title": "recent\\_duty\\_summary只看3章硬编码",
+    "priority": "P2",
+    "stage": "5",
+    "status": "decision: P2 recent_duty 窗口远期",
+    "note": "decision: P2 recent_duty 窗口远期"
+  },
+  {
+    "id": "CRS-01",
+    "title": "质量闭环统一聚合",
+    "priority": "",
+    "stage": "4",
+    "status": "done",
+    "note": "aggregate_chapter_health"
+  },
+  {
+    "id": "CRS-02",
+    "title": "正典回写→全局同步链",
+    "priority": "",
+    "stage": "1",
+    "status": "done",
+    "note": "after_canon_apply 三同步"
+  },
+  {
+    "id": "CRS-03",
+    "title": "记忆召回统一中枢完善",
+    "priority": "",
+    "stage": "3",
+    "status": "done",
+    "note": "图通道默认开 + emotion 去重"
+  },
+  {
+    "id": "CRS-04",
+    "title": "经验压力→写路径注入闭环",
+    "priority": "",
+    "stage": "3",
+    "status": "done",
+    "note": "letter/scene_grid 进写上下文"
+  },
+  {
+    "id": "CRS-05",
+    "title": "限知门控全链路加固",
+    "priority": "",
+    "stage": "5",
+    "status": "done",
+    "note": "leak_markers + role bridge 默认开 + apply sync"
+  },
+  {
+    "id": "CRS-06",
+    "title": "级联删除统一治理",
+    "priority": "",
+    "stage": "1",
+    "status": "done",
+    "note": "级联 cleanup 统一"
+  },
+  {
+    "id": "CRS-07",
+    "title": "SSE实时更新全面接入",
+    "priority": "",
+    "stage": "5",
+    "status": "done",
+    "note": "Insight/Timeline/Codex/Gateway live"
+  },
+  {
+    "id": "T13-01",
+    "title": "T04红测试未修复（裸入库）",
+    "priority": "",
+    "stage": "0",
+    "status": "done",
+    "note": "fake_stream hermes 名"
+  },
+  {
+    "id": "T13-02",
+    "title": "xfail-ledger标\"已修复\"与事实不符",
+    "priority": "",
+    "stage": "0",
+    "status": "done",
+    "note": "xfail-ledger 已按源码改为已修复"
+  },
+  {
+    "id": "T13-03",
+    "title": "round13-debts声称\"无代码遗留\"",
+    "priority": "",
+    "stage": "0",
+    "status": "done",
+    "note": "round13-debts 已登记 T04"
+  },
+  {
+    "id": "T13-04",
+    "title": "shadow\\_equal三层比对缺负面用例",
+    "priority": "",
+    "stage": "4",
+    "status": "done",
+    "note": "shadow_equal 删段/换序必须 False"
+  },
+  {
+    "id": "T13-05",
+    "title": "test\\_recall\\_unity白名单维护风险",
+    "priority": "",
+    "stage": "4",
+    "status": "decision: P1 白名单动态发现远期",
+    "note": "decision: P1 白名单动态发现远期"
+  },
+  {
+    "id": "T13-06",
+    "title": "deploy\\_check.sh macOS不可用",
+    "priority": "",
+    "stage": "4",
+    "status": "done",
+    "note": "deploy_check command -v systemd-analyze"
+  },
+  {
+    "id": "T13-07",
+    "title": "test\\_epistemic\\_100用inspect.getsource源码断言",
+    "priority": "",
+    "stage": "5",
+    "status": "decision: P2 inspect 源码断言保留",
+    "note": "decision: P2 inspect 源码断言保留"
+  },
+  {
+    "id": "T13-08",
+    "title": "budget\\_overrun阈值硬编码1.05",
+    "priority": "",
+    "stage": "5",
+    "status": "decision: P2 budget 1.05 阈值远期",
+    "note": "decision: P2 budget 1.05 阈值远期"
+  }
+]

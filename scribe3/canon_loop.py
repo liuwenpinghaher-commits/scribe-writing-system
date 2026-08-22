@@ -520,7 +520,19 @@ def apply_change_pack(
     if applied and not rejected:
         p.status = "applied"
     elif applied and rejected:
-        p.status = "partially_approved"
+        # DED-04：半包回滚已 apply，避免设定库花脸
+        undone = []
+        for rec in reversed(list(applied)):
+            try:
+                if _undo_applied(store, rec):
+                    undone.append(rec)
+            except Exception:
+                pass
+        if undone:
+            applied = [a for a in applied if a not in undone]
+            p.status = "rolled_back" if not applied else "partially_approved"
+        else:
+            p.status = "partially_approved"
     elif rejected and not applied:
         p.status = "proposed"
     result = {
@@ -552,6 +564,28 @@ def apply_change_pack(
     except Exception:
         pass
     return result
+
+
+def _undo_applied(store: Any, rec: dict[str, Any]) -> bool:
+    if not isinstance(rec, dict):
+        return False
+    module = str(rec.get("module") or "")
+    op = str(rec.get("op") or "")
+    if module == "character" and rec.get("oid") and hasattr(store, "delete_record"):
+        return bool(store.delete_record(rec["oid"], cleanup_refs=True))
+    if module == "faction" and rec.get("name") and hasattr(store, "delete_faction"):
+        store.delete_faction(rec["name"])
+        return True
+    if module == "item" and rec.get("name") and hasattr(store, "delete_item"):
+        store.delete_item(rec["name"])
+        return True
+    if module == "term" and rec.get("name") and hasattr(store, "delete_term"):
+        store.delete_term(rec["name"])
+        return True
+    if module == "world_rule" and rec.get("name") and hasattr(store, "delete_world_rule"):
+        store.delete_world_rule(rec["name"])
+        return True
+    return False
 
 
 def mark_items_approved(pack: ChangePack, item_ids: Iterable[str]) -> ChangePack:
