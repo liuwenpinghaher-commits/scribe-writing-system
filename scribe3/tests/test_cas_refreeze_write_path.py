@@ -89,3 +89,22 @@ def test_cas_source_has_no_query_write():
     assert "self._execute_write(" in block
     assert "self._query(" not in block
     assert "_emit_cache_invalidation" in block
+
+
+def test_update_volume_single_write_returns_before(monkeypatch):
+    marks = []
+    monkeypatch.setattr(
+        "scribe3.outline_status.mark_volume_intro_changed",
+        lambda st, vid: marks.append(vid),
+    )
+    monkeypatch.setattr("scribe3.outline_status.intro_text_changed", lambda a, b: a != b)
+
+    class _VolStore(_CasStore):
+        def _query(self, sql, vars=None):
+            return [{"id": "volume:v1"}]
+
+    st = _VolStore(write_rows=[{"intro": "旧纲"}])
+    ok = st.update_volume("v1", {"intro": "新纲"})
+    assert ok is True
+    assert any("RETURN BEFORE intro" in w for w in st.writes)
+    assert marks == ["v1"]

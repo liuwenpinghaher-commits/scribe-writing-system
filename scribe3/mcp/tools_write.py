@@ -1348,6 +1348,7 @@ async def s3_refreeze_volume(ctx: Context, volume_id: str, work: str | None = No
     return commit_if_approved("s3_refreeze_volume", ok, _write)
 
 
+@mcp.tool(annotations=_RO)
 async def s3_patch_chapter_plan(
     ctx: Context, seq: int,
     synopsis: str | None = None,

@@ -599,11 +599,13 @@ def join_generation_segments(
         segs = list(l2_rep.get("segments") or segs)
 
     segs, total_rep = enforce_total_prompt_budget(segs, budget=tb)
-    joined = "".join(str(s.get("text") or "") for s in segs)
+    joined_legacy = "".join(str(s.get("text") or "") for s in segs)
+    joined = joined_legacy
+    renderer_equal = None
     try:
         from scribe3.feature_flags import flag_truthy
         if flag_truthy("SCRIBE3_PROMPT_RENDERER"):
-            from scribe3.prompt_renderer import render_slots
+            from scribe3.prompt_renderer import render_slots, shadow_equal
             slots = {}
             for s in segs:
                 name = str(s.get("name") or "").strip() or "slot"
@@ -614,7 +616,21 @@ def join_generation_segments(
                     slots[name] = body
             rendered = render_slots(slots, trunk="prompt")
             if rendered:
+                renderer_equal = shadow_equal(joined_legacy, rendered)
                 joined = rendered
+                try:
+                    from scribe3.recall_service import record_shadow_stat
+                    record_shadow_stat({
+                        "ok": True,
+                        "path": "prompt_renderer",
+                        "threshold_ok": bool(renderer_equal),
+                        "secret_leak_count": 0,
+                        "prompt_renderer_equal": renderer_equal,
+                        "legacy_len": len(joined_legacy or ""),
+                        "tag": "recall_shadow",
+                    })
+                except Exception:
+                    pass
     except Exception:
         pass
     order_idx: dict[str, int] = {}
@@ -636,6 +652,9 @@ def join_generation_segments(
     # 校验 final_reminder 仍在
     names = [str(s.get("name") or "") for s in segs]
     rep["final_reminder_kept"] = "final_reminder" in names
+    if renderer_equal is not None:
+        rep["prompt_renderer_shadow_equal"] = bool(renderer_equal)
+        rep["prompt_renderer_legacy_len"] = len(joined_legacy or "")
     return joined, rep
 
 

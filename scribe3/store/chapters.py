@@ -837,20 +837,29 @@ class ChaptersMixin:
         sets = ", ".join(f"{k}=$p_{k}" for k in payload)
         params = {f"p_{k}": v for k, v in payload.items()}
         intro_changed = False
-        if "intro" in payload:
-            try:
-                from scribe3.outline_status import intro_text_changed
-                cur = self._query(
-                    "SELECT intro FROM type::record('volume', $vid) LIMIT 1",
-                    {"vid": vid},
-                ) or []
-                old_intro = (cur[0].get("intro") if cur else "") or ""
-                intro_changed = intro_text_changed(old_intro, payload.get("intro"))
-            except Exception:
+        old_intro = None
+        try:
+            raw = self._execute_write(
+                f"UPDATE type::record('volume', $vid) SET {sets} RETURN BEFORE intro",
+                {"vid": vid, **params},
+            )
+            before = self._rows_from_write(raw)
+            if "intro" in payload:
+                try:
+                    from scribe3.outline_status import intro_text_changed
+                    if before:
+                        old_intro = (before[0].get("intro") if isinstance(before[0], dict) else "") or ""
+                        intro_changed = intro_text_changed(old_intro, payload.get("intro"))
+                    else:
+                        intro_changed = True
+                except Exception:
+                    intro_changed = True
+        except Exception:
+            self._execute_write(
+                f"UPDATE type::record('volume', $vid) SET {sets}",
+                {"vid": vid, **params})
+            if "intro" in payload:
                 intro_changed = True
-        self._execute_write(
-            f"UPDATE type::record('volume', $vid) SET {sets}",
-            {"vid": vid, **params})
         if intro_changed:
             try:
                 from scribe3.outline_status import mark_volume_intro_changed

@@ -44,22 +44,22 @@ describe('volumeLedger', () => {
     expect(volumePendingHuman(o, 'cage').map((c) => c.seq)).toEqual([1, 2])
     expect(pendingOutlineLine(o.chapters[0])).toMatch(/还没冻回去/)
     expect(pendingOutlineLine(o.chapters[0])).toMatch(/冻回去/)
-    expect(pendingOutlineLine(o.chapters[1])).toMatch(/要你看一眼/)
+    expect(pendingOutlineLine(o.chapters[1])).toMatch(/看一眼对不对/)
     expect(pendingOutlineLine(o.chapters[1])).toMatch(/冻回去/)
   })
 
   it('review copy distinguishes high confidence vs too many edits', () => {
     expect(pendingOutlineLine({
       seq: 2, title: '四十二度', outline_status: 'review', confidence: 'high', outline_rev: 1,
-    })).toMatch(/把握高/)
+    })).toMatch(/高把握改的/)
     expect(pendingOutlineLine({
       seq: 2, title: '四十二度', outline_status: 'review', outline_rev: 3,
-    })).toMatch(/改太多次/)
+    })).toMatch(/纲已改过 3 次/)
     expect(pendingOutlineLine({
       seq: 2, title: '四十二度', outline_status: 'review', confidence: 'high', outline_rev: 3,
-    })).toMatch(/改太多次/)
+    })).toMatch(/纲已改过 3 次/)
     expect(pendingOutlineLine({
       seq: 2, title: '四十二度', outline_status: 'review', confidence: 'high', outline_rev: 3,
-    })).not.toMatch(/把握高/)
+    })).not.toMatch(/高把握改的/)
   })
 })

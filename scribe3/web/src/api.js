@@ -16,7 +16,11 @@ async function handle(res) {
   if (!res.ok) {
     let body = null
     try { body = await res.json() } catch { /* non-JSON error */ }
-    throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status, body })
+    const d = body?.detail
+    const msg = (d && typeof d === 'object')
+      ? String(d.message || d.code || `HTTP ${res.status}`)
+      : (typeof d === 'string' && d.trim() ? d : `HTTP ${res.status}`)
+    throw Object.assign(new Error(msg), { status: res.status, body, detail: d })
   }
   return res.json()
 }

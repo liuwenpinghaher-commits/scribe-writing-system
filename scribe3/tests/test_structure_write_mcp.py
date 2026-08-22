@@ -175,6 +175,14 @@ def test_s3_patch_chapter_plan_signatures():
         assert p in sig.parameters, f"s3_patch_chapter_plan 缺参数 {p}"
 
 
+def test_s3_patch_chapter_plan_registered_readonly():
+    tools = {t.name: t for t in asyncio.run(M.mcp.list_tools())}
+    assert "s3_patch_chapter_plan" in tools
+    ann = tools["s3_patch_chapter_plan"].annotations
+    ro = getattr(ann, "readOnlyHint", None) if ann else None
+    assert ro is True
+
+
 def test_s3_patch_chapter_plan_gone_contract():
     out = asyncio.run(M.s3_patch_chapter_plan(_AcceptCtx(), 1, synopsis="不该写入"))
     assert out.get("http") == 410
@@ -218,7 +226,7 @@ def test_s3_patch_chapter_plan_rejects_empty_or_incomplete_deductions_for_involv
 
 def test_s3_ingest_chapter_keeps_every_direct_provider_call_bounded(store, monkeypatch):
     """MCP 桥接上限是 300 秒；主抽取与空事件后的专用补抽都必须有更短的预算。"""
-    M.set_store(store)
+    M.set_store(store, "main")
     store.save_chapter(1, "沈砚推门，老道沉默。", title="一")
     calls = []
 

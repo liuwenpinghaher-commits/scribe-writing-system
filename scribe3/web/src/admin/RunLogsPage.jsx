@@ -4,6 +4,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
+import { guideMissingLine, httpErrorMessage } from '../lib/httpError'
 
 const inputCls = 'px-2.5 py-1.5 rounded-md border border-line bg-surface text-f13 outline-none focus:ring-2 focus:ring-brand'
 const btnCls = 'px-2.5 py-1.5 rounded-md text-f12 border border-line hover:bg-soft cursor-pointer'
@@ -37,7 +38,7 @@ function fmtMs(ms) {
 
 function Err({ e }) {
   if (!e) return null
-  const msg = e?.body?.detail || e?.message || String(e)
+  const msg = httpErrorMessage(e, e?.message || String(e))
   return (
     <div className="text-f12 text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-md px-3 py-2 mb-3">
       {msg}
@@ -98,6 +99,11 @@ function Dossier({ sel }) {
                 <div key={ev.event_id || ev.seq} className="mt-1 text-f12" data-testid="run-log-event">
                   <span className="text-faint">{ev.kind}</span>
                   {ev.summary ? <span> · {ev.summary}</span> : null}
+                  {guideMissingLine(ev) ? (
+                    <div className="text-amber-800 dark:text-amber-300" data-testid="codex-recall-empty">
+                      {guideMissingLine(ev)}
+                    </div>
+                  ) : null}
                   {ev.empty != null ? <span> · empty={String(ev.empty)}</span> : null}
                   {ids.map((id) => {
                     const art = byId[id]

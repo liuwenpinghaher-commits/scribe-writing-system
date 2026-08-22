@@ -2,9 +2,11 @@
 
 每次发版核对。新增 xfail 必须同步登记复核期限。
 
-| 用例 | 文件 | 原因 | 复核期限 |
-| --- | --- | --- | --- |
-| test_reader_lamp_not_machine_pass | scribe3/tests/test_r8_ui_copy.py | 未上线页面文案，挂牌停住 | 2026-09-22 |
-| test_write_layout_has_no_dual_lamp_chips | scribe3/tests/test_r8_ui_copy.py | 未上线页面文案，挂牌停住 | 2026-09-22 |
-| test_meta_pane_one_scene_paper | scribe3/tests/test_r8_ui_copy.py | 未上线页面文案，挂牌停住 | 2026-09-22 |
-| test_chapter_open_defaults_to_manuscript | scribe3/tests/test_r8_ui_copy.py | 未上线页面文案，挂牌停住 | 2026-09-22 |
+| 用例 | 文件 | 原因 | 复核期限 | 2026-08-22 复核 |
+| --- | --- | --- | --- | --- |
+| test_reader_lamp_not_machine_pass | scribe3/tests/test_r8_ui_copy.py | 未上线页面文案，挂牌停住 | 2026-09-22 | **续挂**：文案仍未上线，期限不变 |
+| test_write_layout_has_no_dual_lamp_chips | scribe3/tests/test_r8_ui_copy.py | 未上线页面文案，挂牌停住 | 2026-09-22 | **续挂**：同上 |
+| test_meta_pane_one_scene_paper | scribe3/tests/test_r8_ui_copy.py | 未上线页面文案，挂牌停住 | 2026-09-22 | **续挂**：同上 |
+| test_chapter_open_defaults_to_manuscript | scribe3/tests/test_r8_ui_copy.py | 未上线页面文案，挂牌停住 | 2026-09-22 | **续挂**：同上 |
+
+机制演练：2026-08-22 逐条看过原因，均仍成立，不销账、不改期限。

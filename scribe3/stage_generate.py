@@ -14,11 +14,15 @@ from scribe3.playbook.stages import (
     reject_gone_stage,
     stage_max_tokens,
 )
+from weakref import WeakKeyDictionary
+
 from scribe3.playbook.pipeline import run_stage
 from scribe3.playbook.parse import strip_fence as _strip_fence
 from scribe3.playbook.context import GUIDE_SLOT_KEYS, build_ctx
 from scribe3.playbook.memory_store import MemoryPlaybookStore
 from scribe3.playbook.stages import parse_force
+
+_PLAYBOOK_STORES: WeakKeyDictionary = WeakKeyDictionary()
 
 LlmFn = Callable[..., str]
 PersistFn = Callable[[dict], Any]
@@ -165,14 +169,24 @@ def _as_playbook_store(st):
         return MemoryPlaybookStore()
     if all(hasattr(st, n) for n in ("get_frozen", "insert", "next_version", "mark_superseded")):
         return st
-    existing = getattr(st, "_playbook_mem", None)
-    if existing is not None and all(
-        hasattr(existing, n) for n in ("get_frozen", "insert", "next_version", "mark_superseded")
-    ):
-        return existing
-    mem = MemoryPlaybookStore()
-    setattr(st, "_playbook_mem", mem)
-    return mem
+    try:
+        mem = _PLAYBOOK_STORES.get(st)
+        if mem is None:
+            mem = MemoryPlaybookStore()
+            _PLAYBOOK_STORES[st] = mem
+        return mem
+    except TypeError:
+        existing = getattr(st, "_playbook_mem", None)
+        if existing is not None and all(
+            hasattr(existing, n) for n in ("get_frozen", "insert", "next_version", "mark_superseded")
+        ):
+            return existing
+        mem = MemoryPlaybookStore()
+        try:
+            setattr(st, "_playbook_mem", mem)
+        except Exception:
+            pass
+        return mem
 
 
 def _emit_upstream_guide_span(ctx: Mapping[str, Any] | None) -> None:

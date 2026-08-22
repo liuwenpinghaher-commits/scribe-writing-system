@@ -38,6 +38,7 @@ def test_recall_shadow_aggregates_by_path():
 
 def test_shadow_vector_channel_recorded(monkeypatch):
     monkeypatch.setenv("SCRIBE3_RECALL_SHADOW_VECTOR", "1")
+    monkeypatch.setenv("SCRIBE3_RECALL_SHADOW_VECTOR_SYNC", "1")
 
     class St:
         def facts_at(self, seq):
@@ -52,7 +53,7 @@ def test_shadow_vector_channel_recorded(monkeypatch):
 
 
 def test_as_playbook_store_reuses_mem():
-    from scribe3.stage_generate import _as_playbook_store
+    from scribe3.stage_generate import _PLAYBOOK_STORES, _as_playbook_store
 
     class St:
         pass
@@ -61,7 +62,8 @@ def test_as_playbook_store_reuses_mem():
     a = _as_playbook_store(st)
     b = _as_playbook_store(st)
     assert a is b
-    assert st._playbook_mem is a
+    assert _PLAYBOOK_STORES.get(st) is a
+    assert getattr(st, "_playbook_mem", None) is None
 
 
 def test_http_error_shape_lock():
@@ -90,15 +92,37 @@ def test_plan_volumes_accept_and_decline():
     assert out3["status"] == "declined"
 
 
-def test_join_uses_prompt_renderer_markers():
+def test_join_uses_prompt_renderer_markers(monkeypatch):
     from scribe3.context_budget import join_generation_segments
-    joined, _rep = join_generation_segments([
+    from scribe3.feature_flags import flag_truthy as _orig
+
+    pieces = [
         {"name": "event_drive", "layer": "redline", "text": "【事件驱动】甲"},
         {"name": "drama_contract", "layer": "redline", "text": "【戏剧合同】乙"},
         {"name": "final_reminder", "layer": "redline", "text": "【最终提醒】丙"},
-    ], v2=True)
-    assert "【event_drive】" in joined or "事件驱动" in joined
-    assert joined.index("事件驱动") < joined.index("戏剧合同") < joined.index("最终提醒")
+    ]
+
+    def _on(name):
+        if name == "SCRIBE3_PROMPT_RENDERER":
+            return True
+        return _orig(name)
+
+    monkeypatch.setattr("scribe3.feature_flags.flag_truthy", _on)
+    joined_on, _rep = join_generation_segments(list(pieces), v2=True)
+    assert "【event_drive】" in joined_on
+    assert "事件驱动" in joined_on
+    assert joined_on.index("事件驱动") < joined_on.index("戏剧合同") < joined_on.index("最终提醒")
+
+    def _off(name):
+        if name == "SCRIBE3_PROMPT_RENDERER":
+            return False
+        return _orig(name)
+
+    monkeypatch.setattr("scribe3.feature_flags.flag_truthy", _off)
+    joined_off, _rep2 = join_generation_segments(list(pieces), v2=True)
+    assert "【event_drive】" not in joined_off
+    assert "事件驱动" in joined_off
+    assert joined_off.index("事件驱动") < joined_off.index("戏剧合同") < joined_off.index("最终提醒")
 
 
 def test_judge_adds_gate_shape():
@@ -160,6 +184,7 @@ def test_beats_write_legacy_flag_registered():
         "SCRIBE3_QUALITY_GATE_UNIFIED",
         "SCRIBE3_EPISTEMIC_ORACLE",
         "SCRIBE3_RECALL_SHADOW_VECTOR",
+        "SCRIBE3_RECALL_SHADOW_VECTOR_SYNC",
         "SCRIBE3_RECALL_PLAYBOOK",
     ):
         assert k in names
@@ -177,3 +202,210 @@ def test_dropped_chapter_fields_gated_in_source():
     src = (Path(__file__).resolve().parents[1] / "store" / "chapters.py").read_text(encoding="utf-8")
     assert "SCRIBE3_BEATS_WRITE_LEGACY" in src
     assert "beats" in src
+
+
+def test_record_shadow_stat_emits_observe():
+    from scribe3.pipeline_recorder import FlightRecorder
+    from scribe3.pipeline_trace import TraceBuffer, bind_trace_buffer, reset_trace_buffer
+
+    buf = TraceBuffer()
+    buf.recorder = FlightRecorder(work="t", chapter=1, kind="write", trace_id="ab" * 16, enabled=True)
+    tok = bind_trace_buffer(buf)
+    try:
+        record_shadow_stat({
+            "ok": True, "path": "playbook", "threshold_ok": True,
+            "secret_leak_count": 0, "legacy_len": 12, "tag": "recall_shadow",
+        })
+        tags = [((e.get("payload") or {}).get("tag")) for e in buf.recorder.events]
+        kinds = [e.get("kind") for e in buf.recorder.events]
+        assert "recall_shadow" in tags
+        assert "observe" in kinds
+    finally:
+        reset_trace_buffer(tok)
+
+
+def test_debug_recall_shadow_has_window():
+    from scribe3.api.routers.misc_routes import get_debug_recall_shadow
+    out = get_debug_recall_shadow()
+    assert "window" in out
+    assert "持久化" in out["window"] or "进程" in out["window"]
+
+
+def test_pipeline_events_tag_filter():
+    from scribe3.api.routers.misc_routes import get_debug_pipeline_events
+
+    class St:
+        def list_pipeline_events(self, **_k):
+            return [
+                {"seq": 1, "kind": "observe", "payload": {"tag": "recall_shadow"}},
+                {"seq": 2, "kind": "observe", "payload": {"tag": "other"}},
+            ]
+
+    import scribe3.api.app_impl as core
+    orig = getattr(core, "_store_for", None)
+    core._store_for = lambda work: St()
+    try:
+        out = get_debug_pipeline_events(tag="recall_shadow")
+        assert out["ok"] is True
+        assert out["count"] == 1
+        assert out["items"][0]["payload"]["tag"] == "recall_shadow"
+    finally:
+        if orig is not None:
+            core._store_for = orig
+
+
+def test_recall_never_leaks_secret():
+    from scribe3.ontology import Fact
+    from scribe3.recall_service import pack_text, recall
+
+    class St:
+        def facts_at(self, n):
+            return [
+                Fact("fact:体温", "role:柳岸青", "身体", "四十二度不是病是标价", 1, secret=False),
+                Fact("fact:坐标密", "role:柳岸青", "秘密", "看不见场核坐标", 1, secret=True),
+            ]
+
+    pack = recall(St(), chapter=1, focalizer="chief", query="柳岸青")
+    text = pack_text(pack)
+    assert "看不见场核坐标" not in text
+    assert all(not h.secret for h in pack.hits)
+
+
+def test_epistemic_allow_empty_keeps_hits(monkeypatch):
+    from scribe3.ontology import Fact
+    from scribe3.recall_service import recall
+
+    class St:
+        def facts_at(self, n):
+            return [Fact("fact:体温", "role:柳岸青", "身体", "四十二度不是病是标价", 1)]
+
+    notes = []
+    monkeypatch.setattr(
+        "scribe3.pipeline_trace_hooks.note_guide_missing",
+        lambda n: notes.append(n),
+    )
+    monkeypatch.setattr("scribe3.epistemic.visible_to", lambda *a, **k: [])
+    _SHADOW_RING.clear()
+    pack = recall(St(), chapter=1, focalizer="role:柳岸青", query="柳岸青 体温")
+    assert pack.hits
+    assert "看不见场核坐标" not in "".join(h.value for h in pack.hits)
+    assert any(r.get("allow_empty") for r in _SHADOW_RING)
+    assert "recall_epistemic_allow_empty" in notes
+
+
+def test_epistemic_fail_closed_drops_layer(monkeypatch):
+    from scribe3.ontology import Fact
+    from scribe3.recall_service import recall
+
+    class St:
+        def facts_at(self, n):
+            return [
+                Fact("fact:体温", "role:柳岸青", "身体", "四十二度不是病是标价", 1),
+                Fact("fact:坐标密", "role:柳岸青", "秘密", "看不见场核坐标", 1, secret=True),
+            ]
+
+    notes = []
+    monkeypatch.setattr(
+        "scribe3.pipeline_trace_hooks.note_guide_missing",
+        lambda n: notes.append(n),
+    )
+
+    def boom(*_a, **_k):
+        raise RuntimeError("visible_to exploded")
+
+    monkeypatch.setattr("scribe3.epistemic.visible_to", boom)
+    pack = recall(St(), chapter=1, focalizer="role:柳岸青", query="柳岸青")
+    assert any("四十二度" in h.value for h in pack.hits)
+    assert all("看不见场核坐标" not in h.value for h in pack.hits)
+    assert "recall_epistemic_fail_closed" in notes
+
+
+def test_epistemic_no_silent_skip_in_source():
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "recall_service.py").read_text(encoding="utf-8")
+    assert "recall epistemic skip" not in src
+    assert "recall_epistemic_fail_closed" in src
+    assert "recall_epistemic_allow_empty" in src
+
+
+def test_shadow_legacy_len_from_old_path():
+    from scribe3.playbook.context import build_ctx
+    from scribe3.tests.test_playbook_context_guides import _FrozenOnly, _World
+
+    _SHADOW_RING.clear()
+    ctx = build_ctx(_World(), 1, focalizer="role:柳岸青", playbook=_FrozenOnly())
+    assert ctx["codex_recall"]
+    rows = [r for r in _SHADOW_RING if r.get("path") == "playbook"]
+    assert rows
+    assert int(rows[0].get("legacy_len") or 0) > 0
+
+
+def test_join_records_prompt_renderer_shadow(monkeypatch):
+    from scribe3.context_budget import join_generation_segments
+    from scribe3.feature_flags import flag_truthy as _orig
+
+    def _on(name):
+        if name == "SCRIBE3_PROMPT_RENDERER":
+            return True
+        return _orig(name)
+
+    monkeypatch.setattr("scribe3.feature_flags.flag_truthy", _on)
+    _SHADOW_RING.clear()
+    join_generation_segments([
+        {"name": "event_drive", "layer": "redline", "text": "【事件驱动】甲"},
+        {"name": "final_reminder", "layer": "redline", "text": "【最终提醒】丙"},
+    ], v2=True)
+    rows = [r for r in _SHADOW_RING if r.get("path") == "prompt_renderer"]
+    assert rows
+    assert "prompt_renderer_equal" in rows[0]
+
+
+def test_codex_recall_empty_notes_when_facts_exist(monkeypatch):
+    from scribe3.ontology import Fact
+    from scribe3.playbook.context import playbook_codex_recall
+
+    notes = []
+    monkeypatch.setattr(
+        "scribe3.pipeline_trace_hooks.note_guide_missing",
+        lambda n: notes.append(n),
+    )
+
+    class St:
+        def facts_at(self, n):
+            return [Fact("fact:x", "role:别人", "身份", "无关路人甲", 1)]
+
+        def list_world_rules(self, category=None):
+            return []
+
+    playbook_codex_recall(
+        St(), 1, "role:柳岸青",
+        rows=[{"title": "华山成核", "synopsis": "按回碎片"}],
+    )
+    assert "codex_recall_empty" in notes
+
+
+def test_review_runner_adds_gate_shape():
+    from scribe3.review.runner import run_chapter_review
+
+    class St:
+        def get_chapter(self, seq):
+            return {"prose": "墙比他想象中湿。", "focalizer": "role:柳岸青"}
+
+        def facts_at(self, n):
+            return []
+
+    out = run_chapter_review(store=St(), work="t", seq=1, mode="deterministic")
+    assert "gate" in out
+    assert "ok" in out["gate"]
+    assert "hits" in out["gate"]
+    assert out["gate"]["code"] == "review"
+
+
+def test_update_volume_sql_returns_before():
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "store" / "chapters.py").read_text(encoding="utf-8")
+    start = src.index("def update_volume")
+    end = src.index("def ", start + 1)
+    block = src[start:end]
+    assert "RETURN BEFORE intro" in block
+    assert "self._execute_write(" in block

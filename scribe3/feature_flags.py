@@ -159,6 +159,13 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
         "caution",
     ),
     Flag(
+        "SCRIBE3_RECALL_SHADOW_VECTOR_SYNC",
+        "0",
+        "向量对照同步跑（默认关，写章不等待；单测开）",
+        "recall",
+        "caution",
+    ),
+    Flag(
         "SCRIBE3_RECALL_PLAYBOOK",
         "1",
         "写章设定槽走统一召回（默认开；关=退回旧子串+字母序凑数）",

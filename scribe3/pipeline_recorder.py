@@ -67,7 +67,7 @@ PAYLOAD_TOP = frozenset({
     "segment_names", "segment_artifact_ids",
     "guard_hits", "guard_scrubbed", "output_hash", "output_chars", "scrubbed",
     "threshold_ok", "path", "entity_jaccard", "secret_leak_count", "seq",
-    "budget_delta", "channels",
+    "budget_delta", "channels", "legacy_len", "allow_empty", "prompt_renderer_equal",
 })
 
 _SECRET_RE = re.compile(r"(?i)(sk-[A-Za-z0-9]{8,}|Bearer\s+[A-Za-z0-9._\-]{12,})")

@@ -77,9 +77,9 @@ export function pendingOutlineLine(ch) {
   if (st === 'review') {
     const rev = Number(ch?.outline_rev || 0)
     if (Number.isFinite(rev) && rev >= 3) {
-      return `第${ch.seq}章${title}：这章改太多次了。核完了对主编说冻回去。`
+      return `第${ch.seq}章${title}：纲已改过 ${rev} 次。核完了对主编说冻回去。`
     }
-    return `第${ch.seq}章${title}：这章把握高，要你看一眼。核完了对主编说冻回去。`
+    return `第${ch.seq}章${title}：这章纲是高把握改的，看一眼对不对。核完了对主编说冻回去。`
   }
   return `第${ch.seq}章${title}`
 }

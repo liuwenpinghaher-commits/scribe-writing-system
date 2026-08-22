@@ -8,6 +8,7 @@ from typing import Any
 _log = logging.getLogger("scribe3.recall_service")
 
 _BUDGET_BY_TAG = {
+    # 翻主后只放对得上的，槽从 400 放到 800：命中变少、单条更完整，避免把对上的设定裁掉。
     "playbook_codex": 800,
     "discuss_codex": 800,
     "canonical": 600,
@@ -30,16 +31,42 @@ def budget_for(tag: str, default: int = 400) -> int:
 def record_shadow_stat(rec: dict[str, Any] | None) -> None:
     if not isinstance(rec, dict) or rec.get("ok") is False:
         return
-    _SHADOW_RING.append({
+    row = {
         "path": str(rec.get("path") or ""),
         "threshold_ok": bool(rec.get("threshold_ok")),
         "secret_leak_count": int(rec.get("secret_leak_count") or 0),
         "channels": list(rec.get("channels") or []),
         "seq": rec.get("seq"),
-    })
+        "legacy_len": rec.get("legacy_len"),
+        "allow_empty": rec.get("allow_empty"),
+        "prompt_renderer_equal": rec.get("prompt_renderer_equal"),
+        "tag": rec.get("tag") or "recall_shadow",
+    }
+    _SHADOW_RING.append(row)
     overflow = len(_SHADOW_RING) - _SHADOW_RING_MAX
     if overflow > 0:
         del _SHADOW_RING[:overflow]
+    try:
+        from scribe3.pipeline_recorder import current_recorder
+        recd = current_recorder()
+        if recd is not None:
+            recd.emit(
+                "", "observe",
+                summary=f"召回影子 threshold_ok={row['threshold_ok']} path={row['path']}",
+                payload={
+                    "tag": "recall_shadow",
+                    "threshold_ok": row["threshold_ok"],
+                    "path": row["path"],
+                    "secret_leak_count": row["secret_leak_count"],
+                    "channels": row["channels"],
+                    "seq": row["seq"],
+                    "legacy_len": row.get("legacy_len"),
+                    "allow_empty": row.get("allow_empty"),
+                    "prompt_renderer_equal": row.get("prompt_renderer_equal"),
+                },
+            )
+    except Exception:
+        pass
 
 
 def summarize_recall_shadow(rows: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -78,6 +105,7 @@ class RecallHit:
     channel: str
     score: float = 0.0
     secret: bool = False
+    fact_id: str = ""
 
 
 @dataclass
@@ -106,6 +134,7 @@ def _as_hit(f: Any, channel: str, score: float = 0.0) -> RecallHit | None:
         channel=channel,
         score=score,
         secret=secret,
+        fact_id=str(_fact_get(f, "id") or ""),
     )
 
 
@@ -121,7 +150,7 @@ def _rrf(packs: list[list[RecallHit]], k: int = 60) -> list[RecallHit]:
     out: list[RecallHit] = []
     for key, sc in ranked:
         h = keep[key]
-        out.append(RecallHit(h.entity_id, h.attribute, h.value, h.channel, sc, h.secret))
+        out.append(RecallHit(h.entity_id, h.attribute, h.value, h.channel, sc, h.secret, h.fact_id))
     return out
 
 
@@ -211,24 +240,33 @@ def recall(
                 "", "chief", "author", "主编",
             ):
                 from scribe3.epistemic import visible_to
-                allow = set(visible_to(store, work or "", int(chapter), focalizer))
-                if allow:
-                    visible_blobs: set[str] = set()
-                    facts_fn2 = getattr(store, "facts_at", None)
-                    if callable(facts_fn2):
-                        for f in list(facts_fn2(int(chapter)) or []):
-                            fid = str(_fact_get(f, "id") or "")
-                            if fid and fid in allow:
-                                visible_blobs.add(
-                                    f"{_fact_get(f, 'entity_id') or ''}|{_fact_get(f, 'value') or ''}"
-                                )
-                    if visible_blobs:
-                        fused = [
-                            h for h in fused
-                            if f"{h.entity_id}|{h.value}" in visible_blobs
-                        ]
+                allow = {str(x) for x in visible_to(store, work or "", int(chapter), focalizer) if x}
+                if not allow:
+                    try:
+                        from scribe3.pipeline_trace_hooks import note_guide_missing
+                        note_guide_missing("recall_epistemic_allow_empty")
+                    except Exception:
+                        pass
+                    record_shadow_stat({
+                        "ok": True, "path": "epistemic", "threshold_ok": True,
+                        "secret_leak_count": 0, "allow_empty": 1, "seq": int(chapter),
+                        "tag": "recall_shadow",
+                    })
+                else:
+                    fused = [h for h in fused if str(h.fact_id or "") in allow]
         except Exception as exc:
-            _log.info("recall epistemic skip: %s", type(exc).__name__)
+            # 限知层是第二道过滤。异常时不当作「没这层」悄悄放行，也不把通道层已滤过的公开设定整段扔掉。
+            _log.info("recall epistemic fail-closed: %s", type(exc).__name__)
+            try:
+                from scribe3.pipeline_trace_hooks import note_guide_missing
+                note_guide_missing("recall_epistemic_fail_closed")
+            except Exception:
+                pass
+            record_shadow_stat({
+                "ok": True, "path": "epistemic", "threshold_ok": True,
+                "secret_leak_count": 0, "seq": int(chapter),
+                "tag": "recall_shadow",
+            })
     if not fused:
         return RecallPack(hits=[], skip_reason="empty", budget_tag=budget_tag, channels=channels)
     text_acc = 0
@@ -272,15 +310,41 @@ def shadow_diff(
             if hits:
                 channels.append("facts_at")
         if flag_truthy("SCRIBE3_RECALL_SHADOW_VECTOR"):
-            vec = recall(
-                store,
-                chapter=int(seq),
-                focalizer=focalizer,
-                query=query or focalizer,
-                budget_tag="playbook_codex",
-            )
-            hits.extend(vec.hits)
-            channels.extend(list(vec.channels or []))
+            import threading
+
+            def _vector_shadow() -> None:
+                try:
+                    vec = recall(
+                        store,
+                        chapter=int(seq),
+                        focalizer=focalizer,
+                        query=query or focalizer,
+                        budget_tag="playbook_codex",
+                    )
+                    record_shadow_stat({
+                        "ok": True,
+                        "path": (path or "playbook") + ":vector",
+                        "threshold_ok": True,
+                        "secret_leak_count": 0,
+                        "channels": list(vec.channels or []),
+                        "seq": int(seq),
+                    })
+                except Exception:
+                    pass
+
+            sync = flag_truthy("SCRIBE3_RECALL_SHADOW_VECTOR_SYNC")
+            if sync:
+                vec = recall(
+                    store,
+                    chapter=int(seq),
+                    focalizer=focalizer,
+                    query=query or focalizer,
+                    budget_tag="playbook_codex",
+                )
+                hits.extend(vec.hits)
+                channels.extend(list(vec.channels or []))
+            else:
+                threading.Thread(target=_vector_shadow, daemon=True).start()
         pack = RecallPack(
             hits=hits[:12],
             skip_reason="" if hits else "empty",

@@ -614,8 +614,9 @@ def playbook_codex_recall(
             facts = []
     public: list[Any] = [f for f in facts if _fact_get(f, "secret") is not True]
     from scribe3.feature_flags import flag_truthy
+    legacy_text = _legacy_codex_recall(world, seq, needles, public)
     if not flag_truthy("SCRIBE3_RECALL_PLAYBOOK"):
-        text = _legacy_codex_recall(world, seq, needles, public)
+        text = legacy_text
     else:
         text = ""
         try:
@@ -631,6 +632,12 @@ def playbook_codex_recall(
             body = pack_text(pack)
             if body:
                 parts.append(body)
+            elif public:
+                try:
+                    from scribe3.pipeline_trace_hooks import note_guide_missing
+                    note_guide_missing("codex_recall_empty")
+                except Exception:
+                    pass
             rules = _rule_lines(world, needles, pad=False)
             if rules:
                 if not parts:
@@ -644,11 +651,14 @@ def playbook_codex_recall(
                 note_guide_missing("codex_recall_overlay_skip")
             except Exception:
                 pass
-            text = _legacy_codex_recall(world, seq, needles, public)
+            text = legacy_text
     try:
         if flag_truthy("SCRIBE3_RECALL_SHADOW"):
             from scribe3.recall_service import shadow_diff
-            shadow_diff(world, seq, focalizer, text, query=" ".join(needles), path="playbook")
+            shadow_diff(
+                world, seq, focalizer, legacy_text,
+                query=" ".join(needles), path="playbook",
+            )
     except Exception:
         pass
     return text

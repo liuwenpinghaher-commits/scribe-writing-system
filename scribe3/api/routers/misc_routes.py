@@ -1264,6 +1264,7 @@ def get_debug_recall_shadow(work: str = "main"):
         "ok": True,
         "work": work,
         "surface": "debug.recall_shadow",
+        "window": "持久化自 2026-08-22 翻主日起算；本进程环是启动以来窗口，pipeline observe 为跨请求账",
         **agg,
     }
 
@@ -1579,6 +1580,7 @@ def get_debug_pipeline_events(
     since: str | None = None,
     after_seq: int | None = None,
     limit: int | None = None,
+    tag: str | None = None,
 ):
     try:
         from scribe3.api import app_impl as core
@@ -1605,6 +1607,13 @@ def get_debug_pipeline_events(
     )
     truncated = len(rows) > lim
     items = rows[:lim]
+    want_tag = str(tag or "").strip()
+    if want_tag:
+        items = [
+            r for r in items
+            if str(((r or {}).get("payload") or {}).get("tag") or "") == want_tag
+        ]
+        truncated = False
     next_seq = items[-1].get("seq") if truncated and items else None
     return {
         "ok": True, "work": work, "surface": "debug.pipeline_events",

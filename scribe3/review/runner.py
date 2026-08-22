@@ -187,6 +187,17 @@ def run_chapter_review(
             "coverage": coverage,
             "degraded": degraded,
         })
+    try:
+        if flag_truthy("SCRIBE3_QUALITY_GATE_UNIFIED"):
+            from scribe3.quality_gate import from_existing
+            out["gate"] = from_existing({
+                "ok": out.get("ok"),
+                "code": "review",
+                "message": str(out.get("note") or ""),
+                "hits": out.get("issues") or [],
+            })
+    except Exception:
+        pass
     return out
 
 
