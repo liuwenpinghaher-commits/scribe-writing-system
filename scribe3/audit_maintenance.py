@@ -1,6 +1,7 @@
 """GAP-3：audit_event TTL 清理 + 查询。"""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import logging
 import os
 from typing import Any
@@ -15,7 +16,7 @@ def audit_ttl_days() -> int:
         return max(1, int(v))
     except Exception:
         pass
-    raw = (os.environ.get("SCRIBE3_AUDIT_TTL_DAYS") or "30").strip()
+    raw = (get_flag("SCRIBE3_AUDIT_TTL_DAYS") or "30").strip()
     try:
         return max(1, int(raw))
     except ValueError:

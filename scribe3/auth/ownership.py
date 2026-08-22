@@ -1,12 +1,13 @@
 """Work ownership helpers (registry metadata + enforcement)."""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import os
 from typing import Any
 
 
 def legacy_owner() -> str:
-    return (os.environ.get("SCRIBE3_LEGACY_OWNER") or "admin").strip() or "admin"
+    return (get_flag("SCRIBE3_LEGACY_OWNER") or "admin").strip() or "admin"
 
 
 def effective_owner(work_row: dict[str, Any] | None) -> str | None:

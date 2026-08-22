@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import os
 import re
 from typing import Any
@@ -23,7 +24,7 @@ def steer_mode() -> str:
             return v
     except Exception:
         pass
-    return (os.environ.get("SCRIBE3_MEMORY_STEER_MODE") or "minimal").strip().lower()
+    return (get_flag("SCRIBE3_MEMORY_STEER_MODE") or "minimal").strip().lower()
 
 
 def is_minimal_steer() -> bool:
@@ -75,7 +76,7 @@ def must_link_limit(default: int = 10) -> int:
         n = int(get_setting("SCRIBE3_MUST_LINK_LIMIT"))
     except Exception:
         try:
-            n = int(os.environ.get("SCRIBE3_MUST_LINK_LIMIT") or default)
+            n = int(get_flag("SCRIBE3_MUST_LINK_LIMIT") or default)
         except (TypeError, ValueError):
             n = default
     return max(3, min(n, 24))

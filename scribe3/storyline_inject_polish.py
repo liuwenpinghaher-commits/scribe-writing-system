@@ -6,27 +6,18 @@
 """
 from __future__ import annotations
 
-import os
 from typing import Any
+
+from scribe3.feature_flags import flag_truthy
 
 
 def storyline_inject_enabled() -> bool:
-    try:
-        from scribe3.feature_flags import flag_truthy
-        return flag_truthy("SCRIBE3_STORYLINE_INJECT")
-    except Exception:
-        raw = (os.environ.get("SCRIBE3_STORYLINE_INJECT") or "1").strip().lower()
-        return raw in ("1", "true", "yes", "on")
+    return flag_truthy("SCRIBE3_STORYLINE_INJECT")
 
 
 def promise_hint_enabled() -> bool:
     """SL3：可选一行伏笔计数提示；默认关。"""
-    try:
-        from scribe3.feature_flags import flag_truthy
-        return flag_truthy("SCRIBE3_STORYLINE_PROMISE_HINT")
-    except Exception:
-        raw = (os.environ.get("SCRIBE3_STORYLINE_PROMISE_HINT") or "0").strip().lower()
-        return raw in ("1", "true", "yes", "on")
+    return flag_truthy("SCRIBE3_STORYLINE_PROMISE_HINT")
 
 
 def _normalize_craft_only(raw: Any, *, default: bool = True) -> bool:

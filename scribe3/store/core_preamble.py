@@ -1,6 +1,7 @@
 """Module-level helpers and work registry (split from store.py)."""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 from __future__ import annotations
 
 """Module-level helpers and work registry extracted from store.py."""
@@ -260,7 +261,7 @@ def _archive_retention_days() -> int:
     """废弃箱建议保留天数(仅元数据提示,不自动 purge)。环境变量可覆盖,默认 30。"""
     import os
     try:
-        return max(0, int(os.environ.get("SCRIBE3_ARCHIVE_RETENTION_DAYS", "30")))
+        return max(0, int(get_flag("SCRIBE3_ARCHIVE_RETENTION_DAYS")))
     except (TypeError, ValueError):
         return 30
 

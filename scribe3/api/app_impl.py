@@ -25,6 +25,7 @@
 """
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import json
 import hashlib
 import logging
@@ -1687,7 +1688,7 @@ _LIVE_TABLES = ["character", "place", "proposition", "event", "knows", "reader_k
                 "faction", "item", "term", "world_rule"]   # U-002:设定库四类,写入即刷新
 
 
-_LIVE_MAX = int(os.environ.get("SCRIBE3_LIVE_MAX", "5"))
+_LIVE_MAX = int(get_flag("SCRIBE3_LIVE_MAX"))
 _live_count: dict[str, int] = {}
 
 

@@ -107,6 +107,23 @@ def test_hot_flags_go_through_registry():
     assert flags["SCRIBE3_PDC"]["default"] == "0"
     assert flags["SCRIBE3_REVIEW_LLM"]["default"] == "0"
     assert flags["SCRIBE3_QUALITY_DIM_ADVISORY"]["default"] == "1"
+    assert flags["SCRIBE3_ALLOW_FACT_EDIT"]["default"] == "0"
+    assert flags["SCRIBE3_LIVE_MAX"]["default"] == "5"
+
+
+def test_digest_sync_reports_failed_as_group():
+    from scribe3.codex_digest import sync_entity_digests
+
+    class _Boom:
+        def upsert_bridge_proposition(self, **_k):
+            raise RuntimeError("no txn")
+        def find_bridge_proposition_local(self, *_a, **_k):
+            return None
+
+    out = sync_entity_digests(_Boom(), "character", "role:柳岸青", {"name": "柳岸青", "gender": "男"})
+    assert out.get("skipped") is False
+    assert out.get("ok") is False
+    assert int(out.get("failed") or 0) >= 1
 
 
 def test_lesson_fts_migration_has_bm25():

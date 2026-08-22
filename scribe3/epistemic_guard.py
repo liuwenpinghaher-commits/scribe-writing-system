@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import logging
 import re
 from typing import Any
@@ -130,7 +131,7 @@ def partition_facts_for_focalizer(
 def discuss_epistemic_guard_enabled() -> bool:
     """GAP-9：讨论/全知出口 soft 扫描（默认开）。"""
     import os
-    raw = (os.environ.get("SCRIBE3_EPISTEMIC_DISCUSS_GUARD") or "1").strip().lower()
+    raw = (get_flag("SCRIBE3_EPISTEMIC_DISCUSS_GUARD") or "1").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 
@@ -235,7 +236,7 @@ class EpistemicLeakError(RuntimeError):
 def epistemic_fail_loud_enabled() -> bool:
     """SCRIBE3_EPISTEMIC_FAIL_LOUD=1 时命中帧外 secret 直接抛 EpistemicLeakError。"""
     import os
-    raw = (os.environ.get("SCRIBE3_EPISTEMIC_FAIL_LOUD") or "0").strip().lower()
+    raw = (get_flag("SCRIBE3_EPISTEMIC_FAIL_LOUD") or "0").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 

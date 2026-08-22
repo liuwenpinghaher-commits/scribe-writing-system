@@ -1,6 +1,7 @@
 """SurrealStore mixin: recall."""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 from scribe3.store.core_preamble import *  # noqa: F403
 
 class RecallMixin:
@@ -445,7 +446,7 @@ class RecallMixin:
             _co_on = bool(graph_co_present_enabled())
         except Exception:
             import os as _os
-            _co = (_os.environ.get("SCRIBE3_GRAPH_CO_PRESENT") or "0").strip().lower()
+            _co = (get_flag("SCRIBE3_GRAPH_CO_PRESENT") or "0").strip().lower()
             _co_on = _co in ("1", "true", "yes", "on")
         _co_sel = (
             "  <-causes<-event->involves->character.name AS co_present, "

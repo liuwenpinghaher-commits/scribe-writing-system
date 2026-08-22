@@ -22,6 +22,7 @@
 """
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import json
 import os
 import urllib.error
@@ -165,7 +166,7 @@ class Scribe3MemoryProvider(MemoryProvider):
         # GAP-8：启动时注入 Scribe 侧历史偏好（单源仍在 Scribe 待批库，不写 Hermes Memory）
         pref = result.get("author_prefs") or result.get("preferences") or ""
         if not pref:
-            pref = os.environ.get("SCRIBE3_PREFETCH_PREFS_TEXT") or ""
+            pref = get_flag("SCRIBE3_PREFETCH_PREFS_TEXT") or ""
         if pref:
             ctx = (f"[author_preferences]\n{pref}\n\n" + ctx).strip()
         return ctx

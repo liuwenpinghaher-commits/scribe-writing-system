@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import os
 from typing import Any
 
@@ -16,7 +17,7 @@ def director_creative_enabled() -> bool:
         from scribe3.quality_enablement_flags import director_creative_enabled as _f
         return bool(_f())
     except Exception:
-        v = (os.environ.get("SCRIBE3_DIRECTOR_CREATIVE") or "1").strip().lower()
+        v = (get_flag("SCRIBE3_DIRECTOR_CREATIVE") or "1").strip().lower()
         return v not in ("0", "false", "no", "off", "")
 
 

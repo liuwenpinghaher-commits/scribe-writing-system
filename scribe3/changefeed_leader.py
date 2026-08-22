@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import os
 import time
 import uuid
@@ -15,7 +16,7 @@ _LEADER_ID = uuid.uuid4().hex[:12]
 
 
 def leader_election_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_CHANGEFEED_LEADER_ELECTION") or "0").strip().lower()
+    raw = (get_flag("SCRIBE3_CHANGEFEED_LEADER_ELECTION") or "0").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 

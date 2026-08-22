@@ -1,6 +1,7 @@
 """飞行记录仪：真实工件 + 完整事件。零 I/O。"""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import hashlib
 import json
 import os
@@ -80,12 +81,12 @@ def pipeline_recorder_enabled() -> bool:
     except Exception:
         raw = ""
     if not raw:
-        raw = str(os.environ.get("SCRIBE3_PIPELINE_RECORDER") or "1").strip().lower()
+        raw = str(get_flag("SCRIBE3_PIPELINE_RECORDER") or "1").strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
 def artifact_cap() -> int:
-    raw = (os.environ.get("SCRIBE3_PIPELINE_ARTIFACT_CAP") or "16384").strip()
+    raw = (get_flag("SCRIBE3_PIPELINE_ARTIFACT_CAP") or "16384").strip()
     try:
         return max(512, int(raw))
     except ValueError:

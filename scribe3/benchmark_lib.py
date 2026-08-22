@@ -1,6 +1,7 @@
 """Benchmark / 参考作品库（O32 · 默认 JSON 落盘 · 无 Surreal 迁移）。"""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import json
 import os
 import threading
@@ -15,7 +16,7 @@ _LOADED = False
 
 
 def benchmark_lib_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_BENCHMARK_LIB") or "1").strip().lower()
+    raw = (get_flag("SCRIBE3_BENCHMARK_LIB") or "1").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 
@@ -86,7 +87,7 @@ BENCHMARK_ADVISORY_HEADER = "【对照参考·禁止仿写专名与原句】\n"
 
 
 def benchmark_inject_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_BENCHMARK_INJECT") or "0").strip().lower()
+    raw = (get_flag("SCRIBE3_BENCHMARK_INJECT") or "0").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 

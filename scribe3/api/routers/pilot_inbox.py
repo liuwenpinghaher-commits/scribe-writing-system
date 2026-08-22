@@ -1,6 +1,7 @@
 """Domain router (extracted from app_impl). URLs unchanged."""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import types
 from typing import Any, Optional, List, Dict, Literal
 
@@ -70,7 +71,7 @@ def pilot_step(req: PilotStepReq, work: str = "main"):
         try:
             flag = bool(_settings.get_setting("SCRIBE3_CANON_DEBT_BLOCK_HIGH"))
         except Exception:
-            flag = (os.environ.get("SCRIBE3_CANON_DEBT_BLOCK_HIGH") or "").strip().lower() in (
+            flag = (get_flag("SCRIBE3_CANON_DEBT_BLOCK_HIGH") or "").strip().lower() in (
                 "1", "true", "yes", "on",
             )
         if flag:

@@ -1,6 +1,7 @@
 """并发锁（O28 · 旗控；默认进程内，可注入 store）。"""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import os
 import threading
 import time
@@ -8,7 +9,7 @@ from typing import Any, Protocol
 
 
 def distributed_lock_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_DISTRIBUTED_LOCK") or "1").strip().lower()
+    raw = (get_flag("SCRIBE3_DISTRIBUTED_LOCK") or "1").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 

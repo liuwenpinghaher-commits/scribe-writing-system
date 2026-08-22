@@ -1,6 +1,7 @@
 """Domain router (extracted from app_impl). URLs unchanged."""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import logging
 import os
 import types
@@ -48,7 +49,7 @@ def works():
     with _stores_lock:
         loaded_stores = {slug: _stores.get(slug) for slug in _stores}
     out = []
-    lazy_budget = int(os.environ.get("SCRIBE3_WORKS_LIST_STATS_CAP", "24") or "24")
+    lazy_budget = int(get_flag("SCRIBE3_WORKS_LIST_STATS_CAP") or "24")
     lazy_used = 0
     for w in list_works():
         slug = w.get("slug") or ""

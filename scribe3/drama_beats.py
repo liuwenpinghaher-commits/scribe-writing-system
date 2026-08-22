@@ -1,3 +1,4 @@
+from scribe3.feature_flags import get_flag
 # scribe3/drama_beats.py
 """戏剧节拍校验 · 纯函数（PR-1）。
 
@@ -79,7 +80,7 @@ def resolve_hard_pressure(explicit: int | None = None) -> int:
         except (TypeError, ValueError):
             pass
     # 优先轻量 env，避免纯测强依赖 settings/DB
-    if (os.environ.get("SCRIBE3_DRAMA_HARD_PRESSURE") or "").strip():
+    if (get_flag("SCRIBE3_DRAMA_HARD_PRESSURE") or "").strip():
         return _env_int("SCRIBE3_DRAMA_HARD_PRESSURE", DEFAULT_HARD_PRESSURE)
     try:
         from scribe3.novel_quality_flags import drama_hard_pressure
@@ -92,7 +93,7 @@ def resolve_compat_v1(explicit: bool | None = None) -> bool:
     """DRAMA_GATE_COMPAT：显式 > env > 代码默认 True（v1 弱通过）。"""
     if explicit is not None:
         return bool(explicit)
-    if (os.environ.get("SCRIBE3_DRAMA_GATE_COMPAT") or "").strip():
+    if (get_flag("SCRIBE3_DRAMA_GATE_COMPAT") or "").strip():
         return _env_bool("SCRIBE3_DRAMA_GATE_COMPAT", True)
     try:
         from scribe3.novel_quality_flags import drama_gate_compat_enabled
@@ -657,7 +658,7 @@ DRAMA_VACUUM_WARN_TEXT = (
 
 def drama_vacuum_warn_enabled() -> bool:
     import os
-    raw = (os.environ.get("SCRIBE3_DRAMA_VACUUM_WARN") or "1").strip().lower()
+    raw = (get_flag("SCRIBE3_DRAMA_VACUUM_WARN") or "1").strip().lower()
     return raw not in ("0", "false", "off", "no")
 
 

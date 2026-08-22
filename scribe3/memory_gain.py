@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 from typing import Any
 
 
@@ -296,9 +297,9 @@ def iron_strip_mode() -> str:
     except Exception:
         v = ""
     if not v:
-        v = os.environ.get("SCRIBE3_MEMORY_IRON_IN_ABLATION") or "keep"
+        v = get_flag("SCRIBE3_MEMORY_IRON_IN_ABLATION") or "keep"
     # env 显式 strip 优先于默认 keep（测试/脚本）
-    env = (os.environ.get("SCRIBE3_MEMORY_IRON_IN_ABLATION") or "").strip().lower()
+    env = (get_flag("SCRIBE3_MEMORY_IRON_IN_ABLATION") or "").strip().lower()
     if env in {"strip", "off", "0", "false", "no", "ablate"}:
         v = env
     v = v.strip().lower()

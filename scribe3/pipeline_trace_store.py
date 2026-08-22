@@ -1,6 +1,7 @@
 """Pipeline Trace fail-soft 落库。"""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import logging
 import os
 import threading
@@ -31,7 +32,7 @@ _BUFFERS: dict[str, TraceBuffer] = {}
 
 
 def ttl_days() -> int:
-    raw = (os.environ.get("SCRIBE3_PIPELINE_TRACE_TTL_DAYS") or "7").strip()
+    raw = (get_flag("SCRIBE3_PIPELINE_TRACE_TTL_DAYS") or "7").strip()
     try:
         return max(1, int(raw))
     except ValueError:

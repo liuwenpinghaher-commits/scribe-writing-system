@@ -47,6 +47,7 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
   const [form, setForm] = useState({ title: '', intro: '', color: '', sort_order: 0 })
   const [savedSnap, setSavedSnap] = useState(null)
   const [kr4, setKr4] = useState(null)
+  const [gaps, setGaps] = useState(null)
 
   const reload = () => {
     setLoading(true)
@@ -95,6 +96,18 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
     api.volumeReview(vid)
       .then((r) => { if (alive) setKr4(r) })
       .catch(() => { if (alive) setKr4(null) })
+    return () => { alive = false }
+  }, [vid])
+
+  useEffect(() => {
+    let alive = true
+    if (typeof api.codexCompleteness !== 'function') {
+      setGaps(null)
+      return undefined
+    }
+    api.codexCompleteness()
+      .then((r) => { if (alive) setGaps(r) })
+      .catch(() => { if (alive) setGaps(null) })
     return () => { alive = false }
   }, [vid])
 
@@ -455,6 +468,25 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
               <p className="text-faint leading-snug break-words">{volumeReviewPlain(kr4)}</p>
             </section>
           ) : null}
+          <section data-testid="volume-setting-gaps">
+            <div className="text-meta text-faint uppercase tracking-wider mb-2">设定还缺什么</div>
+            <div className="space-y-1.5">
+              {!(gaps?.report?.missing_dimensions || []).length && !(gaps?.report?.char_issues || []).length ? (
+                <div className="text-faint">眼下没报缺口。缺什么只告诉你，不挡开写。</div>
+              ) : (
+                <>
+                  {(gaps?.report?.missing_dimensions || []).map((line) => (
+                    <div key={line} className="text-ink leading-snug">{line}</div>
+                  ))}
+                  {(gaps?.report?.char_issues || []).map((row) => (
+                    <div key={row.name} className="text-ink leading-snug">
+                      {row.name}：{(row.issues || []).join('、')}
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          </section>
         </aside>
       </div>
     </section>

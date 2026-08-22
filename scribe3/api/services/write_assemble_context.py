@@ -1,6 +1,7 @@
 """Write-assemble context blocks (outline/drama/brief/…); re-exported by write_assemble."""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import hashlib
 import json
 import logging
@@ -148,7 +149,7 @@ def _clip_chars(text: str, n: int) -> str:
 
 def _volume_intro_inject_enabled() -> bool:
     """SCRIBE3_VOLUME_INTRO_INJECT 默认开；显式 0/false/no/off 关闭。"""
-    v = (os.environ.get("SCRIBE3_VOLUME_INTRO_INJECT") or "1").strip().lower()
+    v = (get_flag("SCRIBE3_VOLUME_INTRO_INJECT") or "1").strip().lower()
     return v not in ("0", "false", "no", "off", "")
 
 

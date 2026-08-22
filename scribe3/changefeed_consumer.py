@@ -6,6 +6,7 @@ context_cache.emit_invalidation / invalidate_by_table。
 """
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import logging
 import os
 import threading
@@ -27,7 +28,7 @@ def changefeed_cache_enabled() -> bool:
             return bool(v)
     except Exception:
         pass
-    return (os.environ.get("SCRIBE3_CHANGEFEED_CACHE") or "").strip().lower() in _TRUE
+    return (get_flag("SCRIBE3_CHANGEFEED_CACHE") or "").strip().lower() in _TRUE
 
 
 def apply_changes_to_cache(changes: list[dict], work: str | None = None) -> set[str]:
@@ -166,7 +167,7 @@ class ChangefeedCacheWorker:
     def __init__(self, store_factory: Callable[[], Any], work: str = "main", interval: float = 0.2):
         # GAP-2：默认 200ms（相对历史 2s）；SCRIBE3_CHANGEFEED_INTERVAL 可覆盖
         import os
-        env_iv = (os.environ.get("SCRIBE3_CHANGEFEED_INTERVAL") or "").strip()
+        env_iv = (get_flag("SCRIBE3_CHANGEFEED_INTERVAL") or "").strip()
         if env_iv:
             try:
                 interval = max(0.05, float(env_iv))

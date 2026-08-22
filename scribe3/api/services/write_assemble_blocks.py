@@ -10,6 +10,8 @@ import os
 import re
 from typing import Any, Optional
 
+from scribe3.feature_flags import get_flag
+
 _CODEX_PAD_SLOGAN = "这不是口号，是巷里炉灰和铜腥贴在骨头上的实感。"
 
 
@@ -447,7 +449,7 @@ def _codex_segments(st, reveal: bool = True, focalizer: str = "", chapter: int |
         ],
     }
     try:
-        from scribe3.feature_flags import flag_truthy
+        from scribe3.feature_flags import flag_truthy, get_flag
         if flag_truthy("SCRIBE3_RECALL_SHADOW") and chapter is not None:
             from scribe3.recall_service import shadow_diff
             legacy = "\n".join(p for p in (named_text, cards_text) if p)
@@ -725,7 +727,7 @@ def _write_revision_block() -> str:
 
 def inject_floor_env_enabled() -> bool:
     """SCRIBE3_INJECT_FLOOR 默认开启;测试可关以对照组装差。"""
-    v = os.environ.get("SCRIBE3_INJECT_FLOOR", "1").strip().lower()
+    v = get_flag("SCRIBE3_INJECT_FLOOR").strip().lower()
     return v not in ("0", "false", "no", "off", "")
 
 
@@ -750,7 +752,7 @@ def provenance_in_prompt_enabled() -> bool:
         from scribe3.quality_enablement_flags import provenance_in_prompt_enabled as _f
         return bool(_f())
     except Exception:
-        v = (os.environ.get("SCRIBE3_PROVENANCE_IN_PROMPT") or "0").strip().lower()
+        v = (get_flag("SCRIBE3_PROVENANCE_IN_PROMPT") or "0").strip().lower()
         return v in ("1", "true", "yes", "on")
 
 

@@ -5,10 +5,10 @@ Never invents scores; fail-soft → None.
 """
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import logging
 from typing import Any
 
-from scribe3.feature_flags import get_flag
 
 _log = logging.getLogger("scribe3.quality.dim_scores")
 

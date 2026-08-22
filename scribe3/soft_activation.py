@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import os
 import re
 from typing import Any
@@ -43,7 +44,7 @@ REDLINE_SEGMENT_NAMES: frozenset[str] = frozenset({
 
 
 def soft_activation_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_SOFT_ACTIVATION") or "1").strip().lower()
+    raw = (get_flag("SCRIBE3_SOFT_ACTIVATION") or "1").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 

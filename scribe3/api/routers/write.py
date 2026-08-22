@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 
 from scribe3.api.sse import sse_response
+from scribe3.feature_flags import get_flag
 
 router = APIRouter(tags=['write'])
 
@@ -1360,7 +1361,7 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
         resp["ai_grade"] = ai_grade
     # coverage honesty for clients that only read post-check
     import os as _os
-    _llm_on = (_os.environ.get("SCRIBE3_REVIEW_LLM") or "0").strip().lower() in (
+    _llm_on = (get_flag("SCRIBE3_REVIEW_LLM") or "0").strip().lower() in (
         "1", "true", "yes", "on",
     )
     resp.setdefault("coverage", {

@@ -4,6 +4,7 @@ Rebound into ``app_impl`` globals via ``_rebind_services()`` for monkeypatch.
 """
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import hashlib
 import json
 import logging
@@ -461,7 +462,7 @@ def _startup_gateway_guard():
     log = logging.getLogger("scribe3")
     for v in violations:
         log.critical("🚨 网关安全不变量违规:%s", v)
-    strict = os.environ.get("SCRIBE3_STRICT_GATEWAY_GUARD", "").strip().lower() in ("1", "true", "yes", "on")
+    strict = get_flag("SCRIBE3_STRICT_GATEWAY_GUARD").strip().lower() in ("1", "true", "yes", "on")
     if strict:
         raise RuntimeError(
             "SCRIBE3_STRICT_GATEWAY_GUARD=1 且网关安全不变量违规,拒绝启动。违规:\n- "

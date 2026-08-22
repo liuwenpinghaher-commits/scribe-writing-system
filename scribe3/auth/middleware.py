@@ -1,6 +1,7 @@
 """HTTP middleware: session gate + work ownership choke point."""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import hmac
 import os
 import re
@@ -84,7 +85,7 @@ def resolve_username(request: Request) -> str | None:
             if hmac.compare_digest(presented, api_tok):
                 # Machine token: act as legacy owner so ops can manage historical books.
                 return (os.environ.get("SCRIBE3_MACHINE_USER")
-                        or os.environ.get("SCRIBE3_LEGACY_OWNER")
+                        or get_flag("SCRIBE3_LEGACY_OWNER")
                         or "admin").strip()
     return None
 

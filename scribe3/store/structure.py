@@ -1,6 +1,7 @@
 """SurrealStore mixin: structure."""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 from scribe3.store.core_preamble import *  # noqa: F403
 
 class StructureMixin:
@@ -401,7 +402,7 @@ class StructureMixin:
             row_source,
             tree_hide_must,
         )
-        truth_ui = (os.environ.get("SCRIBE3_TRUTH_UI") or "entity_first").strip().lower()
+        truth_ui = (get_flag("SCRIBE3_TRUTH_UI") or "entity_first").strip().lower()
         show_engine = truth_ui in ("legacy_tree", "show_engine")
         prop_items = []
         try:

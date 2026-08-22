@@ -6,6 +6,7 @@ stub 不得计入 ok_count。
 """
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import logging
 import os
 import re
@@ -23,19 +24,19 @@ _FOCAL_SLUG_RE = re.compile(r"[^a-zA-Z0-9_]+")
 
 
 def parallel_deduce_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_PARALLEL_DEDUCE") or "1").strip().lower()
+    raw = (get_flag("SCRIBE3_PARALLEL_DEDUCE") or "1").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 
 def parallel_deduce_llm_enabled() -> bool:
     """显式 LLM 执行旗（默认开；关则 execute 仅返回 plan 错误）。"""
-    raw = (os.environ.get("SCRIBE3_PARALLEL_DEDUCE_LLM") or "1").strip().lower()
+    raw = (get_flag("SCRIBE3_PARALLEL_DEDUCE_LLM") or "1").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 
 def parallel_deduce_max() -> int:
     """产品 cap：默认 2，env 可调 1–6。"""
-    raw = (os.environ.get("SCRIBE3_PARALLEL_DEDUCE_MAX") or "2").strip()
+    raw = (get_flag("SCRIBE3_PARALLEL_DEDUCE_MAX") or "2").strip()
     try:
         n = int(raw)
     except ValueError:

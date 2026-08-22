@@ -1,6 +1,7 @@
 """SurrealStore mixin: connection."""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import os
 import threading
 import time
@@ -216,7 +217,7 @@ class ConnectionMixin:
         if failures:
             # SCRIBE3_SCHEMA_SOFT=1: continue after non-fatal migration parse/version skew
             # (local/CI host Surreal minor mismatch). Default remains strict for production.
-            soft = (os.environ.get("SCRIBE3_SCHEMA_SOFT") or "").strip().lower() in {
+            soft = (get_flag("SCRIBE3_SCHEMA_SOFT") or "").strip().lower() in {
                 "1", "true", "yes", "on",
             }
             msg = (

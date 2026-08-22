@@ -40,7 +40,13 @@ def codex_completeness(work: str = "main"):
         else:
             report = {}
     except Exception:
-        report = {}
+        return {
+            "advisory": True,
+            "blocks_write": False,
+            "report": {},
+            "note": "缺什么只告诉你，不挡开写。",
+            "error": error_body("completeness_read", "设定缺口暂时读不到"),
+        }
     return {
         "advisory": True,
         "blocks_write": False,

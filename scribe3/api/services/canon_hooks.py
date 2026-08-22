@@ -1,6 +1,7 @@
 """v6.1+ 产品钩子：讨论/定稿 → 全类型抽取 → ChangePack + 持久化候选。"""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import logging
 from typing import Any, Callable, Iterable, Mapping
 
@@ -426,7 +427,7 @@ def body_confirmed_report(
     if (
         persist
         and complete_fn
-        and (os.environ.get("SCRIBE3_FINALIZE_RUN_DISCIPLINE") or "").strip().lower()
+        and (get_flag("SCRIBE3_FINALIZE_RUN_DISCIPLINE") or "").strip().lower()
         in ("1", "true", "yes", "on")
     ):
         try:

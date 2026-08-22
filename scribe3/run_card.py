@@ -1,6 +1,7 @@
 """Run 卡纯函数：期望 × 实际 × 红绿。零 I/O，禁止 import store / facts_at。"""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import hashlib
 import os
 from dataclasses import asdict, dataclass, field
@@ -146,7 +147,7 @@ class RunCardRow:
 
 
 def run_card_enabled() -> bool:
-    raw = os.environ.get("SCRIBE3_RUN_CARD")
+    raw = get_flag("SCRIBE3_RUN_CARD")
     if raw is None or str(raw).strip() == "":
         return True
     return str(raw).strip().lower() not in ("0", "false", "no", "off")

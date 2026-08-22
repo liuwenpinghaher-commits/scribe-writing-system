@@ -1,10 +1,7 @@
 """MCP tools — write surface (split from tools.py Phase C)."""
 from __future__ import annotations
 
-
-
-"""MCP s3_* tools (FastMCP decorators preserved)."""
-
+from scribe3.feature_flags import get_flag
 from scribe3.mcp._common import *  # noqa: F403
 from scribe3.mcp.gating import *  # noqa: F403
 
@@ -77,7 +74,7 @@ def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None
     _cm = None
     try:
         import os as _os
-        _cm = (_os.environ.get("SCRIBE3_CREATE_MODE") or "standard").strip().lower()
+        _cm = (get_flag("SCRIBE3_CREATE_MODE") or "standard").strip().lower()
     except Exception:
         _cm = "standard"
     dec = decide_ingest(

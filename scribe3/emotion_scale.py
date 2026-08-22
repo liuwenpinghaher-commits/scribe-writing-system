@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import os
 import re
 from typing import Any
@@ -15,7 +16,7 @@ _NEG = ("怒", "惧", "悲", "恨", "绝望", "冰冷", "恐惧", "痛", "死", 
 
 
 def emotion_mode() -> str:
-    raw = (os.environ.get("SCRIBE3_EMOTION_MODE") or "lexicon").strip().lower()
+    raw = (get_flag("SCRIBE3_EMOTION_MODE") or "lexicon").strip().lower()
     if raw in ("heuristic", "lexicon", "llm_sim", "legacy01"):
         return raw
     return "lexicon"

@@ -11,13 +11,14 @@
 """
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import os
 from typing import Any
 
 
 def finalize_gate_env_enabled() -> bool:
     """SCRIBE3_FINALIZE_GATE 默认开启(1);测试 conftest 钉 0。"""
-    v = os.environ.get("SCRIBE3_FINALIZE_GATE", "1").strip().lower()
+    v = get_flag("SCRIBE3_FINALIZE_GATE").strip().lower()
     return v not in ("0", "false", "no", "off", "")
 
 
@@ -90,7 +91,7 @@ def evaluate_finalize_gate(
 
     # KD-16: optional snapshot advisory when flag on (default off — does not block)
     import os
-    if (os.environ.get("SCRIBE3_FINALIZE_USE_REVIEW_SNAPSHOT") or "0").strip().lower() in (
+    if (get_flag("SCRIBE3_FINALIZE_USE_REVIEW_SNAPSHOT") or "0").strip().lower() in (
         "1", "true", "yes", "on",
     ):
         snap_ok = bool((post or {}).get("review_snapshot_ok"))
@@ -436,7 +437,7 @@ def collect_deterministic_post_for_prose(
     anti_meta = None
     try:
         import os
-        if (os.environ.get("SCRIBE3_ANTI_META") or "1").strip().lower() not in (
+        if (get_flag("SCRIBE3_ANTI_META") or "1").strip().lower() not in (
             "0", "false", "no", "off",
         ):
             from scribe3.anti_meta_narration import scan_anti_meta

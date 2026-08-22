@@ -660,6 +660,8 @@ export const api = {
   addVolume: (title, sort_order = 0, color = null, intro = null) => post('/volumes', { title, sort_order, color, intro }),
   patchVolume: (vid, fields) => patch('/volumes/' + enc(vid), fields),
   deleteVolume: (vid) => del('/volumes/' + enc(vid)),
+  /** 设定缺口只读报告，不挡写 */
+  codexCompleteness: () => j('/codex/completeness'),
   /** 卷信号复盘 KR4（只读；≠ GATE-B） */
   volumeReview: (volumeId, extra = {}) => {
     const q = new URLSearchParams()

@@ -6,16 +6,15 @@
 """
 from __future__ import annotations
 
-import os
+from scribe3.feature_flags import get_flag
 from dataclasses import dataclass
 from typing import Any
 
 
+
 def registry_mode() -> str:
     """off | shadow | active。默认 active（质量优先参与 join）。"""
-    raw = (os.environ.get("SCRIBE3_INJECTION_REGISTRY")
-           if "SCRIBE3_INJECTION_REGISTRY" in os.environ
-           else "active").strip().lower()
+    raw = get_flag("SCRIBE3_INJECTION_REGISTRY").strip().lower()
     if raw in ("1", "true", "yes", "on", "active"):
         return "active"
     if raw in ("0", "false", "off", "no"):
@@ -24,7 +23,7 @@ def registry_mode() -> str:
         return "shadow"
     if raw == "":
         return "active"
-    dens = (os.environ.get("SCRIBE3_DENSITY_TRACE") or "1").strip().lower()
+    dens = get_flag("SCRIBE3_DENSITY_TRACE").strip().lower()
     if dens in ("0", "false", "off", "no"):
         return "off"
     return "active"

@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import os
 import re
 from typing import Any
@@ -21,7 +22,7 @@ DISTILL_FORBIDDEN_KPIS: frozenset[str] = frozenset({
 
 
 def literary_distill_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_LITERARY_DISTILL") or "1").strip().lower()
+    raw = (get_flag("SCRIBE3_LITERARY_DISTILL") or "1").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 
@@ -46,7 +47,7 @@ def _classify_bullet(para: str) -> str:
 
 def distill_mode() -> str:
     """GAP-10：heuristic | llm | token（默认 heuristic）。"""
-    raw = (os.environ.get("SCRIBE3_DISTILL_MODE") or "heuristic").strip().lower()
+    raw = (get_flag("SCRIBE3_DISTILL_MODE") or "heuristic").strip().lower()
     if raw in ("heuristic", "llm", "token"):
         return raw
     return "heuristic"

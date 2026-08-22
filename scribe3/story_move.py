@@ -29,11 +29,11 @@ OH_STORY_SOURCE_STEMS = frozenset({
 
 def move_library_enabled() -> bool:
     try:
-        from scribe3.feature_flags import flag_truthy
+        from scribe3.feature_flags import flag_truthy, get_flag
         return flag_truthy("SCRIBE3_MOVE_LIBRARY")
     except Exception:
         import os
-        return (os.environ.get("SCRIBE3_MOVE_LIBRARY") or "0").strip().lower() in (
+        return (get_flag("SCRIBE3_MOVE_LIBRARY") or "0").strip().lower() in (
             "1", "true", "yes", "on",
         )
 

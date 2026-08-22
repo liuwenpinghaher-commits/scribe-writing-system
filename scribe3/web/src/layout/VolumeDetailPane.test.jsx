@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { VolumeDetailPane } from './VolumeDetailPane'
 
 vi.mock('../api', () => ({
-  api: { outline: vi.fn(), patchVolume: vi.fn(), createChapter: vi.fn(), addVolume: vi.fn(), reorderChapters: vi.fn() },
+  api: { outline: vi.fn(), patchVolume: vi.fn(), createChapter: vi.fn(), addVolume: vi.fn(), reorderChapters: vi.fn(), codexCompleteness: vi.fn(), volumeReview: vi.fn() },
 }))
 vi.mock('../ui/Toast', () => ({ showToast: vi.fn() }))
 
@@ -17,6 +17,8 @@ describe('VolumeDetailPane', () => {
       volumes: [{ id: 'vol-2', title: '第二卷', intro: '卷纲正文', color: '#123456', sort_order: 2 }],
       chapters: [],
     })
+    api.codexCompleteness.mockResolvedValue({ advisory: true, blocks_write: false, report: { missing_dimensions: [], char_issues: [] } })
+    api.volumeReview.mockResolvedValue(null)
   })
 
   it('正式卷草稿缓冲 + 让主编写入点名 s3_patch_volume，不调用 patchVolume REST', async () => {
@@ -100,5 +102,21 @@ describe('VolumeDetailPane', () => {
     expect(box.textContent).toMatch(/四十二度/)
     expect(box.textContent).toMatch(/要你看一眼/)
     expect(box.textContent).not.toMatch(/金縢裂纹/)
+  })
+
+  it('侧栏列出设定还缺什么，不挡写', async () => {
+    api.codexCompleteness.mockResolvedValue({
+      advisory: true,
+      blocks_write: false,
+      report: {
+        missing_dimensions: ['世界规则(魔法体系/物理法则/社会制度)'],
+        char_issues: [{ name: '柳岸青', issues: ['缺他要什么'] }],
+      },
+    })
+    render(<VolumeDetailPane node={{ id: 'vol:vol-2', type: 'volume', ref: 'vol-2', label: '第二卷' }} />)
+    const box = await screen.findByTestId('volume-setting-gaps')
+    expect(box.textContent).toMatch(/世界规则/)
+    expect(box.textContent).toMatch(/柳岸青/)
+    expect(box.textContent).toMatch(/缺他要什么/)
   })
 })

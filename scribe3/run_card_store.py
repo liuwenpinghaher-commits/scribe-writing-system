@@ -42,7 +42,7 @@ def get_last_run_card() -> dict[str, Any]:
 def run_card_persist_enabled() -> bool:
     if not run_card_enabled():
         return False
-    from scribe3.feature_flags import flag_truthy
+    from scribe3.feature_flags import flag_truthy, get_flag
     return flag_truthy("SCRIBE3_RUN_CARD_PERSIST")
 
 
@@ -191,7 +191,7 @@ def emit_write_run_card(
 
 
 def ttl_days() -> int:
-    raw = (os.environ.get("SCRIBE3_RUN_CARD_TTL_DAYS") or "7").strip()
+    raw = (get_flag("SCRIBE3_RUN_CARD_TTL_DAYS") or "7").strip()
     try:
         return max(1, int(raw))
     except ValueError:

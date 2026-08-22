@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import logging
 import os
 import threading
@@ -23,7 +24,7 @@ def db_inflight_lock_enabled() -> bool:
         return db_inflight_lock()
     except Exception:
         pass
-    return (os.environ.get("SCRIBE3_DB_INFLIGHT_LOCK") or "").strip().lower() in _TRUE
+    return (get_flag("SCRIBE3_DB_INFLIGHT_LOCK") or "").strip().lower() in _TRUE
 
 
 @dataclass

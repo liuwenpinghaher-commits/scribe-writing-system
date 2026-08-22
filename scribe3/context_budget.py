@@ -9,6 +9,8 @@ from __future__ import annotations
 import os
 from typing import Any, Iterable
 
+from scribe3.feature_flags import get_flag
+
 # ── 现网默认（V1 · flag 关）──────────────────────────────────────────
 # rev.1.2：provenance 出生成 prompt；freed 回灌 canon 60% / recent 40%
 BLOCK_BUDGETS_V1: dict[str, int] = {
@@ -198,7 +200,7 @@ def get_total_prompt_budget(*, work: str | None = None) -> int:
     未设时回落 ``get_prompt_hard(work=)``（与 L2 总顶一致）。
     禁止把 wide 缺窗的 RuntimeError 吞成 42k。
     """
-    raw = (os.environ.get("SCRIBE3_TOTAL_BUDGET") or "").strip()
+    raw = (get_flag("SCRIBE3_TOTAL_BUDGET") or "").strip()
     if raw.isdigit():
         return int(raw)
     return get_prompt_hard(work=work)
@@ -315,7 +317,7 @@ def envelope_v2_enabled() -> bool:
     """
     if _env_truthy("SCRIBE3_ENVELOPE_V2_ENABLE", "1"):
         return True
-    fid = (os.environ.get("SCRIBE3_CONTEXT_FIDELITY") or "").strip().lower()
+    fid = (get_flag("SCRIBE3_CONTEXT_FIDELITY") or "").strip().lower()
     return fid in ("literary", "epic", "novel", "v2")
 
 
@@ -329,7 +331,7 @@ def novel_envelope_enabled() -> bool:
 
 def context_fidelity() -> str:
     """compat | v2 | literary | epic | novel — 默认 novel（质量优先）。"""
-    raw = (os.environ.get("SCRIBE3_CONTEXT_FIDELITY") or "").strip().lower()
+    raw = (get_flag("SCRIBE3_CONTEXT_FIDELITY") or "").strip().lower()
     if raw in ("compat", "v1", "literary", "epic", "novel", "v2"):
         if raw == "v1":
             return "compat"
@@ -361,7 +363,7 @@ def adaptive_budget_enabled() -> bool:
 
 def scene_budget_profile() -> str | None:
     """SCRIBE3_SCENE_BUDGET_PROFILE=dialogue_heavy|action_heavy|exposition；空=关。"""
-    raw = (os.environ.get("SCRIBE3_SCENE_BUDGET_PROFILE") or "").strip().lower()
+    raw = (get_flag("SCRIBE3_SCENE_BUDGET_PROFILE") or "").strip().lower()
     # 名称在 18k / novel 表均可
     if raw in SCENE_BUDGET_PROFILES or raw in SCENE_BUDGET_PROFILES_NOVEL:
         return raw
@@ -428,7 +430,7 @@ def get_envelope_token_budget() -> int:
     budgets = get_block_budgets()
     total = sum(budgets.values())
     # 允许 env 覆盖总额（仍要求与块表一致时由调用方 assert）
-    override = (os.environ.get("SCRIBE3_ENVELOPE_TOKEN_BUDGET") or "").strip()
+    override = (get_flag("SCRIBE3_ENVELOPE_TOKEN_BUDGET") or "").strip()
     if override.isdigit():
         return int(override)
     return total
@@ -633,14 +635,14 @@ def _wide_switch() -> str:
     1 = on：必须有够大的窗，否则炸（运维显式要 96k）。
     0 = off：强制 48k（回滚）。
     """
-    raw_num = (os.environ.get("SCRIBE3_NOVEL_PROMPT_HARD") or "").strip()
+    raw_num = (get_flag("SCRIBE3_NOVEL_PROMPT_HARD") or "").strip()
     if raw_num:
         if raw_num != str(NOVEL_PROMPT_HARD_WIDE):
             raise RuntimeError(
                 f"SCRIBE3_NOVEL_PROMPT_HARD={raw_num!r} 非法；只接受空或 {NOVEL_PROMPT_HARD_WIDE}"
             )
         return "on"
-    raw = os.environ.get("SCRIBE3_NOVEL_WIDE")
+    raw = get_flag("SCRIBE3_NOVEL_WIDE")
     if raw is None or str(raw).strip() == "":
         return "auto"
     s = str(raw).strip().lower()
@@ -657,7 +659,7 @@ def _parse_wide_request() -> bool:
 
 
 def _model_window_int() -> int | None:
-    raw_win = (os.environ.get("SCRIBE3_MODEL_CONTEXT_WINDOW") or "").strip()
+    raw_win = (get_flag("SCRIBE3_MODEL_CONTEXT_WINDOW") or "").strip()
     if not raw_win:
         return None
     if not raw_win.isdigit():
@@ -690,7 +692,7 @@ def novel_wide_enabled() -> bool:
 
 
 def wide_works_slugs() -> frozenset[str]:
-    allow = (os.environ.get("SCRIBE3_NOVEL_WIDE_WORKS") or "").strip()
+    allow = (get_flag("SCRIBE3_NOVEL_WIDE_WORKS") or "").strip()
     if not allow:
         return frozenset()
     return frozenset(p.strip() for p in allow.split(",") if p.strip())
@@ -710,21 +712,21 @@ def get_prompt_hard(*, work: str | None = None) -> int:
         if novel_wide_for_work(work):
             return NOVEL_PROMPT_HARD_WIDE
         return NOVEL_PROMPT_HARD
-    raw = (os.environ.get("SCRIBE3_PROMPT_HARD") or "").strip()
+    raw = (get_flag("SCRIBE3_PROMPT_HARD") or "").strip()
     if raw.isdigit():
         return int(raw)
     return DEFAULT_PROMPT_HARD
 
 
 def get_supplemental_hard(*, work: str | None = None) -> int:
-    raw = (os.environ.get("SCRIBE3_SUPPLEMENTAL_HARD") or "").strip()
+    raw = (get_flag("SCRIBE3_SUPPLEMENTAL_HARD") or "").strip()
     if raw.isdigit():
         return int(raw)
     return WIDE_SUPPLEMENTAL_HARD if novel_wide_for_work(work) else DEFAULT_SUPPLEMENTAL_HARD
 
 
 def get_supplemental_soft(*, work: str | None = None) -> int:
-    raw = (os.environ.get("SCRIBE3_SUPPLEMENTAL_SOFT") or "").strip()
+    raw = (get_flag("SCRIBE3_SUPPLEMENTAL_SOFT") or "").strip()
     if raw.isdigit():
         return int(raw)
     return WIDE_SUPPLEMENTAL_SOFT if novel_wide_for_work(work) else DEFAULT_SUPPLEMENTAL_SOFT
@@ -745,7 +747,7 @@ def resolve_write_caps(work: str | None = None) -> dict[str, Any]:
             else ("novel_48k" if novel_envelope_enabled() and envelope_v2_enabled() else "standard")
         ),
         "wide_works": sorted(wide_works_slugs()),
-        "model_context_window": (os.environ.get("SCRIBE3_MODEL_CONTEXT_WINDOW") or "").strip(),
+        "model_context_window": (get_flag("SCRIBE3_MODEL_CONTEXT_WINDOW") or "").strip(),
         "work_unspecified_narrow": bool(wide_works_slugs()) and not (work or "").strip(),
     }
 
@@ -1091,7 +1093,7 @@ def generation_physical_order_names(*, v2: bool = True) -> list[str]:
         outline_after = bool(outline_after_drama_enabled())
     except Exception:
         import os as _os
-        raw = (_os.environ.get("SCRIBE3_OUTLINE_AFTER_DRAMA") or "1").strip().lower()
+        raw = (get_flag("SCRIBE3_OUTLINE_AFTER_DRAMA") or "1").strip().lower()
         outline_after = raw not in ("0", "false", "no", "off", "")
 
     base = [
@@ -1170,7 +1172,7 @@ def build_budget_report(
     eg_k = event_graph_k
     if eg_k is None:
         try:
-            raw_k = (os.environ.get("SCRIBE3_EVENT_GRAPH_K") or "2").strip()
+            raw_k = (get_flag("SCRIBE3_EVENT_GRAPH_K") or "2").strip()
             eg_k = int(raw_k) if raw_k.isdigit() else 2
         except Exception:
             eg_k = 2

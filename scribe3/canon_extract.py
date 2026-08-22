@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import json
 import logging
 import os
@@ -30,7 +31,7 @@ _VALID_MODES = frozenset({"llm", "hybrid", "heuristic", "marker"})
 
 
 def resolve_extract_mode(mode: str | None = None) -> str:
-    raw = (mode or os.environ.get("SCRIBE3_CANON_EXTRACT_MODE") or "llm").strip().lower()
+    raw = (mode or get_flag("SCRIBE3_CANON_EXTRACT_MODE") or "llm").strip().lower()
     if raw in ("model", "ai"):
         raw = "llm"
     if raw not in _VALID_MODES:

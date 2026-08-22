@@ -492,8 +492,8 @@ def _final_reminder_full() -> str:
 
 def _final_reminder_core() -> str:
     """短核尾注（默认）。文体句可用 SCRIBE3_PROSE_STYLE 按书覆盖。"""
-    import os
-    style = (os.environ.get("SCRIBE3_PROSE_STYLE") or "").strip()
+    from scribe3.feature_flags import get_flag
+    style = (get_flag("SCRIBE3_PROSE_STYLE") or "").strip()
     style_bit = style or "文体跟本书声口，勿串书、勿翻译腔"
     return (
         "\n\n（硬纪律·短核:① ⟦PROPOSAL⟧ 围栏;"

@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import hashlib
 import json
 import logging
@@ -24,7 +25,7 @@ _CACHE_MAX = 64
 
 
 def unified_analysis_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_UNIFIED_CHAPTER_ANALYSIS") or "1").strip().lower()
+    raw = (get_flag("SCRIBE3_UNIFIED_CHAPTER_ANALYSIS") or "1").strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
@@ -191,7 +192,7 @@ def put_cached_analysis(
 
 
 def tension_cache_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_TENSION_CACHE") or "1").strip().lower()
+    raw = (get_flag("SCRIBE3_TENSION_CACHE") or "1").strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
@@ -303,7 +304,7 @@ def build_analysis_dashboard(
 
 
 def discipline_cache_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_DISCIPLINE_CACHE") or "1").strip().lower()
+    raw = (get_flag("SCRIBE3_DISCIPLINE_CACHE") or "1").strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 

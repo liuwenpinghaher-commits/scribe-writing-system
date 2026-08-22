@@ -1,6 +1,7 @@
 """Domain router (extracted from app_impl). URLs unchanged."""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import types
 from typing import Any, Optional, List, Dict, Literal
 
@@ -211,7 +212,7 @@ def edit_fact(local: str, f: FactIn, work: str = "main"):
     见 docs/plans/2026-08-09-proposition-full-chain-optimization.md · PR-9。
     """
     import os
-    allow = (os.environ.get("SCRIBE3_ALLOW_FACT_EDIT") or "0").strip().lower() in (
+    allow = (get_flag("SCRIBE3_ALLOW_FACT_EDIT") or "0").strip().lower() in (
         "1", "true", "yes", "on",
     )
     if not allow:

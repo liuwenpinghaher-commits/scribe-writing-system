@@ -1,6 +1,7 @@
 """从已加载故事输入冻结 ExpectedFacts。有 I/O，禁止再打 facts_at。"""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 from typing import Any
 
 from scribe3.run_card import ExpectedFacts, make_facts
@@ -8,8 +9,7 @@ from scribe3.run_card import ExpectedFacts, make_facts
 
 def _truthy_flag(name: str, default: str = "0") -> bool:
     try:
-        from scribe3.feature_flags import get_flag
-        raw = get_flag(name)
+                raw = get_flag(name)
     except Exception:
         import os
         raw = os.environ.get(name, default)
@@ -178,7 +178,7 @@ def collect_expected_facts(
     drama_vac_flag = True
     try:
         import os
-        raw = os.environ.get("SCRIBE3_DRAMA_VACUUM_WARN", "1")
+        raw = get_flag("SCRIBE3_DRAMA_VACUUM_WARN")
         drama_vac_flag = str(raw).strip().lower() not in ("0", "false", "off", "no")
     except Exception:
         drama_vac_flag = True

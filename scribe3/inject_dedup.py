@@ -1,6 +1,7 @@
 """注入内容指纹去重（O10 · 强于 40 字子串）。"""
 from __future__ import annotations
 
+from scribe3.feature_flags import get_flag
 import hashlib
 import os
 import re
@@ -8,7 +9,7 @@ from typing import Any
 
 
 def inject_dedup_fingerprint_enabled() -> bool:
-    raw = (os.environ.get("SCRIBE3_INJECT_DEDUP") or "1").strip().lower()
+    raw = (get_flag("SCRIBE3_INJECT_DEDUP") or "1").strip().lower()
     return raw not in ("0", "false", "off", "no", "dual", "legacy")
 
 

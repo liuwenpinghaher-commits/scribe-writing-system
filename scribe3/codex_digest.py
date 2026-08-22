@@ -133,10 +133,12 @@ def sync_entity_digests(store: Any, kind: str, entity_id: str, row: dict[str, An
     payloads = digest_payloads(kind, entity_id, row)
     created = 0
     updated = 0
+    failed = 0
     upsert = getattr(store, "upsert_bridge_proposition", None)
     find = getattr(store, "find_bridge_proposition_local", None)
     if not callable(upsert):
-        return {"skipped": True, "created": 0, "updated": 0, "reason": "no_store"}
+        return {"skipped": True, "created": 0, "updated": 0, "failed": 0, "reason": "no_store"}
+    prepared: list[tuple[dict[str, str], Any]] = []
     for p in payloads:
         attr = f"{DIGEST_ATTRIBUTE}:{p['field_group']}"
         existing = None
@@ -145,6 +147,9 @@ def sync_entity_digests(store: Any, kind: str, entity_id: str, row: dict[str, An
                 existing = find(entity_id, attr, SOURCE)
             except Exception:
                 existing = None
+        prepared.append((p, existing))
+    for p, existing in prepared:
+        attr = f"{DIGEST_ATTRIBUTE}:{p['field_group']}"
         try:
             upsert(
                 local=existing,
@@ -158,5 +163,12 @@ def sync_entity_digests(store: Any, kind: str, entity_id: str, row: dict[str, An
             else:
                 created += 1
         except Exception as exc:
+            failed += 1
             _log.warning("digest upsert failed entity=%s group=%s err=%s", entity_id, p["field_group"], type(exc).__name__)
-    return {"skipped": False, "created": created, "updated": updated}
+    return {
+        "skipped": False,
+        "created": created,
+        "updated": updated,
+        "failed": failed,
+        "ok": failed == 0,
+    }

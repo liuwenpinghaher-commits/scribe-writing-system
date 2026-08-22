@@ -4,6 +4,8 @@ from __future__ import annotations
 import types
 from typing import Any, Optional, List, Dict, Literal
 
+from scribe3.feature_flags import get_flag
+
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -1823,7 +1825,7 @@ def soft_event_led_ep(req: dict | None = None, work: str = "main"):
     l1 = None
     include_llm = payload.get("include_llm") in (True, 1, "1", "true", "yes")
     if include_llm:
-        llm_on = (os.environ.get("SCRIBE3_EVENT_LED_LLM") or "0").strip().lower() in (
+        llm_on = (get_flag("SCRIBE3_EVENT_LED_LLM") or "0").strip().lower() in (
             "1", "true", "yes", "on",
         )
         if llm_on:
