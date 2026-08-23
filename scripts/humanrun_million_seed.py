@@ -626,6 +626,7 @@ def speech_stage(seq: int, stage: str) -> str:
     return (
         f"主编，给第 {seq} 章跑 {stage} 层，焦点者 {FOCALIZER}，落库。\n"
         f"必须调用 s3_generate_stage(seq={seq}, stage={stage}, persist=true, focalizer={FOCALIZER})。\n"
+        f"禁止 tool_describe、禁止搜工具目录，直接调 s3_generate_stage。\n"
         f"只办这一层，不要连带下游。未获批准不得声称已落库。"
         + extra
     )

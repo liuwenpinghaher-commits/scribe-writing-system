@@ -58,6 +58,7 @@ def test_executor_forbids_pad_and_direct_s3_http():
     assert "s3_add_character" not in src
     assert "--profile" in src
     assert "million" in src
+    assert "禁止 tool_describe" in src or "tool_describe" in src
 
 
 def test_million_seed_real_not_padded():

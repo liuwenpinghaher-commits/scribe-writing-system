@@ -241,10 +241,18 @@ class Runner:
         print(f"\n== {tag} ==", flush=True)
         (self.evid / "transcript").mkdir(exist_ok=True)
         (self.evid / "transcript" / f"{tag}.txt").write_text(msg, encoding="utf-8")
-        extra = (
-            "\n\n必须实际产生 MCP 函数调用事件，禁止只输出 XML/tool_search 文本。"
-            "搜到工具后必须立刻 tool_call，不得把 Run 说成完成。"
-        )
+        if phase:
+            extra = (
+                "\n\n禁止 tool_describe、tool_search、搜工具目录。"
+                "只调用 s3_generate_stage，参数必须带 persist=true。"
+                "不要先探工具再写。未产生 s3_generate_stage 调用不得把 Run 说成完成。"
+            )
+        else:
+            extra = (
+                "\n\n必须实际产生 MCP 函数调用事件，禁止只输出 XML/tool_search 文本。"
+                "点名的 s3_* 直接 tool_call，禁止 tool_describe。"
+                "不得把 Run 说成完成。"
+            )
         last = None
         for attempt, text in enumerate((msg, msg + extra), start=1):
             run_id, pkg = self.create_run(text, WW_INSTRUCTIONS, chapter=chapter, phase=phase)
@@ -262,11 +270,14 @@ class Runner:
                 "n_s3_ok": len(ok_calls), "n_s3_bad": len(bad_calls),
             })
             last = (run_id, st)
-            if approvals or effects or ok_calls:
+            failed = str((st or {}).get("status") or "").lower() in {"failed", "cancelled", "canceled", "stopped"}
+            if failed:
+                print(f"  WARN {tag} attempt {attempt} Run 失败 {(st or {}).get('error') or ''}", flush=True)
+            elif approvals or effects or ok_calls:
                 return run_id, st
             if bad_calls:
                 print(f"  WARN {tag} attempt {attempt} 工具调用失败/超时 {len(bad_calls)} 次", flush=True)
-            else:
+            elif not failed:
                 print(f"  WARN {tag} attempt {attempt} 无工具调用/审批卡，模型可能只写了假 XML", flush=True)
         raise RuntimeError(f"{tag} 两次主编 Run 都没有真正写入")
 
