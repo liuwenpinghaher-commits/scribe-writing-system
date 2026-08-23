@@ -74,3 +74,22 @@ def test_million_seed_real_not_padded():
     assert "柳岸青" not in m.NORTH_STAR
     assert any("顾晚潮" in c["synopsis"] for c in m.CHAPTERS)
     assert m.cn_len(m.NORTH_STAR) >= 20
+
+
+def test_million_volume_intros_are_seasons_not_corridor_menus():
+    import scripts.humanrun_million_seed as m
+
+    qianye = m.VOLUMES[0]["intro"]
+    assert "七号院" in qianye
+    assert "结年" in qianye
+    assert "沉睡街" in qianye
+    assert "三旬" in qianye or "旬" in qianye
+    assert "十二章十二笔" not in qianye
+    titles = [c["title"] for c in m.CHAPTERS]
+    assert "满月酒" in titles
+    assert "总柜三层" in titles
+    assert "沉睡街" in titles
+    assert "结年账场" in titles
+    for v in m.VOLUMES:
+        assert "不一次生成" not in v["intro"]
+        assert m.cn_len(v["intro"]) >= 280
