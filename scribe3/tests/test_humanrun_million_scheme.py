@@ -81,15 +81,18 @@ def test_million_volume_intros_are_seasons_not_corridor_menus():
 
     qianye = m.VOLUMES[0]["intro"]
     assert "七号院" in qianye
-    assert "结年" in qianye
-    assert "沉睡街" in qianye
-    assert "三旬" in qianye or "旬" in qianye
+    assert "粮市" in qianye
+    assert "青石埠" in qianye
+    assert "西郊" in qianye
+    assert "庙会" in qianye
     assert "十二章十二笔" not in qianye
     titles = [c["title"] for c in m.CHAPTERS]
-    assert "满月酒" in titles
-    assert "总柜三层" in titles
-    assert "沉睡街" in titles
-    assert "结年账场" in titles
+    assert "粮市过秤" in titles
+    assert "西郊耕不动" in titles
+    assert "渡口" in titles
+    assert "城隍庙会" in titles
+    assert "青石埠" in titles
+    assert "义庄" in titles
     for v in m.VOLUMES:
         assert "不一次生成" not in v["intro"]
         assert m.cn_len(v["intro"]) >= 280
