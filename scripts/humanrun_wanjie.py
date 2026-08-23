@@ -614,6 +614,17 @@ def s6(r: Runner) -> None:
             )
             live, payload = _stage_live(r, seq, stg)
             if not live:
+                r.world_write(
+                    tag + "-retry",
+                    speech_stage(seq, stg)
+                    + "\n上一枪没有把这一层冻进书里。必须再次调用 s3_generate_stage persist=true。"
+                    + "契约 choice 的 quote 必须是戏文里出现过的原句。needs_human 不算完成。",
+                    timeout=1800,
+                    chapter=seq,
+                    phase=phase,
+                )
+                live, payload = _stage_live(r, seq, stg)
+            if not live:
                 raise RuntimeError(f"{tag} 主编跑完但书里没有这一层")
             if stg == "duty":
                 _, arts = getj("/api/debug/pipeline-artifacts?kind=prompt&limit=20", work=r.slug)

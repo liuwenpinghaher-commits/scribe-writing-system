@@ -297,7 +297,7 @@ FACTIONS = [
             "报灯社不收现金，只收还能自己迈步的人。迈不了步的，灯收回袖里，当晚不再经过这扇窗。"
             "他们把叫醒当成唯一公开的职务。叫醒失败的夜，他们不写进对外的记录，只写进灯罩。"
         ),
-        "public_face": "夜间巡逻的报数人，对外强调叫醒，不强调名额。灯不亮，他们说是省油，其实是只有暗的灯才看得见明天谁醒不过来。有人拦路问名额，他们只重复一遍：先报谁会死。",
+        "public_face": "夜间巡逻的报数人，对外强调叫醒，不强调名额。灯不亮，他们说是省油，其实是只有暗的灯才看得见明天谁醒不过来。有人拦路问名额，他们只重复一遍：先报谁会死。问到救人，他们把灯一提，让你自己看影子散不散。",
         "leader": "一线由裴灯提灯",
         "goals": ["在敲定前换掉不该写上的名字", "至少一人从名单上活着回来"],
     },
@@ -617,10 +617,17 @@ def speech_synopses() -> str:
 
 
 def speech_stage(seq: int, stage: str) -> str:
+    extra = ""
+    if stage == "design":
+        extra = (
+            "\n设计层必须同时冻住戏文和契约。契约 choice.side_a / side_b 的 quote "
+            "必须从刚写的戏文里原句摘，不能空，不能改字。needs_human 不算完成。"
+        )
     return (
         f"主编，给第 {seq} 章跑 {stage} 层，焦点者 {FOCALIZER}，落库。\n"
         f"必须调用 s3_generate_stage(seq={seq}, stage={stage}, persist=true, focalizer={FOCALIZER})。\n"
         f"只办这一层，不要连带下游。未获批准不得声称已落库。"
+        + extra
     )
 
 
