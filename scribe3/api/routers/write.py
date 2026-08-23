@@ -217,9 +217,12 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
             from scribe3.iceberg_leak import reject_persist_leaks
             reject_persist_leaks(payload)
             if "prose" in payload:
+                live_title = str((ch or {}).get("title") or "")
+                if not live_title.strip():
+                    live_title = str((st.get_chapter(seq) or {}).get("title") or "")
                 st.save_chapter(
                     seq, payload.get("prose") or "",
-                    title=str((ch or {}).get("title") or ""),
+                    title=live_title,
                     focalizer=foc or None,
                 )
                 try:

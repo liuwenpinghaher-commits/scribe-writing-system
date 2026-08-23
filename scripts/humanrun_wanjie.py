@@ -661,6 +661,8 @@ def s6(r: Runner) -> None:
             _, ch = getj(f"/api/chapter?seq={seq}", work=r.slug)
             prose = (ch or {}).get("prose") if isinstance(ch, dict) else ""
             title = (ch or {}).get("title") if isinstance(ch, dict) else ""
+            if not str(title or "").strip():
+                title = next((c.get("title") or "" for c in CHAPTERS if int(c.get("seq") or 0) == seq), "")
             if not prose:
                 raise SystemExit(f"ch{seq} 定稿无正文，不 save")
             code, res = curl(

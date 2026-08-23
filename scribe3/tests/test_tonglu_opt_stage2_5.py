@@ -132,6 +132,8 @@ def test_man_02_save_chapter_conflict_signature():
     # 004_manuscript：chapter.updated，SCHEMAFULL 没有 updated_at
     assert "updated=time::now()" in src
     assert "updated_at=" not in src
+    # 空标题不得覆盖已有章名
+    assert "existing.get(\"title\")" in src or "existing.get('title')" in src
 
 
 def test_ded_04_undo_helper_exists():

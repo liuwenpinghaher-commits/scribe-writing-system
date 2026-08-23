@@ -249,12 +249,15 @@ class ChaptersMixin:
             from scribe3.prose_sanitize import sanitize_for_persist, fill_placeholder_title, visible_length
             _san = sanitize_for_persist(prose or "")
             prose = _san.get("prose") or prose
-            _syn = ""
+            existing: dict = {}
             try:
-                _syn = str((self.get_chapter(seq) or {}).get("synopsis") or "")
+                existing = self.get_chapter(seq) or {}
             except Exception:
-                _syn = ""
+                existing = {}
+            _syn = str(existing.get("synopsis") or "")
             title = fill_placeholder_title(title or "", _syn, seq)
+            if not str(title or "").strip():
+                title = str(existing.get("title") or "")
             wc = visible_length(prose)
         except Exception:
             wc = len("".join((prose or "").split()))
