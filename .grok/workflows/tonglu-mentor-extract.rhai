@@ -70,7 +70,11 @@ fn as_str(x) {
 }
 
 fn as_int(x, fallback) {
-    if type_of(x) == "int" { x } else { fallback }
+    if x == () { fallback }
+    else {
+        let t = type_of(x);
+        if t == "int" || t == "i64" || t == "u64" { x } else { fallback }
+    }
 }
 
 fn agent_ok(r) {
@@ -248,8 +252,9 @@ if do_cards {
             capability_mode: "read-only",
             output_schema: index_schema,
         });
-        if agent_ok(rr) {
+        if rr != () && rr.success && rr.output != () {
             chapter_count = as_int(rr.output.chapter_count, 0);
+            log("reload type=" + type_of(rr.output.chapter_count) + " count=" + chapter_count.to_string());
             if rr.output.index_path != () {
                 let ipath2 = as_str(rr.output.index_path);
                 if ipath2 != "" { index_path = ipath2; }
@@ -257,7 +262,8 @@ if do_cards {
         }
     }
     if chapter_count < 1 {
-        complete(#{ summary: "没有章题可做卡，先跑 pass=index", pass: pass, ok: false });
+        chapter_count = start + count;
+        log("chapter_count missing, issuing this batch as " + chapter_count.to_string());
     }
     let n = count;
     let remain_after_start = chapter_count - start;
