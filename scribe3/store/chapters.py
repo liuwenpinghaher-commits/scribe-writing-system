@@ -291,7 +291,7 @@ class ChaptersMixin:
         if expected_version is not None:
             payload["expected"] = int(expected_version)
             rows = self._query(
-                f"UPDATE chapter SET {sets}, rev=rev+1, updated_at=time::now() "
+                f"UPDATE chapter SET {sets}, rev=rev+1, updated=time::now() "
                 f"WHERE seq=$seq AND rev=$expected RETURN AFTER",
                 payload,
             ) or []
@@ -306,7 +306,7 @@ class ChaptersMixin:
         else:
             rows = self._query(
                 f"UPDATE type::record('chapter',$seq) SET {sets}, "
-                f"rev=(rev OR 0)+1, updated_at=time::now() RETURN AFTER",
+                f"rev=(rev OR 0)+1, updated=time::now() RETURN AFTER",
                 payload,
             ) or []
             if not rows:

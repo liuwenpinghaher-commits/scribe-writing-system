@@ -129,6 +129,9 @@ def test_man_02_save_chapter_conflict_signature():
     src = inspect.getsource(ChaptersMixin.save_chapter)
     assert "expected_version" in src
     assert "chapter_conflict" in src
+    # 004_manuscript：chapter.updated，SCHEMAFULL 没有 updated_at
+    assert "updated=time::now()" in src
+    assert "updated_at=" not in src
 
 
 def test_ded_04_undo_helper_exists():
