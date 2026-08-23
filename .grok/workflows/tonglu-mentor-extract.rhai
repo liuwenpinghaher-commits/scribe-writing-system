@@ -110,6 +110,14 @@ fn lens_file(name) {
     else if name == "地图" { "透镜-地图.md" }
     else if name == "设定" { "透镜-设定.md" }
     else if name == "余烬" { "透镜-余烬.md" }
+    else if name == "名录" { "透镜-名录.md" }
+    else if name == "关系" { "透镜-关系.md" }
+    else if name == "反复" { "透镜-反复.md" }
+    else if name == "称谓" { "透镜-称谓.md" }
+    else if name == "卷问" { "透镜-卷问.md" }
+    else if name == "回不去" { "透镜-回不去.md" }
+    else if name == "日子细节" { "透镜-日子细节.md" }
+    else if name == "未解" { "透镜-未解.md" }
     else { "" }
 }
 
@@ -127,6 +135,14 @@ fn lens_heading(name) {
     else if name == "地图" { "2K 人走到过哪些地方、怎么走" }
     else if name == "设定" { "2L 世界靠什么规矩转" }
     else if name == "余烬" { "2M 上一章落下的日子下一章接没接上" }
+    else if name == "名录" { "2O 所有点过名的人" }
+    else if name == "关系" { "2P 谁和谁怎么变" }
+    else if name == "反复" { "2Q 反复出现的东西" }
+    else if name == "称谓" { "2R 人怎么称呼、口头禅是什么" }
+    else if name == "卷问" { "2S 前传在问什么、正传在问什么" }
+    else if name == "回不去" { "2T 回不去的事总表" }
+    else if name == "日子细节" { "2U 日常怎么过" }
+    else if name == "未解" { "2V 文末还欠着什么" }
     else { "" }
 }
 
@@ -315,7 +331,7 @@ if do_cards {
 
 if do_lenses {
     phase("Lenses");
-    let all_lenses = ["世界", "群像", "出场", "说书", "节奏", "伏笔", "人物", "线索", "开篇", "时间线", "地图", "设定", "余烬"];
+    let all_lenses = ["世界", "群像", "出场", "说书", "节奏", "伏笔", "人物", "线索", "开篇", "时间线", "地图", "设定", "余烬", "名录", "关系", "反复", "称谓", "卷问", "回不去", "日子细节", "未解"];
     let wanted = [];
     if lens == "" {
         for nm in all_lenses { wanted.push(nm); }
@@ -328,7 +344,7 @@ if do_lenses {
             }
         }
         if !found {
-            pause("verification", "args.lens 只能是 世界 / 群像 / 出场 / 说书 / 节奏 / 伏笔 / 人物 / 线索 / 开篇 / 时间线 / 地图 / 设定 / 余烬。空=本轮串行做完全部。一次一面更稳。");
+            pause("verification", "args.lens 只能是 世界 / 群像 / 出场 / 说书 / 节奏 / 伏笔 / 人物 / 线索 / 开篇 / 时间线 / 地图 / 设定 / 余烬 / 名录 / 关系 / 反复 / 称谓 / 卷问 / 回不去 / 日子细节 / 未解。空=本轮串行做完全部。一次一面更稳。");
         }
     }
     if wanted.len() < 1 {
