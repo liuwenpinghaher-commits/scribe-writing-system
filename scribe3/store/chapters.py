@@ -242,12 +242,8 @@ class ChaptersMixin:
                      _today: str | None = None, expected_version: int | None = None) -> None:
         """落/覆盖某章正文(UPSERT)。附带章向量 + QC缓存(字数,不再全拉正文统计)。
         _today:测试时注入固定日期字符串(YYYY-MM-DD),生产不传。
-        expected_version: MAN-02 乐观锁，不匹配则 ValueError(chapter_conflict)。"""
-        if expected_version is not None:
-            cur = self.get_chapter(seq) or {}
-            got = int(cur.get("rev") or 0)
-            if got != int(expected_version):
-                raise ValueError("chapter_conflict")
+        expected_version: MAN-02 乐观锁，不匹配则 ValueError(chapter_conflict)。
+        带 expected_version 时用 UPDATE … WHERE rev=$expected 原子递增，避免双读竞态。"""
         # 审计 E-1:embedding 是召回辅助不是正文,故障绝不拖死存稿(命门 fail-soft)。
         try:
             from scribe3.prose_sanitize import sanitize_for_persist, fill_placeholder_title, visible_length
@@ -278,25 +274,51 @@ class ChaptersMixin:
             vec = None
         # 千万字缓存(Phase0-BE1):落库时算好场景切分 + QC 计数,聚合端点不再全表拉正文/重算。
         cache = self._compute_chapter_caches(seq, prose)
-        next_rev = 1
-        try:
-            next_rev = int((self.get_chapter(seq) or {}).get("rev") or 0) + 1
-        except Exception:
-            next_rev = 1
-        # 正文变更 → 章后统一分析缓存作废（指纹不一致本也会 miss，显式清更干净）
-        self._execute_write(
-            "UPSERT type::record('chapter',$seq) SET seq=$seq, title=$title, "
-            "focalizer=$foc, prose=$prose, embedding=$v, qc_word_count=$wc, "
-            "scene_count=$scn, scene_meta=$scm, qc_issues=$qc, qc_causal=$qcc, qc_breakdown=$qcb, "
-            "qc_cache_revision=$qcr, "
+        payload = {
+            "seq": seq, "title": title, "foc": focalizer, "prose": prose, "v": vec, "wc": wc,
+            "scn": cache["scene_count"], "scm": cache["scene_meta"], "qc": cache["qc_issues"],
+            "qcc": cache["qc_causal"], "qcb": cache["qc_breakdown"],
+            "qcr": QUALITY_CACHE_REVISION,
+        }
+        sets = (
+            "seq=$seq, title=$title, focalizer=$foc, prose=$prose, embedding=$v, "
+            "qc_word_count=$wc, scene_count=$scn, scene_meta=$scm, qc_issues=$qc, "
+            "qc_causal=$qcc, qc_breakdown=$qcb, qc_cache_revision=$qcr, "
             "post_analysis_cache=NONE, post_analysis_fp=NONE, post_analysis_at=NONE, "
-            "ingest_prose_fp=NONE, "
-            "rev=$rev, "
-            "archived=false, archived_at=NONE, archive_reason=NONE RETURN NONE",
-            {"seq": seq, "title": title, "foc": focalizer, "prose": prose, "v": vec, "wc": wc,
-             "scn": cache["scene_count"], "scm": cache["scene_meta"], "qc": cache["qc_issues"],
-             "qcc": cache["qc_causal"], "qcb": cache["qc_breakdown"],
-             "qcr": QUALITY_CACHE_REVISION, "rev": next_rev})
+            "ingest_prose_fp=NONE, archived=false, archived_at=NONE, archive_reason=NONE"
+        )
+        # B-02：单条 UPDATE … WHERE rev=$expected 原子递增，消灭双读 TOCTOU。
+        if expected_version is not None:
+            payload["expected"] = int(expected_version)
+            rows = self._query(
+                f"UPDATE chapter SET {sets}, rev=rev+1, updated_at=time::now() "
+                f"WHERE seq=$seq AND rev=$expected RETURN AFTER",
+                payload,
+            ) or []
+            if not rows:
+                if int(expected_version) == 0 and not (self.get_chapter(seq) or {}):
+                    self._execute_write(
+                        f"UPSERT type::record('chapter',$seq) SET {sets}, rev=1 RETURN NONE",
+                        payload,
+                    )
+                else:
+                    raise ValueError("chapter_conflict")
+        else:
+            rows = self._query(
+                f"UPDATE type::record('chapter',$seq) SET {sets}, "
+                f"rev=(rev OR 0)+1, updated_at=time::now() RETURN AFTER",
+                payload,
+            ) or []
+            if not rows:
+                self._execute_write(
+                    f"UPSERT type::record('chapter',$seq) SET {sets}, rev=1 RETURN NONE",
+                    payload,
+                )
+        try:
+            from scribe3.api.routers.quality import invalidate_quality_cache
+            invalidate_quality_cache(getattr(self, "db_name", None))
+        except Exception:
+            pass
         # 北极星任务3:章级 scorecard 存稿即算(独立缓存表,D-008)——fail-soft,
         # scorecard 是面板不是命门,失败只告警绝不阻断存稿。
         try:

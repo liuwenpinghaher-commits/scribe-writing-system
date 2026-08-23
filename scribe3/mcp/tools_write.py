@@ -2043,6 +2043,16 @@ async def s3_delete_codex(ctx: Context, object_type: str, object_id: str,
 
     def _write():
         st = _store_for(work)
+        impact = None
+        try:
+            from scribe3.api.services.lifecycle import _object_impact
+            kind = {"role": "character", "fact": "fact", "material": "material",
+                    "faction": "faction", "item": "item", "term": "term",
+                    "world_rule": "world_rule"}.get(ot)
+            if kind:
+                impact = _object_impact(st, kind, oid, work or "main")
+        except Exception:
+            impact = None
         if ot == "material":
             if archive:
                 if not st.update_material(oid, {"archived": True}):
@@ -2050,7 +2060,7 @@ async def s3_delete_codex(ctx: Context, object_type: str, object_id: str,
                 return {"object_type": ot, "object_id": oid, "action": "archive"}
             if not st.delete_material(oid, cleanup_refs=True):
                 return False
-            return {"object_type": ot, "object_id": oid, "action": "delete"}
+            return {"object_type": ot, "object_id": oid, "action": "delete", "impact": impact}
         if ot in ("role", "fact"):
             full = oid if ":" in oid else f"{ot}:{oid}"
             if ot == "role" and not full.startswith("role:"):
@@ -2064,27 +2074,27 @@ async def s3_delete_codex(ctx: Context, object_type: str, object_id: str,
                 return {"object_type": ot, "object_id": full, "action": "archive"}
             if not st.delete_record(full, cleanup_refs=True):
                 return False
-            return {"object_type": ot, "object_id": full, "action": "delete"}
+            return {"object_type": ot, "object_id": full, "action": "delete", "impact": impact}
         if ot == "faction":
             if not st.get_faction(oid):
                 return False
             st.delete_faction(oid)
-            return {"object_type": ot, "object_id": oid, "action": "delete"}
+            return {"object_type": ot, "object_id": oid, "action": "delete", "impact": impact}
         if ot == "item":
             if not st.get_item(oid):
                 return False
             st.delete_item(oid)
-            return {"object_type": ot, "object_id": oid, "action": "delete"}
+            return {"object_type": ot, "object_id": oid, "action": "delete", "impact": impact}
         if ot == "term":
             if not st.get_term(oid):
                 return False
             st.delete_term(oid)
-            return {"object_type": ot, "object_id": oid, "action": "delete"}
+            return {"object_type": ot, "object_id": oid, "action": "delete", "impact": impact}
         if ot == "world_rule":
             if not st.get_world_rule(oid):
                 return False
             st.delete_world_rule(oid)
-            return {"object_type": ot, "object_id": oid, "action": "delete"}
+            return {"object_type": ot, "object_id": oid, "action": "delete", "impact": impact}
         if ot == "promise":
             if not st.promise_exists(oid):
                 return False

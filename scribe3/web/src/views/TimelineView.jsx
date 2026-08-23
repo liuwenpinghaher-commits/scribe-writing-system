@@ -34,6 +34,7 @@ import { hasNarrativeData } from '../lib/timelineAxis'
 import { prefersReducedMotion } from '../lib/utils'
 import { useSelection } from '../selectionContext'
 import { liveTouchesTable } from '../lib/liveRefresh.js'
+import { showToast } from '../ui/Toast.jsx'
 
 // ── 章号 ⇄ 合成时间 ─────────────────────────────────────────────────────────
 // 第 N 章 → 2000-01-01 起第 (N-1) 天。一天一章,vis 缩放/堆叠按天粒度天然贴合。
@@ -385,8 +386,12 @@ function CausalRootEditor({ eventId, initial }) {
         className="mt-1 text-f12 px-2 py-1 rounded border border-line hover:bg-soft cursor-pointer"
         onClick={async () => {
           setBusy(true)
-          try { await api.patchEventCausalRoot(eventId, v) }
-          finally { setBusy(false) }
+          try {
+            await api.patchEventCausalRoot(eventId, v)
+            showToast('因果根已保存', { tone: 'ok' })
+          } catch (e) {
+            showToast('保存失败: ' + (e?.body?.detail || e?.message || '未知错误'), { tone: 'danger' })
+          } finally { setBusy(false) }
         }}>保存因果根</button>
     </div>
   )

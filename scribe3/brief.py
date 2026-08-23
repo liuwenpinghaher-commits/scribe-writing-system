@@ -653,6 +653,9 @@ def render_brief(sections: dict) -> str:
     if mo.get("avoid_overuse"):
         parts.append("【母题·过热避免连刷 avoid_overuse】\n"
                      + "\n".join(f"- {x}" for x in mo["avoid_overuse"]))
+    if mo.get("overheat"):
+        parts.append("【母题·过热硬提示】\n" + "\n".join(
+            f"- {(x.get('message') if isinstance(x, dict) else x)}" for x in mo["overheat"]))
     if mo.get("lines"):
         parts.append("【贯穿母题·可主动编织】\n" + "\n".join(f"- {x}" for x in mo["lines"]))
     if mo.get("touched"):
@@ -820,6 +823,11 @@ def assemble_chapter_brief(st, seq: int, focalizer: str = "", target_emotion: st
         tmap = st.motif_touch_map() if hasattr(st, "motif_touch_map") else {}
         motif_sec = motif_directives(
             motif_rows or [], prev_inst, next_chapter=next_ch, touch_map=tmap)
+        try:
+            from scribe3.motif_heat import motif_overheat_advisory
+            motif_sec["overheat"] = motif_overheat_advisory(prev_inst)
+        except Exception:
+            motif_sec["overheat"] = []
     except Exception as e:
         _log.debug("assemble_chapter_brief motifs 失败: %s", e)
     sections = {

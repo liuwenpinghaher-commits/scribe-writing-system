@@ -125,6 +125,7 @@ def schedule_motifs(
     *,
     overheat_streak: int = DEFAULT_OVERHEAT_STREAK,
     cold_gap: int = DEFAULT_COLD_GAP,
+    store: Any = None,
 ) -> dict[str, Any]:
     """对全书母题做调度。
 
@@ -160,12 +161,25 @@ def schedule_motifs(
                "tier": tier,
                "echo_terms": parse_echo_terms(m.get("echoes"), m.get("echo_terms"))}
         n_touch = len(touches)
+        new_phase = phase
         if phase == "seed" and n_touch >= 2:
-            row["phase"] = "echo"
+            new_phase = "echo"
         elif phase == "echo" and n_touch >= 5:
-            row["phase"] = "turn"
+            new_phase = "turn"
         elif phase == "turn" and n_touch >= 8:
-            row["phase"] = "payoff"
+            new_phase = "payoff"
+        row["phase"] = new_phase
+        row["original_phase"] = phase
+        if new_phase != phase and store is not None and mid:
+            updater = getattr(store, "update_motif", None)
+            if callable(updater):
+                try:
+                    updater(mid, {"phase": new_phase})
+                    import logging
+                    logging.getLogger("scribe3.motif_craft").info(
+                        "motif %s phase advanced: %s → %s", mid, phase, new_phase)
+                except Exception:
+                    pass
         rows.append(row)
         if phase == "rest":
             neutral.append(row)

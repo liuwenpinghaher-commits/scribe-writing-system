@@ -109,7 +109,17 @@ def craft_gates(seq: int | None = Query(default=None, ge=1), work: str = "main")
     return out
 
 _QUALITY_TTL: dict[tuple, tuple[float, dict]] = {}
-_QUALITY_TTL_SEC = 5.0
+_QUALITY_TTL_SEC = 2.0
+
+
+def invalidate_quality_cache(work: str | None = None) -> None:
+    """save_chapter 成功后清本 Worker 质量仪表盘缓存，避免立刻读到旧值。"""
+    if work is None:
+        _QUALITY_TTL.clear()
+        return
+    for key in list(_QUALITY_TTL):
+        if key[0] == work:
+            _QUALITY_TTL.pop(key, None)
 
 
 def quality(work: str = "main"):

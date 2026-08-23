@@ -383,9 +383,29 @@ def add_faction_ep(fc: FactionIn, work: str = "main"):
 
     return {"ok": True}
 
-def del_faction(name: str, work: str = "main"):
-    _store_for(work).delete_faction(name)
-    return {"ok": True}
+def del_faction(name: str, work: str = "main", confirm_impact_token: str | None = None):
+    st = _store_for(work)
+    impact = None
+    try:
+        raw = st.record_lifecycle_impact(f"faction:{name}") if hasattr(st, "record_lifecycle_impact") else None
+        if isinstance(raw, dict):
+            refs = [
+                {"kind": k, "count": c}
+                for k, c in sorted((raw.get("counts") or {}).items())
+                if c
+            ]
+            impact = {
+                "object": raw.get("object") or {"id": f"faction:{name}", "label": name},
+                "references": refs,
+                "warning": "该势力仍被引用，确认后再删" if refs else None,
+            }
+            if refs and not confirm_impact_token:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(status_code=409, content=impact)
+    except Exception:
+        impact = None
+    st.delete_faction(name)
+    return {"ok": True, "impact": impact}
 
 def get_codex_schema(kind: str):
     """设定字段元数据(只读,CX-Task 3):前端按此渲染表单,不再硬编码字段清单。"""

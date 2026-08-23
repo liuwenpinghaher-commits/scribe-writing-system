@@ -97,7 +97,8 @@ async def _app_lifespan(_app: FastAPI):
         def _store_factory():
             # GAP-2：changefeed 必须用独立 WS 连接，禁止复用请求路径 _stores 缓存。
             # 共享同一 Surreal WS 会在后台线程与请求线程交叉 query 时卡死 /ready。
-            work = os.environ.get("SCRIBE3_DEFAULT_WORK") or "main"
+            from scribe3.feature_flags import get_flag
+            work = (get_flag("SCRIBE3_DEFAULT_WORK") or "main").strip() or "main"
             return SurrealStore(ns="scribe3", db=work)
 
         if changefeed_cache_enabled():

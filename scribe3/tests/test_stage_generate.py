@@ -124,7 +124,11 @@ def test_thicken_stage_persists_via_store_insert():
         return "x"
 
     st = St()
-    out = thicken_stage("duty", {}, llm_fn=llm, persist_fn=lambda f: None, seq=1, st=st)
+    out = thicken_stage(
+        "duty",
+        {"synopsis": "沈烛若今夜必须把碎片按回胸口"},
+        llm_fn=llm, persist_fn=lambda f: None, seq=1, st=st,
+    )
     assert out.get("ok") is True, out
     assert ("duty_card", "frozen") in inserts
     assert st.get_frozen("duty_card", 1)

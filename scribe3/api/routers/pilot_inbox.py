@@ -1,6 +1,7 @@
 """Domain router (extracted from app_impl). URLs unchanged."""
 from __future__ import annotations
 
+import logging
 from scribe3.feature_flags import get_flag
 import types
 from typing import Any, Optional, List, Dict, Literal
@@ -47,21 +48,12 @@ def pilot_step(req: PilotStepReq, work: str = "main"):
     """
     from scribe3.pilot import NEXT, read_state, step
     st = _store_for(work)
-    try:
-        from scribe3.feature_flags import flag_truthy
-        if flag_truthy("SCRIBE3_JOURNEY_PRECHECK"):
-            intent = st.get_intent() if hasattr(st, "get_intent") else {}
-            ns = str((intent or {}).get("north_star") or (intent or {}).get("premise") or "").strip()
-            motifs = st.list_motifs() if hasattr(st, "list_motifs") else []
-            if not ns or len(motifs or []) < 1:
-                raise HTTPException(status_code=409, detail={
-                    "code": "journey_precheck",
-                    "message": "还没立北极星或母题，先走完旅程再开写",
-                })
-    except HTTPException:
-        raise
-    except Exception:
-        pass
+    from scribe3.journey_precheck import journey_precheck_block
+    block = journey_precheck_block(st)
+    if block:
+        raise HTTPException(status_code=409, detail=block)
+    from scribe3.context_snapshot import snapshot_clear
+    snapshot_clear()
     if not st.get_chapter(req.seq):
         raise HTTPException(status_code=404, detail=f"第 {req.seq} 章不存在(先建章或用 /pilot/run 自动建)")
     if req.steer.strip():
@@ -108,7 +100,7 @@ def pilot_step(req: PilotStepReq, work: str = "main"):
         pass
     _k = (work, req.seq)
     from scribe3.chapter_lock import acquire_chapter_lock, release_chapter_lock, chapter_lock_busy_http_detail
-    clr = acquire_chapter_lock("run", work, req.seq, store=st, ttl_seconds=600)
+    clr = acquire_chapter_lock("run", work, req.seq, store=st, ttl_seconds=1200)
     if not clr.ok:
         raise HTTPException(status_code=409, detail=chapter_lock_busy_http_detail(clr))
     with _pilot_inflight_lock:
@@ -140,6 +132,8 @@ def add_idea(req: IdeaIn, work: str = "main"):
         from scribe3.llm import hermes_complete
         complete_fn = hermes_complete
     route = {"kind": "unclear", "target_seq": None, "note": "", "question": "能再说具体点吗?"}
+    degraded = False
+    degrade_reason = ""
     try:
         raw = complete_fn(_IDEA_ROUTE_PROMPT.replace("{max_ch}", str(st.max_chapter()))
                           .replace("{text}", text[:500]))
@@ -154,6 +148,8 @@ def add_idea(req: IdeaIn, work: str = "main"):
                          "question": str(d.get("question") or "")[:200]}
     except Exception as e:
         logging.getLogger("scribe3").warning("idea 路由失败(落 unclear): %s", e)
+        degraded = True
+        degrade_reason = "LLM调用失败"
     kind = route["kind"]
     # 审查 P1-3:target_seq 脏值(LLM 返回"第3章"/越界/负数)一律降级,绝不 500 丢想法
     tseq = None
@@ -186,8 +182,12 @@ def add_idea(req: IdeaIn, work: str = "main"):
         status=status,
         question=q if kind == "unclear" else None,
     )
-    return {"kind": kind, "target_seq": tseq, "status": status,
+    out = {"kind": kind, "target_seq": tseq, "status": status,
             "note": route["note"], "question": q if kind == "unclear" else None}
+    if degraded:
+        out["degraded"] = True
+        out["reason"] = degrade_reason or "LLM调用失败"
+    return out
 
 def resolve_idea(req: IdeaResolveReq, work: str = "main"):
     """审查 P1-4:想法处理完毕出收件箱(status→done)——决策收件箱不积压噪声。"""

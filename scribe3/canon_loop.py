@@ -605,6 +605,22 @@ def _undo_applied(store: Any, rec: dict[str, Any]) -> bool:
     if module == "world_rule" and rec.get("name") and hasattr(store, "delete_world_rule"):
         store.delete_world_rule(rec["name"])
         return True
+    kind = str(rec.get("kind") or module or "")
+    entity_id = rec.get("oid") or rec.get("entity_id") or rec.get("id")
+    if kind == "fact" and entity_id and hasattr(store, "delete_fact"):
+        store.delete_fact(entity_id)
+        return True
+    if kind == "knowledge" and entity_id and hasattr(store, "forget_knowledge"):
+        knower = rec.get("knower_id") or rec.get("who") or "reader"
+        until = rec.get("until_chapter") or rec.get("seq") or 0
+        try:
+            store.forget_knowledge(knower, entity_id, int(until or 0))
+        except TypeError:
+            store.forget_knowledge(knower, entity_id)
+        return True
+    if kind == "fact" and entity_id and hasattr(store, "delete_record"):
+        store.delete_record(entity_id, cleanup_refs=True)
+        return True
     return False
 
 

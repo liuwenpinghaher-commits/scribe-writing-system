@@ -38,13 +38,17 @@ class MotifsMixin:
         from scribe3.motif_craft import (
             parse_echo_terms, format_echoes, normalize_phase, normalize_tier)
         terms = parse_echo_terms(echoes, echo_terms)
+        needs_human = False
+        if not terms:
+            terms = ["(待补充)"]
+            needs_human = True
         echoes_s = (echoes or "").strip() or format_echoes(terms)
         self._execute_write(
             "CREATE motif SET name=$n, theme=$t, echoes=$e, unfolding=$u, "
-            "echo_terms=$et, phase=$ph, tier=$tr, scope=$sc",
+            "echo_terms=$et, phase=$ph, tier=$tr, scope=$sc, needs_human=$nh",
             {"n": name, "t": theme or "", "e": echoes_s, "u": unfolding or "",
              "et": terms, "ph": normalize_phase(phase),
-             "tr": normalize_tier(tier), "sc": scope})
+             "tr": normalize_tier(tier), "sc": scope, "nh": needs_human})
 
     def list_motifs(self) -> list[dict]:
         """列母题;附 hit_count 与结构化字段(供 heat/本卷/过度重复过滤)。"""
@@ -160,7 +164,7 @@ class MotifsMixin:
         from scribe3.motif_craft import schedule_motifs
         motifs = self.list_motifs()
         tmap = self.motif_touch_map()
-        return schedule_motifs(motifs, tmap, int(next_chapter))
+        return schedule_motifs(motifs, tmap, int(next_chapter), store=self)
 
     def update_motif(self, motif_id: str, fields: dict) -> None:
         self._update_by("motif", self._norm_motif_id(motif_id), fields)

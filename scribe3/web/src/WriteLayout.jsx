@@ -59,6 +59,16 @@ export function WriteLayout({ work, seq, sceneIdx }) {
     } catch { /* 配额满等:暂存失败不再有兜底,toast 文案已如实 */ }
   }
   const [stash, setStash] = useState(null)   // 挂载检测到的未保存暂存稿(横幅数据)
+  const [phaseHint, setPhaseHint] = useState('')
+  useEffect(() => {
+    const onHint = (e) => {
+      const d = e?.detail || {}
+      const text = d.text || d.message || d.hint || d.phase || ''
+      if (text) setPhaseHint(String(text))
+    }
+    window.addEventListener('s3-chapter-phase-hint', onHint)
+    return () => window.removeEventListener('s3-chapter-phase-hint', onHint)
+  }, [])
 
   // persistDirtyOldChapter:切章前若有未保存内容,静默保存旧章(fire-and-forget,不阻断切章)
   // 全部从 dirtyRef 读取,完全脱离 state 闭包,任何调用时机都拿到最新值。
@@ -1016,6 +1026,11 @@ export function WriteLayout({ work, seq, sceneIdx }) {
       {!focusMode && (
         <div className="min-w-0 w-full" data-testid="write-meta-row">
           <NorthStarBar />
+        </div>
+      )}
+      {phaseHint && (
+        <div className="px-3 py-1 text-meta text-faint border-b border-line/40" data-testid="write-phase-hint">
+          {phaseHint}
         </div>
       )}
       {!focusMode && <ChapterMemoryRefs chapter={chapter} />}

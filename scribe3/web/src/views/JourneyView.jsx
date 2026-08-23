@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { liveTouchesTable } from '../lib/liveRefresh.js'
 import { Compass, ArrowRight, RefreshCw } from 'lucide-react'
 import { api } from '../api'
 import { Btn } from '../ui.jsx'
@@ -15,6 +16,11 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
   const [dash, setDash] = useState(null)
   const [dashOpen, setDashOpen] = useState(false)
   const [dashBusy, setDashBusy] = useState(false)
+  const [pulse, setPulse] = useState(null)
+  const [pilot, setPilot] = useState(null)
+  const [stageInfo, setStageInfo] = useState(null)
+  const [ledger, setLedger] = useState(null)
+  const [extraOpen, setExtraOpen] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -26,6 +32,33 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
   }, [])
 
   useEffect(() => { load() }, [load, work])
+
+  const seqNow = snap?.chapter_lane?.seq
+  useEffect(() => {
+    if (seqNow == null) return
+    let dead = false
+    api.chapterPulse?.(seqNow)?.then((p) => { if (!dead) setPulse(p) }).catch(() => {})
+    api.pilotStatus?.(seqNow)?.then((p) => { if (!dead) setPilot(p) }).catch(() => {})
+    api.chapterStage?.(seqNow)?.then((p) => { if (!dead) setStageInfo(p) }).catch(() => {})
+    api.promisesLedger?.()?.then((p) => { if (!dead) setLedger(p) }).catch(() => {})
+    return () => { dead = true }
+  }, [seqNow, work])
+
+  useEffect(() => {
+    const onLive = (e) => {
+      if (liveTouchesTable(e?.detail, ['chapter', 'promise', 'foreshadow', 'pilot_state', '_reconnect'])) {
+        load()
+        if (seqNow != null) {
+          api.chapterPulse?.(seqNow)?.then(setPulse).catch(() => {})
+          api.pilotStatus?.(seqNow)?.then(setPilot).catch(() => {})
+          api.chapterStage?.(seqNow)?.then(setStageInfo).catch(() => {})
+          api.promisesLedger?.()?.then(setLedger).catch(() => {})
+        }
+      }
+    }
+    window.addEventListener('s3-live', onLive)
+    return () => window.removeEventListener('s3-live', onLive)
+  }, [load, seqNow])
 
   const openInbox = (seq) => {
     try {
@@ -212,6 +245,55 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
             ))}
           </ol>
         </section>
+
+        {snap?.quality_stalled ? (
+          <section
+            className="rounded-lg border border-warn/40 bg-warn/[.08] p-3"
+            data-testid="journey-quality-stalled"
+          >
+            <div className="text-f14 font-medium text-ink">质量循环已保留最优稿</div>
+            <p className="mt-1 text-meta text-faint">这一章反复打磨后停在最好的一版，等你看过再往下。</p>
+          </section>
+        ) : null}
+
+        {(pulse || pilot || stageInfo || ledger) && (
+          <section className="rounded-lg border border-line/60 bg-soft/30 p-3 space-y-2" data-testid="journey-live-extra">
+            <button
+              type="button"
+              className="text-meta text-faint uppercase tracking-wider cursor-pointer"
+              onClick={() => setExtraOpen((v) => !v)}
+            >
+              {extraOpen ? '收起本章信号' : '展开本章信号'}
+            </button>
+            {extraOpen && (
+              <div className="space-y-1 text-f13 text-ink">
+                {pilot && (
+                  <div data-testid="journey-pilot-status">
+                    写作状态：{pilot.state || pilot.pilot_state || 'idle'}
+                  </div>
+                )}
+                {stageInfo && (
+                  <div data-testid="journey-stage">
+                    本章阶段：{stageInfo.stage || stageInfo.current || stageInfo.label || '—'}
+                  </div>
+                )}
+                {pulse && (
+                  <div data-testid="journey-pulse">
+                    本章节奏：{(pulse.summary || pulse.pressure || pulse.checks?.length != null)
+                      ? (pulse.summary || `检查 ${pulse.checks?.length ?? 0} 项`)
+                      : '已接入脉搏'}
+                  </div>
+                )}
+                {ledger && (
+                  <div data-testid="journey-promise-debt">
+                    未兑现伏笔 {(ledger.open || []).length} 条
+                    {ledger.audit?.overdue_count ? ` · 超期 ${ledger.audit.overdue_count}` : ''}
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        )}
 
         {snap?.ledger?.congrats ? (
           <section

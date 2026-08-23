@@ -31,6 +31,7 @@ describe('liveRefresh', () => {
     expect(liveTouchesTable({ table: 'chapter' }, ['chapter', 'promise'])).toBe(true)
     expect(liveTouchesTable({ table: 'idea' }, ['chapter'])).toBe(false)
     expect(liveTouchesTable({ table: '_init' }, ['chapter'])).toBe(false)
+    expect(liveTouchesTable({ table: '_reconnect' }, ['chapter'])).toBe(true)
   })
 
   it('accepts detail.tb alias', () => {

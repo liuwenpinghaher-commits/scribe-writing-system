@@ -143,7 +143,7 @@ WIDE_FUEL_CAP_CAUSAL = 4_000
 # 数字越大越先丢；T0/GEN_SEGMENT_PROTECTED 不进 victim 或极低优先级
 L2_DROP_TIER: dict[str, tuple[str, ...]] = {
     # SL2：storyline_polish 进 T3（与 material_recall/reference_craft 同档，先可裁）
-    "T3": ("codex_cards", "material_recall", "discourse_soft", "story_move", "storyline_polish", "reference_craft", "seed_words", "author_prefs"),
+    "T3": ("codex_cards", "material_recall", "discourse_soft", "story_move", "storyline_polish", "reference_craft", "seed_words", "author_prefs", "revision_letter_digest", "scene_grid"),
     "T2": ("craft", "phase_role", "avoid", "volume_intro", "request_constraint"),
     "T1": ("purpose", "pressure_drive"),
     # 故事燃料：T3→T2→T1 之后才裁；段内先丢 recall，最后丢 ember

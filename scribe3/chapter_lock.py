@@ -6,6 +6,7 @@ loop / ingest / repair 共用同一 acquire/release API。
 """
 from __future__ import annotations
 
+import contextvars
 from dataclasses import dataclass
 from typing import Any
 
@@ -18,6 +19,9 @@ from scribe3.concurrency_lock import (
 from scribe3.concurrency_obs import inflight_enter, inflight_leave
 
 CHAPTER_OPS = frozenset({"loop", "ingest", "repair", "run"})
+_HELD: contextvars.ContextVar[frozenset[str]] = contextvars.ContextVar(
+    "s3_chapter_lock_held", default=frozenset(),
+)
 
 
 @dataclass(frozen=True)
@@ -41,6 +45,21 @@ class ChapterLockResult:
 def chapter_target(work: str | None, seq: int | str) -> str:
     """稳定章节键：work:seq。"""
     return f"{(work or 'main').strip() or 'main'}:{int(seq)}"
+
+
+def chapter_lock_held_here(work: str | None, seq: int | str) -> bool:
+    """本协程是否已持有该章 run 锁（供 thicken_stage / run_stage 避免重入死锁）。"""
+    return chapter_target(work, seq) in _HELD.get()
+
+
+def _mark_held(work: str | None, seq: int | str, on: bool) -> None:
+    cur = set(_HELD.get())
+    key = chapter_target(work, seq)
+    if on:
+        cur.add(key)
+    else:
+        cur.discard(key)
+    _HELD.set(frozenset(cur))
 
 
 def acquire_chapter_lock(
@@ -82,6 +101,7 @@ def acquire_chapter_lock(
             inflight_enter(k, target, store=store)
     except Exception:
         pass
+    _mark_held(work, seq, True)
     return ChapterLockResult(
         ok=True,
         status="acquired",
@@ -102,6 +122,7 @@ def release_chapter_lock(
     if k not in CHAPTER_OPS:
         k = "run"
     target = chapter_target(work, seq)
+    _mark_held(work, seq, False)
     try:
         if distributed_lock_enabled():
             from scribe3 import concurrency_obs as _co
@@ -141,6 +162,7 @@ __all__ = [
     "acquire_chapter_lock",
     "chapter_key",
     "chapter_lock_busy_http_detail",
+    "chapter_lock_held_here",
     "chapter_target",
     "distributed_lock_enabled",
     "release_chapter_lock",

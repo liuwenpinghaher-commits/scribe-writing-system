@@ -123,11 +123,14 @@ def _letter_grid_block(ctx: dict) -> str:
     letter = str((ctx or {}).get("revision_letter_digest") or "").strip()
     grid = str((ctx or {}).get("scene_grid") or "").strip()
     skills = (ctx or {}).get("craft_skills") or []
+    note = str((ctx or {}).get("safety_note") or "").strip()
     parts: list[str] = []
+    if note:
+        parts.append(note)
     if letter:
-        parts.append(f"上章问诊还没做完的事：{letter[:600]}")
+        parts.append(f"上章问诊还没做完的事：{letter[:400]}")
     if grid:
-        parts.append(f"这一场戏格：{grid[:600]}")
+        parts.append(f"这一场戏格：{grid[:400]}")
     if skills:
         parts.append("必须用上的技法：" + "、".join(str(s) for s in skills if s))
     return ("\n".join(parts) + "\n") if parts else ""

@@ -222,6 +222,49 @@ def thicken_stage(
     gone = reject_gone_stage(stage)
     if gone:
         return gone
+    work_s = work or getattr(st, "db_name", None) or "main"
+    n_lock = int(seq or 1)
+    owned_lock = False
+    try:
+        from scribe3.chapter_lock import (
+            acquire_chapter_lock, release_chapter_lock, chapter_lock_held_here,
+        )
+        if st is not None and not chapter_lock_held_here(work_s, n_lock):
+            clr = acquire_chapter_lock("run", work_s, n_lock, store=st, ttl_seconds=1200)
+            if not clr.ok:
+                return {
+                    "ok": False,
+                    "code": "chapter_busy",
+                    "status": "busy",
+                    "message": clr.detail or "本章正在执行",
+                }
+            owned_lock = True
+    except Exception:
+        owned_lock = False
+    try:
+        return _thicken_stage_body(
+            stage, ch, llm_fn=llm_fn, persist_fn=persist_fn, seq=seq,
+            extra=extra, st=st, work=work, focalizer=focalizer,
+        )
+    finally:
+        if owned_lock:
+            try:
+                from scribe3.chapter_lock import release_chapter_lock
+                release_chapter_lock("run", work_s, n_lock, store=st)
+            except Exception:
+                pass
+
+
+def _thicken_stage_body(
+    stage: str,
+    ch: Mapping[str, Any] | None,
+    *,
+    llm_fn: LlmFn,
+    persist_fn: PersistFn | None = None,
+    seq: int | None = None,
+    extra: str = "",
+    st=None, work=None, focalizer: str = "",
+) -> dict[str, Any]:
     try:
         from scribe3.feature_flags import flag_truthy
         if flag_truthy("SCRIBE3_OUTLINE_STATUS_GATE"):
@@ -256,6 +299,8 @@ def thicken_stage(
             return {"ok": True, "skipped": True, "status": "already_frozen"}
     world = st if st is not None else store
     ctx = build_ctx(world, n, focalizer=focalizer, playbook=store)
+    if str((ch or {}).get("synopsis") or "").strip() and not str(ctx.get("synopsis") or "").strip():
+        ctx["synopsis"] = str(ch.get("synopsis") or "").strip()
     if str((ch or {}).get("prose") or "").strip():
         ctx["has_prose"] = True
         ctx["existing_prose"] = str((ch or {}).get("prose") or "")
@@ -270,6 +315,10 @@ def thicken_stage(
             fields["draft"] = draft["text"]
         if fields:
             persist_fn(fields)
+        else:
+            snap = {k: out.get(k) for k in ("synopsis", "beats", "goal", "choice", "duty") if out.get(k)}
+            if snap:
+                persist_fn(snap)
     return out
 
 

@@ -52,7 +52,7 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag("SCRIBE3_SOFT_PRECHECK", "1", "大纲/节拍软预检 advisory", "soft_precheck", "safe"),
     Flag("SCRIBE3_LITERARY_DISTILL", "1", "文学蒸馏原型（启发式）", "literary_distill", "safe"),
     # 延期产品 backlog（默认开 · 安全硬门仍关）
-    Flag("SCRIBE3_STORYLINE_UI", "1", "故事线 Gantt/情绪 UI", "storyline", "safe"),
+    Flag("SCRIBE3_STORYLINE_UI", "1", "（deprecated）故事线 Gantt/情绪 UI；产品面已并入故事线注入", "storyline", "safe"),
     Flag("SCRIBE3_MULTI_HOP_GRAPH", "1", "事件图多跳 k≥2", "event_graph", "caution"),
     Flag("SCRIBE3_STAGE_MACHINE", "1", "章节阶段机产品", "chapter_stage", "caution"),
     Flag("SCRIBE3_STAGE_MACHINE_HARD", "0", "阶段非法跳转 hard 409", "chapter_stage", "danger"),
@@ -117,7 +117,7 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag(
         "SCRIBE3_DESIGN_BOOK",
         "on",
-        "写章设计时检查这一章是否还接得上这本书（人、地、线、简介）。off=只检查表格填没填满。",
+        "（deprecated）写章设计时检查这一章是否还接得上这本书。现无独立实现，保留以免旧环境报未知旗。",
         "chapter_design",
         "caution",
     ),
@@ -313,7 +313,9 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag("SCRIBE3_PREFETCH_PREFS_TEXT", "", "预取作者偏好文案", "hermes", "safe"),
     Flag("SCRIBE3_STRUCTURE_DIVERSITY_INJECT", "1", "结构多样性注入", "structure_style", "safe"),
     Flag("SCRIBE3_ENDING_FORMULA_BLOCKING", "0", "结尾套话硬拦", "structure_style", "caution"),
-    Flag("SCRIBE3_JOURNEY_PRECHECK", "0", "开写前检查北极星/母题", "journey", "caution"),
+    Flag("SCRIBE3_JOURNEY_PRECHECK", "1", "开写前检查北极星/母题", "journey", "caution"),
+    Flag("SCRIBE3_DUTY_SUMMARY_LOOKBACK", "3", "近几章责任摘要回看章数", "playbook", "safe"),
+    Flag("SCRIBE3_DEFAULT_WORK", "main", "默认书名（changefeed/未指定 work）", "works", "safe"),
     Flag("SCRIBE3_ALERT_WEBHOOK", "", "关键事件 webhook", "ops", "caution"),
 )
 

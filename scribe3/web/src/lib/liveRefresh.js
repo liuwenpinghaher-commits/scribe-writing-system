@@ -14,6 +14,7 @@ function liveTable(detail) {
 export function liveTouchesTable(detail, tables) {
   if (!detail) return true
   const t = liveTable(detail)
+  if (t === '_reconnect') return true
   if (!t || t === '_init') return t !== '_init' ? true : false
   const set = Array.isArray(tables) ? tables : [tables]
   return set.includes(t)

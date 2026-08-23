@@ -34,7 +34,7 @@ def _reject_overdue_hard(st) -> None:
         raise HTTPException(status_code=409, detail=block)
 
 
-def _lock_chapter_run(work, seq, st, ttl_seconds: int = 600):
+def _lock_chapter_run(work, seq, st, ttl_seconds: int = 1200):
     from scribe3.chapter_lock import acquire_chapter_lock, chapter_lock_busy_http_detail
     clr = acquire_chapter_lock("run", work, int(seq or 1), store=st, ttl_seconds=ttl_seconds)
     if not clr.ok:
@@ -250,6 +250,17 @@ def generate_stage(req: GenerateStageReq, work: str = "main"):
                         st.update_chapter_meta(seq, {"focalizer": foc})
                     except Exception:
                         pass
+            else:
+                try:
+                    import json as _json
+                    blob = _json.dumps(payload, ensure_ascii=False)[:8000]
+                    st.add_chapter_version(
+                        seq, blob, label=f"{stage}-outline",
+                        kind="outline", stage=stage,
+                        summary=f"{stage} 大纲快照",
+                    )
+                except Exception:
+                    pass
 
     from scribe3.pipeline_trace_hooks import finish_failed, finish_ok, open_write_chain
     mt: dict = {}
@@ -430,6 +441,12 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
     不落库(台账 D-005,无生产调用方的兼容端点)。"""
     st = _store_for(work)
     _reject_overdue_hard(st)
+    from scribe3.journey_precheck import journey_precheck_block
+    block = journey_precheck_block(st)
+    if block:
+        raise HTTPException(status_code=409, detail=block)
+    from scribe3.context_snapshot import snapshot_clear
+    snapshot_clear()
     _lock_chapter_run(work, chapter, st)
     try:
         return _chat_write_locked(msg, chapter, focalizer, phase, work, short_mode, skip_iceberg, st)
@@ -477,6 +494,12 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
     """POST 版写作对话(支持图片附件):前端用 fetch 流式读取。"""
     st = _store_for(work)
     _reject_overdue_hard(st)
+    from scribe3.journey_precheck import journey_precheck_block
+    block = journey_precheck_block(st)
+    if block:
+        raise HTTPException(status_code=409, detail=block)
+    from scribe3.context_snapshot import snapshot_clear
+    snapshot_clear()
     _lock_chapter_run(work, int(req.chapter or 1), st)
     try:
         return _chat_write_post_locked(req, request, background, work, st)

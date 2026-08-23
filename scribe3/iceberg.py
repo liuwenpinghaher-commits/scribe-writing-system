@@ -201,7 +201,14 @@ _SENTINEL_NONE = frozenset({"无", "无人", "遗失"})
 
 def codex_thicken_gate_enabled() -> bool:
     from scribe3.feature_flags import get_flag
-    return get_flag("SCRIBE3_CODEX_THICKEN_GATE").strip().lower() not in ("0", "false", "no", "off")
+    on = get_flag("SCRIBE3_CODEX_THICKEN_GATE").strip().lower() not in ("0", "false", "no", "off")
+    if not on:
+        try:
+            from scribe3.settings_store import append_audit
+            append_audit("thicken_gate_bypass", actor="flag", payload="SCRIBE3_CODEX_THICKEN_GATE=0")
+        except Exception:
+            pass
+    return on
 
 
 def field_cn(value: Any) -> int:

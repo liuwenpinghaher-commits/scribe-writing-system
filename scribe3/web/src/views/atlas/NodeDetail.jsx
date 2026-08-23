@@ -197,6 +197,28 @@ export function NodeDetail({
         >
           <BookOpen size={13} /> 打开设定
         </button>
+        {t === 'character' && (
+          <button
+            type="button"
+            data-testid="atlas-mark-char-state"
+            onClick={async () => {
+              const summary = window.prompt('这一刻他怎么变了？（一句话）')
+              if (!summary) return
+              const ch = Number(sliceChapter || maxChapter || 1)
+              try {
+                await api.addCharState({
+                  character_id: node.id,
+                  chapter: ch,
+                  change_type: 'state',
+                  summary,
+                })
+              } catch { /* 失败由页面保持现状，不打断看图 */ }
+            }}
+            className="inline-flex items-center justify-center gap-1.5 h-8 rounded-lg border border-line text-f13 text-ink hover:border-brand cursor-pointer"
+          >
+            标记状态变化
+          </button>
+        )}
         {t === 'character' && expandId && (
           <button
             type="button"

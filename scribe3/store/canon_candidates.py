@@ -41,18 +41,35 @@ class CanonCandidatesMixin:
             pass
 
     def add_canon_candidate(self, row: dict[str, Any]) -> str:
-        """写入一条 pending 候选，返回 local id。"""
+        """写入一条 pending 候选，返回 local id。被拒过的同哈希不再进待确认。"""
+        import hashlib
         import uuid
         local = (row.get("id") or "").strip() or uuid.uuid4().hex[:12]
         before = row.get("before")
         after = row.get("after")
         impact = row.get("impact")
+        eh_src = "|".join([
+            str(row.get("module") or ""),
+            str(row.get("target") or ""),
+            str(row.get("field") or ""),
+            json.dumps(after, ensure_ascii=False, sort_keys=True) if after is not None else str(row.get("after_json") or ""),
+        ])
+        entity_hash = hashlib.sha1(eh_src.encode("utf-8")).hexdigest()[:20]
+        try:
+            rejected = self._query(
+                "SELECT id FROM canon_candidate WHERE status='rejected' AND entity_hash=$h LIMIT 1",
+                {"h": entity_hash},
+            ) or []
+            if rejected:
+                return str(rejected[0].get("id") or local)
+        except Exception:
+            pass
         self._execute_write(
             "CREATE type::record('canon_candidate', $id) SET "
             "seq=$seq, source=$source, extractor=$extractor, module=$module, op=$op, "
             "target=$target, field=$field, before_json=$bj, after_json=$aj, "
             "evidence=$evidence, confidence=$conf, risk=$risk, layer=$layer, "
-            "status=$status, change_pack_id=$cpid, impact_json=$ij",
+            "status=$status, change_pack_id=$cpid, impact_json=$ij, entity_hash=$eh",
             {
                 "id": local,
                 "seq": row.get("seq"),
@@ -71,6 +88,7 @@ class CanonCandidatesMixin:
                 "status": row.get("status") or "pending",
                 "cpid": row.get("change_pack_id"),
                 "ij": json.dumps(impact, ensure_ascii=False) if impact is not None else None,
+                "eh": entity_hash,
             },
         )
         return local

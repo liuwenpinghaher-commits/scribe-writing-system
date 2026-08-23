@@ -506,8 +506,14 @@ def playbook_recent_duty_summary(frozen: Any, seq: int) -> str:
     fn = getattr(frozen, "get_frozen", None)
     if not callable(fn):
         return ""
+    lookback = 3
+    try:
+        from scribe3.feature_flags import get_flag
+        lookback = max(1, int(get_flag("SCRIBE3_DUTY_SUMMARY_LOOKBACK") or 3))
+    except Exception:
+        lookback = 3
     lines: list[str] = []
-    for i in (int(seq) - 1, int(seq) - 2, int(seq) - 3):
+    for i in range(int(seq) - 1, int(seq) - 1 - lookback, -1):
         if i < 1:
             continue
         try:
@@ -928,6 +934,8 @@ def build_ctx(
     }
     if extra:
         ctx.update(extra)
+    if ctx.get("_guide_fail"):
+        ctx["safety_note"] = "⚠️ 部分设定数据加载失败，请勿编造未提供的角色/事件信息。"
     _log.info(
         "build_ctx seq=%s lens volume=%s ledger=%s north=%s chapter_duty=%s recent_duty=%s recent_scene=%s codex=%s epistemic=%s prose_tail=%s fail=%s",
         seq,

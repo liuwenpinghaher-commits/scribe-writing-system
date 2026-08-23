@@ -492,6 +492,7 @@ def run_chapter_loop(*, chapter: int, generate, post_check, persist_version,
         from scribe3.advisory_ttl import mark_advisory_pending
         pending = mark_advisory_pending(
             chapter, prose, tri.get("advisory_items") or [],
+            store=st,
         )
         result.update({
             "verdict": "advisory",

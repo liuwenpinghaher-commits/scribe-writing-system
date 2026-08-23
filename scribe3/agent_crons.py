@@ -282,9 +282,38 @@ def load_hermes_cron_aggregate(*, force: bool = False) -> dict[str, Any]:
     return dict(out)
 
 
+def check_overdue_promises(store: Any) -> dict[str, Any]:
+    """每日伏笔超期：2 条告警，3 条硬拦由写路径闸负责。"""
+    from scribe3.alerts import emit_alert
+    from scribe3.promise_overdue_gate import count_open_overdue
+    n = 0
+    try:
+        lister = getattr(store, "open_promises", None) or getattr(store, "list_promises", None)
+        rows = lister() if callable(lister) else []
+        mx = getattr(store, "max_chapter", None)
+        max_ch = int(mx() or 0) if callable(mx) else 0
+        n = int(count_open_overdue(rows, max_ch) or 0)
+    except Exception:
+        n = 0
+    alerted = False
+    if n >= 2:
+        emit_alert("promise_overdue", f"有{n}条伏笔超期未兑现", extra={"count": n})
+        alerted = True
+    return {"overdue": n, "alerted": alerted}
+
+
 def build_agent_crons_response() -> dict[str, Any]:
     """GET /agent-crons：catalog + 聚合 + per-job hermes 匹配。"""
     jobs = load_cron_catalog()
+    if not any(str(j.get("name") or "") == "check_overdue_promises" for j in jobs):
+        jobs.append({
+            "name": "check_overdue_promises",
+            "schedule": "0 9 * * *",
+            "script": "scribe3.agent_crons.check_overdue_promises",
+            "enabled": True,
+            "catalog_enabled": True,
+            "note_zh": "每日 9 点：超期伏笔 ≥2 条告警",
+        })
     hermes = load_hermes_cron_aggregate()
     hermes_jobs = load_hermes_cron_jobs()
     for row in jobs:

@@ -78,6 +78,12 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
     from scribe3.loop import run_chapter_loop
     from scribe3.pipeline_journal import PipelineJournal
     st = _store_for(work)
+    from scribe3.journey_precheck import journey_precheck_block
+    block = journey_precheck_block(st)
+    if block:
+        raise HTTPException(status_code=409, detail=block)
+    from scribe3.context_snapshot import snapshot_clear
+    snapshot_clear()
     from scribe3.promise_overdue_gate import check_overdue_hard
     overdue = check_overdue_hard(st)
     if overdue:

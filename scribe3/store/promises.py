@@ -227,15 +227,40 @@ class PromisesMixin:
             raise ValueError(
                 f"promise '{promise_id}' 不是 open（已兑现或已弃置），拒绝重复关闭"
             )
+        fact_oid = f"fact:promise-{promise_id}-closed"
         try:
-            from scribe3.ontology import Fact
+            from scribe3.ontology import Fact, KnowledgeEdge
             self.add_fact(Fact(
-                f"fact:promise-{promise_id}-closed",
+                fact_oid,
                 f"promise:{promise_id}",
                 "payoff",
                 f"伏笔已兑现于第{payoff_chapter}章",
                 valid_from=payoff_chapter,
             ))
+        except Exception:
+            pass
+        try:
+            from scribe3.ontology import KnowledgeEdge
+            row = (updated[0] if updated else {}) or {}
+            involved = row.get("involved_characters") or []
+            if not involved:
+                got = self._query(
+                    "SELECT involved_characters FROM type::record('promise',$pid)",
+                    {"pid": promise_id}) or []
+                involved = (got[0].get("involved_characters") if got else None) or []
+            for cid in involved:
+                who = str(cid or "").strip()
+                if not who:
+                    continue
+                if ":" not in who:
+                    who = f"role:{who}"
+                try:
+                    self.add_knowledge(KnowledgeEdge(
+                        who, fact_oid, since_chapter=int(payoff_chapter),
+                        acquired_via="payoff",
+                    ))
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -366,6 +391,15 @@ class PromisesMixin:
         """
         mc = self.max_chapter()
         proms = self.list_promises()
+        existing_seqs: set[int] = set()
+        try:
+            for r in self._query(
+                "SELECT seq FROM chapter WHERE archived=false OR archived=NONE"
+            ) or []:
+                if r.get("seq") is not None:
+                    existing_seqs.add(int(r["seq"]))
+        except Exception:
+            existing_seqs = set()
         open_col: list[dict] = []
         closed_col: list[dict] = []
         herring_col: list[dict] = []
@@ -391,6 +425,10 @@ class PromisesMixin:
                 # abandoned/closed 永不 overdue
                 "overdue": _overdue_flag(p, mc, slack),
                 "clues": clues_sorted,
+                "setup_missing": (
+                    setup is not None and existing_seqs
+                    and int(setup) not in existing_seqs
+                ),
             }
             # audit: 闭无开(deus ex machina 的可检形态)
             if payoff is not None:

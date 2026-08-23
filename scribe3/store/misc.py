@@ -115,6 +115,25 @@ class MiscMixin:
                     "SELECT id FROM causes WHERE out=$rid", {"rid": rid}))
             except Exception:
                 counts["event_effect"] = 0
+        elif table in ("faction", "item", "term", "world_rule"):
+            label = local or oid
+            try:
+                counts["knowledge_edge"] = len(self._query(
+                    "SELECT id FROM knows WHERE in=$rid OR out=$rid", {"rid": rid}))
+            except Exception:
+                counts["knowledge_edge"] = 0
+            try:
+                counts["material"] = len(self._query(
+                    "SELECT id FROM material WHERE about_entities CONTAINS $eid",
+                    {"eid": oid if ":" in str(oid) else f"{table}:{local}"}))
+            except Exception:
+                counts["material"] = 0
+            try:
+                counts["proposition"] = len(self._query(
+                    "SELECT id FROM proposition WHERE entity_id=$eid OR subject=$eid",
+                    {"eid": oid if ":" in str(oid) else f"{table}:{local}"}))
+            except Exception:
+                counts["proposition"] = 0
         return {"object": {"id": oid, "label": label}, "counts": counts}
 
     def delete_record(self, oid: str, cleanup_refs: bool = False) -> bool:

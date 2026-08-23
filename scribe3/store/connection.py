@@ -431,7 +431,8 @@ class ConnectionMixin:
         entity_id = oid if ":" in str(oid) else f"{table}:{local}"
         try:
             self._execute_write(
-                "DELETE proposition WHERE entity_id=$eid", {"eid": entity_id})
+                "DELETE proposition WHERE entity_id=$eid OR subject=$eid OR entity_id=$oid OR subject=$oid",
+                {"eid": entity_id, "oid": oid})
         except Exception:
             pass
         try:

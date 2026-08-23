@@ -124,6 +124,7 @@ export const api = {
   orchEvaluateTurn: (body, work) => post('/orchestration/evaluate-turn', body || {}, work),
   orchBuildProposal: (body, work) => post('/orchestration/proposal', body || {}, work),
   orchApplyProposal: (body, work) => post('/orchestration/proposal/apply', body || {}, work),
+  orchGetProposal: (pid, work) => j('/orchestration/proposal/' + enc(pid), work),
   orchDrafts: (work) => j('/orchestration/drafts', work),
   orchDraftUpsert: (body, work) => post('/orchestration/drafts', body || {}, work),
   orchFromDiscussion: (body, work) => post('/orchestration/proposal/from-discussion', body || {}, work),
@@ -458,6 +459,7 @@ export const api = {
   postArcBeat: (b) => post('/arc-beats', b),
   delArcBeat: (id) => del('/arc-beats/' + enc(id)),
   charStates: (id) => j(`/char-states?character_id=${enc(id)}`),
+  addCharState: (b) => post('/char-states', b),
   // 声音演变后半环(P1-11 消费端):列全书 open flags(前端按角色过滤)/ 单条 resolve / 一键折叠进 voice_profile。
   // 注意 后端无 GET voice_profile 端点——演化后的声线指纹只在 /voice-flags/fold 的响应里返回(见 CharVoice)。
   // fold 的 character_id 须带本体前缀(如 role:单嫣);后端 _split 依赖冒号,裸名会 500。

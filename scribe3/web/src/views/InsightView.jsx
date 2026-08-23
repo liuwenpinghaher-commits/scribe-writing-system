@@ -130,7 +130,7 @@ function PromiseCard({ p, maxChapter, onJumpChapter }) {
         {p.setup_chapter != null && (
           <button type="button" className="hover:text-brand cursor-pointer underline-offset-2 hover:underline transition-colors"
             onClick={(e) => { e.stopPropagation(); jump(p.setup_chapter) }}>
-            埋:第{p.setup_chapter}章
+            埋:第{p.setup_chapter}章{p.setup_missing ? ' ⚠️原章已删' : ''}
           </button>
         )}
         {p.payoff_chapter != null && (

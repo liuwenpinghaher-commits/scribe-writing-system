@@ -128,6 +128,15 @@ class FactsKnowledgeMixin:
             pass
         return new_oid
 
+    def delete_fact(self, oid: str) -> bool:
+        """N-10：正典半包回滚用。oid 可为 fact:… 或裸 id。"""
+        full = str(oid or "")
+        if full and ":" not in full:
+            full = f"fact:{full}"
+        if hasattr(self, "delete_record"):
+            return bool(self.delete_record(full, cleanup_refs=True))
+        return False
+
     def forget_knowledge(self, knower_id: str, proposition_id: str, until_chapter: int) -> None:
         """设置知识边的 until_chapter(令知识在该章起失效)。
         P2-a Fix2: 仅更新开区间边(until_chapter IS NONE),与 supersede_fact 对齐——

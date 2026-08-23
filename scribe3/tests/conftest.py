@@ -75,6 +75,13 @@ def _isolated_llm_ledger(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _journey_precheck_off_by_default(monkeypatch):
+    """生产默认开旅程门槛；存量写路径单测无北极星脚手架，默认关。
+    需要测 409 的用例自行 monkeypatch.setenv('SCRIBE3_JOURNEY_PRECHECK','1')。"""
+    monkeypatch.setenv("SCRIBE3_JOURNEY_PRECHECK", "0")
+
+
+@pytest.fixture(autouse=True)
 def _craft_gate_off_by_default(monkeypatch):
     """工艺门闩默认生产开启;单测/存量 API 用例无脚手架,默认关。
     需要测 409 门闩的用例自行 monkeypatch.setenv('SCRIBE3_CRAFT_GATE','1')。"""

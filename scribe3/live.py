@@ -12,7 +12,10 @@ import asyncio
 import json
 import os
 
-from surrealdb import AsyncSurreal
+try:
+    from surrealdb import AsyncSurreal
+except ImportError:  # live 功能不可用时降级，不拖垮不依赖 live 的测试
+    AsyncSurreal = None
 
 
 def _live_credentials() -> tuple[str, str]:
@@ -106,6 +109,8 @@ async def live_stream(
     tasks: list = []
     user, password = _live_credentials()
     async def watch(table: str):
+        if AsyncSurreal is None:
+            raise RuntimeError("surrealdb 未安装，live 不可用")
         c = AsyncSurreal(url)
         try:
             await c.signin({"username": user, "password": password})

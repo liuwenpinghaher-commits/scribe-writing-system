@@ -247,6 +247,8 @@ def grep_back_verify(delta: dict, source_prose: str) -> dict:
             if _traceable(clean_value):
                 continue   # 可溯源
             it[field] = f"{value}(原文未明确)"
+            it["confidence"] = "unverified"
+            it["unverified"] = True
             annotated.append(f"{label}.{field}:{it.get('who') or '?'}={value!r}")
 
     _verify_field(result_delta.get("learned") or [], "fact", "learned")
@@ -300,6 +302,8 @@ def _apply_delta_body(store, delta, seq, open_promises):
     for i, it in enumerate(delta.get("learned") or []):
         who, fact = it.get("who"), it.get("fact")
         if not who or not fact:
+            continue
+        if it.get("unverified") or it.get("confidence") == "unverified":
             continue
         oid = _resolve_char(store, who, seq, "learned_who")
         if oid is None:

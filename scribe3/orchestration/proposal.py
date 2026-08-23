@@ -242,6 +242,15 @@ def apply_proposal_ops(
         prop["status"] = "declined"
         prop["applied"] = []
         prop["errors"] = []
+        try:
+            from scribe3.settings_store import append_audit
+            append_audit(
+                "proposal_reject",
+                actor="author",
+                payload=str(prop.get("id") or "")[:80],
+            )
+        except Exception:
+            pass
         return prop
 
     indices = set(selected if selected is not None else range(len(ops)))

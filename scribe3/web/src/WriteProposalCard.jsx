@@ -3,7 +3,7 @@
  * 展示 summary + ops；批准/拒绝走 /orchestration/proposal/apply（execute 默认 false，
  * 生产主路径仍是 Hermes 审批；本卡用于编排预览与测试契约）。
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from './api'
 import { applyUiEvents } from './lib/uiDirective'
 import { Btn } from './ui.jsx'
@@ -13,15 +13,26 @@ export function WriteProposalCard({ proposal, onDone, execute = false, onSel = n
   const optsSetFocus = setFocus
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState(null)
-  if (!proposal?.ops?.length && !result) return null
-  const ops = result?.ops || proposal.ops || []
-  const status = result?.status || proposal.status || 'pending'
+  const [hydrated, setHydrated] = useState(null)
+  useEffect(() => {
+    const pid = proposal?.id
+    if (!pid || typeof api.orchGetProposal !== 'function') return
+    let dead = false
+    api.orchGetProposal(pid).then((row) => {
+      if (!dead && row && (row.ops || row.summary)) setHydrated(row)
+    }).catch(() => {})
+    return () => { dead = true }
+  }, [proposal?.id])
+  const view = result || hydrated || proposal
+  if (!view?.ops?.length && !result) return null
+  const ops = view.ops || []
+  const status = view.status || 'pending'
 
   const act = async (decision) => {
     setBusy(true)
     try {
       const res = await api.orchApplyProposal({
-        proposal: result || proposal,
+        proposal: view,
         decision,
         execute: !!execute && decision === 'approve',
       })
@@ -46,7 +57,7 @@ export function WriteProposalCard({ proposal, onDone, execute = false, onSel = n
       data-testid="write-proposal-card"
       className="rounded-lg border border-brand/30 bg-brand/5 p-3 space-y-2 text-ink"
     >
-      <div className="text-f13 font-medium">{(result || proposal).summary || '写入提案'}</div>
+      <div className="text-f13 font-medium">{view.summary || '写入提案'}</div>
       <ul className="space-y-1 text-meta">
         {ops.map((op, i) => (
           <li key={i} data-status={op.status} className="flex gap-2">
@@ -67,8 +78,8 @@ export function WriteProposalCard({ proposal, onDone, execute = false, onSel = n
       ) : (
         <div className="text-meta text-faint">状态：{status}</div>
       )}
-      {(result || proposal).note && (
-        <p className="text-meta text-faint">{(result || proposal).note}</p>
+      {view.note && (
+        <p className="text-meta text-faint">{view.note}</p>
       )}
     </div>
   )

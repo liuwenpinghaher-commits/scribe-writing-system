@@ -372,17 +372,25 @@ def run_stage(
     ctx = dict(ctx or {})
     ctx.setdefault("seq", seq)
 
-    from scribe3.chapter_lock import acquire_chapter_lock, release_chapter_lock
+    from scribe3.chapter_lock import (
+        acquire_chapter_lock, release_chapter_lock, chapter_lock_held_here,
+    )
     work = getattr(store, "db_name", None) or ctx.get("work") or "main"
-    clr = acquire_chapter_lock("run", work, seq, store=store, ttl_seconds=600)
-    if not clr.ok:
-        return {
-            "ok": False,
-            "code": "chapter_busy",
-            "status": "busy",
-            "message": clr.detail or "本章正在执行",
-        }
+    already = chapter_lock_held_here(work, seq)
+    owned = False
+    if not already:
+        clr = acquire_chapter_lock("run", work, seq, store=store, ttl_seconds=1200)
+        if not clr.ok:
+            return {
+                "ok": False,
+                "code": "chapter_busy",
+                "status": "busy",
+                "message": clr.detail or "本章正在执行",
+            }
+        owned = True
     try:
+        from scribe3.context_snapshot import snapshot_clear
+        snapshot_clear()
         if name == "duty":
             from scribe3.playbook.duty_gate import refuse_empty_synopsis
             blocked = refuse_empty_synopsis(ctx, store=store, seq=seq)
@@ -397,7 +405,8 @@ def run_stage(
             return _run_draft(store, seq, ctx, llm_fn, force=force, persist=persist)
         return _run_final(store, seq, ctx, llm_fn, force=force, persist=persist)
     finally:
-        release_chapter_lock("run", work, seq, store=store)
+        if owned:
+            release_chapter_lock("run", work, seq, store=store)
 
 
 def _skip_or_force(store, table: str, seq: int, *, force: bool, rewrite: bool) -> dict[str, Any] | None:
@@ -639,9 +648,7 @@ def _run_draft(store, seq, ctx, llm_fn, *, force, persist):
             tic_phrases=phrases if len(tics) >= 2 else None,
         )
         if no_accum and rounds[0] >= 3:
-            hint[0] = (
-                (hint[0] + " 换个角度：贴着另一个在场的人看见的那一面，重写这一场。").strip()
-            )
+            hint[0] = "换个角度：贴着另一个在场的人看见的那一面，重写这一场。"
         return hit
 
     result = _quality_loop(
@@ -759,7 +766,7 @@ def _run_final(store, seq, ctx, llm_fn, *, force, persist):
         try:
             from scribe3.feature_flags import flag_truthy
             if flag_truthy("SCRIBE3_HINT_NO_ACCUM") and final_rounds[0] >= 3 and hint[0]:
-                hint[0] = hint[0] + " 换个角度：贴着另一个在场的人看见的那一面，重写这一场。"
+                hint[0] = "换个角度：贴着另一个在场的人看见的那一面，重写这一场。"
         except Exception:
             pass
         return hit
