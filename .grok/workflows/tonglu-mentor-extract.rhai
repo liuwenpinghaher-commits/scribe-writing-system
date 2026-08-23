@@ -79,7 +79,8 @@ fn agent_ok(r) {
 
 fn iron_prefix(source, prompts, out_dir) {
     let p = "";
-    p += "你在给以后写别的书抽作法，不是写读后感，不是给这本做情节缩写。\n";
+    p += "第一性目标：把整本书榨干。以后写书会翻的都要挖：时间、地图、设定、人物、伏笔、接章、写法。\n";
+    p += "专名情节原样记下当参照，学结构换自己的名，不要把这本故事搬进下一本。\n";
     p += "必须用工具：read_file、grep。禁止凭记忆。禁止把全文一次性读进对话，也禁止按页把三万多行翻完。切章用 grep 章题；章卡和透镜按索引行号只读那一节。\n";
     p += "原文路径：";
     p += source;
@@ -105,6 +106,10 @@ fn lens_file(name) {
     else if name == "人物" { "透镜-人物.md" }
     else if name == "线索" { "透镜-线索.md" }
     else if name == "开篇" { "透镜-开篇.md" }
+    else if name == "时间线" { "透镜-时间线.md" }
+    else if name == "地图" { "透镜-地图.md" }
+    else if name == "设定" { "透镜-设定.md" }
+    else if name == "余烬" { "透镜-余烬.md" }
     else { "" }
 }
 
@@ -118,6 +123,10 @@ fn lens_heading(name) {
     else if name == "人物" { "2G 人整本书怎么变" }
     else if name == "线索" { "2H 主线、旁人的日子、暗账" }
     else if name == "开篇" { "2I 前几节凭什么让人接着看" }
+    else if name == "时间线" { "2J 时间怎么走" }
+    else if name == "地图" { "2K 人走到过哪些地方、怎么走" }
+    else if name == "设定" { "2L 世界靠什么规矩转" }
+    else if name == "余烬" { "2M 上一章落下的日子下一章接没接上" }
     else { "" }
 }
 
@@ -306,7 +315,7 @@ if do_cards {
 
 if do_lenses {
     phase("Lenses");
-    let all_lenses = ["世界", "群像", "出场", "说书", "节奏", "伏笔", "人物", "线索", "开篇"];
+    let all_lenses = ["世界", "群像", "出场", "说书", "节奏", "伏笔", "人物", "线索", "开篇", "时间线", "地图", "设定", "余烬"];
     let wanted = [];
     if lens == "" {
         for nm in all_lenses { wanted.push(nm); }
@@ -319,7 +328,7 @@ if do_lenses {
             }
         }
         if !found {
-            pause("verification", "args.lens 只能是 世界 / 群像 / 出场 / 说书 / 节奏 / 伏笔 / 人物 / 线索 / 开篇。空=本轮串行做完全部。");
+            pause("verification", "args.lens 只能是 世界 / 群像 / 出场 / 说书 / 节奏 / 伏笔 / 人物 / 线索 / 开篇 / 时间线 / 地图 / 设定 / 余烬。空=本轮串行做完全部。一次一面更稳。");
         }
     }
     if wanted.len() < 1 {
