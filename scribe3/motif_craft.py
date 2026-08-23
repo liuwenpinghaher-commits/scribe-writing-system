@@ -127,7 +127,9 @@ def schedule_motifs(
     cold_gap: int = DEFAULT_COLD_GAP,
     store: Any = None,
 ) -> dict[str, Any]:
-    """对全书母题做调度。
+    """对全书母题做调度（纯计算，不写库）。
+
+    store 参数保留兼容，忽略；推进请调 apply_motif_advances。
 
     touch_map: motif_id -> [chapter, ...]
     返回 {
@@ -142,6 +144,7 @@ def schedule_motifs(
     avoid_overuse: list[dict] = []
     neutral: list[dict] = []
     rows: list[dict] = []
+    advances: list[dict] = []
     for m in motifs or []:
         mid = str(m.get("id") or "").strip()
         if mid.startswith("motif:"):
@@ -170,16 +173,12 @@ def schedule_motifs(
             new_phase = "payoff"
         row["phase"] = new_phase
         row["original_phase"] = phase
-        if new_phase != phase and store is not None and mid:
-            updater = getattr(store, "update_motif", None)
-            if callable(updater):
-                try:
-                    updater(mid, {"phase": new_phase})
-                    import logging
-                    logging.getLogger("scribe3.motif_craft").info(
-                        "motif %s phase advanced: %s → %s", mid, phase, new_phase)
-                except Exception:
-                    pass
+        if new_phase != phase and mid:
+            advances.append({
+                "id": mid,
+                "phase": new_phase,
+                "from_phase": phase,
+            })
         rows.append(row)
         if phase == "rest":
             neutral.append(row)
@@ -195,9 +194,35 @@ def schedule_motifs(
         "must_echo": must_echo,
         "avoid_overuse": avoid_overuse,
         "neutral": neutral,
+        "advances": advances,
         "rows": rows,
         "next_chapter": int(next_chapter),
     }
+
+
+def apply_motif_advances(advances: list[dict] | None, store: Any) -> int:
+    """把 schedule_motifs 算出的阶段推进写回 store。返回写入条数。"""
+    if store is None:
+        return 0
+    updater = getattr(store, "update_motif", None)
+    if not callable(updater):
+        return 0
+    n = 0
+    import logging
+    log = logging.getLogger("scribe3.motif_craft")
+    for row in advances or []:
+        mid = str((row or {}).get("id") or "").strip()
+        new_phase = (row or {}).get("phase")
+        old = (row or {}).get("from_phase")
+        if not mid or not new_phase:
+            continue
+        try:
+            updater(mid, {"phase": new_phase})
+            log.info("motif %s phase advanced: %s → %s", mid, old, new_phase)
+            n += 1
+        except Exception:
+            pass
+    return n
 
 
 def _entry_line(m: dict) -> str:

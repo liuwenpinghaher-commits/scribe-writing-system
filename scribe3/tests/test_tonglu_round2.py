@@ -190,10 +190,13 @@ def test_b02_save_chapter_cas_one_wins():
 
 
 def test_b03_motif_phase_persists():
+    from scribe3.motif_craft import apply_motif_advances
     st = MemStore()
     motifs = [{"id": "灯与债", "phase": "seed", "name": "灯与债"}]
     out = schedule_motifs(motifs, {"灯与债": [1, 2, 3]}, 4, store=st)
     assert out["rows"][0]["phase"] == "echo"
+    assert st.motif_updates == []
+    assert apply_motif_advances(out.get("advances"), st) == 1
     assert st.motif_updates and st.motif_updates[0][1]["phase"] == "echo"
 
 

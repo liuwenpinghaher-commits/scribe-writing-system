@@ -10,6 +10,14 @@ def journey_precheck_block(st: Any) -> dict[str, Any] | None:
         from scribe3.feature_flags import flag_truthy
         if not flag_truthy("SCRIBE3_JOURNEY_PRECHECK"):
             return None
+        n_ch = 0
+        cc = getattr(st, "chapter_count", None)
+        if callable(cc):
+            n_ch = int(cc() or 0)
+        elif callable(getattr(st, "max_chapter", None)):
+            n_ch = int(st.max_chapter() or 0)
+        if n_ch > 0:
+            return None
         intent = st.get_intent() if hasattr(st, "get_intent") else {}
         ns = str((intent or {}).get("north_star") or (intent or {}).get("premise") or "").strip()
         motifs = st.list_motifs() if hasattr(st, "list_motifs") else []

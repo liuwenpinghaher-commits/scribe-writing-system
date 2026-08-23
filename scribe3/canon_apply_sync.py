@@ -40,15 +40,21 @@ def after_canon_apply(store: Any, kind: str, entity_id: str, row: dict | None = 
         stats["secrets_error"] = type(e).__name__
     if kind != "fact":
         try:
-            indexer = getattr(store, "semantic_index", None)
             text = _index_blob(data)
-            if callable(indexer) and text:
-                indexer(entity_id, text)
+            if text:
+                embed_entity(store, entity_id, text)
                 stats["indexed"] = True
         except Exception as e:
             _log.warning("after_canon_apply index fail %s %s: %s", kind, entity_id, e)
             stats["index_error"] = type(e).__name__
     return stats
+
+
+def embed_entity(store: Any, entity_id: str, text: str) -> None:
+    """非 fact 实体 Apply 后走与 fact 同一套语义索引。"""
+    indexer = getattr(store, "semantic_index", None)
+    if callable(indexer) and text:
+        indexer(entity_id, text)
 
 
 def _read_row(store: Any, kind: str, entity_id: str) -> dict | None:

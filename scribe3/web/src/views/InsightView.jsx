@@ -224,7 +224,7 @@ function PromiseLedger({ onJumpChapter }) {
   }, [])
   if (ledErr) return (
     <div className="mb-6 pb-5 border-b border-line/60">
-      <ErrorState message="伏笔台账加载失败" onRetry={refresh} />
+      <ErrorState message={ledErr || '伏笔台账加载失败'} onRetry={refresh} />
     </div>
   )
   if (!led) return null

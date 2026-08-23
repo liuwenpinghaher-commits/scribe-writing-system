@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react'
 import { api } from './api'
 import { applyUiEvents } from './lib/uiDirective'
+import { withFeedback } from './lib/withFeedback.js'
 import { Btn } from './ui.jsx'
 
 export function WriteProposalCard({ proposal, onDone, execute = false, onSel = null, setFocus = null }) {
@@ -31,11 +32,14 @@ export function WriteProposalCard({ proposal, onDone, execute = false, onSel = n
   const act = async (decision) => {
     setBusy(true)
     try {
-      const res = await api.orchApplyProposal({
-        proposal: view,
-        decision,
-        execute: !!execute && decision === 'approve',
-      })
+      const res = await withFeedback(
+        api.orchApplyProposal({
+          proposal: view,
+          decision,
+          execute: !!execute && decision === 'approve',
+        }),
+        { ok: decision === 'approve' ? '提案已批准' : '提案已拒绝', fail: '操作失败' },
+      )
       setResult(res.proposal)
       if (res.ui_events?.length) {
         applyUiEvents(res.ui_events, { onSel: optsOnSel, setFocus: optsSetFocus })

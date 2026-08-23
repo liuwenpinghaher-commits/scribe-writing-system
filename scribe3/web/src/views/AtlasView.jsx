@@ -95,7 +95,7 @@ function buildGraph(data, focus, theme) {
         _weight: Number.isFinite(w) ? w : 1,
         _directed: e.directed !== false,
         label: isKnows ? '' : `${REL_LABEL[e.rel] || e.rel}${Number.isFinite(w) && w !== 1 ? ` ·${w}` : ''}`,
-        type: 'arrow',
+        type: e.directed === false ? 'line' : 'arrow',
       })
     } catch { /* 重复边忽略 */ }
   })

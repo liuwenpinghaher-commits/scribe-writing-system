@@ -509,7 +509,7 @@ def playbook_recent_duty_summary(frozen: Any, seq: int) -> str:
     lookback = 3
     try:
         from scribe3.feature_flags import get_flag
-        lookback = max(1, int(get_flag("SCRIBE3_DUTY_SUMMARY_LOOKBACK") or 3))
+        lookback = min(max(1, int(get_flag("SCRIBE3_DUTY_SUMMARY_LOOKBACK") or 3)), 10)
     except Exception:
         lookback = 3
     lines: list[str] = []

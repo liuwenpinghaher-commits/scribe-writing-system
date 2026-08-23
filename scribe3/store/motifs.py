@@ -161,10 +161,12 @@ class MotifsMixin:
 
     def motif_schedule(self, next_chapter: int) -> dict:
         """相对 next_chapter 的 heat 调度(must_echo / avoid_overuse / rows)。"""
-        from scribe3.motif_craft import schedule_motifs
+        from scribe3.motif_craft import apply_motif_advances, schedule_motifs
         motifs = self.list_motifs()
         tmap = self.motif_touch_map()
-        return schedule_motifs(motifs, tmap, int(next_chapter), store=self)
+        out = schedule_motifs(motifs, tmap, int(next_chapter))
+        apply_motif_advances(out.get("advances"), self)
+        return out
 
     def update_motif(self, motif_id: str, fields: dict) -> None:
         self._update_by("motif", self._norm_motif_id(motif_id), fields)

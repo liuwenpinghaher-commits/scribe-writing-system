@@ -319,6 +319,25 @@ def _thicken_stage_body(
             snap = {k: out.get(k) for k in ("synopsis", "beats", "goal", "choice", "duty") if out.get(k)}
             if snap:
                 persist_fn(snap)
+    stg = normalize_stage(stage)
+    if (
+        out.get("ok") and not out.get("skipped")
+        and stg in ("duty", "design")
+        and st is not None
+        and callable(getattr(st, "add_chapter_version", None))
+    ):
+        try:
+            import json as _json
+            blob = _json.dumps(
+                {k: out.get(k) for k in ("synopsis", "beats", "goal", "choice", "duty") if out.get(k)},
+                ensure_ascii=False,
+            )[:8000]
+            st.add_chapter_version(
+                n, blob or stg, label=f"{stg}-outline",
+                kind="outline", stage=stg, summary=f"{stg} 大纲快照",
+            )
+        except Exception:
+            pass
     return out
 
 

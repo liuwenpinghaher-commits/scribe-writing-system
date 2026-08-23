@@ -18,6 +18,8 @@ import {
   SECRET_PLACEHOLDER,
 } from '../../lib/atlasNodeDetail.js'
 import { seedAtlasDiscuss } from '../../lib/atlasChiefSeed.js'
+import { InputDialog } from '../../ui/Dialog.jsx'
+import { withFeedback } from '../../lib/withFeedback.js'
 
 const ALIGN_ZH = {
   overdue_miss: '逾期·偏离',
@@ -61,6 +63,8 @@ export function NodeDetail({
   onClose,
 }) {
   const [arc, setArc] = useState(null) // { loading, line, err }
+  const [stateDlg, setStateDlg] = useState(false)
+  const [stateBusy, setStateBusy] = useState(false)
   const nodeId = node?.id
 
   const nb = useMemo(
@@ -201,24 +205,37 @@ export function NodeDetail({
           <button
             type="button"
             data-testid="atlas-mark-char-state"
-            onClick={async () => {
-              const summary = window.prompt('这一刻他怎么变了？（一句话）')
-              if (!summary) return
-              const ch = Number(sliceChapter || maxChapter || 1)
-              try {
-                await api.addCharState({
-                  character_id: node.id,
-                  chapter: ch,
-                  change_type: 'state',
-                  summary,
-                })
-              } catch { /* 失败由页面保持现状，不打断看图 */ }
-            }}
-            className="inline-flex items-center justify-center gap-1.5 h-8 rounded-lg border border-line text-f13 text-ink hover:border-brand cursor-pointer"
+            disabled={stateBusy}
+            onClick={() => setStateDlg(true)}
+            className="inline-flex items-center justify-center gap-1.5 h-8 rounded-lg border border-line text-f13 text-ink hover:border-brand cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             标记状态变化
           </button>
         )}
+        <InputDialog
+          open={stateDlg}
+          title="标记状态变化"
+          placeholder="这一刻他怎么变了？（一句话）"
+          confirmText="记下"
+          onClose={() => setStateDlg(false)}
+          onConfirm={async (summary) => {
+            const text = String(summary || '').trim()
+            if (!text) return
+            setStateBusy(true)
+            try {
+              await withFeedback(
+                api.addCharState({
+                  character_id: node.id,
+                  chapter: Number(sliceChapter || maxChapter || 1),
+                  change_type: 'state',
+                  summary: text,
+                }),
+                { ok: '状态已标记', fail: '标记失败' },
+              )
+            } catch { /* toast 已报 */ }
+            finally { setStateBusy(false) }
+          }}
+        />
         {t === 'character' && expandId && (
           <button
             type="button"

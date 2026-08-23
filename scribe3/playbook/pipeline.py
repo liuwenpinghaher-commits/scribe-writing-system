@@ -811,6 +811,8 @@ def _run_final(store, seq, ctx, llm_fn, *, force, persist):
         result["chapter_state"] = state_out.get("artifact")
         if not state_out.get("ok"):
             result["ok"] = False
+            result["draft_frozen"] = True
+            result["reason"] = state_out.get("code") or "chapter_state_extract"
             result["code"] = state_out.get("code") or "chapter_state_extract"
             result["message"] = state_out.get("message") or "定稿后章末态没抽出"
             result["blockers"] = state_out.get("blockers") or []

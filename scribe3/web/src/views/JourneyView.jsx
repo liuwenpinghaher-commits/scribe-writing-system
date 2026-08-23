@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { liveTouchesTable } from '../lib/liveRefresh.js'
 import { Compass, ArrowRight, RefreshCw } from 'lucide-react'
 import { api } from '../api'
@@ -44,20 +44,28 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
     return () => { dead = true }
   }, [seqNow, work])
 
+  const liveTimer = useRef(null)
   useEffect(() => {
+    const refreshExtras = () => {
+      load()
+      if (seqNow != null) {
+        api.chapterPulse?.(seqNow)?.then(setPulse).catch(() => {})
+        api.pilotStatus?.(seqNow)?.then(setPilot).catch(() => {})
+        api.chapterStage?.(seqNow)?.then(setStageInfo).catch(() => {})
+        api.promisesLedger?.()?.then(setLedger).catch(() => {})
+      }
+    }
     const onLive = (e) => {
       if (liveTouchesTable(e?.detail, ['chapter', 'promise', 'foreshadow', 'pilot_state', '_reconnect'])) {
-        load()
-        if (seqNow != null) {
-          api.chapterPulse?.(seqNow)?.then(setPulse).catch(() => {})
-          api.pilotStatus?.(seqNow)?.then(setPilot).catch(() => {})
-          api.chapterStage?.(seqNow)?.then(setStageInfo).catch(() => {})
-          api.promisesLedger?.()?.then(setLedger).catch(() => {})
-        }
+        clearTimeout(liveTimer.current)
+        liveTimer.current = setTimeout(refreshExtras, 300)
       }
     }
     window.addEventListener('s3-live', onLive)
-    return () => window.removeEventListener('s3-live', onLive)
+    return () => {
+      clearTimeout(liveTimer.current)
+      window.removeEventListener('s3-live', onLive)
+    }
   }, [load, seqNow])
 
   const openInbox = (seq) => {

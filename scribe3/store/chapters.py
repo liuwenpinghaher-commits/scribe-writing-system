@@ -315,7 +315,7 @@ class ChaptersMixin:
                     payload,
                 )
         try:
-            from scribe3.api.routers.quality import invalidate_quality_cache
+            from scribe3.quality.cache import invalidate_quality_cache
             invalidate_quality_cache(getattr(self, "db_name", None))
         except Exception:
             pass
@@ -409,15 +409,14 @@ class ChaptersMixin:
         from scribe3.chapter_versions import select_versions_to_drop
         rows = self.list_chapter_versions(seq, limit=10000, offset=0)
         drop = select_versions_to_drop(rows, keep_recent=keep_recent)
-        for r in drop:
-            try:
-                self._execute_write(
-                    "DELETE type::record('chapter_version',$id)",
-                    {"id": r["id"]})
-            except Exception:
-                self._execute_write(
-                    "DELETE chapter_version WHERE meta::id(id)=$id",
-                    {"id": r["id"]})
+        if not drop:
+            return {"dropped": 0, "kept": len(rows)}
+        drop_ids = {str(r.get("id") or "") for r in drop}
+        keep_ids = [str(r.get("id") or "") for r in rows if str(r.get("id") or "") not in drop_ids]
+        self._execute_write(
+            "DELETE chapter_version WHERE seq=$seq AND meta::id(id) NOT IN $keep_ids",
+            {"seq": seq, "keep_ids": keep_ids},
+        )
         return {"dropped": len(drop), "kept": len(rows) - len(drop)}
 
     def get_chapter_version(self, vid: str) -> dict | None:
@@ -604,6 +603,22 @@ class ChaptersMixin:
             "WHERE archived = NONE OR archived != true "
             "ORDER BY seq DESC LIMIT $k", {"k": k})
         return list(reversed(rows))
+
+    def chapter_count(self) -> int:
+        """已有章节条数（含未归档）。开写门槛用来判断是不是旧书。"""
+        try:
+            rows = self._query(
+                "SELECT count() AS n FROM chapter "
+                "WHERE archived = NONE OR archived != true GROUP ALL"
+            ) or []
+            if rows and rows[0].get("n") is not None:
+                return int(rows[0]["n"])
+        except Exception:
+            pass
+        try:
+            return int(self.max_chapter() or 0)
+        except Exception:
+            return 0
 
     def max_chapter(self) -> int:
         """书的最大章号:以 chapter 表实际章节为准(真实范围),并入 event 的 story_chapter 兜底。
@@ -1187,7 +1202,7 @@ class ChaptersMixin:
             "DELETE voice_evolution_flag WHERE trigger_chapter=$seq OR ingest_seq=$seq",
             "DELETE lesson WHERE chapter=$seq",
             "DELETE distill_marker WHERE chapter=$seq",
-            "DELETE canon_candidate WHERE seq=$seq OR chapter=$seq",
+            "DELETE canon_candidate WHERE seq=$seq OR chapter=$seq OR chapter_seq=$seq",
         ]:
             try:
                 self._execute_write(query, {"seq": seq})

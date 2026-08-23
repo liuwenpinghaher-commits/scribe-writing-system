@@ -449,6 +449,7 @@ export const api = {
   createThread: (title) => post('/chat/threads', title ? { title } : {}),          // P0a:显式新建会话
   patchThread: (id, fields) => patch('/chat/threads/' + enc(id), fields),          // P0a:{title}|{status}
   resolveIdea: (id) => post('/ideas/resolve', { id }),           // R1-5:想法待批处理完出收件箱
+  dismissInboxItem: (id) => post('/inbox/dismiss/' + enc(id)),
   addIdea: (text) => post('/ideas', { text }),
   charAnchors: (id, opts = {}) => {
     const qs = [`character_id=${enc(id)}`]
@@ -786,20 +787,22 @@ export const api = {
     // Task 6:context 为线程模式下的绑定/焦点(thread_id/context_*/focus),
     // 逐字段并入请求体(后端 ChatWriteReq 全 optional,不传即现状)。
     const body = { msg, chapter, focalizer, images, phase, ...(context || {}) }
-    fetch(BASE + ww('/chat/write'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    }).then(async (res) => {
-      if (!res.ok) { onError?.(`HTTP ${res.status}`); return }
+    const idleMs = 180000
+    const maxTries = 3
+    let attempt = 0
+    let gotData = false
+    const consume = async (res, local) => {
+      if (!res.ok) { onError?.(`HTTP ${res.status}`); return true }
       const reader = res.body.getReader()
       const dec = new TextDecoder()
       let buf = ''
+      let idleTimer = setTimeout(() => local.abort(), idleMs)
+      const bump = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => local.abort(), idleMs) }
       try {
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
+          bump()
           buf += dec.decode(value, { stream: true })
           const lines = buf.split('\n')
           buf = lines.pop() ?? ''
@@ -809,6 +812,7 @@ export const api = {
             if (!payload) continue
             try {
               const d = JSON.parse(payload)
+              gotData = true
               if (d.delta) onDelta?.(d.delta)
               else if (d.tool) onTool?.(d.tool)
               else if (d.tool_output) onToolOutput?.(d.tool_output, d.tool_call_id)
@@ -817,18 +821,51 @@ export const api = {
               else if (d.proposal) onProposal?.(d.proposal)
               else if (d.approval) onApproval?.(d.approval)
               else if (d.approval_resolved) onApprovalResolved?.(d.approval_resolved)
-              else if (d.done) { onDone?.(); return }
-              else if (d.error) { onError?.(d.error); return }
+              else if (d.done) { onDone?.(); return true }
+              else if (d.error) { onError?.(d.error); return true }
             } catch (_) { /* */ }
           }
         }
         onDone?.()
+        return true
       } catch (e) {
-        if (e.name !== 'AbortError') onError?.(e.message || '流中断')
+        if (e.name === 'AbortError' && ctrl.signal.aborted) return true
+        if (gotData) { onError?.(e.message || '流中断'); return true }
+        return false
+      } finally {
+        clearTimeout(idleTimer)
       }
-    }).catch((e) => {
-      if (e.name !== 'AbortError') onError?.(e.message || '网络错误')
-    })
+    }
+    const run = () => {
+      if (ctrl.signal.aborted) return
+      attempt += 1
+      const local = new AbortController()
+      const onAbort = () => local.abort()
+      ctrl.signal.addEventListener('abort', onAbort)
+      fetch(BASE + ww('/chat/write'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: local.signal,
+      }).then((res) => consume(res, local)).then((done) => {
+        ctrl.signal.removeEventListener('abort', onAbort)
+        if (done || ctrl.signal.aborted) return
+        if (attempt < maxTries && !gotData) {
+          setTimeout(run, Math.min(1000 * (2 ** (attempt - 1)), 8000))
+          return
+        }
+        onError?.('网络错误')
+      }).catch((e) => {
+        ctrl.signal.removeEventListener('abort', onAbort)
+        if (ctrl.signal.aborted || e.name === 'AbortError') return
+        if (attempt < maxTries && !gotData) {
+          setTimeout(run, Math.min(1000 * (2 ** (attempt - 1)), 8000))
+          return
+        }
+        onError?.(e.message || '网络错误')
+      })
+    }
+    run()
     return ctrl
   },
   chatStream: (msg, { onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onDone, onError, agentic, seq, thread, context = null }) => {

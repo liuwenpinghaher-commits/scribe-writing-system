@@ -253,6 +253,13 @@ function InboxPanel({ seq, onCount }) {
         pullRef.current?.()
       })
       .catch((e) => showToast(e?.body?.detail || '放行失败', { tone: 'danger' }))
+  const doDismiss = (id) => {
+    if (!id) return
+    api.dismissInboxItem(id).then(() => {
+      showToast('已忽略', { tone: 'ok' })
+      pullRef.current?.()
+    }).catch((e) => showToast(e?.body?.detail || '忽略失败', { tone: 'danger' }))
+  }
   const doResolve = (id) =>
     api.resolveIdea(id).then(() => {
       showToast('已处理,移出收件箱', { tone: 'ok' })
@@ -286,6 +293,13 @@ function InboxPanel({ seq, onCount }) {
           data-testid={`inbox-item-${it.kind}`}>
           <div className="text-meta text-faint mb-0.5">{KIND_LABEL[it.kind] || it.kind}{it.seq ? ` · 第${it.seq}章` : ''}</div>
           <div className="text-f12 text-ink leading-snug">{it.message}</div>
+          {it.id && (
+            <button type="button" data-testid="inbox-dismiss"
+              onClick={() => doDismiss(it.id)}
+              className="mt-1 text-meta text-faint hover:text-ink hover:underline cursor-pointer">
+              忽略
+            </button>
+          )}
           {/* R2-4:交付卡结构化渲染(埋/收清单+QC+完整拿不准)——此前后端产出前端永不显示 */}
           {it.kind === 'pilot_delivered' && it.card && (
             <DeliveryCard card={it.card} seq={it.seq} onOpenProse={openDeliveredChapter} />

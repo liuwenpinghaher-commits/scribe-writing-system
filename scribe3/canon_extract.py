@@ -69,12 +69,20 @@ def extract_claims_from_prose(
         _add(c)
 
     if m in ("llm", "hybrid") and complete_fn:
-        for c in _llm_extract(
-            text, complete_fn,
-            known_character_names=known_character_names,
-            canon_snapshot=canon_snapshot,
-        ):
-            _add(c)
+        try:
+            for c in _llm_extract(
+                text, complete_fn,
+                known_character_names=known_character_names,
+                canon_snapshot=canon_snapshot,
+            ):
+                _add(c)
+        except Exception as e:
+            _log.warning("canon extract llm fail: %s", e)
+            try:
+                from scribe3.alerts import emit_alert
+                emit_alert("ingest_extract_fail", f"抽取失败: {type(e).__name__}")
+            except Exception:
+                pass
     elif m in ("llm", "hybrid") and not complete_fn:
         _log.info("canon extract mode=%s but no complete_fn; markers only (+heur if hybrid)", m)
 

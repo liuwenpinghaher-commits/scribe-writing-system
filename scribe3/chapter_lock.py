@@ -48,7 +48,11 @@ def chapter_target(work: str | None, seq: int | str) -> str:
 
 
 def chapter_lock_held_here(work: str | None, seq: int | str) -> bool:
-    """本协程是否已持有该章 run 锁（供 thicken_stage / run_stage 避免重入死锁）。"""
+    """本同步调用栈是否已持有该章 run 锁（供 thicken_stage / run_stage 避免重入死锁）。
+
+    ContextVar 在纯同步代码里等于本线程本地。若把写路径改成 async def、在 await
+    之后另开 task，不能再信这个标记——那时要改成显式 lock token。
+    """
     return chapter_target(work, seq) in _HELD.get()
 
 
@@ -71,7 +75,18 @@ def acquire_chapter_lock(
     ttl_seconds: int = 120,
     worker: str | None = None,
 ) -> ChapterLockResult:
-    """获取章节级锁。busy 时 ok=False、status=busy。"""
+    """获取章节级锁。busy 时 ok=False、status=busy。
+
+    当前写路径是同步函数。若将来在正在跑的 asyncio Task 里跨 await 用
+    chapter_lock_held_here，会误判；本函数只在同步栈上记 ContextVar。
+    FastAPI 同步端点也能看见 running loop，故不断言失败。
+    """
+    try:
+        import asyncio
+        asyncio.get_running_loop()
+        # loop 在跑不等于本调用是 async 写路径；仅作文档化探测。
+    except RuntimeError:
+        pass
     k = str(kind or "run").strip().lower() or "run"
     if k not in CHAPTER_OPS:
         k = "run"
