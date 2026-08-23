@@ -52,6 +52,7 @@ export function SearchDirectory({ onSelectItem }) {
   const [q, setQ] = useState('')
   const [state, setState] = useState({ loading: false, err: '', results: [] })
   const inputRef = useRef(null)
+  const searchGen = useRef(0)
 
   // focus 请求两条路都接:挂载时消费模块层登记(先派发后挂载的真实时序),
   // 已挂载时监听同一事件直接聚焦。模块层 listener 先注册、先执行,组件里
@@ -81,18 +82,28 @@ export function SearchDirectory({ onSelectItem }) {
     })
   }, [state.results])
 
-  const run = async (e) => {
+  const run = async (e, needleArg) => {
     e?.preventDefault?.()
-    const needle = q.trim()
+    const needle = String(needleArg ?? q).trim()
     if (!needle) return
+    const gen = ++searchGen.current
     setState({ loading: true, err: '', results: [] })
     try {
       const r = await api.search(needle)
+      if (gen !== searchGen.current) return
       setState({ loading: false, err: '', results: Array.isArray(r?.results) ? r.results : [] })
     } catch (err) {
+      if (gen !== searchGen.current) return
       setState({ loading: false, err: err?.body?.detail || err?.message || '搜索失败', results: [] })
     }
   }
+
+  useEffect(() => {
+    const needle = q.trim()
+    if (!needle) return undefined
+    const t = setTimeout(() => { run(null, needle) }, 300)
+    return () => clearTimeout(t)
+  }, [q]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className={DIR_SHELL}>

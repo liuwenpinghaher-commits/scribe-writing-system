@@ -97,7 +97,7 @@ def test_frontend_round4_wires():
     assert "onRetry" in api
     dock = (ROOT / "scribe3/web/src/studioDocks.jsx").read_text(encoding="utf-8")
     assert "dismissBusy" in dock
-    assert "disabled={dismissBusy === it.id}" in dock
+    assert "disabled={!!dismissBusy}" in dock
     chat = (ROOT / "scribe3/web/src/WriteChat.jsx").read_text(encoding="utf-8")
     assert "重新连接中" in chat
     ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")

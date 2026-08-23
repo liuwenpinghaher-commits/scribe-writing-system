@@ -273,7 +273,7 @@ function buildVis(rawItems, laneMode, maxCh) {
         content: '◇ ' + esc(s.label?.length > 18 ? s.label.slice(0, 17) + '…' : s.label)
           + (isHerring ? ' (障)' : '') + (pc == null ? (isOverdue ? ' 超期未收' : ' …待收') : ''),
         title: `伏笔 ch${sc}${pc != null ? '→ch' + pc + ' 已收' : isOverdue ? ' · 超期未收' : ' · 待收'} · ${esc(s.label)}`,
-        style: `background-color:${color}33;border-color:${color};color:#7c5a10;`
+        style: `background-color:${color}33;border-color:${color};color:var(--color-warn);`
           + (isHerring ? 'border-style:dashed;' : '') + (isOverdue ? 'border-color:var(--color-danger);' : ''),
         _raw: { ...s, _payoff: payoff }, _jump: sc, _cat: 'promise',
       })
@@ -740,6 +740,8 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
       svg.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:3;overflow:visible'
       host.appendChild(svg)
     }
+    svg.setAttribute('role', 'img')
+    svg.setAttribute('aria-label', '因果关系连线图')
     const w = typeof tl.getWindow === 'function' ? tl.getWindow() : null
     if (!w?.start || !w?.end) { svg.innerHTML = ''; return }
     const start = new Date(w.start).getTime()

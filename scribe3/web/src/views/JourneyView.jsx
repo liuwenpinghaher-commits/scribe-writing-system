@@ -5,6 +5,23 @@ import { Compass, ArrowRight, RefreshCw } from 'lucide-react'
 import { api } from '../api'
 import { Btn } from '../ui.jsx'
 
+const STAGE_ZH = {
+  idle: '待开写',
+  outline_proposed: '大纲待放行',
+  beats_ready: '节拍就绪',
+  deduced: '演绎就绪',
+  drafting: '草稿中',
+  checked: '体检过',
+  delivered: '待终选',
+  finalized: '已定稿',
+  outline: '大纲',
+  beats: '节拍',
+  design: '章设计',
+  deduce: '演绎',
+  draft: '草稿',
+  final: '正文',
+}
+
 /**
  * 写作导演 · 旅程状态页（P0 + 设定债）
  * 数据源：GET /workflow/snapshot — 与顶栏进度胶囊同源。
@@ -262,6 +279,20 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
           >
             <div className="text-f14 font-medium text-ink">这一章停了超过两小时</div>
             <p className="mt-1 text-meta text-faint">自动步没再往前走。请你看一眼，或手动推进一步。</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Btn
+                size="sm"
+                variant="primary"
+                data-testid="journey-stall-open-inbox"
+                onClick={() => {
+                  try {
+                    window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'inbox' }))
+                  } catch { /* */ }
+                }}
+              >
+                查看收件箱
+              </Btn>
+            </div>
           </section>
         ) : (snap?.stall_level === 'warning' || lane?.stall_level === 'warning' || snap?.quality_stalled || lane?.quality_stalled) ? (
           <section
@@ -289,10 +320,12 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
               type="button"
               className="text-meta text-faint uppercase tracking-wider cursor-pointer"
               onClick={() => setExtraOpen((v) => !v)}
+              aria-expanded={extraOpen}
             >
               {extraOpen ? '收起本章信号' : '展开本章信号'}
             </button>
-            {extraOpen && (
+            <div className={`grid transition-all duration-200 ${extraOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+              <div className="overflow-hidden">
               <div className="space-y-1 text-f13 text-ink">
                 {pilot && (
                   <div data-testid="journey-pilot-status">
@@ -301,7 +334,7 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
                 )}
                 {stageInfo && (
                   <div data-testid="journey-stage">
-                    本章阶段：{stageInfo.stage || stageInfo.current || stageInfo.label || '—'}
+                    本章阶段：{stageInfo.label || STAGE_ZH[stageInfo.stage || stageInfo.current || stageInfo.phase] || stageInfo.stage || stageInfo.current || stageInfo.phase || '—'}
                   </div>
                 )}
                 {pulse && (
@@ -318,7 +351,8 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
                   </div>
                 )}
               </div>
-            )}
+              </div>
+            </div>
           </section>
         )}
 

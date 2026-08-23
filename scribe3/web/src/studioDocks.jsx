@@ -298,7 +298,7 @@ function InboxPanel({ seq, onCount }) {
           <div className="text-f12 text-ink leading-snug">{it.message}</div>
           {it.id && (
             <button type="button" data-testid="inbox-dismiss"
-              disabled={dismissBusy === it.id}
+              disabled={!!dismissBusy}
               onClick={() => doDismiss(it.id)}
               className="mt-1 text-meta text-faint hover:text-ink hover:underline cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
               {dismissBusy === it.id ? '忽略中…' : '忽略'}

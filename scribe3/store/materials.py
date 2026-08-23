@@ -271,6 +271,7 @@ class MaterialsMixin:
 
     def _material_knn_scores(self, query: str, k: int = 20) -> dict[str, float]:
         """素材向量近邻：id → 1-距离。失败返回空，调用方降级字面层。"""
+        t0 = time.perf_counter()
         q = (query or "").strip()
         if not q:
             return {}
@@ -290,6 +291,9 @@ class MaterialsMixin:
                 continue
             dist = float(r.get("dist") or 0.0)
             out[mid] = max(0.0, min(1.0, 1.0 - dist))
+        elapsed = time.perf_counter() - t0
+        if elapsed > 0.5:
+            _log.warning("knn search slow: %.1fs", elapsed)
         return out
 
     def _material_embedding(self, material_id: str):

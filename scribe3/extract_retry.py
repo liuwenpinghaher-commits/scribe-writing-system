@@ -5,10 +5,13 @@ from typing import Any, Callable
 
 _PENDING: list[dict[str, Any]] = []
 _MAX = 3
+_QUEUE_CAP = 200
 
 
 def queue_extract_retry(text: str, reason: str = "") -> dict[str, Any]:
     rec = {"text": (text or "")[:2000], "reason": reason or "", "n": 0}
+    if len(_PENDING) >= _QUEUE_CAP:
+        _PENDING.pop(0)
     _PENDING.append(rec)
     return rec
 

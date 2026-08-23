@@ -42,6 +42,10 @@ export function maybeToastRollback(snap) {
   return true
 }
 
+/**
+ * 仅作离线降级 fallback。权威源是后端 snapshot.next_step.domain
+ *（scribe3.director.NEXT_STEP_DOMAIN）。有网时应优先用后端字段。
+ */
 export function domainHintFromNext(nextId, phase) {
   const map = {
     set_intent: 'intent.northstar',
