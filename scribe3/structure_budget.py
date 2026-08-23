@@ -2,6 +2,23 @@
 from __future__ import annotations
 
 
+def word_goal_accepted(twg) -> bool:
+    """全书目标字数是否合法。
+
+    短卷旧档仍是 4–6 万；长篇/百万字 ≥20 万也算过。
+    不得把 100 万判死、改回 5 万。
+    """
+    try:
+        n = int(twg)
+    except (TypeError, ValueError):
+        return False
+    if 40_000 <= n <= 60_000:
+        return True
+    if n >= 200_000:
+        return True
+    return False
+
+
 def suggest_budget(total_word_goal: int | None, words_per_chapter: int = 3000) -> dict:
     goal = int(total_word_goal or 0)
     wpc = int(words_per_chapter or 3000) or 3000

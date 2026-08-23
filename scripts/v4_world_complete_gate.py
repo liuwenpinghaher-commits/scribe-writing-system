@@ -18,6 +18,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 BASE = os.environ.get("API_BASE", "http://127.0.0.1:8088")
 JAR = os.environ.get("COOKIE_JAR", "/tmp/v4_wcg_cookie.txt")
 
@@ -84,9 +88,10 @@ def run_gate(slug: str) -> dict:
     check("intent.reader_feeling", cn_len(rf) >= 10, f"len={cn_len(rf)}", fails, passes)
     check("intent.emotional_arc", cn_len(ea) >= 4, f"len={cn_len(ea)}", fails, passes)
     check("intent.red_lines", rl.count("\n") + 1 >= 3 or cn_len(rl) >= 20, f"preview={rl[:60]!r}", fails, passes)
+    from scribe3.structure_budget import word_goal_accepted
     check(
         "intent.total_word_goal",
-        isinstance(twg, int) and 40000 <= twg <= 60000,
+        word_goal_accepted(twg),
         f"goal={twg}",
         fails,
         passes,
@@ -201,6 +206,15 @@ def run_gate(slug: str) -> dict:
     code, vols = curl("GET", "/api/volumes", work=slug)
     vols = vols if isinstance(vols, list) else []
     check("volumes.ge3", len(vols) >= 3, f"n={len(vols)}", fails, passes)
+    intro_ok = 0
+    for v in vols:
+        if not isinstance(v, dict):
+            continue
+        intro = v.get("intro") or v.get("duty") or v.get("summary") or ""
+        if cn_len(str(intro)) >= 40:
+            intro_ok += 1
+    if isinstance(twg, int) and twg >= 200_000:
+        check("volume.intro.ge3", intro_ok >= 3, f"intro_ok={intro_ok}/{len(vols)}", fails, passes)
 
     code, chs = curl("GET", "/api/chapters", work=slug)
     chs = chs if isinstance(chs, list) else []

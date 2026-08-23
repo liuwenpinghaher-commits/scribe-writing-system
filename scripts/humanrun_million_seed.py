@@ -1,0 +1,580 @@
+# -*- coding: utf-8 -*-
+"""《腕账》百万字真人开书种子。新书，不续写万界。禁止 pad。"""
+from __future__ import annotations
+
+import re
+
+N_DEFAULT = 3
+FOCALIZER = "role:顾晚潮"
+WORD_GOAL = 1_000_000
+BOOK_TITLE = "腕账"
+
+
+def cn_len(s: str) -> int:
+    return len(re.sub(r"\s+", "", s or ""))
+
+
+NORTH_STAR = (
+    "睡眠是货币：顾晚潮每少睡一小时，城里就有一个正在做梦的人醒不过来。"
+    "他想停付，宋照账本上就会先划掉一个活人。这本书要问的是——谁有权拿别人的夜来续自己的命。"
+)
+
+INTENT_SPEECH = f"""必须调用 s3_set_intent 写入落库，需我审批。按下面原文填，不要改写成空话，不要凑字。
+
+north_star：{NORTH_STAR}
+reader_feeling：读完要留下的是——保护和续命原来是同一笔账。少睡的那一小时不是休息，是从别人梦里抽走的气。
+emotional_arc：从瞒着剩余时辰，到被迫替名单上的人付整晚，再到自己变成账本。
+red_lines：不美化拿别人睡眠续命
+不让顾晚潮自己看见完整欠条
+不提前拆穿续夜处的真正户主
+who_pays：顾晚潮
+axis_terms：睡眠,欠条,名单,续夜
+clock_start：对门孩子没醒来的那夜
+clock_end：账本改成他的名字 / 城里再没有人替别人睡
+total_word_goal：{WORD_GOAL}
+"""
+
+CHARS = [
+    {
+        "oid": "role:顾晚潮",
+        "name": "顾晚潮",
+        "importance": "protagonist",
+        "appearance": (
+            "二十七八，眼白常年带血丝，左手腕内侧用针刻着剩余时辰，数字一夜少一格。"
+            "白天穿洗白的工装，领口永远扣到最上一颗，怕别人看见他不眨眼。"
+        ),
+        "personality_detail": (
+            "算时辰比算钱更紧。别人劝他睡，他先问谁会替这一觉买单。"
+            "不解释自己的黑眼圈，有人笑话他失眠，他只把袖口按死。"
+            "说话少，问价时才开口，开出来的时辰从来没有还价余地。"
+            "他害怕闭上眼，不是怕梦，是怕账本在他睡着时改一行。"
+        ),
+        "surface_goal": (
+            "在续夜处把对门孩子的名字从明早名单上划掉，并且自己腕上还留得住一个时辰。"
+        ),
+        "deep_need": (
+            "证明自己不是一台给人续命的仪器。他要看见被自己付过账的人自己醒来、自己穿衣服出门。"
+        ),
+        "fear": (
+            "怕名单先写上母亲，而他剩余时辰不够付一整晚。"
+        ),
+        "internal_conflict": (
+            "不付，门口会有人醒不过来；付，腕上的格就少一格。两头都是活人。"
+        ),
+        "backstory": (
+            "三年前他第一次少睡，对门孩子三天没醒。宋照上门让他补登记，从那天起腕上有了刻度。"
+            "他试过把欠条转给别人，对方当场睡死。从此他只付自己的时辰，不转账。"
+            "裴灯后来告诉他：续夜处的户主从来不是宋照。"
+        ),
+        "abilities": ["把睡眠小时写进看不见的账", "替名单上的人续一夜"],
+        "weaknesses": ["每付一小时腕上少一格", "看不见完整欠条"],
+    },
+    {
+        "oid": "role:宋照",
+        "name": "宋照",
+        "importance": "major",
+        "appearance": (
+            "四十出头，灰衬衫永远烫平，口袋里一本只有他能翻的薄账。"
+            "眼睛不红，因为按规定他不准替任何人睡觉。"
+        ),
+        "personality_detail": (
+            "记账只用一种铅笔，写下去就不能擦。有人求他改一行，他把笔搁下等对方把求情收回。"
+            "夜里核对名单时，他数时辰不数人。"
+            "对顾晚潮说话永远像对账户，不叫名字，叫编号。"
+            "口袋里的薄账摸上去是冷的，他一天摸三次：早、午、黎明前，确认缺页没有再少。"
+        ),
+        "surface_goal": (
+            "在续夜处派人来查之前，把顾晚潮的欠条补齐，让明早名单上少一个空格。"
+        ),
+        "deep_need": (
+            "证明自己抄下的每一夜都没被户主改过，账本比活人更值得守。"
+        ),
+        "fear": (
+            "怕有一天翻开账，发现自己的名字被写在付账人那一栏。"
+        ),
+        "internal_conflict": (
+            "他欠顾晚潮一次瞒报，补齐欠条就是把那次瞒报变成唯一版本。"
+        ),
+        "backstory": (
+            "他进续夜处是因为父亲的睡眠被记到别人头上，记完之后父亲在所有人记忆里都没有活过四十。"
+            "他从此只信铅笔，不信口述。薄账是他私设的第二本，处里不知道缺页，只知道手续。"
+        ),
+        "abilities": ["登记欠条", "划名单"],
+        "weaknesses": ["不准替人睡觉", "账本被户主抽走他就什么都不是"],
+    },
+    {
+        "oid": "role:裴灯",
+        "name": "裴灯",
+        "importance": "major",
+        "appearance": (
+            "二十五六，左手常提一盏没油的提灯，灯不亮，她看的是灯罩里的人影。"
+            "走路很快，从不在有人睡觉的窗下停。"
+        ),
+        "personality_detail": (
+            "报名单用脚步量，不用纸。走三步还能回头的人，她才开口；走三步回不来的，她把灯收回袖里。"
+            "问她为什么不救，她只重复一遍名额。重复完就不再说话。"
+            "灯不加油，加了油她就看不见影子。她宁可摸黑走路，也不让灯亮成普通的灯。"
+        ),
+        "surface_goal": (
+            "在明早名单敲定前，把顾晚潮母亲的名字换成一个她能接受的空格。"
+        ),
+        "deep_need": (
+            "她要自己成为那个被续回来的人，而不是永远站在窗外报结果。"
+        ),
+        "fear": (
+            "怕顾晚潮让她把自己写进欠条，写完人醒了，她却冷成一盏提不走的灯。"
+        ),
+        "internal_conflict": (
+            "报名单和救人不是同一件事，她每次都知道，每次还是先提灯。"
+        ),
+        "backstory": (
+            "她能看见谁明天醒不过来，是因为她自己被续过一次，代价是再也睡不着。"
+            "续夜处把她留作报数的人，不列入付账人。郝敛来收时，她必须先报出明天的名单。"
+        ),
+        "abilities": ["看见明早谁醒不过来", "把灯罩里的影子指给人看"],
+        "weaknesses": ["自己不能睡", "报错一个名字要自己顶"],
+    },
+    {
+        "oid": "role:郝敛",
+        "name": "郝敛",
+        "importance": "major",
+        "appearance": (
+            "三十出头，西装口袋里放着一枚冰凉的令签，贴肉会烫出掌纹。"
+            "笑的时候牙齿很齐，问价之前先问你还剩几格。"
+        ),
+        "personality_detail": (
+            "礼数周全，开口先报价。看不看得懂这笔账不重要，令签在不在掌心才重要。"
+            "他不着急，他在等顾晚潮自己把剩余时辰开出来。"
+            "笑的时候先数对方腕上还剩几格，数完才伸手。格不够的人，他连合同都不掏。"
+        ),
+        "surface_goal": (
+            "把顾晚潮余下的全部时辰收走交差，令签不得熄火。"
+        ),
+        "deep_need": (
+            "他要在户主面前证明自己不是只会收礼的经手人，是能把活人变成余额的人。"
+        ),
+        "fear": (
+            "怕令签变凉——凉了，续夜处那边他就什么都不是。"
+        ),
+        "internal_conflict": (
+            "收走时辰他才能活在处里；收走时辰，裴灯灯罩里就会多一个他认识的影子。"
+        ),
+        "backstory": (
+            "他经手三次收欠都没真正激活令签，因为激活等于把人从活的变成货。"
+            "顾晚潮若被锁定，腕上的格会与令签同频，那是交差的前置，不是谈判。"
+            "上一次令签差点凉掉，是因为他把一个孩子从名单上私下划掉。处里没开除他，只把配额加倍。"
+        ),
+        "abilities": ["令签锁定坐标", "把欠条催成现货"],
+        "weaknesses": ["令签熄火他就作废", "不能自己看见名单"],
+    },
+]
+
+RELATIONS = [
+    {
+        "src": "role:顾晚潮",
+        "dst": "role:宋照",
+        "relation": "利益对立",
+        "since": 1,
+        "note": "账户与记账人。宋照要补齐欠条，顾晚潮要瞒住剩余时辰。",
+    },
+    {
+        "src": "role:顾晚潮",
+        "dst": "role:裴灯",
+        "relation": "同盟",
+        "since": 1,
+        "note": "她报名单，他付钱。两边都知道名额不够，还是先走三步。",
+    },
+    {
+        "src": "role:郝敛",
+        "dst": "role:顾晚潮",
+        "relation": "利益对立",
+        "since": 1,
+        "note": "猎人与货。郝敛不急，等顾晚潮自己把价开出来。",
+    },
+    {
+        "src": "role:宋照",
+        "dst": "role:裴灯",
+        "relation": "利益对立",
+        "since": 1,
+        "note": "账本要封存，灯要救人，两边争的是同一行名字。",
+    },
+]
+
+RULES = [
+    {
+        "name": "睡眠守恒",
+        "category": "physical",
+        "source": "续夜处把一城人的睡眠当成总量",
+        "capabilities": ["把一个人少睡的小时转到另一个人身上"],
+        "cost": "转出去的那一头必须有人醒不过来，或者有人腕上少一格。没有免费的醒。",
+        "limitations": ["不能创造总量", "不能把账转到不知情的人身上而不留痕"],
+        "exceptions": ["户主自己的夜不计入总量"],
+    },
+    {
+        "name": "欠条不可见",
+        "category": "magic",
+        "source": "付账人看不见完整欠条",
+        "capabilities": ["阻止付账人核对自己被记了多少"],
+        "cost": "想看见完整欠条，必须让报数的人开口，开口一次她就要自己顶一个名字。",
+        "limitations": ["付账人自己看见等于红线被拆"],
+        "exceptions": ["裴灯的灯罩能映出一行，不能映出全书"],
+    },
+    {
+        "name": "名单敲定",
+        "category": "social",
+        "source": "每天黎明前续夜处敲定明早谁必须醒",
+        "capabilities": ["把未付清的名字写进明早名单"],
+        "cost": "名单一敲，改一个名字就要另找一个顶。顶的人当晚开始睡不醒。",
+        "limitations": ["敲定后当日不能反悔"],
+        "exceptions": ["顾晚潮用整晚时辰可以换掉一个已敲定的名字"],
+    },
+]
+
+FACTS = [
+    ("fact:sleep-currency", "world:本城", "货币", "睡眠小时是续夜处唯一承认的货币，现金买不回一觉。", 1),
+    ("fact:ledger-hidden", "org:续夜处", "欠条", "完整欠条只存在宋照的薄账里，付账人只能看见腕上的格。", 1),
+    ("fact:next-list", "org:续夜处", "名单", "每晚名单在黎明前敲定，写上的人若无人付账，次日醒不过来。", 1),
+    ("fact:pei-sleepless", "role:裴灯", "代价", "裴灯被续过一次，从此自己不能睡，专司报数。", 1),
+    ("fact:hao-token", "role:郝敛", "令签", "郝敛掌心令签热则配额还在，凉则他在处里除名。", 1),
+    ("fact:door-child", "loc:对门", "起因", "三年前对门孩子因顾晚潮少睡一小时而三天没醒，账从那夜起算。", 1),
+]
+
+FACTIONS = [
+    {
+        "name": "续夜处",
+        "ideology": (
+            "一城人的醒必须守恒。少一个人醒，就要有人少睡。"
+            "手续本身就是阻挡：开账、补登记、敲名单，每一步都让人来不及救人。"
+        ),
+        "public_face": "登记失眠与代班的灰楼机构，对外只说排班，不说抽走别人的梦。",
+        "leader": "对外不公布户主，一线由宋照经手薄账",
+        "goals": ["补齐顾晚潮欠条", "黎明前敲定名单"],
+    },
+    {
+        "name": "报灯社",
+        "ideology": (
+            "先报谁会死，再谈能不能救。名额有限，所以每一次提灯都是一次选谁去死。"
+        ),
+        "public_face": "夜间巡逻的报数人，对外强调叫醒，不强调名额。",
+        "leader": "一线由裴灯提灯",
+        "goals": ["在敲定前换掉不该写上的名字", "至少一人从名单上活着回来"],
+    },
+]
+
+ITEMS = [
+    {
+        "name": "薄账",
+        "current_owner": "role:宋照",
+        "special_properties": ["只有宋照能翻", "写下不能擦"],
+        "description": (
+            "续夜处发给宋照的一本薄账，纸页摸上去是冷的。"
+            "它不是日记，是欠条真源：谁少睡、谁该醒、谁已经被划掉。"
+            "顾晚潮看不见里面的字。郝敛来收时，先问薄账还在不在口袋。"
+        ),
+    },
+    {
+        "name": "令签",
+        "current_owner": "role:郝敛",
+        "special_properties": ["锁定坐标", "灭了就作废"],
+        "description": (
+            "贴肉会烫出掌纹的一枚令签。热说明配额还在，凉说明上面已经不算郝敛。"
+            "顾晚潮若被锁定，腕上的格会与令签同频，那是交差的前置。"
+        ),
+    },
+]
+
+TERMS = [
+    ("欠条", "设定", "续夜处记下某人少睡了多少小时、该由谁来补的那一行。"),
+    ("名单", "设定", "黎明前敲定的、次日必须醒来否则醒不过来的人名表。"),
+    ("续夜", "设定", "把一个人的睡眠小时转到另一个人身上，让对方在该醒的时候醒来。"),
+]
+
+MOTIFS = [
+    {
+        "name": "睡眠即货币",
+        "theme": "少睡的一小时不是休息，是从别人梦里抽走的气。每次有人想停付，都要先回答这次谁会死、谁来顶。",
+        "echoes": "时辰,欠条,续夜",
+        "unfolding": (
+            "卷一里顾晚潮以为瞒住剩余时辰就能再活一年；"
+            "后面每一次替人付整晚，都是把账重新焊上，也把人重新关进名单。"
+        ),
+    },
+    {
+        "name": "看不见的欠条",
+        "theme": "被记账的人看不见自己被记了多少。看见是危险，没人看是自由，也是会被从名单上抹掉。",
+        "echoes": "薄账,灯罩,红线",
+        "unfolding": (
+            "宋照用薄账看人，郝敛用令签看坐标，顾晚潮不敢闭眼超过三秒。"
+            "全书所有的被看见都要付账，所有没人看的夜都可能被人从名单上抹掉。"
+        ),
+    },
+    {
+        "name": "名额",
+        "theme": "救人的位置永远少一个。报名单的人自己不能睡，报错就要自己去顶那一格，顶完灯就更暗。",
+        "echoes": "裴灯,报灯社,顶名",
+        "unfolding": (
+            "裴灯每报错一个名字就要自己顶。顾晚潮每付一晚腕上少一格。"
+            "名额不是慈悲，是把谁推出去的手续，手续走完人就不在窗里了。"
+        ),
+    },
+]
+
+PROMISES = [
+    {
+        "text": "对门孩子三天没醒——那一小时是谁抽走的，抽走的人想拿它换什么。",
+        "setup": 1,
+        "tier": "book",
+        "resolution": "抽走的是顾晚潮自己少睡的一小时，续夜处要的是他把体温一样的时辰烧尽，而不是让他看见完整欠条。",
+    },
+    {
+        "text": "裴灯说户主从来不是宋照——户主的名字在薄账缺页里。",
+        "setup": 2,
+        "tier": "arc",
+        "resolution": "户主要顾晚潮自己变成账本，卷三必须在他腕上格数归零前改名，否则只剩全城替他睡。",
+    },
+    {
+        "text": "母亲的名字出现在裴灯灯罩里——顾晚潮必须决定付整晚还是另找一个顶。",
+        "setup": 3,
+        "tier": "arc",
+        "resolution": "付整晚会让他自己少一格到危险线；另找一个顶等于他变成郝敛。",
+    },
+]
+
+VOLUMES = [
+    {
+        "title": "欠夜",
+        "sort_order": 1,
+        "intro": (
+            "这一卷续夜处的壳还罩着，顾晚潮想把剩余时辰瞒过完这一年。"
+            "账却一笔笔摊开：对门孩子没醒；宋照要他补登记；裴灯报出母亲的名字；"
+            "郝敛给三分钟——交自己的夜，或看旁边的人被写进明早名单。"
+            "十二章十二笔，笼子还在，但已经不是他一个人腕上的事。"
+            "本卷计划约二十五万字，开篇十二章壳先立全；后段按近窗再铺，不一次生成每拍。"
+        ),
+    },
+    {
+        "title": "讨账",
+        "sort_order": 2,
+        "intro": (
+            "这一卷壳裂了，处里下场收没付清的夜。"
+            "计划七十章左右、约二十五万字：牧场式催收、令签锁定、薄账缺页被抽走、"
+            "顾晚潮从被追的人变成必须选边的人。"
+            "章壳规划：催收单元（谁先被收）、锁定单元（腕格与令签同频）、缺页单元（户主露半张脸）。"
+            "本卷不一次生成每拍总纲，只在卷责里把单元立住，近窗再立章。"
+        ),
+    },
+    {
+        "title": "停付",
+        "sort_order": 3,
+        "intro": (
+            "这一卷他试图停止把睡眠交给别人。"
+            "计划七十章左右：全城开始替他睡、裴灯灯灭、宋照自己被写成付账人。"
+            "章壳规划：停付实验、连环醒不过来、报灯社名额耗尽、他发现停付等于把自己写成户主。"
+            "不一次生成每拍。"
+        ),
+    },
+    {
+        "title": "还清",
+        "sort_order": 4,
+        "intro": (
+            "这一卷两条死路都走不通，要另找活法：不是交出去，也不是全城替他睡。"
+            "计划七十章左右收束：账本改成他的名字之前，他必须把货币本身废掉——"
+            "让睡眠重新只属于睡着的那个人。"
+            "章壳规划：废货币、拆续夜处、户主对质、城里再没有人替别人睡。"
+            "不一次生成每拍。"
+        ),
+    },
+]
+
+CHAPTERS = [
+    {"seq": 1, "title": "对门没醒", "vol": 0,
+     "synopsis": "对门孩子三天没醒，顾晚潮必须在把少睡的一小时补登记给宋照、和自己把今晚全付出去换孩子醒来之间选一个，裴灯在窗外提灯不出手。"},
+    {"seq": 2, "title": "补登记", "vol": 0,
+     "synopsis": "宋照把薄账摊开要顾晚潮补三年来瞒报的时辰，代价是腕上一次划掉十格，他得决定认不认这个价。"},
+    {"seq": 3, "title": "灯罩里的母亲", "vol": 0,
+     "synopsis": "裴灯灯罩里映出顾晚潮母亲的名字，明早名单还没敲定，他必须现在付整晚换名，或另找一个不认识的人顶上。"},
+    {"seq": 4, "title": "三分钟令签", "vol": 0,
+     "synopsis": "郝敛把令签贴在门上给顾晚潮三分钟：交出剩余时辰，或者看着对门整层被写进明早名单。"},
+    {"seq": 5, "title": "不准转账", "vol": 0,
+     "synopsis": "顾晚潮试把欠条转给郝敛的助手，对方当场睡死在楼道，宋照要他把这一笔也记回自己头上，不许再转。"},
+    {"seq": 6, "title": "报错的名字", "vol": 0,
+     "synopsis": "裴灯报错一个名字，按规矩要自己顶，顾晚潮必须决定替她付这一夜，还是让报灯社少一个还能走路的人。"},
+    {"seq": 7, "title": "薄账缺页", "vol": 0,
+     "synopsis": "宋照发现薄账少了一页，缺页上是户主的半个字，档案处要提前对账，顾晚潮知道一对就会有人被改写成付账人。"},
+    {"seq": 8, "title": "同频", "vol": 0,
+     "synopsis": "令签开始跟顾晚潮腕上的格同频，郝敛说这是交差前置，裴灯要他在同频锁死前把母亲的名字换下来。"},
+    {"seq": 9, "title": "整晚", "vol": 0,
+     "synopsis": "顾晚潮把今晚全部时辰付给母亲，醒来发现名单上多了宋照的父亲，宋照第一次开口求他不要再付。"},
+    {"seq": 10, "title": "户主不是他", "vol": 0,
+     "synopsis": "裴灯说出户主从来不是宋照，顾晚潮必须决定追缺页还是先把对门孩子从慢性名单里救出来。"},
+    {"seq": 11, "title": "顶名", "vol": 0,
+     "synopsis": "续夜处要一个顶名的人填满敲定后的空格，郝敛把合同递到顾晚潮手里，报灯社这边名额只剩一个。"},
+    {"seq": 12, "title": "笼子还在", "vol": 0,
+     "synopsis": "卷一收束：孩子醒了，母亲也醒了，腕上只剩危险线的格，顾晚潮发现笼子还在——下一卷讨账的人已经在楼下。"},
+]
+
+
+def speech_chars() -> str:
+    lines = [
+        "必须调用 s3_add_character 按原文写入落库，需我审批。",
+        "禁止 s3_generate_codex 另写一套，禁止改写成空话，禁止凑字。",
+        "每人一次调用，字段用我给的原文。顾晚潮 importance=protagonist。",
+        "",
+    ]
+    for c in CHARS:
+        lines.append(f"【{c['name']}】oid={c['oid']} importance={c['importance']}")
+        lines.append(f"外形：{c['appearance']}")
+        lines.append(f"性格细节：{c['personality_detail']}")
+        lines.append(f"表层目标：{c['surface_goal']}")
+        lines.append(f"深层需要：{c['deep_need']}")
+        lines.append(f"恐惧：{c['fear']}")
+        lines.append(f"内在冲突：{c['internal_conflict']}")
+        lines.append(f"前史：{c['backstory']}")
+        lines.append(f"能力：{c['abilities']}")
+        lines.append(f"弱点：{c['weaknesses']}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def speech_relations() -> str:
+    lines = [
+        "必须调用 s3_add_character_relation 写入落库，需我审批。按原文，禁止改写。src/dst 必须带 role: 前缀。",
+        "",
+    ]
+    for r in RELATIONS:
+        lines.append(
+            f"s3_add_character_relation src_oid={r['src']} dst_oid={r['dst']} "
+            f"relation={r['relation']} since_chapter={r['since']} note={r['note']}"
+        )
+    return "\n".join(lines)
+
+
+def speech_rules() -> str:
+    lines = [
+        "必须调用 s3_add_world_rule 写入落库，需我审批。每条都要带 cost/source/capabilities/limitations/exceptions。禁止凑字。",
+        "",
+    ]
+    for r in RULES:
+        lines.append(
+            f"名称：{r['name']} category={r['category']} source={r['source']}\n"
+            f"能力：{r['capabilities']}\n代价：{r['cost']}\n限制：{r['limitations']}\n例外：{r['exceptions']}\n"
+        )
+    return "\n".join(lines)
+
+
+def speech_facts() -> str:
+    lines = [
+        "必须调用 s3_add_fact 写入落库，需我审批。valid_from=1。禁止改写成空话。",
+        "",
+    ]
+    for oid, entity, attr, value, vf in FACTS:
+        lines.append(f"oid={oid} entity={entity} attribute={attr} value={value} valid_from={vf}")
+    return "\n".join(lines)
+
+
+def speech_fit() -> str:
+    lines = [
+        "必须调用 s3_add_faction。必须调用 s3_add_item。必须调用 s3_add_term。写入落库，需我审批。按原文，禁止 generate_codex 另写。",
+        "",
+        "【势力】",
+    ]
+    for f in FACTIONS:
+        lines.append(
+            f"name={f['name']} ideology={f['ideology']} public_face={f['public_face']} "
+            f"leader={f['leader']} goals={f['goals']}"
+        )
+    lines.append("\n【物件】")
+    for it in ITEMS:
+        lines.append(
+            f"name={it['name']} current_owner={it['current_owner']} "
+            f"special_properties={it['special_properties']} description={it['description']}"
+        )
+    lines.append("\n【术语】只写名称与短定义，不要硬凑长文。")
+    for name, cat, defn in TERMS:
+        lines.append(f"s3_add_term name={name} category={cat} definition={defn}")
+    return "\n".join(lines)
+
+
+def speech_motifs() -> str:
+    lines = [
+        "必须调用 s3_add_motif 写入落库，需我审批。theme/echoes/unfolding 按原文。禁止写成空话散文。",
+        "",
+    ]
+    for m in MOTIFS:
+        lines.append(
+            f"name={m['name']} theme={m['theme']} echoes={m['echoes']} unfolding={m['unfolding']}"
+        )
+    return "\n".join(lines)
+
+
+def speech_promises() -> str:
+    lines = [
+        "必须调用 s3_plant_promise 写入落库，需我审批。长期线必须带 resolution。禁止改写成空话。",
+        "",
+    ]
+    for p in PROMISES:
+        lines.append(
+            f"text={p['text']} setup_chapter={p['setup']} tier={p['tier']} resolution={p['resolution']}"
+        )
+    return "\n".join(lines)
+
+
+def speech_volumes() -> str:
+    lines = [
+        "必须调用 s3_add_volume 写入落库，需我审批。四卷，intro 用原文卷责，不要互相抄。",
+        "百万字先立卷，不一次生成每拍总纲。卷二三四只写卷责与章壳规划，不要在这一步建那两卷的全部章。",
+        "",
+    ]
+    for v in VOLUMES:
+        lines.append(f"title={v['title']} sort_order={v['sort_order']} intro={v['intro']}")
+    return "\n".join(lines)
+
+
+def speech_chapters(volume_ids: list[str]) -> str:
+    lines = [
+        "必须调用 s3_add_chapter 写入落库，需我审批。只建卷一的十二个章壳，只写标题并挂到卷一。",
+        "不要生成正文，不要跑五层，不要给卷二三四建章。",
+        "",
+    ]
+    for ch in CHAPTERS:
+        vid = volume_ids[ch["vol"]] if ch["vol"] < len(volume_ids) else ""
+        lines.append(f"seq={ch['seq']} title={ch['title']} volume_id={vid}")
+    return "\n".join(lines)
+
+
+def speech_synopses() -> str:
+    lines = [
+        "必须调用 s3_patch_chapter_meta 写入落库，需我审批。卷一十二章梗概按原文，不要改写成空话，不要凑字。",
+        "",
+    ]
+    for ch in CHAPTERS:
+        lines.append(f"seq={ch['seq']} title={ch['title']} synopsis={ch['synopsis']}")
+    return "\n".join(lines)
+
+
+def speech_stage(seq: int, stage: str) -> str:
+    return (
+        f"主编，给第 {seq} 章跑 {stage} 层，焦点者 {FOCALIZER}，落库。\n"
+        f"必须调用 s3_generate_stage(seq={seq}, stage={stage}, persist=true, focalizer={FOCALIZER})。\n"
+        f"只办这一层，不要连带下游。未获批准不得声称已落库。"
+    )
+
+
+def _assert_floors():
+    assert WORD_GOAL == 1_000_000
+    assert cn_len(NORTH_STAR) >= 20
+    for c in CHARS:
+        assert cn_len(c["personality_detail"]) >= 70, c["name"]
+        assert cn_len(c["backstory"]) >= 70, c["name"]
+    for m in MOTIFS:
+        assert cn_len(m["theme"]) >= 36, m["name"]
+        assert cn_len(m["unfolding"]) >= 50, m["name"]
+    for ch in CHAPTERS:
+        assert cn_len(ch["synopsis"]) >= 36, ch["title"]
+    syns = [ch["synopsis"][:20] for ch in CHAPTERS]
+    assert len(set(syns)) == len(syns), "梗概开头不得互抄"
+    assert len(VOLUMES) == 4
+    assert len(CHAPTERS) == 12
+
+
+_assert_floors()

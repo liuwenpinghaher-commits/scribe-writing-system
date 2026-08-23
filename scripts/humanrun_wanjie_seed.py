@@ -7,6 +7,7 @@ import re
 N_DEFAULT = 1
 FOCALIZER = "role:柳岸青"
 WORD_GOAL = 45000
+BOOK_TITLE = "万界概率战争"
 
 
 def cn_len(s: str) -> int:

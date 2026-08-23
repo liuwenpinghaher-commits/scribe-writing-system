@@ -20,26 +20,43 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from scripts.humanrun_wanjie_seed import (  # noqa: E402
-    CHAPTERS,
-    CHARS,
-    FOCALIZER,
-    INTENT_SPEECH,
-    N_DEFAULT,
-    NORTH_STAR,
-    cn_len,
-    speech_chars,
-    speech_chapters,
-    speech_facts,
-    speech_fit,
-    speech_motifs,
-    speech_promises,
-    speech_relations,
-    speech_rules,
-    speech_stage,
-    speech_synopses,
-    speech_volumes,
-)
+from scribe3.structure_budget import word_goal_accepted  # noqa: E402
+
+SEED = None  # main() 里按 --profile 装
+
+
+def _bind_seed(mod):
+    global SEED, CHAPTERS, CHARS, FOCALIZER, INTENT_SPEECH, N_DEFAULT, NORTH_STAR
+    global BOOK_TITLE, VOLUMES, WORD_GOAL, cn_len
+    global speech_chars, speech_chapters, speech_facts, speech_fit, speech_motifs
+    global speech_promises, speech_relations, speech_rules, speech_stage
+    global speech_synopses, speech_volumes
+    SEED = mod
+    CHAPTERS = mod.CHAPTERS
+    CHARS = mod.CHARS
+    FOCALIZER = mod.FOCALIZER
+    INTENT_SPEECH = mod.INTENT_SPEECH
+    N_DEFAULT = mod.N_DEFAULT
+    NORTH_STAR = mod.NORTH_STAR
+    BOOK_TITLE = getattr(mod, "BOOK_TITLE", "未命名")
+    VOLUMES = mod.VOLUMES
+    WORD_GOAL = mod.WORD_GOAL
+    cn_len = mod.cn_len
+    speech_chars = mod.speech_chars
+    speech_chapters = mod.speech_chapters
+    speech_facts = mod.speech_facts
+    speech_fit = mod.speech_fit
+    speech_motifs = mod.speech_motifs
+    speech_promises = mod.speech_promises
+    speech_relations = mod.speech_relations
+    speech_rules = mod.speech_rules
+    speech_stage = mod.speech_stage
+    speech_synopses = mod.speech_synopses
+    speech_volumes = mod.speech_volumes
+
+
+import scripts.humanrun_wanjie_seed as _default_seed  # noqa: E402
+_bind_seed(_default_seed)
 
 BASE = os.environ.get("API_BASE", "https://tonglu.qing.blue")
 JAR = os.environ.get("COOKIE_JAR", "/tmp/humanrun_cookie.txt")
@@ -304,7 +321,7 @@ def s1(r: Runner) -> None:
         print("  resume slug", r.slug, flush=True)
         return
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
-    title = f"万界概率战争·真人建书·N{r.n}·{stamp}"
+    title = f"{BOOK_TITLE}·真人建书·N{r.n}·{stamp}"
     code, res = curl("POST", "/api/works", {"title": title}, timeout=120)
     if code not in ("200", "201") or not isinstance(res, dict):
         raise SystemExit(f"create work failed {code} {res}")
@@ -335,7 +352,7 @@ def s2(r: Runner) -> None:
     twg = intent.get("total_word_goal")
     ok = bool(ns) and cn_len(rf) >= 10 and cn_len(ea) >= 4 and (
         str(rl).count("\n") + 1 >= 3 or cn_len(str(rl)) >= 20
-    ) and isinstance(twg, int) and 40000 <= twg <= 60000
+    ) and word_goal_accepted(twg)
     generic = ("任何小说" in ns) or (ns and ns in ("写出好故事", "感动读者"))
     print("  north_star", ns[:80], "ok", ok, "generic", generic, flush=True)
     if not ok:
@@ -402,7 +419,8 @@ def s4(r: Runner) -> None:
     # 按 sort_order / 标题对齐
     ids = []
     by_title = { (v.get("title") or ""): v for v in vols if isinstance(v, dict) }
-    for want in ("囚笼", "泄露", "第三条路"):
+    for spec in VOLUMES:
+        want = spec.get("title") or ""
         hit = by_title.get(want) or {}
         vid = hit.get("id") or hit.get("volume_id") or ""
         if isinstance(vid, str) and ":" in vid:
@@ -666,12 +684,21 @@ def s7(r: Runner) -> None:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--n", type=int, default=N_DEFAULT)
+    ap.add_argument("--n", type=int, default=0)
     ap.add_argument("--slug", default=os.environ.get("HUMANRUN_SLUG") or "")
     ap.add_argument("--stop-after", default="s7", help="s0..s7")
     ap.add_argument("--start-from", default="s0", help="s0..s7，跳过更早阶段")
     ap.add_argument("--evid", default="")
+    ap.add_argument("--profile", default=os.environ.get("HUMANRUN_PROFILE") or "wanjie",
+                    help="wanjie | million")
     args = ap.parse_args()
+    if args.profile == "million":
+        import scripts.humanrun_million_seed as mill
+        _bind_seed(mill)
+    elif args.profile != "wanjie":
+        raise SystemExit("profile must be wanjie or million")
+    if args.n <= 0:
+        args.n = N_DEFAULT
     if args.n < 1 or args.n > 10:
         raise SystemExit("N must be 1..10")
     stamp = datetime.now().strftime("%Y%m%d")

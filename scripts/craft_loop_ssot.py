@@ -14,6 +14,11 @@ import urllib.request
 import http.cookiejar
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from scribe3.structure_budget import word_goal_accepted  # noqa: E402
+
 
 def cn_len(s: str) -> int:
     return len(re.sub(r"\s+", "", (s or "").strip()))
@@ -70,8 +75,7 @@ def main() -> int:
 
     scaffold = {
         "CL-B0-H1": cn_len(intent.get("reader_feeling") or "") >= 10,
-        "CL-B0-H4": isinstance(intent.get("total_word_goal"), int)
-        and 40000 <= int(intent["total_word_goal"]) <= 60000,
+        "CL-B0-H4": word_goal_accepted(intent.get("total_word_goal")),
         "CL-B2-H1": syn >= 80,
         "CL-B3-H1": len(beats) >= 3,
         "CL-B4-H1": st_len >= 80,
