@@ -215,6 +215,7 @@ function RecallPanel() {
 function InboxPanel({ seq, onCount }) {
   const [data, setData] = useState(null)
   const [confirmFinalize, setConfirmFinalize] = useState(null)   // R1-3:delivered 终选二次确认(null=无)
+  const [dismissBusy, setDismissBusy] = useState(null)
   const pullRef = useRef(null)
   useEffect(() => {
     let dead = false, timer = null
@@ -254,11 +255,13 @@ function InboxPanel({ seq, onCount }) {
       })
       .catch((e) => showToast(e?.body?.detail || '放行失败', { tone: 'danger' }))
   const doDismiss = (id) => {
-    if (!id) return
+    if (!id || dismissBusy) return
+    setDismissBusy(id)
     api.dismissInboxItem(id).then(() => {
       showToast('已忽略', { tone: 'ok' })
       pullRef.current?.()
     }).catch((e) => showToast(e?.body?.detail || '忽略失败', { tone: 'danger' }))
+      .finally(() => setDismissBusy(null))
   }
   const doResolve = (id) =>
     api.resolveIdea(id).then(() => {
@@ -295,9 +298,10 @@ function InboxPanel({ seq, onCount }) {
           <div className="text-f12 text-ink leading-snug">{it.message}</div>
           {it.id && (
             <button type="button" data-testid="inbox-dismiss"
+              disabled={dismissBusy === it.id}
               onClick={() => doDismiss(it.id)}
-              className="mt-1 text-meta text-faint hover:text-ink hover:underline cursor-pointer">
-              忽略
+              className="mt-1 text-meta text-faint hover:text-ink hover:underline cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+              {dismissBusy === it.id ? '忽略中…' : '忽略'}
             </button>
           )}
           {/* R2-4:交付卡结构化渲染(埋/收清单+QC+完整拿不准)——此前后端产出前端永不显示 */}

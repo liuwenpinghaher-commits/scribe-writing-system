@@ -603,7 +603,7 @@ class ConnectionMixin:
             degraded.append("structure_style")
             advisory["structure_style"] = None
         try:
-            from scribe3.api.services.write_assemble import get_last_write_budget_report
+            from scribe3.diagnostics.budget_report import get_last_write_budget_report
             from scribe3.density_trace_store import resolve_density_for_scorecard
             _br = get_last_write_budget_report() or {}
             _dens, _ddelta = resolve_density_for_scorecard(

@@ -30,6 +30,25 @@ jobs:
         run: |
           python -m compileall scribe3 -q
           python -c "import scribe3.app"
+          python -c "
+          from pathlib import Path
+          for p in ['scribe3/playbook/pipeline.py', 'scribe3/stage_generate.py']:
+              for i, line in enumerate(Path(p).read_text(encoding='utf-8').splitlines(), 1):
+                  if line.lstrip().startswith('async def '):
+                      raise SystemExit(f'{p}:{i} write path must stay sync')
+          print('write_path_sync_ok')
+          "
+          python -c "
+          from pathlib import Path
+          bad = []
+          for p in Path('scribe3/store').rglob('*.py'):
+              t = p.read_text(encoding='utf-8')
+              if 'from scribe3.api' in t or 'import scribe3.api' in t:
+                  bad.append(str(p))
+          if bad:
+              raise SystemExit('store reverse import: ' + ', '.join(bad))
+          print('store_layer_ok')
+          "
       - run: python -m pytest scribe3/tests -q
         env:
           SCRIBE3_SURREAL_URL: ws://127.0.0.1:8001/rpc

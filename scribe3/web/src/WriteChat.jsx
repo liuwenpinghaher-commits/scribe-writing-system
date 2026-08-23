@@ -410,7 +410,14 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
           }
         }).catch(() => {})
       },
-      onError: (err) => { activeRunIdsRef.current.clear(); mut((l) => ({ ...l, content: l.content + `\n\n_出错:${err}_` })); setBusy(false) },
+      onRetry: () => mut((l) => ({ ...l, content: (l.content || '') + (l.content?.includes('重新连接') ? '' : '\n\n_重新连接中..._') })),
+      onError: (err) => {
+        activeRunIdsRef.current.clear()
+        const hint = String(err || '')
+        const guide = hint.includes('旅程') ? '\n可点左栏「写作旅程」先立北极星和母题。' : ''
+        mut((l) => ({ ...l, content: l.content + `\n\n_出错:${hint}${guide}_` }))
+        setBusy(false)
+      },
     }
     const toolsThisTurn = []
     let orchPkg = null

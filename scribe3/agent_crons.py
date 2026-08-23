@@ -282,6 +282,16 @@ def load_hermes_cron_aggregate(*, force: bool = False) -> dict[str, Any]:
     return dict(out)
 
 
+def retry_failed_ingests_job(store: Any) -> dict[str, Any]:
+    from scribe3.ingest_integrity import retry_failed_ingests
+    return retry_failed_ingests(store, max_retries=3)
+
+
+def retry_pending_extracts_job(complete_fn=None) -> dict[str, Any]:
+    from scribe3.extract_retry import retry_pending_extracts
+    return retry_pending_extracts(complete_fn)
+
+
 def check_overdue_promises(store: Any) -> dict[str, Any]:
     """每日伏笔超期：2 条告警，3 条硬拦由写路径闸负责。"""
     from scribe3.alerts import emit_alert
@@ -305,15 +315,36 @@ def check_overdue_promises(store: Any) -> dict[str, Any]:
 def build_agent_crons_response() -> dict[str, Any]:
     """GET /agent-crons：catalog + 聚合 + per-job hermes 匹配。"""
     jobs = load_cron_catalog()
-    if not any(str(j.get("name") or "") == "check_overdue_promises" for j in jobs):
-        jobs.append({
+    extras = [
+        {
             "name": "check_overdue_promises",
             "schedule": "0 9 * * *",
             "script": "scribe3.agent_crons.check_overdue_promises",
             "enabled": True,
             "catalog_enabled": True,
             "note_zh": "每日 9 点：超期伏笔 ≥2 条告警",
-        })
+        },
+        {
+            "name": "retry_failed_ingests",
+            "schedule": "*/5 * * * *",
+            "script": "scribe3.agent_crons.retry_failed_ingests_job",
+            "enabled": True,
+            "catalog_enabled": True,
+            "note_zh": "每 5 分钟：知识回写失败自动再试，最多 3 次",
+        },
+        {
+            "name": "retry_pending_extracts",
+            "schedule": "*/15 * * * *",
+            "script": "scribe3.agent_crons.retry_pending_extracts_job",
+            "enabled": True,
+            "catalog_enabled": True,
+            "note_zh": "抽取失败后再试",
+        },
+    ]
+    have = {str(j.get("name") or "") for j in jobs}
+    for extra in extras:
+        if extra["name"] not in have:
+            jobs.append(extra)
     hermes = load_hermes_cron_aggregate()
     hermes_jobs = load_hermes_cron_jobs()
     for row in jobs:

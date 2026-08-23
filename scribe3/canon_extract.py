@@ -83,6 +83,11 @@ def extract_claims_from_prose(
                 emit_alert("ingest_extract_fail", f"抽取失败: {type(e).__name__}")
             except Exception:
                 pass
+            try:
+                from scribe3.extract_retry import queue_extract_retry
+                queue_extract_retry(text, reason=type(e).__name__)
+            except Exception:
+                pass
     elif m in ("llm", "hybrid") and not complete_fn:
         _log.info("canon extract mode=%s but no complete_fn; markers only (+heur if hybrid)", m)
 

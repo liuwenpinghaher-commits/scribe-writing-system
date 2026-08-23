@@ -25,6 +25,7 @@ def journey_precheck_block(st: Any) -> dict[str, Any] | None:
             return {
                 "code": "journey_precheck",
                 "message": "还没立北极星或母题，先走完旅程再开写",
+                "hint": "请先完成旅程设定",
             }
     except Exception:
         return None

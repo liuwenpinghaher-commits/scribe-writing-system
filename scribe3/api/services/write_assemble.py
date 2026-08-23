@@ -18,45 +18,16 @@ from functools import wraps
 from typing import Any, Optional
 
 
-# novel-first：写路径软失败计数 + 最近一次 budget_report（无 I/O · 可观测）
-_WRITE_SOFT_FAIL_COUNTERS: dict[str, int] = {
-    "epistemic_guard": 0,
-    "empty_drama": 0,
-    "empty_outline": 0,
-    "continue_snapshot_skip": 0,
-}
-_LAST_WRITE_BUDGET_REPORT: dict[str, Any] = {}
-_WRITE_OBS_LOCK = threading.Lock()
-
-
-def record_write_soft_fail(kind: str) -> None:
-    """递增 soft-fail 计数并打结构化日志（非成本 KPI）。"""
-    key = str(kind or "unknown")
-    with _WRITE_OBS_LOCK:
-        _WRITE_SOFT_FAIL_COUNTERS[key] = int(_WRITE_SOFT_FAIL_COUNTERS.get(key, 0)) + 1
-        count = _WRITE_SOFT_FAIL_COUNTERS[key]
-    logging.getLogger("scribe3").info(
-        "write_soft_fail kind=%s count=%s", key, count,
-    )
-
-
-def get_write_soft_fail_counters() -> dict[str, int]:
-    with _WRITE_OBS_LOCK:
-        return dict(_WRITE_SOFT_FAIL_COUNTERS)
-
-
-def get_last_write_budget_report() -> dict[str, Any]:
-    """最近一次 V1/V2 组装的 budget_report（可能为空 dict）。"""
-    with _WRITE_OBS_LOCK:
-        return dict(_LAST_WRITE_BUDGET_REPORT)
-
-
-def _store_write_budget_report(report: dict[str, Any] | None) -> None:
-    if not report:
-        return
-    with _WRITE_OBS_LOCK:
-        _LAST_WRITE_BUDGET_REPORT.clear()
-        _LAST_WRITE_BUDGET_REPORT.update(report)
+# 预算报告真源在 diagnostics，避免 store 反向 import api。
+from scribe3.diagnostics.budget_report import (  # noqa: E402
+    _LAST_WRITE_BUDGET_REPORT,
+    _WRITE_OBS_LOCK,
+    _WRITE_SOFT_FAIL_COUNTERS,
+    _store_write_budget_report,
+    get_last_write_budget_report,
+    get_write_soft_fail_counters,
+    record_write_soft_fail,
+)
 
 
 # Note: function bodies resolve free names via rebound globals on app_impl.

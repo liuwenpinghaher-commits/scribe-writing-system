@@ -331,13 +331,14 @@ def _thicken_stage_body(
             blob = _json.dumps(
                 {k: out.get(k) for k in ("synopsis", "beats", "goal", "choice", "duty") if out.get(k)},
                 ensure_ascii=False,
+                separators=(",", ":"),
             )[:8000]
             st.add_chapter_version(
                 n, blob or stg, label=f"{stg}-outline",
                 kind="outline", stage=stg, summary=f"{stg} 大纲快照",
             )
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning("outline snapshot failed for ch=%s: %s", n, e)
     return out
 
 

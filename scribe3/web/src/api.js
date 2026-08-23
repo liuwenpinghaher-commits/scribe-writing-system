@@ -782,22 +782,32 @@ export const api = {
       },
     }
   },
-  chatWrite: (msg, { chapter = 1, focalizer = '', images = [], phase = '', context = null, onDelta, onTool, onToolOutput, onProposalStart, onProposalChunk, onProposal, onApproval, onApprovalResolved, onDone, onError }) => {
+  chatWrite: (msg, { chapter = 1, focalizer = '', images = [], phase = '', context = null, idleMs = 180000, onDelta, onTool, onToolOutput, onProposalStart, onProposalChunk, onProposal, onApproval, onApprovalResolved, onDone, onError, onRetry }) => {
     const ctrl = new AbortController()
     // Task 6:context 为线程模式下的绑定/焦点(thread_id/context_*/focus),
     // 逐字段并入请求体(后端 ChatWriteReq 全 optional,不传即现状)。
     const body = { msg, chapter, focalizer, images, phase, ...(context || {}) }
-    const idleMs = 180000
+    const idle = Number(idleMs) > 0 ? Number(idleMs) : 180000
     const maxTries = 3
     let attempt = 0
     let gotData = false
     const consume = async (res, local) => {
-      if (!res.ok) { onError?.(`HTTP ${res.status}`); return true }
+      if (!res.ok) {
+        let hint = ''
+        try {
+          const j = await res.json()
+          const d = j?.detail
+          if (d && typeof d === 'object') hint = d.hint || d.message || ''
+          else if (typeof d === 'string') hint = d
+        } catch (_) { /* */ }
+        onError?.(hint || `HTTP ${res.status}`)
+        return true
+      }
       const reader = res.body.getReader()
       const dec = new TextDecoder()
       let buf = ''
-      let idleTimer = setTimeout(() => local.abort(), idleMs)
-      const bump = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => local.abort(), idleMs) }
+      let idleTimer = setTimeout(() => local.abort(), idle)
+      const bump = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => local.abort(), idle) }
       try {
         while (true) {
           const { done, value } = await reader.read()
@@ -841,24 +851,24 @@ export const api = {
       attempt += 1
       const local = new AbortController()
       const onAbort = () => local.abort()
-      ctrl.signal.addEventListener('abort', onAbort)
+      ctrl.signal.addEventListener('abort', onAbort, { once: true })
       fetch(BASE + ww('/chat/write'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
         signal: local.signal,
       }).then((res) => consume(res, local)).then((done) => {
-        ctrl.signal.removeEventListener('abort', onAbort)
         if (done || ctrl.signal.aborted) return
         if (attempt < maxTries && !gotData) {
+          onRetry?.({ attempt, maxTries })
           setTimeout(run, Math.min(1000 * (2 ** (attempt - 1)), 8000))
           return
         }
         onError?.('网络错误')
       }).catch((e) => {
-        ctrl.signal.removeEventListener('abort', onAbort)
         if (ctrl.signal.aborted || e.name === 'AbortError') return
         if (attempt < maxTries && !gotData) {
+          onRetry?.({ attempt, maxTries })
           setTimeout(run, Math.min(1000 * (2 ** (attempt - 1)), 8000))
           return
         }

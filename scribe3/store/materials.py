@@ -10,23 +10,31 @@ from scribe3.store.core_preamble import *  # noqa: F403
 _log = logging.getLogger("scribe3")
 
 
-def rank_materials_hybrid(query: str, items: list[dict]) -> list[dict]:
-    """BM25 命中后再按标题/摘要贴近度排。无向量时仍是 hybrid 的字面层。"""
+def rank_materials_hybrid(
+    query: str,
+    items: list[dict],
+    vec_scores: dict[str, float] | None = None,
+) -> list[dict]:
+    """字面命中 + 向量分加权。vec_scores 为 id→相似度(0~1)。"""
     q = (query or "").strip().lower()
-    if not q or not items:
-        return list(items or [])
+    vec_scores = vec_scores or {}
+    if not items:
+        return []
     scored = []
     for m in items:
         title = str(m.get("title") or "").lower()
         blob = "\n".join([
             title, str(m.get("body") or ""), str(m.get("summary") or ""),
         ]).lower()
-        score = blob.count(q)
-        if q in title:
+        score = blob.count(q) if q else 0
+        if q and q in title:
             score += 3
-        scored.append((score, m))
-    scored.sort(key=lambda x: -x[0])
-    return [m for _, m in scored]
+        mid = str(m.get("id") or "")
+        vs = float(vec_scores.get(mid) or 0.0)
+        score += vs * 5.0
+        scored.append((score, vs, m))
+    scored.sort(key=lambda x: (-x[0], -x[1]))
+    return [m for _, _, m in scored]
 
 # 导入 job 默认 TTL(秒):24h
 _IMPORT_JOB_TTL_SEC = 24 * 3600
@@ -135,13 +143,29 @@ class MaterialsMixin:
 
         needle = (q or "").strip().lower()
         if needle:
-            rows = [m for m in rows if needle in "\n".join([
-                str(m.get("title") or ""), str(m.get("body") or ""),
-                str(m.get("summary") or ""),
-                " ".join(m.get("tags") or []), " ".join(m.get("ref_tags") or []),
-            ]).lower()]
-            if str(mode or "").strip().lower() == "hybrid":
-                rows = rank_materials_hybrid(q, rows)
+            def _blob(m):
+                return "\n".join([
+                    str(m.get("title") or ""), str(m.get("body") or ""),
+                    str(m.get("summary") or ""),
+                    " ".join(m.get("tags") or []), " ".join(m.get("ref_tags") or []),
+                ]).lower()
+            kw = [m for m in rows if needle in _blob(m)]
+            hybrid = str(mode or "").strip().lower() == "hybrid"
+            vec_scores: dict[str, float] = {}
+            extra: list[dict] = []
+            if hybrid:
+                try:
+                    vec_scores = self._material_knn_scores(q, k=max(20, len(kw) or 8))
+                    by_id = {str(m.get("id") or ""): m for m in rows}
+                    seen = {str(m.get("id") or "") for m in kw}
+                    for mid, sim in vec_scores.items():
+                        if sim >= 0.3 and mid in by_id and mid not in seen:
+                            extra.append(by_id[mid])
+                            seen.add(mid)
+                except Exception:
+                    vec_scores = {}
+            merged = kw + extra
+            rows = rank_materials_hybrid(q, merged, vec_scores=vec_scores) if hybrid else kw
 
         total = len(rows)
         if limit is None:
@@ -244,6 +268,29 @@ class MaterialsMixin:
         text = f"{title or ''}\n{body or ''}"
         toks = tokenize_for_fts(text)
         return toks, embed([text])[0]
+
+    def _material_knn_scores(self, query: str, k: int = 20) -> dict[str, float]:
+        """素材向量近邻：id → 1-距离。失败返回空，调用方降级字面层。"""
+        q = (query or "").strip()
+        if not q:
+            return {}
+        from scribe3.embed import embed
+        knn_k = max(5, int(k))
+        qv = embed([q])[0]
+        rows = self._query(
+            f"SELECT meta::id(id) AS id, vector::distance::knn() AS dist FROM material "
+            f"WHERE embedding <|{knn_k},{max(40, knn_k)}|> $qv "
+            f"AND (archived = NONE OR archived != true) ORDER BY dist",
+            {"qv": qv},
+        ) or []
+        out: dict[str, float] = {}
+        for r in rows:
+            mid = str(r.get("id") or "")
+            if not mid:
+                continue
+            dist = float(r.get("dist") or 0.0)
+            out[mid] = max(0.0, min(1.0, 1.0 - dist))
+        return out
 
     def _material_embedding(self, material_id: str):
         rows = self._query(
