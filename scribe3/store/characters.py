@@ -73,15 +73,22 @@ class CharactersMixin:
                                "fear": r.get("fear"),
                                "gender": r.get("gender") or ""}) for r in rows]
 
-    def _all_char_states_bulk(self) -> list[dict]:
-        """批量查全表所有角色弧光记录,一次往返。
+    def _all_char_states_bulk(self, ch_from: int | None = None,
+                             ch_to: int | None = None) -> list[dict]:
+        """批量查角色弧光记录,一次往返。
         供 timeline() 弧光泳道使用——替代逐角色 list_char_states 循环(N 角色→N 次单查)。
-        返回与 list_char_states 字段完全一致,额外保留 character_id 供 Python 侧分组。"""
+        返回与 list_char_states 字段完全一致,额外保留 character_id 供 Python 侧分组。
+        给了章窗则 WHERE chapter BETWEEN（TML-05）。"""
+        where = ""
+        vars: dict = {}
+        if ch_from is not None and ch_to is not None:
+            where = " WHERE chapter >= $lo AND chapter <= $hi"
+            vars = {"lo": int(ch_from), "hi": int(ch_to)}
         return self._query(
             "SELECT meta::id(id) AS id, character_id, chapter, change_type, summary, "
             "before_state, after_state, trigger_event, arc_phase, affects_voice, confidence, "
             "lie_belief "
-            "FROM char_state ORDER BY chapter ASC")
+            "FROM char_state" + where + " ORDER BY chapter ASC", vars)
 
     def add_character_relation(self, src_oid: str, dst_oid: str, relation: str,
                                since_chapter: int, note: str | None = None) -> None:

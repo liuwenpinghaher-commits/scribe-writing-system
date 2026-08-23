@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { liveTouchesTable } from '../lib/liveRefresh.js'
+import { maybeToastRollback } from '../lib/pilotRollback.js'
 import { Compass, ArrowRight, RefreshCw } from 'lucide-react'
 import { api } from '../api'
 import { Btn } from '../ui.jsx'
@@ -26,7 +27,7 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
     setLoading(true)
     setErr('')
     api.workflowSnapshot()
-      .then((s) => setSnap(s))
+      .then((s) => { setSnap(s); maybeToastRollback(s) })
       .catch((e) => setErr(e?.message || '加载失败'))
       .finally(() => setLoading(false))
   }, [])
@@ -254,13 +255,31 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
           </ol>
         </section>
 
-        {snap?.quality_stalled ? (
+        {(snap?.stall_level === 'critical' || lane?.stall_level === 'critical') ? (
+          <section
+            className="rounded-lg border border-danger/40 bg-danger/[.08] p-3"
+            data-testid="journey-stall-critical"
+          >
+            <div className="text-f14 font-medium text-ink">这一章停了超过两小时</div>
+            <p className="mt-1 text-meta text-faint">自动步没再往前走。请你看一眼，或手动推进一步。</p>
+          </section>
+        ) : (snap?.stall_level === 'warning' || lane?.stall_level === 'warning' || snap?.quality_stalled || lane?.quality_stalled) ? (
           <section
             className="rounded-lg border border-warn/40 bg-warn/[.08] p-3"
             data-testid="journey-quality-stalled"
           >
-            <div className="text-f14 font-medium text-ink">质量循环已保留最优稿</div>
-            <p className="mt-1 text-meta text-faint">这一章反复打磨后停在最好的一版，等你看过再往下。</p>
+            <div className="text-f14 font-medium text-ink">这一章停了半小时以上</div>
+            <p className="mt-1 text-meta text-faint">自动步超时未推进。不是你主动停靠，请检查或手动推进一步。</p>
+          </section>
+        ) : null}
+
+        {(lane?.parked || snap?.chapter_lane?.parked) ? (
+          <section
+            className="rounded-lg border border-line/60 bg-soft/40 p-3"
+            data-testid="journey-parked"
+          >
+            <div className="text-f14 font-medium text-ink">已主动停靠</div>
+            <p className="mt-1 text-meta text-faint">{lane?.parked || snap?.chapter_lane?.parked}</p>
           </section>
         ) : null}
 
@@ -333,6 +352,14 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
               <span className="px-2 py-0.5 rounded-full bg-brand/10 text-brand text-meta">
                 {lane.pilot_state_label || lane.pilot_state}
               </span>
+              {(lane.waiting_approval || snap?.waiting_approval) && (
+                <span
+                  data-testid="journey-waiting-approval"
+                  className="px-2 py-0.5 rounded-full bg-warn/15 text-warn text-meta font-medium"
+                >
+                  等待你审批
+                </span>
+              )}
             </div>
             <div className="mb-2 flex flex-wrap items-center gap-2" data-testid="journey-post-analysis-row">
               {lane.post_analysis?.present && lane.post_analysis?.fp_match !== false ? (
@@ -415,15 +442,18 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
                   <span
                     key={p.id}
                     data-status={p.status}
+                    data-needs-author={p.needs_author ? '1' : undefined}
                     className={
-                      p.status === 'current'
-                        ? 'px-1.5 py-0.5 rounded text-meta bg-brand/15 text-brand font-medium'
-                        : p.status === 'done'
-                          ? 'px-1.5 py-0.5 rounded text-meta bg-soft text-faint'
-                          : 'px-1.5 py-0.5 rounded text-meta text-faint/50'
+                      p.status === 'current' && p.needs_author
+                        ? 'px-1.5 py-0.5 rounded text-meta bg-warn/15 text-warn font-medium'
+                        : p.status === 'current'
+                          ? 'px-1.5 py-0.5 rounded text-meta bg-brand/15 text-brand font-medium'
+                          : p.status === 'done'
+                            ? 'px-1.5 py-0.5 rounded text-meta bg-soft text-faint'
+                            : 'px-1.5 py-0.5 rounded text-meta text-faint/50'
                     }
                   >
-                    {p.label}
+                    {p.label}{p.status === 'current' && p.needs_author ? ' · 等你' : ''}
                   </span>
                 ))}
               </div>

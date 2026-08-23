@@ -596,56 +596,56 @@
     "title": "因果弧线SVG未实现",
     "priority": "P2",
     "stage": "3",
-    "status": "decision: P2 SVG 因果弧远期",
-    "note": "decision: P2 SVG 因果弧远期"
+    "status": "done",
+    "note": "vis-timeline changed/afterDraw 画因果 SVG"
   },
   {
     "id": "TML-03",
     "title": "时间线选中伏笔后无操作入口",
     "priority": "P2",
     "stage": "5",
-    "status": "decision: P2 时间线伏笔兑现按钮远期",
-    "note": "decision: P2 时间线伏笔兑现按钮远期"
+    "status": "done",
+    "note": "DetailPanel 兑现/弃置/标障眼法"
   },
   {
     "id": "TML-04",
     "title": "记忆否认未与canon事实交叉",
     "priority": "P2",
     "stage": "5",
-    "status": "decision: P2 记忆否认交叉远期",
-    "note": "decision: P2 记忆否认交叉远期"
+    "status": "done",
+    "note": "post_check facts_at 前 16 字作标记"
   },
   {
     "id": "TML-05",
     "title": "全表查无WHERE（story轴模式）",
     "priority": "P2",
     "stage": "5",
-    "status": "decision: P2 story 轴 WHERE 优化远期",
-    "note": "decision: P2 story 轴 WHERE 优化远期"
+    "status": "done",
+    "note": "story 轴 WHERE story_chapter BETWEEN"
   },
   {
     "id": "TML-06",
     "title": "缺少\"跳到第N章\"直达能力",
     "priority": "P2",
     "stage": "5",
-    "status": "decision: P2 跳到第 N 章输入框远期",
-    "note": "decision: P2 跳到第 N 章输入框远期"
+    "status": "done",
+    "note": "顶栏跳到第 N 章"
   },
   {
     "id": "TML-07",
     "title": "选中联动不传播因果链/弧光",
     "priority": "P2",
     "stage": "3",
-    "status": "decision: P2 选中联动因果远期",
-    "note": "decision: P2 选中联动因果远期"
+    "status": "done",
+    "note": "选中加 vis-highlighted 前驱/同角色弧光"
   },
   {
     "id": "TML-08",
     "title": "faction.timeline字段前端零消费",
     "priority": "P3",
     "stage": "5",
-    "status": "decision: P3 faction.timeline 标 deferred",
-    "note": "decision: P3 faction.timeline 标 deferred"
+    "status": "done",
+    "note": "势力大事记泳道"
   },
   {
     "id": "JNY-01",
@@ -676,40 +676,40 @@
     "title": "8个pilot状态压缩为5个，需审批状态被隐藏",
     "priority": "P2",
     "stage": "5",
-    "status": "decision: P2 审批态视觉差远期",
-    "note": "decision: P2 审批态视觉差远期"
+    "status": "done",
+    "note": "等待你审批徽章"
   },
   {
     "id": "JNY-05",
     "title": "前三站\"继续\"依赖NLU匹配精准度弱",
     "priority": "P2",
     "stage": "5",
-    "status": "decision: P2 domainHint 映射远期",
-    "note": "decision: P2 domainHint 映射远期"
+    "status": "done",
+    "note": "next_step.domain + domainHintFromNext"
   },
   {
     "id": "JNY-06",
     "title": "WorkflowCapsule轮询无backoff，消失无解释",
     "priority": "P2",
     "stage": "5",
-    "status": "decision: P2 胶囊 backoff 远期",
-    "note": "decision: P2 胶囊 backoff 远期"
+    "status": "done",
+    "note": "失败保留旧进度并 12→24→48s"
   },
   {
     "id": "JNY-07",
     "title": "章被打回无事件通知",
     "priority": "P2",
     "stage": "5",
-    "status": "decision: P2 打回 toast 远期",
-    "note": "decision: P2 打回 toast 远期"
+    "status": "done",
+    "note": "状态回退 toast"
   },
   {
     "id": "JNY-08",
     "title": "停滞检测无分级",
     "priority": "P2",
     "stage": "5",
-    "status": "decision: P2 停滞分级远期",
-    "note": "decision: P2 停滞分级远期"
+    "status": "done",
+    "note": "warning 30min / critical 2h / parked"
   },
   {
     "id": "DIR-01",

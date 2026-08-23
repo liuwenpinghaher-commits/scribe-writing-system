@@ -47,6 +47,20 @@ class MiniStore:
     def max_chapter(self):
         return max(int(c["seq"]) for c in self.chapters)
 
+    def get_pilot_state_fields(self, seq):
+        return dict(self._pilot.get(int(seq), {
+            "pilot_state": "idle", "pilot_state_at": None, "pilot_parked": "",
+        }))
+
+    def set_pilot_state(self, seq, state, parked="", *, at=None):
+        p = self._pilot.setdefault(int(seq), {
+            "pilot_state": "idle", "pilot_state_at": None, "pilot_parked": "",
+        })
+        p["pilot_state"] = state
+        p["pilot_parked"] = parked or ""
+        if at is not None:
+            p["pilot_state_at"] = at
+
     def _query(self, q, params=None):
         seq = int((params or {}).get("seq") or 0)
         row = self._pilot.get(seq) or {

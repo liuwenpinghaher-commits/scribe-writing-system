@@ -31,10 +31,12 @@ import { Clock, RefreshCw, X, CornerDownRight, AlertTriangle, List } from 'lucid
 import { api } from '../api'
 import { relColor, relLabel } from '../lib/relColors'
 import { hasNarrativeData } from '../lib/timelineAxis'
+import { causalArcsFromItems, jumpWindowForChapter, relatedVisIds, withHighlightClass } from '../lib/timelineCraft'
 import { prefersReducedMotion } from '../lib/utils'
 import { useSelection } from '../selectionContext'
 import { liveTouchesTable } from '../lib/liveRefresh.js'
 import { showToast } from '../ui/Toast.jsx'
+import { withFeedback } from '../lib/withFeedback.js'
 
 // ── 章号 ⇄ 合成时间 ─────────────────────────────────────────────────────────
 // 第 N 章 → 2000-01-01 起第 (N-1) 天。一天一章,vis 缩放/堆叠按天粒度天然贴合。
@@ -136,6 +138,7 @@ const G_EVENT = '__event__'
 const G_PROMISE = '__promise__'
 const G_ARC = '__arc__'
 const G_RELATION = '__relation__'
+const G_FACTION = '__faction__'
 
 // ── items / groups 构建 ─────────────────────────────────────────────────────
 /**
@@ -173,6 +176,7 @@ function buildVis(rawItems, laneMode, maxCh) {
       if (it.kind === 'event') return [G_EVENT]
       if (it.kind === 'arc') return [G_ARC]
       if (it.kind === 'promise_setup' || it.kind === 'promise_payoff') return [G_PROMISE]
+      if (it.kind === 'faction_event') return [G_FACTION]
       return [G_RELATION] // relation_start/end
     }
     if (laneMode === 'type') {
@@ -188,8 +192,9 @@ function buildVis(rawItems, laneMode, maxCh) {
     for (const gid of groupsFor(it)) {
       if (laneMode === 'kind') {
         const content = gid === G_EVENT ? '事件' : gid === G_ARC ? '弧光'
-          : gid === G_PROMISE ? '◇伏笔' : '关系'
-        const order = gid === G_EVENT ? 0 : gid === G_ARC ? 1 : gid === G_PROMISE ? 2 : 3
+          : gid === G_PROMISE ? '◇伏笔' : gid === G_FACTION ? '势力' : '关系'
+        const order = gid === G_EVENT ? 0 : gid === G_ARC ? 1 : gid === G_PROMISE ? 2
+          : gid === G_FACTION ? 4 : 3
         ensureGroup(gid, content, order)
       } else if (laneMode === 'type') {
         ensureGroup(gid, gid.slice(3), 0)
@@ -275,6 +280,25 @@ function buildVis(rawItems, laneMode, maxCh) {
     }
   }
 
+  // ── 势力大事记 ──
+  for (const f of rawItems.filter((i) => i.kind === 'faction_event')) {
+    registerGroupsFor(f)
+    const color = palette().irony
+    for (const gid of groupsFor(f)) {
+      items.push({
+        id: 'fac:' + f.id + ':' + gid,
+        group: gid,
+        start: chToDate(f.chapter),
+        type: 'point',
+        content: '⚑ ' + esc((f.label || '').length > 16 ? f.label.slice(0, 15) + '…' : (f.label || '')),
+        title: `势力 ${esc(f.refs?.faction || '')} · 第${f.chapter}章 · ${esc(f.label || '')}`,
+        style: `color:${color};border-color:${color};`,
+        className: 'tl-faction',
+        _raw: f, _jump: f.chapter, _cat: 'faction',
+      })
+    }
+  }
+
   // ── 关系(since→until 区间) ──
   const relEndByPrefix = new Map()
   for (const e of rawItems.filter((i) => i.kind === 'relation_end')) {
@@ -353,6 +377,14 @@ function timelineTarget(raw, cat) {
       chapter: ch,
     }
   }
+  if (cat === 'faction') {
+    return {
+      id: raw?.id || '',
+      type: 'faction',
+      label: raw?.refs?.faction || raw?.label || '势力',
+      chapter: ch,
+    }
+  }
   return {
     id: raw?.id || '',
     type: 'event',
@@ -397,7 +429,54 @@ function CausalRootEditor({ eventId, initial }) {
   )
 }
 
-function DetailPanel({ raw, cat, onJump, onNavigate, onClose }) {
+function PromiseActions({ raw, defaultChapter, onDone }) {
+  const [payoff, setPayoff] = useState(String(defaultChapter || raw?.chapter || ''))
+  const [busy, setBusy] = useState(false)
+  const pid = String(raw?.id || '').replace(/^promise:/, '')
+  const st = raw?.refs?.status
+  const closed = !!(raw?._payoff || st === 'closed' || st === 'abandoned')
+  if (!pid || closed) return null
+  const run = async (fn, ok) => {
+    setBusy(true)
+    try {
+      await withFeedback(fn(), { ok, fail: '没做成' })
+      onDone?.()
+    } finally { setBusy(false) }
+  }
+  return (
+    <div className="mt-2 space-y-1.5" data-testid="timeline-promise-actions">
+      <div className="flex items-center gap-1">
+        <input
+          type="number"
+          min={1}
+          className="w-16 h-7 px-1.5 text-f12 border border-line rounded-md bg-canvas"
+          value={payoff}
+          onChange={(e) => setPayoff(e.target.value)}
+          aria-label="兑现章号"
+        />
+        <button type="button" disabled={busy}
+          className="h-7 px-2 rounded-md text-f12 bg-brand/15 text-brand cursor-pointer disabled:opacity-40"
+          onClick={() => run(() => api.advancePromise(pid, Number(payoff) || Number(raw.chapter) || 1), '已兑现')}>
+          兑现
+        </button>
+      </div>
+      <div className="flex gap-1">
+        <button type="button" disabled={busy}
+          className="h-7 px-2 rounded-md text-f12 border border-line cursor-pointer disabled:opacity-40"
+          onClick={() => run(() => api.abandonPromise(pid), '已弃置')}>
+          弃置
+        </button>
+        <button type="button" disabled={busy}
+          className="h-7 px-2 rounded-md text-f12 border border-line cursor-pointer disabled:opacity-40"
+          onClick={() => run(() => api.markHerring(pid), '已标障眼法')}>
+          标障眼法
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function DetailPanel({ raw, cat, onJump, onNavigate, onClose, onChanged, defaultChapter }) {
   if (!raw) return null
   const r = raw.refs || {}
   const sc = raw.story_chapter ?? raw.chapter
@@ -444,6 +523,16 @@ function DetailPanel({ raw, cat, onJump, onNavigate, onClose }) {
         <Field k="状态" v={r.status} />
         <Field k="种类" v={r.promise_kind === 'red_herring' ? '障眼法' : r.promise_kind} />
         {r.overdue && !payoff && <Field k="提示" v="超期未收" />}
+        <PromiseActions raw={raw} defaultChapter={defaultChapter} onDone={onChanged} />
+      </>
+    )
+  } else if (cat === 'faction') {
+    title = raw.label || r.faction || '势力'; headColor = palette().irony
+    body = (
+      <>
+        <Field k="势力" v={r.faction} />
+        <Field k="章号" v={raw.chapter} />
+        <Field k="大事" v={r.event || raw.label} />
       </>
     )
   } else if (cat === 'relation') {
@@ -494,6 +583,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
   const [laneMode, setLaneMode] = useState('kind')   // 'kind' | 'char' | 'type'
   const [axis, setAxis] = useState('story')            // 'story' | 'narrative'
   const [selected, setSelected] = useState(null)       // { raw, cat }
+  const [jumpN, setJumpN] = useState('')
 
   const containerRef = useRef(null)
   const timelineRef = useRef(null)       // vis Timeline 实例
@@ -589,7 +679,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
     const onLive = (e) => {
       if (liveTouchesTable(e?.detail, [
         'event', 'promise', 'char_state', 'relation', 'chapter',
-        'character_relation', 'character',
+        'character_relation', 'character', 'faction',
       ])) {
         load()
       }
@@ -603,13 +693,14 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
   const maxCh = effectiveMaxChapter(data)
 
   const counts = useMemo(() => {
-    if (!data) return { events: 0, promises: 0, arcs: 0, relations: 0 }
+    if (!data) return { events: 0, promises: 0, arcs: 0, relations: 0, factions: 0 }
     const it = data.items || []
     return {
       events: it.filter((i) => i.kind === 'event').length,
       promises: it.filter((i) => i.kind === 'promise_setup').length,
       arcs: it.filter((i) => i.kind === 'arc').length,
       relations: it.filter((i) => i.kind === 'relation_start').length,
+      factions: it.filter((i) => i.kind === 'faction_event').length,
     }
   }, [data])
 
@@ -617,6 +708,66 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
     () => (data ? buildVis(data.items || [], laneMode, maxCh) : { items: [], groups: [] }),
     [data, laneMode, maxCh]
   )
+  const visItemsRef = useRef(items)
+  visItemsRef.current = items
+
+  const applyRelatedHighlight = useCallback((selectedRow) => {
+    const ds = itemsDsRef.current
+    const visItems = visItemsRef.current || []
+    const related = new Set(relatedVisIds(selectedRow, visItems))
+    const updates = []
+    for (const it of visItems) {
+      const next = withHighlightClass(it.className, related.has(it.id))
+      if (next !== String(it.className || '')) {
+        it.className = next
+        updates.push({ id: it.id, className: next })
+      }
+    }
+    if (updates.length && ds && typeof ds.update === 'function') {
+      try { ds.update(updates) } catch { /* mock / vis 版本差 */ }
+    }
+  }, [])
+
+  const drawCausalArrows = useCallback(() => {
+    const tl = timelineRef.current
+    const host = containerRef.current
+    if (!tl || !host) return
+    let svg = host.querySelector('svg.tl-causal')
+    if (!svg) {
+      svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      svg.setAttribute('class', 'tl-causal')
+      svg.setAttribute('data-testid', 'timeline-causal')
+      svg.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:3;overflow:visible'
+      host.appendChild(svg)
+    }
+    const w = typeof tl.getWindow === 'function' ? tl.getWindow() : null
+    if (!w?.start || !w?.end) { svg.innerHTML = ''; return }
+    const start = new Date(w.start).getTime()
+    const end = new Date(w.end).getTime()
+    const span = end - start || 1
+    const width = host.clientWidth || 1
+    const xOf = (ch) => ((chToDate(ch).getTime() - start) / span) * width
+    const arcs = causalArcsFromItems(visItemsRef.current)
+    const y = 22
+    const paths = arcs.map(({ from, to }) => {
+      const x1 = xOf(from)
+      const x2 = xOf(to)
+      const mid = (x1 + x2) / 2
+      return `<path d="M ${x1} ${y} C ${mid} ${y - 16}, ${mid} ${y - 16}, ${x2} ${y}" fill="none" stroke="var(--color-brand)" stroke-width="1.2" marker-end="url(#tl-arrow)" opacity="0.75"/>`
+    }).join('')
+    svg.innerHTML = `<defs><marker id="tl-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--color-brand)" /></marker></defs>${paths}`
+  }, [])
+
+  const jumpToChapter = useCallback((n) => {
+    const win = jumpWindowForChapter(n)
+    if (!win) return
+    Promise.resolve(fetchRange(win.from, win.to)).finally(() => {
+      const tl = timelineRef.current
+      if (!tl) return
+      tl.setWindow(chToDate(win.from), chToDate(win.to), { animation: !prefersReducedMotion() })
+      requestAnimationFrame(() => drawCausalArrows())
+    })
+  }, [fetchRange, drawCausalArrows])
 
   const hasContent = items.length > 0 && groups.length > 0
 
@@ -625,7 +776,8 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
   const listItems = useMemo(() => {
     const its = data?.items || []
     const catOf = (k) => k === 'event' ? 'event' : k === 'arc' ? 'arc'
-      : k === 'promise_setup' ? 'promise' : k === 'relation_start' ? 'relation' : null
+      : k === 'promise_setup' ? 'promise' : k === 'relation_start' ? 'relation'
+        : k === 'faction_event' ? 'faction' : null
     return its.map((it) => ({ raw: it, cat: catOf(it.kind) })).filter((x) => x.cat)
   }, [data])
 
@@ -736,10 +888,30 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
 
       tl.on('select', (props) => {
         const id = props.items?.[0]
-        if (!id) { setSelected(null); setFocusRef.current(null); return }
+        if (!id) {
+          setSelected(null)
+          setFocusRef.current(null)
+          applyRelatedHighlight(null)
+          return
+        }
         const it = itemsDsRef.current.get(id)
-        if (it) { setSelected({ raw: it._raw, cat: it._cat }); setFocusRef.current(visItemFocus(it)) }
+        if (it) {
+          const row = { raw: it._raw, cat: it._cat, id: it.id }
+          setSelected(row)
+          setFocusRef.current(visItemFocus(it))
+          applyRelatedHighlight(row)
+        }
       })
+      // vis-timeline 的 afterDraw 等价事件：changed（每次重绘后）
+      tl.on('changed', () => { drawCausalArrows() })
+      const origRedraw = tl.redraw?.bind(tl)
+      if (origRedraw) {
+        tl.redraw = (...a) => {
+          const r = origRedraw(...a)
+          try { drawCausalArrows() } catch { /* */ }
+          return r
+        }
+      }
       tl.on('doubleClick', (props) => {
         if (!props.item) return
         const it = itemsDsRef.current.get(props.item)
@@ -828,7 +1000,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
         <span className="text-f13 font-semibold tracking-tight text-ink shrink-0">时间线</span>
         {data && (
           <span className="text-meta text-faint tnum shrink-0">
-            {counts.events}事件·{counts.promises}伏笔·{counts.arcs}弧光·{counts.relations}关系
+            {counts.events}事件·{counts.promises}伏笔·{counts.arcs}弧光·{counts.relations}关系{counts.factions ? `·${counts.factions}势力` : ''}
             {maxCh > 0 && ` · 约至第${maxCh}章`}
             {data.from != null && data.to != null && (
               <span className="text-faint"> · 已载 ch{data.from}–{data.to}</span>
@@ -871,6 +1043,25 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
             )
           })}
         </div>
+
+        <form
+          className="ml-1 flex items-center gap-1 shrink-0"
+          data-testid="timeline-jump"
+          onSubmit={(e) => { e.preventDefault(); jumpToChapter(jumpN) }}
+        >
+          <input
+            type="number"
+            min={1}
+            className="w-16 h-6 px-1.5 text-meta border border-line rounded-md bg-canvas"
+            placeholder="第N章"
+            value={jumpN}
+            onChange={(e) => setJumpN(e.target.value)}
+            aria-label="跳到第N章"
+          />
+          <button type="submit"
+            className="h-6 px-2 rounded-md text-meta font-medium bg-soft/80 text-faint hover:text-ink cursor-pointer"
+          >跳到这章</button>
+        </form>
 
         <button onClick={fitAll}
           className="ml-1 h-6 px-2.5 rounded-md text-meta font-medium bg-soft/80 text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer shrink-0"
@@ -946,7 +1137,9 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
             cat={selected.cat}
             onJump={jumpKeepFocus}
             onNavigate={onNavigateToObject}
-            onClose={() => { setSelected(null); if (focus?.origin === 'timeline') setFocus(null); timelineRef.current?.setSelection([]) }}
+            defaultChapter={maxCh || selected.raw?.chapter}
+            onChanged={() => load()}
+            onClose={() => { setSelected(null); if (focus?.origin === 'timeline') setFocus(null); timelineRef.current?.setSelection([]); applyRelatedHighlight(null) }}
           />
         )}
       </div>
@@ -1004,6 +1197,11 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
         .tl-vis .vis-item.vis-selected {
           box-shadow: 0 0 0 2px var(--color-brand); z-index: 5;
         }
+        .tl-vis .vis-item.vis-highlighted,
+        .tl-vis .vis-item.tl-related {
+          box-shadow: 0 0 0 2px var(--color-irony); z-index: 4;
+        }
+        .tl-vis svg.tl-causal { pointer-events: none; }
         .tl-vis .vis-item.vis-box { padding: 2px 6px; }
         .tl-vis .vis-item.vis-dot { border-width: 5px; }
         .tl-vis .vis-item.tl-arc.vis-point .vis-item-content { font-weight: 600; }

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Compass } from 'lucide-react'
 import { api } from './api'
 import { liveTouchesTable } from './lib/liveRefresh.js'
+import { domainHintFromNext, maybeToastRollback } from './lib/pilotRollback.js'
 
 /** 影响旅程/胶囊 next_step 的表（其它 LIVE 不重拉） */
 const WORKFLOW_LIVE_TABLES = [
@@ -15,32 +16,67 @@ const WORKFLOW_LIVE_TABLES = [
  */
 export function WorkflowCapsule({ work, onOpenJourney, onContinue }) {
   const [snap, setSnap] = useState(null)
+  const [stale, setStale] = useState(false)
+  const failRef = useRef(0)
+  const timerRef = useRef(null)
+  const deadRef = useRef(false)
+
+  const schedule = useCallback((ms) => {
+    clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => { loadRef.current?.() }, ms)
+  }, [])
 
   const load = useCallback(() => {
-    if (!work) { setSnap(null); return undefined }
-    let dead = false
+    if (!work) { setSnap(null); setStale(false); return }
     api.workflowSnapshot()
-      .then((s) => { if (!dead) setSnap(s) })
-      .catch(() => { if (!dead) setSnap(null) })
-    return () => { dead = true }
-  }, [work])
+      .then((s) => {
+        if (deadRef.current) return
+        failRef.current = 0
+        setStale(false)
+        setSnap(s)
+        maybeToastRollback(s)
+        schedule(12000)
+      })
+      .catch(() => {
+        if (deadRef.current) return
+        failRef.current += 1
+        setStale(true)
+        const wait = Math.min(48000, 12000 * (2 ** Math.min(failRef.current, 2)))
+        schedule(wait)
+      })
+  }, [work, schedule])
+  const loadRef = useRef(load)
+  loadRef.current = load
 
   useEffect(() => {
-    const cleanup = load()
-    const t = setInterval(() => { load() }, 12000)
-    // S-8: 仅工作流相关表触发；无 table 字段时 liveTouchesTable 保守 true
+    deadRef.current = false
+    failRef.current = 0
+    load()
     const onLive = (e) => {
       if (liveTouchesTable(e?.detail, WORKFLOW_LIVE_TABLES)) load()
     }
     window.addEventListener('s3-live', onLive)
     return () => {
-      cleanup?.()
-      clearInterval(t)
+      deadRef.current = true
+      clearTimeout(timerRef.current)
       window.removeEventListener('s3-live', onLive)
     }
   }, [load])
 
-  if (!work || !snap?.next_step) return null
+  if (!work) return null
+  if (!snap?.next_step) {
+    if (!stale) return null
+    return (
+      <div
+        data-testid="workflow-capsule-stale"
+        className="hidden md:flex items-center gap-1.5 text-meta text-faint/70"
+        title="进度暂时连不上，过一会儿会再试"
+      >
+        <Compass size={13} className="shrink-0" />
+        进度暂时连不上
+      </div>
+    )
+  }
 
   const lane = snap.chapter_lane
   const next = snap.next_step
@@ -57,7 +93,8 @@ export function WorkflowCapsule({ work, onOpenJourney, onContinue }) {
   return (
     <div
       data-testid="workflow-capsule"
-      className="hidden md:flex items-center gap-1.5 max-w-[min(42rem,46vw)] min-w-0 text-meta"
+      className={`hidden md:flex items-center gap-1.5 max-w-[min(42rem,46vw)] min-w-0 text-meta ${stale ? 'opacity-60' : ''}`}
+      title={stale ? '进度可能过时，网络不稳' : undefined}
     >
       <button
         type="button"
@@ -131,11 +168,8 @@ export function applyWorkflowContinue(snap, { onSel, onJumpChapter } = {}) {
   }
   // 旅程下一步 → 激活编排工作包（async，不阻塞 UI）
   import('./lib/orchestrateSend.js').then(({ orchestrateBeforeSend }) => {
-    const domainHint = phase === 'design' ? 'chapter.design'
-      : phase === 'outline' ? 'chapter.outline'
-      : phase === 'beats' ? 'chapter.beats'
-        : phase === 'deduce' ? 'chapter.deduce'
-          : null
+    const domainHint = snap.next_step?.domain
+      || domainHintFromNext(snap.next_step?.id, phase)
     return orchestrateBeforeSend(prompt || '继续', {
       chapter: seq != null ? Number(seq) : null,
       phase: phase || '',

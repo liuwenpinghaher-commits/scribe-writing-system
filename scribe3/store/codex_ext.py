@@ -70,14 +70,23 @@ class CodexExtMixin:
                 terms.add(n)
         return terms
 
-    def _all_relations(self) -> list[dict]:
-        """全量读角色关系(不带限知时间门):含已失效(until_chapter 非 NONE)的历史关系。
+    def _all_relations(self, ch_from: int | None = None,
+                      ch_to: int | None = None) -> list[dict]:
+        """读角色关系(不带限知时间门):含已失效(until_chapter 非 NONE)的历史关系。
         供时间线工艺视图使用——需要画 since→until 全史甘特条,不能用 relations_at 的快照门控。
-        与 relations_at 的关键区别:relations_at 只返回"某章仍开着"的关系,会漏失效历史;
-        本方法 SELECT 全表,无 WHERE 时间过滤。"""
+        与 relations_at 的关键区别:relations_at 只返回"某章仍开着"的关系,会漏失效历史。
+        给了章窗则 WHERE since/until 落在区间内（TML-05）。"""
+        where = ""
+        vars: dict = {}
+        if ch_from is not None and ch_to is not None:
+            where = (
+                " WHERE ((since_chapter >= $lo AND since_chapter <= $hi)"
+                " OR (until_chapter IS NOT NONE AND until_chapter >= $lo AND until_chapter <= $hi))"
+            )
+            vars = {"lo": int(ch_from), "hi": int(ch_to)}
         return self._query(
             "SELECT meta::id(in) AS src, meta::id(out) AS dst, relation, "
-            "since_chapter, until_chapter, note FROM character_relation")
+            "since_chapter, until_chapter, note FROM character_relation" + where, vars)
 
     def relations_at(self, chapter: int) -> list[dict]:
         """某章已建立的角色关系(限知时间门:since_chapter <= chapter, until_chapter > chapter or NONE)"""

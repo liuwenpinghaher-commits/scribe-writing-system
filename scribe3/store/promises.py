@@ -170,10 +170,19 @@ class PromisesMixin:
             return None
         return self._normalize_promise_row(rows[0])
 
-    def list_promises(self) -> list[dict]:
+    def list_promises(self, ch_from: int | None = None, ch_to: int | None = None) -> list[dict]:
+        where = ""
+        vars: dict = {}
+        if ch_from is not None and ch_to is not None:
+            # TML-05：埋点或收点落在章窗内才拉，避免全书伏笔一次进 Python。
+            where = (
+                " WHERE ((setup_chapter >= $lo AND setup_chapter <= $hi)"
+                " OR (payoff_chapter IS NOT NONE AND payoff_chapter >= $lo AND payoff_chapter <= $hi))"
+            )
+            vars = {"lo": int(ch_from), "hi": int(ch_to)}
         rows = self._query("SELECT meta::id(id) AS id, text, setup_chapter, payoff_chapter, "
                            "status, kind, clues, tier, payoff_min, payoff_max, resolution "
-                           "FROM promise ORDER BY setup_chapter")
+                           "FROM promise" + where + " ORDER BY setup_chapter", vars)
         # 兼容旧库(未跑 045 迁移时 clues 字段为 None):安全回退为 []
         return [self._normalize_promise_row(r) for r in (rows or [])]
 

@@ -408,17 +408,32 @@ class EventsMixin:
                              narrative_position=r.get("narrative_position")))
         return out
 
-    def _all_events_bulk(self) -> list["Event"]:
-        """批量查全表所有事件(含图边 involves/causes/causal),一次往返。
+    def _all_events_bulk(self, ch_from: int | None = None, ch_to: int | None = None,
+                         axis: str = "story") -> list["Event"]:
+        """批量查事件(含图边 involves/causes/causal),一次往返。
         供 timeline() 事件泳道使用——替代逐章 events_at 循环(N 章→N 次多子查询往返)。
-        返回结构与 events_at 完全一致(Event dataclass),调用方按章过滤/分组。"""
+        返回结构与 events_at 完全一致(Event dataclass),调用方按章过滤/分组。
+        TML-05：给了章窗时 story 轴 WHERE story_chapter BETWEEN；叙事轴按叙事位（空则故事章）。"""
+        where = ""
+        vars: dict = {}
+        if ch_from is not None and ch_to is not None:
+            vars = {"lo": int(ch_from), "hi": int(ch_to)}
+            if axis == "narrative":
+                where = (
+                    " WHERE ((narrative_position IS NOT NONE"
+                    " AND narrative_position >= $lo AND narrative_position <= $hi)"
+                    " OR (narrative_position IS NONE"
+                    " AND story_chapter >= $lo AND story_chapter <= $hi))"
+                )
+            else:
+                where = " WHERE story_chapter >= $lo AND story_chapter <= $hi"
         rows = self._query(
             "SELECT meta::id(id) AS local, event_type, story_chapter, narrative_position, "
             "  motivated_by_goal, causal_root_reason, location, preconditions, "
             "  (SELECT meta::id(out) AS clocal, role FROM ->involves) AS parts, "
             "  (SELECT meta::id(out) AS plocal FROM ->causes) AS effs, "
             "  (SELECT meta::id(out) AS slocal, ctype FROM ->causal) AS causals "
-            "FROM event")
+            "FROM event" + where, vars)
         from scribe3.knowledge import rebuild_participants_from_parts
         out = []
         for r in rows:
@@ -474,10 +489,9 @@ class EventsMixin:
         ev_ch_map = self._ev_chapter_map()
 
         # ── 1. 事件泳道 ──
-        # 一次全表查(含 involves/causes/causal 图边),Python 侧按投影坐标过滤到 [ch_from, hi]。
-        # 不能只查 [ch_from, hi] 的 story 章:叙事轴下 story_chapter 在区间外
-        # 但 narrative_position 落在区间内的闪回事件会被漏掉——全表查再按轴坐标过滤是正确做法。
-        for ev in self._all_events_bulk():
+        # 章窗下推到 SQL（TML-05）：story 轴 WHERE story_chapter BETWEEN；
+        # 叙事轴按 narrative_position ?? story_chapter，避免漏闪回。
+        for ev in self._all_events_bulk(ch_from, hi, axis=axis):
             # 投影坐标:叙事轴用 narrative_position ?? story_time;故事轴用 story_time
             np = ev.narrative_position
             plot_ch = (np if np is not None else ev.story_time) if narrative else ev.story_time
@@ -517,7 +531,7 @@ class EventsMixin:
             })
 
         # ── 2. 伏笔泳道(setup 埋点 + payoff 收点) ──
-        for p in self.list_promises():
+        for p in self.list_promises(ch_from=ch_from, ch_to=hi):
             s = p.get("setup_chapter")
             if s is None:
                 continue
@@ -551,8 +565,8 @@ class EventsMixin:
                 })
 
         # ── 3. 弧光质变泳道(char_state 每条一个◆点) ──
-        # 一次全表查所有 char_state,Python 按 character_id 分组——消除逐角色 list_char_states N+1。
-        for cs in self._all_char_states_bulk():
+        # 一次查 char_state（章窗 WHERE chapter BETWEEN）——消除逐角色 list_char_states N+1。
+        for cs in self._all_char_states_bulk(ch_from, hi):
             ch = cs.get("chapter")
             if ch is None:
                 continue
@@ -575,8 +589,8 @@ class EventsMixin:
                 },
             })
 
-        # ── 4. 关系泳道(全量读,含已失效历史;不用 relations_at 带时间门) ──
-        for r in self._all_relations():
+        # ── 4. 关系泳道(含已失效历史;不用 relations_at 带时间门) ──
+        for r in self._all_relations(ch_from, hi):
             sc = r.get("since_chapter")
             uc = r.get("until_chapter")
             src_key = f"role:{r['src']}"
@@ -609,6 +623,36 @@ class EventsMixin:
                         "relation": r.get("relation"),
                         "since_chapter": sc,
                         "note": r.get("note"),
+                    },
+                })
+
+        # ── 5. 势力大事记（faction.timeline）──
+        try:
+            factions = self.list_factions() if hasattr(self, "list_factions") else []
+        except Exception:
+            factions = []
+        for fac in factions or []:
+            name = fac.get("name") or ""
+            for ev in (fac.get("timeline") or []):
+                if not isinstance(ev, dict):
+                    continue
+                ch = ev.get("chapter")
+                try:
+                    ch = int(ch)
+                except (TypeError, ValueError):
+                    continue
+                if not (ch_from <= ch <= hi):
+                    continue
+                label = (ev.get("event") or ev.get("label") or name or "势力事件")[:80]
+                items.append({
+                    "chapter": ch,
+                    "kind": "faction_event",
+                    "id": f"faction:{name}:{ch}:{label[:24]}",
+                    "label": label,
+                    "lane_keys": [f"faction:{name}"] if name else ["__faction__"],
+                    "refs": {
+                        "faction": name,
+                        "event": ev.get("event") or label,
                     },
                 })
 

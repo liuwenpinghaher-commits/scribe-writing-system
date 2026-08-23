@@ -160,6 +160,41 @@ PILOT_LABELS: dict[str, str] = {
     "finalized": "已定稿",
 }
 
+WAITING_APPROVAL_STATES = frozenset({"outline_proposed", "beats_ready", "delivered"})
+
+NEXT_STEP_DOMAIN: dict[str, str] = {
+    "set_intent": "intent.northstar",
+    "seed_motifs": "motif.manage",
+    "add_chapter": "chapter.outline",
+    "start_outline": "chapter.outline",
+    "approve_outline": "chapter.outline",
+    "confirm_beats": "chapter.beats",
+    "start_draft": "chapter.deduce",
+    "revise_draft": "chapter.draft",
+    "handle_check": "chapter.final",
+    "finalize_chapter": "chapter.final",
+    "next_chapter": "chapter.outline",
+    "book_complete": "intent.northstar",
+}
+
+
+def attach_next_domain(next_step: dict[str, Any], phase: str | None = None) -> dict[str, Any]:
+    """给 next_step 补 domain，旅程「继续」不再靠正则猜工作包。"""
+    if not isinstance(next_step, dict):
+        return next_step
+    out = dict(next_step)
+    nid = str(out.get("id") or "")
+    if nid == "unpark":
+        out["domain"] = f"chapter.{phase}" if phase else "chapter.outline"
+        return out
+    if nid in NEXT_STEP_DOMAIN:
+        out["domain"] = NEXT_STEP_DOMAIN[nid]
+        return out
+    if phase:
+        out["domain"] = f"chapter.{phase}"
+    return out
+
+
 PHASE_HINT: dict[str, str] = {
     "idle": "outline",
     "outline_proposed": "outline",
@@ -338,22 +373,26 @@ def _pipeline(pilot_state: str) -> list[dict[str, str]]:
             status = "current"
         else:
             status = "todo"
-        out.append({"id": sid, "label": labels.get(sid, sid), "status": status})
+        row = {"id": sid, "label": labels.get(sid, sid), "status": status}
+        if sid in WAITING_APPROVAL_STATES:
+            row["needs_author"] = True
+        out.append(row)
     return out
 
 
 def _next_step(seq: int, pilot_state: str, parked: str = "") -> dict[str, Any]:
+    phase = PHASE_HINT.get(pilot_state, "outline")
     if parked:
-        return {
+        return attach_next_domain({
             "id": "unpark",
             "title": "处理停靠原因",
             "why": parked[:200],
             "how_chat": "把停靠原因贴给主编，请给最小修复步骤。",
-            "ui_target": {"kind": "chapter", "seq": seq, "phase": PHASE_HINT.get(pilot_state, "outline")},
-        }
+            "ui_target": {"kind": "chapter", "seq": seq, "phase": phase},
+        }, phase)
     tpl = _NEXT_TEMPLATES.get(pilot_state) or _NEXT_TEMPLATES["idle"]
     fmt = {"seq": seq}
-    return {
+    return attach_next_domain({
         "id": tpl["id"],
         "title": tpl["title"].format(**fmt) if "{seq}" in tpl["title"] else tpl["title"],
         "why": tpl["why"],
@@ -361,9 +400,9 @@ def _next_step(seq: int, pilot_state: str, parked: str = "") -> dict[str, Any]:
         "ui_target": {
             "kind": "chapter",
             "seq": seq,
-            "phase": PHASE_HINT.get(pilot_state, "outline"),
+            "phase": phase,
         },
-    }
+    }, phase)
 
 
 def _suggested_prompt(seq: int, pilot_state: str, parked: str = "") -> str:
@@ -494,13 +533,13 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
         # 无章：引导建章/立项/母题
         intent = _safe_intent(st)
         if not (intent.get("reader_feeling") or intent.get("red_lines")):
-            next_step = {
+            next_step = attach_next_domain({
                 "id": "set_intent",
                 "title": "先立北极星（读者感 / 红线）",
                 "why": "没有意图锚点，大纲容易飘。",
                 "how_chat": "告诉主编：这本书要让读者感到……红线是……",
                 "ui_target": {"kind": "northstar"},
-            }
+            })
             prompt = "帮我确立本书北极星：读者感、情绪弧、红线。先给 3 个选项我选。"
             ui = {"entry": "manuscript", "phase": None, "node": None, "right_tab": "chief",
                   "layout_mode": "collaboration"}
@@ -525,13 +564,13 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
                 ),
             })
         else:
-            next_step = {
+            next_step = attach_next_domain({
                 "id": "add_chapter",
                 "title": "建立第一章",
                 "why": "结构尚未有章。",
                 "how_chat": "请主编添加第 1 章并起草大纲。",
                 "ui_target": {"kind": "manuscript"},
-            }
+            })
             prompt = "请添加第 1 章并起草大纲（目标、冲突、章末钩子）。"
             ui = {"entry": "manuscript", "phase": None, "node": None, "right_tab": "chief",
                   "layout_mode": "collaboration"}
@@ -539,6 +578,7 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
         if creative0:
             next_step = dict(next_step)
             next_step["creative_suggestions"] = creative0
+        next_step = attach_next_domain(next_step)
         return {
             "work": work,
             "journey": journey,
@@ -564,8 +604,11 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
             title = (c.get("title") or "")[:80]
             break
 
-    if pstat.get("stalled"):
-        blockers.append({"code": "pilot_stalled", "message": "本章自动步超时未推进，请检查或手动推进一步"})
+    stall_level = pstat.get("stall_level") or ("parked" if parked else "none")
+    if stall_level == "critical":
+        blockers.append({"code": "pilot_stalled", "message": "本章已停超过两小时，请检查或手动推进一步"})
+    elif stall_level == "warning":
+        blockers.append({"code": "pilot_stalled", "message": "本章自动步已超过半小时未推进，请检查或手动推进一步"})
     if parked:
         blockers.append({"code": "pilot_parked", "message": str(parked)[:200]})
 
@@ -594,7 +637,9 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
         "phase_hint": phase,
         "parked": parked,
         "stalled": bool(pstat.get("stalled")),
-        "quality_stalled": bool(pstat.get("stalled") or parked),
+        "stall_level": stall_level,
+        "waiting_approval": pstate in WAITING_APPROVAL_STATES,
+        "quality_stalled": stall_level in ("warning", "critical"),
         "next_action": nxt_act,
         "next_action_label": ACTION_LABELS.get(nxt_act or "", nxt_act),
         "pipeline": _pipeline(pstate),
@@ -674,6 +719,7 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
         except Exception:
             motif_proposal = None
 
+    next_step = attach_next_domain(next_step, phase)
     suggested = (
         next_step.get("how_chat")
         if next_step.get("id") == "seed_motifs"
@@ -687,13 +733,13 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
 
     ledger = _ledger_report(st)
     if journey.get("current_station") == "ledger":
-        next_step = {
+        next_step = attach_next_domain({
             "id": "book_complete",
             "title": "恭喜完成",
             "why": ledger.get("quality_note") or "这本书写完了。",
             "how_chat": "这本书写完了。可以翻账本，或开下一本。",
             "prompt": "恭喜完成。请给全书完成统计和质量总评，并建议下一本怎么开。",
-        }
+        })
         suggested = next_step["prompt"]
 
     return {
@@ -714,5 +760,8 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
         "bible_motif_gap": motif_gap,
         "motif_seed_proposal": motif_proposal,
         "ledger": ledger,
+        "quality_stalled": bool(chapter_lane.get("quality_stalled")),
+        "stall_level": stall_level,
+        "waiting_approval": bool(chapter_lane.get("waiting_approval")),
         "note": "P0 合成自 pilot+章列表+intent；非文学评分",
     }

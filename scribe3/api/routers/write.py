@@ -1220,12 +1220,22 @@ def post_check(req: PostCheckReq, seq: int | None = Query(default=None), work: s
             issues.append({"type": "timeline", "message": tc["note"], "text": tc["phrase"],
                            "range": tc.get("range"), "meta": {"kind": tc["kind"],
                                                              "constory": 1}})
-        # 记忆否认:用本章 inherited 开着的 promise 文本作粗标记(有则检)
+        # 记忆否认:开着的伏笔文本 + 本章已确立事实前 16 字（TML-04）
         _mk = []
         for p in (inherited_open_promises or [])[:12]:
             t = (p.get("text") or "")[:16]
             if len(t) >= 2:
                 _mk.append(t)
+        try:
+            for f in (st.facts_at(seq) or [])[:16]:
+                v = getattr(f, "value", None)
+                if v is None and isinstance(f, dict):
+                    v = f.get("value")
+                t = str(v or "")[:16]
+                if len(t) >= 2:
+                    _mk.append(t)
+        except Exception:
+            pass
         for hit in find_memory_denial_hits(req.prose, _mk):
             issues.append({"type": "memory", "message": hit["note"], "text": hit["phrase"],
                            "range": hit.get("range"), "meta": {"kind": hit["kind"],

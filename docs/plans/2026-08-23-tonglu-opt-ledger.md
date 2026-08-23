@@ -78,21 +78,21 @@
 | MOT-06 | 创建闭环无"降级自动填占位"路径 | P2 | 5 | decision: P2 拒绝后降级占位远期 | decision: P2 拒绝后降级占位远期 |
 | MOT-07 | 过热抑制依赖LLM遵循指令无硬保证 | P2 | 5 | decision: P2 过热硬保证本轮走 advisory | decision: P2 过热硬保证本轮走 advisory |
 | TML-01 | 时间线不订阅SSE s3-live事件 | P2 | 1 | done | TimelineView s3-live |
-| TML-02 | 因果弧线SVG未实现 | P2 | 3 | decision: P2 SVG 因果弧远期 | decision: P2 SVG 因果弧远期 |
-| TML-03 | 时间线选中伏笔后无操作入口 | P2 | 5 | decision: P2 时间线伏笔兑现按钮远期 | decision: P2 时间线伏笔兑现按钮远期 |
-| TML-04 | 记忆否认未与canon事实交叉 | P2 | 5 | decision: P2 记忆否认交叉远期 | decision: P2 记忆否认交叉远期 |
-| TML-05 | 全表查无WHERE（story轴模式） | P2 | 5 | decision: P2 story 轴 WHERE 优化远期 | decision: P2 story 轴 WHERE 优化远期 |
-| TML-06 | 缺少"跳到第N章"直达能力 | P2 | 5 | decision: P2 跳到第 N 章输入框远期 | decision: P2 跳到第 N 章输入框远期 |
-| TML-07 | 选中联动不传播因果链/弧光 | P2 | 3 | decision: P2 选中联动因果远期 | decision: P2 选中联动因果远期 |
-| TML-08 | faction.timeline字段前端零消费 | P3 | 5 | decision: P3 faction.timeline 标 deferred | decision: P3 faction.timeline 标 deferred |
+| TML-02 | 因果弧线SVG未实现 | P2 | 3 | done | vis-timeline changed/afterDraw 画因果 SVG |
+| TML-03 | 时间线选中伏笔后无操作入口 | P2 | 5 | done | DetailPanel 兑现/弃置/标障眼法 |
+| TML-04 | 记忆否认未与canon事实交叉 | P2 | 5 | done | post_check facts_at 前 16 字作标记 |
+| TML-05 | 全表查无WHERE（story轴模式） | P2 | 5 | done | story 轴 WHERE story_chapter BETWEEN |
+| TML-06 | 缺少"跳到第N章"直达能力 | P2 | 5 | done | 顶栏跳到第 N 章 |
+| TML-07 | 选中联动不传播因果链/弧光 | P2 | 3 | done | 选中加 vis-highlighted 前驱/同角色弧光 |
+| TML-08 | faction.timeline字段前端零消费 | P3 | 5 | done | 势力大事记泳道 |
 | JNY-01 | Pilot可绕过旅程门槛直接开写 | P1 | 3 | done | SCRIBE3_JOURNEY_PRECHECK 409 |
 | JNY-02 | 质量熔断状态对作者不可见 | P1 | 3 | done | snapshot quality_stalled |
 | JNY-03 | ledger站为空壳，全书完成后胶囊消失 | P1 | 3 | done | 全书定稿后账本站点亮，胶囊恭喜完成 |
-| JNY-04 | 8个pilot状态压缩为5个，需审批状态被隐藏 | P2 | 5 | decision: P2 审批态视觉差远期 | decision: P2 审批态视觉差远期 |
-| JNY-05 | 前三站"继续"依赖NLU匹配精准度弱 | P2 | 5 | decision: P2 domainHint 映射远期 | decision: P2 domainHint 映射远期 |
-| JNY-06 | WorkflowCapsule轮询无backoff，消失无解释 | P2 | 5 | decision: P2 胶囊 backoff 远期 | decision: P2 胶囊 backoff 远期 |
-| JNY-07 | 章被打回无事件通知 | P2 | 5 | decision: P2 打回 toast 远期 | decision: P2 打回 toast 远期 |
-| JNY-08 | 停滞检测无分级 | P2 | 5 | decision: P2 停滞分级远期 | decision: P2 停滞分级远期 |
+| JNY-04 | 8个pilot状态压缩为5个，需审批状态被隐藏 | P2 | 5 | done | 等待你审批徽章 |
+| JNY-05 | 前三站"继续"依赖NLU匹配精准度弱 | P2 | 5 | done | next_step.domain + domainHintFromNext |
+| JNY-06 | WorkflowCapsule轮询无backoff，消失无解释 | P2 | 5 | done | 失败保留旧进度并 12→24→48s |
+| JNY-07 | 章被打回无事件通知 | P2 | 5 | done | 状态回退 toast |
+| JNY-08 | 停滞检测无分级 | P2 | 5 | done | warning 30min / critical 2h / parked |
 | DIR-01 | Proposal审批缺乏持久化 | P0 | 2 | done | execute=false 走 store 持久化，GET /orchestration/proposal/{id} 可取 |
 | DIR-02 | 多Worker部署下同章双跑竞态 | P0 | 2 | done | pilot_step chapter_lock |
 | DIR-03 | Frozen Artifact丢失致Pilot不可自愈卡死 | P0 | 4 | done | PilotApproveReq.force_rollback/to_state；reset-step 改状态并清冻产物 |

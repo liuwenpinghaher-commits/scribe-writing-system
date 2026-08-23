@@ -55,7 +55,15 @@ vi.mock('vis-data/esnext', () => {
       rows.forEach((it) => { if (it?.id != null) this.items.set(it.id, it) })
     }
     clear() { this.items.clear() }
-    get(id) { return this.items.get(id) }
+    get(id) { return id == null ? [...this.items.values()] : this.items.get(id) }
+    update(rows = []) {
+      const list = Array.isArray(rows) ? rows : [rows]
+      list.forEach((it) => {
+        if (it?.id == null) return
+        const prev = this.items.get(it.id) || {}
+        this.items.set(it.id, { ...prev, ...it })
+      })
+    }
   }
   return { DataSet }
 })
@@ -65,7 +73,8 @@ vi.mock('vis-timeline/esnext', () => ({
     const handlers = {}
     const instance = {
       on: (eventName, handler) => { handlers[eventName] = handler },
-      setWindow: vi.fn(), redraw: vi.fn(), destroy: vi.fn(),
+      setWindow: vi.fn(), getWindow: vi.fn(() => ({ start: new Date('2000-01-01'), end: new Date('2000-01-10') })),
+      redraw: vi.fn(), destroy: vi.fn(),
       fit: vi.fn(), setSelection: vi.fn(),
       __handlers: handlers, __items: items,
     }

@@ -169,6 +169,7 @@ def step(st, seq: int, executor: dict, *, mode: str = "manual",
 
 
 STALL_SECONDS = 30 * 60
+STALL_CRITICAL_SECONDS = 2 * 60 * 60
 
 # R2-2:只有「由 auto 授权动作到达的中间态」才可能 stall(连写本应继续推进却停住)。
 # 由 propose/approve 到达的态(outline_proposed 等放行大纲、delivered 等终选)与 idle/
@@ -177,10 +178,24 @@ _AUTO_ARRIVED_STATES = frozenset(
     tgt for act, tgt in NEXT.values() if DEFAULT_AUTHZ.get(act) == "auto")
 
 
+def compute_stall_level(state: str, at, parked: str = "", now: float | None = None) -> str:
+    """停滞分级：parked（主动停靠）/ warning（半小时）/ critical（两小时）/ none。"""
+    if parked:
+        return "parked"
+    if not at or state not in _AUTO_ARRIVED_STATES:
+        return "none"
+    age = (now if now is not None else time.time()) - float(at)
+    if age > STALL_CRITICAL_SECONDS:
+        return "critical"
+    if age > STALL_SECONDS:
+        return "warning"
+    return "none"
+
+
 def status(st, seq: int) -> dict:
     s = read_state(st, seq)
-    stalled = bool(s["at"] and s["state"] in _AUTO_ARRIVED_STATES
-                   and (time.time() - s["at"]) > STALL_SECONDS and not s["parked"])
+    level = compute_stall_level(s["state"], s["at"], s.get("parked") or "")
+    stalled = level in ("warning", "critical")
     nxt = NEXT.get(s["state"])
-    return {**s, "seq": seq, "stalled": stalled,
+    return {**s, "seq": seq, "stalled": stalled, "stall_level": level,
             "next_action": nxt[0] if nxt else None}
