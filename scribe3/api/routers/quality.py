@@ -202,6 +202,14 @@ def _bind_and_register() -> None:
     """Rebind handlers onto app_impl globals so monkeypatch keeps working."""
     from scribe3.api import app_impl as core
     g = globals()
+    # quality/refresh 经 FunctionType 绑到 app_impl.__dict__，缓存符号必须进 core，
+    # 否则 GET /quality 运行时 NameError: quality_cache_get。
+    for _name in (
+        "_QUALITY_TTL", "_QUALITY_TTL_SEC",
+        "invalidate_quality_cache", "quality_cache_get", "quality_cache_put",
+    ):
+        if _name in g:
+            setattr(core, _name, g[_name])
     _fn = g['craft_gates']
     _re = types.FunctionType(_fn.__code__, core.__dict__, 'craft_gates', _fn.__defaults__, _fn.__closure__)
     if _fn.__annotations__:

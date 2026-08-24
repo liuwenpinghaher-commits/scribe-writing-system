@@ -297,6 +297,18 @@ def test_n09_quality_ttl_2s_and_invalidate():
     assert "invalidate_quality_cache" in inspect.getsource(ChaptersMixin.save_chapter)
 
 
+def test_quality_rebound_handler_sees_cache_helpers():
+    """GET /quality 经 FunctionType 绑到 app_impl globals；缓存函数必须在那份 globals 里。"""
+    from scribe3.api.routers import quality as Q
+    g = Q.quality.__globals__
+    assert callable(g.get("quality_cache_get"))
+    assert callable(g.get("quality_cache_put"))
+    assert "_QUALITY_TTL" in g
+    rg = Q.refresh_quality.__globals__
+    assert "_QUALITY_TTL" in rg
+    assert rg["_QUALITY_TTL"] is Q._QUALITY_TTL
+
+
 def test_n10_undo_fact_and_knowledge():
     st = MemStore()
     assert _undo_applied(st, {"kind": "fact", "oid": "fact:x"}) is True
