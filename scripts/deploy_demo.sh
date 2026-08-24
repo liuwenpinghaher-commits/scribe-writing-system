@@ -166,7 +166,7 @@ docker run --rm \
   -w /app \
   -e NODE_OPTIONS=--max-old-space-size=1536 \
   node:20-alpine \
-  sh -c "npm ci && npm run build && rm -rf node_modules"
+  sh -c "rm -rf node_modules && npm ci && npm run build && rm -rf node_modules"
 # 叠加拷贝：不删除旧 assets（旧 index 缓存仍能拉到旧 chunk）
 docker cp "\$APP_DIR/scribe3/web/dist/." "\$FRONTEND:/usr/share/nginx/html/"
 # 更新 nginx：assets 404 + index no-cache

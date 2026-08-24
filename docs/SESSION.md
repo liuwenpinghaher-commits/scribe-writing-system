@@ -73,16 +73,16 @@
 - 码字文案改成「码字进度（工程配额）/码字配额」，摘要写明不是总纲「写到/立到」。
 - 正文呼吸默认最后一章 `lastSeq`，改书后同步。
 **测：** 相关 vitest 6 文件 23 passed（`targetNavigation` / `insightView-error` / `cross-view-navigation` / `cross-view-real-views` / `surface-ownership` / `detailPane-routing`）。
-**未做：** demo 热更；不改 play-contract / WCG；不新加仪表盘图表。
+**现网：** `./scripts/deploy_demo.sh frontend` → `FRONTEND_DEPLOY_OK`。首页挂 `InsightView-faHtO84A.js`（含「码字进度（工程配额）」/「质量汇总加载失败」）。强制刷新后再点。未登录仍不能宣称点过书页。不改 play-contract / WCG；不新加仪表盘图表。
 
 ### 作者面去重叠（2026-08-24）
 
 职责清单：[`docs/plans/2026-08-24-surface-ownership.md`](./plans/2026-08-24-surface-ownership.md)。总纲读这本书，旅程管下一步，跨章弧（参考）挂在旅程底部折叠，仪表盘只做质量/伏笔/码字。旧 `storyline`/`planning`/`arcs` 进旅程，不再进仪表盘。禁止「全局规划」顶栏。
-**代码已落地（未热更）：** `JourneyView` 底部折叠 `StorylineHub`；`InsightView` 去掉规划区。相关 vitest 15 passed。
+**代码已落地并随本轮 frontend 热更：** `JourneyView` 底部折叠 `StorylineHub`；`InsightView` 去掉规划区。相关 vitest 15 passed。
 
 ### 本机同步（2026-08-24）
 
-- 本机 `main` 已含仪表盘审计修复与总纲交互补刀。demo 总纲已热更；这两处前端未热更。
+- 本机 `main` 已含仪表盘审计修复与总纲交互补刀。demo 前端已热更（`FRONTEND_DEPLOY_OK`，绑 `en0`）。构建前先清远端残留 `node_modules`，否则 `npm ci` 会 `ENOTEMPTY`。
 - 部署机 SSH：`ssh scribe3-demo`（`82.157.130.140`，密钥 `~/.ssh/id_tencent_lh`，绑 `en0` 绕开 VPN）。直连不绑网卡会卡在 banner。
 - 「同步云端」= 代码 + SSH，不是把云端书库导回本机。
 
@@ -107,7 +107,7 @@
 **已落地 PR-1～4：** 打开书 / 从章点「总纲」落到空选门厅（hub 先退再 `hallTick`）；中间是肖像：书名、`north_star`、卷章进度（写到/立到）、人、规矩、母题、未收的账。点「让主编写入」派 `s3-right-tab=chief`。首屏只拉 outline + intent + entities + world-rules + motifs + promises/ledger；评分卡要点开才算，reconnect 不拉 snapshot/quality。写作台 `NorthStarBar` 未改。PR-5 `who_pays` / PR-6 `GET /book-portrait` 另案。
 
 **现网已验（2026-08-24）：** `https://tonglu.qing.blue` 已热更。`book_e4a6e353`《腕账》打开即门厅（目录还在）：书名、北极星、写到第 3 章、人/规矩/母题、还没收回 3 笔。从第 3 章点「总纲」回到门厅，不卡写作台。空书《手术室》空态 +「让主编写入」会把 `s3_set_intent` 种子送进右侧主编。系统中心点「总纲」先退 hub 再落门厅。总纲首屏有 outline/intent/entities/world-rules/motifs/ledger；无 quality / north-star/book。顶栏「继续」仍会打 `workflow/snapshot`（不是总纲自己）。
-**交互补刀（未热更）：** 点卷名只展开，另有「看这卷」才进卷详情。「还有 N 人，去设定库」进角色分类，不再开图谱。`SynopsisView.test.jsx` 17 passed。
+**交互补刀（已随 frontend 热更）：** 点卷名只展开，另有「看这卷」才进卷详情。「还有 N 人，去设定库」进角色分类，不再开图谱。`SynopsisView.test.jsx` 17 passed。强制刷新后再验。
 
 ### 铜炉最优化改造（2026-08-23）
 
