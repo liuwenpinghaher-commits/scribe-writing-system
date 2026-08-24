@@ -768,4 +768,37 @@ describe('FourPaneShell 四栏钻取', () => {
       id: 's3.fourPane.layout.v8:journey-v5:demo',
     }))
   })
+
+  it('hallTick 从章落地到空选，目录还在', () => {
+    function HallHarness() {
+      const [sel, setSel] = useState({
+        mode: 'node',
+        node: { id: 'ch:1', type: 'chapter', ref: 1, label: '1' },
+      })
+      const [tick, setTick] = useState(0)
+      return (
+        <>
+          <button type="button" onClick={() => setTick(1)}>开总纲</button>
+          <FourPaneShell
+            tree={tree}
+            sel={sel}
+            onSelectNode={(node) => {
+              if (!node) setSel({ mode: 'node', node: null })
+              else if (node.type === 'view') setSel({ mode: 'view', viewKey: node.id.split(':')[1] })
+              else setSel({ mode: 'node', node })
+            }}
+            work="demo"
+            leftSeq={1}
+            reload={() => {}}
+            hallTick={tick}
+          />
+        </>
+      )
+    }
+    render(<HallHarness />)
+    expect(screen.getByTestId('detail-content').textContent).toBe('node:ch:1')
+    fireEvent.click(screen.getByRole('button', { name: '开总纲' }))
+    expect(screen.getByTestId('detail-content').textContent).toBe('node:empty')
+    expect(screen.getByTestId('col-directory')).toBeTruthy()
+  })
 })

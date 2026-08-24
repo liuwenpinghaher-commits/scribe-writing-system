@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   defaultLandingNode,
   emptyDetailCopy,
+  isSynopsisHall,
   nodeCompatibleWithEntry,
   planEntryChange,
   resolveEntrySelection,
@@ -72,5 +73,13 @@ describe('entrySelection · 入口与栏3 域兼容', () => {
   it('emptyDetailCopy 按域给文案', () => {
     expect(emptyDetailCopy('materials').hint).toMatch(/素材/)
     expect(emptyDetailCopy('search').hint).toMatch(/搜索/)
+  })
+
+  it('粘性章 planEntryChange 仍 keep，所以总纲不能套它', () => {
+    const ch = { id: 'ch:1', type: 'chapter', ref: 1, label: '1' }
+    const plan = planEntryChange('manuscript', ch, {}, '手稿')
+    expect(plan.select).toBeUndefined()
+    expect(plan.patch.focus?.type).toBe('chapter')
+    expect(isSynopsisHall('manuscript', { mode: 'node', node: ch })).toBe(false)
   })
 })
