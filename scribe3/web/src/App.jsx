@@ -287,6 +287,7 @@ export default function App() {
       <BinderLayout
         key={cur.slug}
         work={cur.slug}
+        workTitle={cur.title}
         sel={sel}
         onSel={setSel}
         onJumpChapter={handleJumpChapter}

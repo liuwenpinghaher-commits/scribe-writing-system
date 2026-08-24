@@ -83,13 +83,14 @@ export function DetailPane(props) {
   )
 }
 
-function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, onNavigateToObject, onChapterArchived, entryKey, qualitySeq, onWorkflowContinue }) {
+function renderDetail({ sel, work, workTitle, onSelectNode, onTreeChanged, onJumpChapter, onNavigateToObject, onChapterArchived, entryKey, qualitySeq, onWorkflowContinue }) {
   // onNavigateToObject: 设定详情「在图谱中打开」等跨栏定位(须透传 CodexDetail)
   const openView = (vk) => onSelectNode?.({ type: 'view', id: `view:${vk}` })
   if (isSynopsisHall(entryKey, sel)) {
     return (
       <SynopsisView
         key={`${work}-hall`}
+        workTitle={workTitle}
         onJumpChapter={onJumpChapter}
         onOpenView={openView}
         onSelectNode={onSelectNode}
@@ -113,7 +114,7 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
     }
     if (k === 'timeline') return <TimelineView key={work} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} />
     if (k === 'overview' || k === 'synopsis') {
-      return <SynopsisView key={work} onJumpChapter={onJumpChapter} onOpenView={openView} />
+      return <SynopsisView key={work} workTitle={workTitle} onJumpChapter={onJumpChapter} onOpenView={openView} onSelectNode={onSelectNode} onNavigateToObject={onNavigateToObject} />
     }
     if (k === 'journey') {
       return (

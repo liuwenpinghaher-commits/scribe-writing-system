@@ -6,6 +6,7 @@ import {
   seedChiefNarrativeWrite,
   seedChiefReorderChapters,
   seedChiefDeleteVolume,
+  seedBookPortraitIntent,
   seedChapterOutline,
   seedChapterBeats,
   seedChapterDeduce,
@@ -19,6 +20,15 @@ describe('chiefSeed helpers', () => {
   })
   afterEach(() => {
     sessionStorage.clear()
+  })
+
+  it('seedBookPortraitIntent 派 s3-right-tab=chief 且点名 s3_set_intent', () => {
+    const tabs = []
+    window.addEventListener('s3-right-tab', (e) => tabs.push(e.detail))
+    const t = seedBookPortraitIntent()
+    expect(t).toMatch(/s3_set_intent/)
+    expect(t).toMatch(/s3_get_intent/)
+    expect(tabs).toEqual(['chief'])
   })
 
   it('focusChiefWithSeed writes storage, seed event, and right-tab focus', () => {

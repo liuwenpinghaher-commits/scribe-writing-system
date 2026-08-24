@@ -79,7 +79,7 @@ function entryForActive(tree, active) {
 export function FourPaneShell({
   tree, selId, expanded, toggle, onSelectNode, treeCbs, sel, work, reload, onJumpChapter,
   chapterSel, curSeq, leftSeq, onRestored, onWorkflowContinue,
-  hallTick = 0, onSynopsisHallChange,
+  hallTick = 0, onSynopsisHallChange, workTitle,
 }) {
   const [directoryRefresh, setDirectoryRefresh] = useState(0)
   const directoryRef = usePanelRef()
@@ -554,7 +554,7 @@ export function FourPaneShell({
       >
         {renderRestoreButtons('detail')}
         <div className="h-full min-h-0 min-w-0 overflow-hidden flex flex-col" data-testid="detail" data-context-revision={ctxRevision}>
-          <DetailPane sel={effectiveSel} work={work} entryKey={projectedEntryKey} qualitySeq={leftSeq}
+          <DetailPane sel={effectiveSel} work={work} workTitle={workTitle} entryKey={projectedEntryKey} qualitySeq={leftSeq}
             onSelectNode={handleSelectItem}
             onTreeChanged={handleTreeChanged} onJumpChapter={onJumpChapter}
             onNavigateToObject={handleNavigateToObject}

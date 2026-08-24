@@ -379,3 +379,16 @@ export function seedChiefDeleteVolume(volumeId, title = '') {
     '未获批准不得声称已落库。',
   ].join('\n'))
 }
+
+/** 总纲「这本书」：登记意图。必须同时派 s3-right-tab=chief。 */
+export function seedBookPortraitIntent() {
+  return focusChiefWithSeed([
+    '请登记/更新这本书是什么（需我审批）：',
+    '一句话：……',
+    '读者读完该留下：……',
+    '情感怎么走：……',
+    '不许写：……',
+    '这本书摸起来：……',
+    '先 s3_get_intent 核对，再用 s3_set_intent 写入。没批准不许说已经存上。',
+  ].join('\n'))
+}

@@ -3,9 +3,10 @@ import { BookText, ArrowRight, Gauge } from 'lucide-react'
 import { api } from '../api'
 import { chapterLabel } from '../chapterLabel.js'
 import { liveTouchesTable } from '../lib/liveRefresh.js'
-import { NorthStarBar } from '../NorthStarBar'
 import { NorthStarPanel } from '../NorthStarPanel'
 import { chapterOneLine, progressLineFromOutline } from './synopsisCopy.js'
+import { SynopsisIntent } from './SynopsisIntent.jsx'
+import { SynopsisCast, SynopsisMotifs, SynopsisPromises, SynopsisWorld } from './SynopsisPortraitBlocks.jsx'
 
 function BlockFail({ text }) {
   return <div className="text-f13 text-faint">{text}</div>
@@ -32,32 +33,68 @@ function groupOutline(outline) {
 }
 
 const LIVE_TABLES = [
-  'chapter', 'intent', 'volume', 'chapter_scorecard', '_reconnect',
+  'chapter', 'intent', 'volume', 'chapter_scorecard',
+  'character', 'world_rule', 'motif', 'promise', 'foreshadow', '_reconnect',
 ]
 
-export function SynopsisView({ onJumpChapter, onOpenView, onSelectNode }) {
+export function SynopsisView({
+  workTitle,
+  onJumpChapter,
+  onOpenView,
+  onSelectNode,
+  onNavigateToObject,
+}) {
   const [outline, setOutline] = useState(undefined)
+  const [entities, setEntities] = useState(undefined)
+  const [rules, setRules] = useState(undefined)
+  const [motifs, setMotifs] = useState(undefined)
+  const [ledger, setLedger] = useState(undefined)
   const [scoreOpen, setScoreOpen] = useState(false)
   const liveTimer = useRef(null)
 
-  const loadLight = useCallback(() => {
+  const loadOutline = useCallback(() => {
     api.outline().then(setOutline).catch(() => setOutline(null))
   }, [])
+  const loadCast = useCallback(() => {
+    api.entities().then(setEntities).catch(() => setEntities(null))
+  }, [])
+  const loadWorld = useCallback(() => {
+    api.get('/world-rules').then(setRules).catch(() => setRules(null))
+  }, [])
+  const loadMotifs = useCallback(() => {
+    api.motifs().then(setMotifs).catch(() => setMotifs(null))
+  }, [])
+  const loadLedger = useCallback(() => {
+    api.promisesLedger().then(setLedger).catch(() => setLedger(null))
+  }, [])
 
-  useEffect(() => { loadLight() }, [loadLight])
+  useEffect(() => {
+    loadOutline()
+    loadCast()
+    loadWorld()
+    loadMotifs()
+    loadLedger()
+  }, [loadOutline, loadCast, loadWorld, loadMotifs, loadLedger])
 
   useEffect(() => {
     const onLive = (e) => {
-      if (!liveTouchesTable(e?.detail, LIVE_TABLES)) return
+      const d = e?.detail
+      if (!liveTouchesTable(d, LIVE_TABLES)) return
       clearTimeout(liveTimer.current)
-      liveTimer.current = setTimeout(loadLight, 300)
+      liveTimer.current = setTimeout(() => {
+        if (liveTouchesTable(d, ['chapter', 'volume', 'intent', '_reconnect'])) loadOutline()
+        if (liveTouchesTable(d, ['character', '_reconnect'])) loadCast()
+        if (liveTouchesTable(d, ['world_rule', '_reconnect'])) loadWorld()
+        if (liveTouchesTable(d, ['motif', '_reconnect'])) loadMotifs()
+        if (liveTouchesTable(d, ['promise', 'foreshadow', '_reconnect'])) loadLedger()
+      }, 300)
     }
     window.addEventListener('s3-live', onLive)
     return () => {
       clearTimeout(liveTimer.current)
       window.removeEventListener('s3-live', onLive)
     }
-  }, [loadLight])
+  }, [loadOutline, loadCast, loadWorld, loadMotifs, loadLedger])
 
   const lanes = outline ? groupOutline(outline) : []
   const progress = outline ? progressLineFromOutline(outline) : ''
@@ -75,8 +112,8 @@ export function SynopsisView({ onJumpChapter, onOpenView, onSelectNode }) {
           </div>
         </div>
 
-        <section className="mb-5 rounded-lg overflow-hidden border border-line/50" data-testid="synopsis-intent">
-          <NorthStarBar />
+        <section className="mb-5" data-testid="synopsis-intent">
+          <SynopsisIntent workTitle={workTitle} />
         </section>
 
         <section className="mb-5 pb-5 border-b border-line/40" data-testid="synopsis-progress">
@@ -145,6 +182,26 @@ export function SynopsisView({ onJumpChapter, onOpenView, onSelectNode }) {
           )}
         </section>
 
+        <section className="py-5 border-b border-line/40">
+          <div className="text-meta font-semibold uppercase tracking-wider text-faint mb-2">这些人</div>
+          <SynopsisCast entities={entities} onNavigateToObject={onNavigateToObject} onOpenView={onOpenView} />
+        </section>
+
+        <section className="py-5 border-b border-line/40">
+          <div className="text-meta font-semibold uppercase tracking-wider text-faint mb-2">世界怎么运转</div>
+          <SynopsisWorld rules={rules} onNavigateToObject={onNavigateToObject} />
+        </section>
+
+        <section className="py-5 border-b border-line/40">
+          <div className="text-meta font-semibold uppercase tracking-wider text-faint mb-2">母题</div>
+          <SynopsisMotifs motifs={motifs} onNavigateToObject={onNavigateToObject} />
+        </section>
+
+        <section className="py-5 border-b border-line/40">
+          <div className="text-meta font-semibold uppercase tracking-wider text-faint mb-2">还没收回的账</div>
+          <SynopsisPromises ledger={ledger} onOpenView={onOpenView} />
+        </section>
+
         <section className="pt-5" data-testid="synopsis-scorecard">
           <div className="flex items-center flex-wrap gap-2 mb-2">
             <Gauge size={15} className="text-brand" />
@@ -162,7 +219,7 @@ export function SynopsisView({ onJumpChapter, onOpenView, onSelectNode }) {
           </button>
           {scoreOpen && (
             <div className="mt-3" data-testid="synopsis-scorecard-body">
-              <NorthStarPanel scope="book" />
+              <NorthStarPanel scope="book" intentHint="synopsis" />
             </div>
           )}
         </section>

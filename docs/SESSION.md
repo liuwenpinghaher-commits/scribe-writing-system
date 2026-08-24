@@ -65,13 +65,9 @@
 
 ### 本机同步（2026-08-24）
 
-- GitHub `main` 已拉齐：`4a04358b`（与 `origin/main` 同 SHA）。
+- 本机 `main` 在 `32f0509a` 之上还有总纲 PR-2～4 提交（肖像页）。未 push 也能 `./scripts/deploy_demo.sh frontend` 热更。
 - 部署机 SSH：`ssh scribe3-demo`（`82.157.130.140`，密钥 `~/.ssh/id_tencent_lh`，绑 `en0` 绕开 VPN）。直连不绑网卡会卡在 banner。
 - 「同步云端」= 代码 + SSH，不是把云端书库导回本机。
-
-### 总纲门厅落地（2026-08-24）
-
-从系统中心/设置点「总纲」会先退 hub，再手稿空选落到门厅。总纲只读 outline，不再拼仪表盘五站。进度文案：有正文说「写到」，只有纲说「立到」。
 
 ### Qoder 深度拆书方案已归档（2026-08-24）
 
@@ -81,17 +77,13 @@
 
 修好了。后台读质量汇总时少带了一个函数，页面就会说加载失败。现网 `book_e4a6e353` 能读到 12 章。
 
-### 总纲真正当总纲（设计已审过，2026-08-24）
+### 总纲改成书的肖像（2026-08-24）
 
-设计稿：[`docs/plans/2026-08-24-synopsis-as-book-portrait.md`](./plans/2026-08-24-synopsis-as-book-portrait.md)。总纲是读书（书的肖像），旅程是动手（向导）。打开书左边目录还在、中间是总纲；从某一章再点「总纲」要走专用落地，不能卡在写作台。现网门厅仍是仪表盘+五站拼盘，等按 PR-1 开工。
+设计稿：[`docs/plans/2026-08-24-synopsis-as-book-portrait.md`](./plans/2026-08-24-synopsis-as-book-portrait.md)。总纲是读书（书的肖像），旅程是动手（向导）。
 
-**可用性复审（2026-08-24，对照现码）：方向可用，PR-1 可开工，但合同缺一条。** 从系统中心/设置页点「总纲」时 `BinderLayout`/`FourPaneShell` 未挂载，只派 `s3-open-synopsis-hall` 会丢。`handleView('synopsis')` 必须先退出 hub（空选挂上四栏壳）再落地。其余 KD-3 三步、KD-8 取数、停 snapshot/quality、不走 `planEntryChange` 均与现码一致。
+**已落地 PR-1～4：** 打开书 / 从章点「总纲」落到空选门厅（hub 先退再 `hallTick`）；中间是肖像：书名、`north_star`、卷章进度（写到/立到）、人、规矩、母题、未收的账。点「让主编写入」派 `s3-right-tab=chief`。首屏只拉 outline + intent + entities + world-rules + motifs + promises/ledger；评分卡要点开才算，reconnect 不拉 snapshot/quality。写作台 `NorthStarBar` 未改。PR-5 `who_pays` / PR-6 `GET /book-portrait` 另案。
 
-**PR-1 已落地（`3e2b946b` + `01220dfd`）：** 打开书/刷新走 `hallTick` 三步落地；系统中心先退 hub 再排队；总纲去掉五站/规模/完整度/契诃夫/snapshot/quality；进度行立到/写到；手稿空选与 `manuscript_root` 渲染总纲。PR-2/3 未做。
-
-### 总纲门厅（2026-08-24，现网，将被上一节替换）
-
-顶栏第一项是「总纲」。打开一本书先看到全书长什么样：作品意图、旅程走到哪一站、卷和章的摘要、立过的母题，以及原来的规模/设定/伏笔/弱章。书级评分卡要点开才算，首屏不拉全书扫描。旧的「概览」地址还认。界面不再把质量评分卡叫北极星。
+**现网：** 本提交后走 `./scripts/deploy_demo.sh frontend`，浏览器强制刷新 `https://tonglu.qing.blue`。旧「概览」地址还认。
 
 ### 铜炉最优化改造（2026-08-23）
 

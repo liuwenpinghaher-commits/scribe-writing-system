@@ -9,6 +9,8 @@ const apiMock = vi.hoisted(() => ({
   workflowSnapshot: vi.fn(),
   outline: vi.fn(),
   intent: vi.fn(),
+  entities: vi.fn(),
+  motifs: vi.fn(),
   northStarBook: vi.fn(),
   northStarChapter: vi.fn(),
 }))
@@ -26,9 +28,24 @@ const outlineOk = {
 function mockLightOk() {
   apiMock.outline.mockResolvedValue(outlineOk)
   apiMock.intent.mockResolvedValue({
+    north_star: '灯还在',
     reader_feeling: '压抑中见微光',
     emotional_arc: '由怯到决',
     red_lines: '不写超自然',
+  })
+  apiMock.entities.mockResolvedValue([
+    { id: 'role:沈拾灯', kind: 'character', name: '沈拾灯', importance: '主要角色', surface_goal: '守住灯' },
+    { id: 'place:华山', kind: 'place', name: '华山' },
+  ])
+  apiMock.get.mockImplementation((p) => {
+    if (p === '/world-rules') return Promise.resolve([{ name: '金縢', cost: '三年碳化', note: '勿渲染', limitations: ['不可逆'] }])
+    return Promise.reject(new Error(p))
+  })
+  apiMock.motifs.mockResolvedValue([{ id: 'm1', name: '灯与债', theme: '还灯' }])
+  apiMock.promisesLedger.mockResolvedValue({
+    open: [{ id: 'p1', text: '十八个月深渊碰撞' }],
+    closed: [],
+    audit: { overdue_count: 0 },
   })
   apiMock.northStarBook.mockResolvedValue({
     tension: { findings: [] },
@@ -53,9 +70,9 @@ describe('SynopsisView 总纲', () => {
     expect(await screen.findByTestId('synopsis-view')).toBeTruthy()
     expect(screen.getByRole('heading', { name: '总纲' })).toBeTruthy()
     expect(screen.getByText(/当一本书来读/)).toBeTruthy()
-    expect(await screen.findByTestId('northstar-bar')).toBeTruthy()
-    expect(screen.getByText('作品意图')).toBeTruthy()
-    expect(await screen.findByText(/压抑中见微光/)).toBeTruthy()
+    expect(await screen.findByTestId('synopsis-intent-body')).toBeTruthy()
+    expect((await screen.findByTestId('synopsis-north-star')).textContent).toBe('灯还在')
+    expect(screen.getByText(/压抑中见微光/)).toBeTruthy()
   })
 
   it('OverviewView 别名渲同一页', async () => {
@@ -82,8 +99,8 @@ describe('SynopsisView 总纲', () => {
     await screen.findByTestId('synopsis-progress-line')
     expect(apiMock.workflowSnapshot).not.toHaveBeenCalled()
     expect(apiMock.quality).not.toHaveBeenCalled()
-    expect(apiMock.get).not.toHaveBeenCalled()
-    expect(apiMock.promisesLedger).not.toHaveBeenCalled()
+    expect(apiMock.get).toHaveBeenCalledWith('/world-rules')
+    expect(apiMock.get.mock.calls.every(([p]) => p !== '/setting-completeness')).toBe(true)
   })
 
   it('无正文进度行用立到；弱链去旅程；整行不是按钮', async () => {
@@ -112,7 +129,7 @@ describe('SynopsisView 总纲', () => {
   it('单块失败不挡住整页', async () => {
     apiMock.outline.mockRejectedValue(new Error('outline down'))
     render(<SynopsisView />)
-    expect(await screen.findByTestId('northstar-bar')).toBeTruthy()
+    expect(await screen.findByTestId('synopsis-intent-body')).toBeTruthy()
     expect(await screen.findByText('暂时读不到卷纲，不影响其他块')).toBeTruthy()
   })
 
@@ -152,5 +169,47 @@ describe('SynopsisView 总纲', () => {
     expect(apiMock.quality).not.toHaveBeenCalled()
     expect(apiMock.workflowSnapshot).not.toHaveBeenCalled()
     vi.useRealTimers()
+  })
+
+  it('页头出现 workTitle，让主编写入派 s3-right-tab=chief', async () => {
+    apiMock.intent.mockResolvedValue({})
+    const tabs = []
+    const onTab = (e) => tabs.push(e.detail)
+    window.addEventListener('s3-right-tab', onTab)
+    render(<SynopsisView workTitle="万界概率战争" />)
+    expect((await screen.findByTestId('synopsis-work-title')).textContent).toBe('万界概率战争')
+    expect(screen.getByTestId('synopsis-intent-empty').textContent).toMatch(/还没说清/)
+    fireEvent.click(screen.getByTestId('synopsis-ask-chief'))
+    expect(tabs).toContain('chief')
+    window.removeEventListener('s3-right-tab', onTab)
+  })
+
+  it('名单滤掉地点；主要角色进主档；点名走 onNavigateToObject', async () => {
+    const onNavigateToObject = vi.fn()
+    render(<SynopsisView onNavigateToObject={onNavigateToObject} />)
+    expect(await screen.findByText('沈拾灯')).toBeTruthy()
+    expect(screen.queryByText('华山')).toBeNull()
+    expect(screen.getByText(/守住灯/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /沈拾灯/ }))
+    expect(onNavigateToObject).toHaveBeenCalledWith({
+      type: 'character',
+      id: 'role:沈拾灯',
+      label: '沈拾灯',
+    })
+  })
+
+  it('世界规矩只展示 name/cost，不渲染 note', async () => {
+    render(<SynopsisView />)
+    expect(await screen.findByText('金縢')).toBeTruthy()
+    expect(screen.getByText('三年碳化')).toBeTruthy()
+    expect(screen.queryByText('勿渲染')).toBeNull()
+  })
+
+  it('母题不显示缺口；未收的账用人话', async () => {
+    render(<SynopsisView />)
+    expect(await screen.findByText('灯与债')).toBeTruthy()
+    expect(screen.queryByText(/还差/)).toBeNull()
+    expect(await screen.findByText(/还没收回 1 笔/)).toBeTruthy()
+    expect(screen.getByText('十八个月深渊碰撞')).toBeTruthy()
   })
 })
