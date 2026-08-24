@@ -35,3 +35,4 @@
 
 - 根目录 [`交付说明.md`](../交付说明.md) — 早期 `scribe/` + SQLite 批次快照，**非运维手册**
 - [`plans/2026-08-24-tonglu-qoder-deep-analyze.md`](./plans/2026-08-24-tonglu-qoder-deep-analyze.md) — Qoder 通用文学拆书提纲，**非**铜炉拆书真源；勿按 43 章/配额表开拆。真源：[`worlds/乱世铜炉-拆文/`](./worlds/乱世铜炉-拆文/)
+- [`plans/2026-08-24-tonglu-yinwen-audit.md`](./plans/2026-08-24-tonglu-yinwen-audit.md) — 因文规范核验与后文四条链收口；不重抽 214 节。五句在七场批注 + [`worlds/乱世铜炉-拆文/因文.md`](./worlds/乱世铜炉-拆文/因文.md)
