@@ -82,7 +82,7 @@
 
 ### 本机同步（2026-08-24）
 
-- 本机 `main` 在 origin 之上还有总纲交互补刀（点卷只展开 / 去设定库进角色分类）。demo 准备热更前端。
+- 本机 `main` 已含仪表盘审计修复与总纲交互补刀。demo 总纲已热更；这两处前端未热更。
 - 部署机 SSH：`ssh scribe3-demo`（`82.157.130.140`，密钥 `~/.ssh/id_tencent_lh`，绑 `en0` 绕开 VPN）。直连不绑网卡会卡在 banner。
 - 「同步云端」= 代码 + SSH，不是把云端书库导回本机。
 
@@ -107,7 +107,7 @@
 **已落地 PR-1～4：** 打开书 / 从章点「总纲」落到空选门厅（hub 先退再 `hallTick`）；中间是肖像：书名、`north_star`、卷章进度（写到/立到）、人、规矩、母题、未收的账。点「让主编写入」派 `s3-right-tab=chief`。首屏只拉 outline + intent + entities + world-rules + motifs + promises/ledger；评分卡要点开才算，reconnect 不拉 snapshot/quality。写作台 `NorthStarBar` 未改。PR-5 `who_pays` / PR-6 `GET /book-portrait` 另案。
 
 **现网已验（2026-08-24）：** `https://tonglu.qing.blue` 已热更。`book_e4a6e353`《腕账》打开即门厅（目录还在）：书名、北极星、写到第 3 章、人/规矩/母题、还没收回 3 笔。从第 3 章点「总纲」回到门厅，不卡写作台。空书《手术室》空态 +「让主编写入」会把 `s3_set_intent` 种子送进右侧主编。系统中心点「总纲」先退 hub 再落门厅。总纲首屏有 outline/intent/entities/world-rules/motifs/ledger；无 quality / north-star/book。顶栏「继续」仍会打 `workflow/snapshot`（不是总纲自己）。
-**交互补刀：** 点卷名只展开，另有「看这卷」才进卷详情。「还有 N 人，去设定库」进角色分类，不再开图谱。相关 vitest 27 passed。现网热更后强制刷新再验。
+**交互补刀（未热更）：** 点卷名只展开，另有「看这卷」才进卷详情。「还有 N 人，去设定库」进角色分类，不再开图谱。`SynopsisView.test.jsx` 17 passed。
 
 ### 铜炉最优化改造（2026-08-23）
 
