@@ -1,15 +1,19 @@
 let meta = #{
     name: "tonglu-mentor-extract",
-    description: "从乱世铜炉全文多轮抽出写作参照：切章校验、分批章卡、透镜串行、文风、合成、缺口",
+    description: "从乱世铜炉全文多轮抽出写作参照：切章校验、分批章卡、细读、文风、合成、缺口；加高屋顶、必读批注、几套局",
     when_to_use: "要把乱世铜炉拆成以后写书能翻的参照，一次抽不完就换 pass/start/lens 再跑",
     phases: [
         #{ title: "Index", detail: "切章索引加校验" },
         #{ title: "Chapter-cards", detail: "按序号分批章卡" },
-        #{ title: "Lenses", detail: "透镜串行，一面一次" },
+        #{ title: "Lenses", detail: "细读串行，一面一次" },
         #{ title: "Style", detail: "文风细读" },
         #{ title: "Synthesize", detail: "合成参照本" },
         #{ title: "Gaps", detail: "缺口" },
         #{ title: "Trace", detail: "硬事实对回原文" },
+        #{ title: "Global", detail: "屋顶：这本书到底是什么" },
+        #{ title: "Annotate", detail: "七场必读摊开批" },
+        #{ title: "Craft", detail: "几套局、三层怎么咬、镜头" },
+        #{ title: "Weave", detail: "织进参照本" },
     ],
 };
 
@@ -61,7 +65,19 @@ let synth_schema = #{
         "path": #{ "type": "string" },
         "gap_count": #{ "type": "integer" },
         "can_stop": #{ "type": "boolean" },
+        "l2_can_stop": #{ "type": "boolean" },
         "issues": #{ "type": "string" },
+    },
+};
+
+let annotate_schema = #{
+    "type": "object",
+    "required": ["ok", "path", "title"],
+    "properties": #{
+        "ok": #{ "type": "boolean" },
+        "path": #{ "type": "string" },
+        "title": #{ "type": "string" },
+        "beats_n": #{ "type": "integer" },
     },
 };
 
@@ -97,6 +113,17 @@ fn iron_prefix(source, prompts, out_dir) {
     p += "只换词、堆词、点名一个世界词就能交差的句子，删掉重写。\n";
     p += "禁止主题升华、字数配额、机制词清单、把人写成职能标签、用至少N个当写好。\n";
     p += "打开书先问自己：这一节是谁的日子、发生哪一件、读完世界怎么变。问不清就再读，不要开始写。\n";
+    p
+}
+
+fn l2_iron() {
+    let p = "";
+    p += "你是在往参照本上加一层「怎么写」，不是把这本书再拆一遍。\n";
+    p += "不许改 章卡/ 文件夹、00-index.md、以及文件名以「透镜-」开头的细读文件。\n";
+    p += "不许把全书读进对话。按切章表的行号，只读点名的那一节。不许列出章卡文件夹里所有文件。\n";
+    p += "有的章节几乎没有正文，就写「正文几乎没有」，不要假装有戏。\n";
+    p += "只换词、堆词、点名一个世界词就能交差的句子，删掉重写。\n";
+    p += "写给人看。用平常说话的中文。不要堆别人看不懂的词。\n";
     p
 }
 
@@ -181,9 +208,14 @@ let do_style = pass == "style";
 let do_synth = pass == "synthesize";
 let do_gaps = pass == "gaps";
 let do_trace = pass == "trace";
-if !do_index && !do_cards && !do_lenses && !do_style && !do_synth && !do_gaps && !do_trace {
-    pause("verification", "Pass args.pass = index | chapters | lenses | style | synthesize | gaps | trace | all");
+let do_global = pass == "global";
+let do_annotate = pass == "annotate";
+let do_craft = pass == "craft";
+let do_weave = pass == "weave";
+if !do_index && !do_cards && !do_lenses && !do_style && !do_synth && !do_gaps && !do_trace && !do_global && !do_annotate && !do_craft && !do_weave {
+    pause("verification", "Pass args.pass = index | chapters | lenses | style | synthesize | gaps | trace | all | global | annotate | craft | weave");
 }
+let roster = ["引子", "怪墓", "除夕", "杀场", "贺寿", "文末", "冤狱"];
 
 let index_path = out_dir + "/00-index.md";
 let chapter_count = 0;
@@ -431,6 +463,7 @@ if do_synth {
     syp += "\n写到 ";
     syp += outp;
     syp += "\nok=true 仅当参照本已写。path 填该路径。can_stop=false。\n";
+    syp += "先读参照本开头大约 80 行。若已有 tonglu-l2 记号且 force 不是 1：整本不要重写，一至二十三不要动，记号块不要删。\n";
     let syr = agent(syp, #{
         label: "synthesize",
         capability_mode: "read-write",
@@ -451,7 +484,7 @@ if do_gaps {
     gp += out_dir;
     gp += "\n写到 ";
     gp += outp;
-    gp += "\n没有新缺口且文末约四张卡已在则 can_stop=true、gap_count=0。ok=true 仅当缺口文件已写。\n";
+    gp += "\ncan_stop 只反映第一层文件开头「本轮：可以停」那一句。第二层写在 ## 第二层；另在 output 填 l2_can_stop。不要因第二层没齐把 can_stop 改 false。ok=true 仅当缺口文件已写。\n";
     let gr = agent(gp, #{
         label: "gaps",
         capability_mode: "read-write",
@@ -465,8 +498,9 @@ if do_gaps {
         pass: pass,
         ok: true,
         path: outp,
-        can_stop: gr.output.can_stop,
-        gap_count: gr.output.gap_count,
+        can_stop: gr.output.can_stop == true,
+        l2_can_stop: gr.output.l2_can_stop == true,
+        gap_count: as_int(gr.output.gap_count, 0),
         out_dir: out_dir,
     });
 }
@@ -481,6 +515,7 @@ if do_trace {
     tp += "\n原文：";
     tp += source;
     tp += "\nok=true 仅当你对抽出的硬说法做过 grep。path 填参照本路径。\n";
+    tp += "禁止删除或改写 tonglu-l2 记号块。只改一至二十三里站不住的硬事实句。\n";
     let tr = agent(tp, #{
         label: "trace",
         capability_mode: "read-write",
@@ -497,6 +532,171 @@ if do_trace {
         gap_count: tr.output.gap_count,
         out_dir: out_dir,
     });
+}
+
+if do_global {
+    phase("Global");
+    let outp = out_dir + "/全局.md";
+    let gp2 = iron_prefix(source, prompts, out_dir);
+    gp2 += l2_iron();
+    gp2 += "先读提示文件里「第 6 轮 · 屋顶」，严格按那节做。\n";
+    gp2 += "索引：";
+    gp2 += index_path;
+    gp2 += "\n写到 ";
+    gp2 += outp;
+    gp2 += "\nforce=";
+    gp2 += force.to_string();
+    gp2 += "\nok=true 仅当文件已写（或合格跳过）。path 填写入路径。\n";
+    let gr2 = agent(gp2, #{
+        label: "global",
+        capability_mode: "read-write",
+        output_schema: synth_schema,
+    });
+    if !agent_ok(gr2) {
+        complete(#{ summary: "屋顶没写成", pass: pass, ok: false });
+    }
+    complete(#{ summary: "屋顶已写", pass: pass, ok: true, path: outp, out_dir: out_dir });
+}
+
+if do_annotate {
+    phase("Annotate");
+    if start < 0 || start > 6 {
+        pause("verification", "annotate 的 start 是名单下标 0 到 6（引子、怪墓、除夕、杀场、贺寿、文末、冤狱），不是章序号。");
+    }
+    if args == () || args.count == () { count = 1; }
+    if count < 1 { count = 1; }
+    if count > 2 { count = 2; }
+    if start + count > 7 { count = 7 - start; }
+    if count < 1 {
+        complete(#{ summary: "本批批注为 0", pass: pass, ok: false, start: start });
+    }
+    let i = 0;
+    let ok_n = 0;
+    while i < count {
+        let name = roster[start + i];
+        let outp = out_dir + "/批注/" + name + ".md";
+        let ap = iron_prefix(source, prompts, out_dir);
+        ap += l2_iron();
+        ap += "先读提示文件里「第 7 轮 · 必读批注」，严格按那节做。\n";
+        ap += "本轮引用不受「不超过四十字」限制。每一段原文最多八行或二百字。\n";
+        ap += "索引：";
+        ap += index_path;
+        ap += "\n你只做这一场：";
+        ap += name;
+        ap += "\n写到 ";
+        ap += outp;
+        ap += "\nforce=";
+        ap += force.to_string();
+        ap += "\nok=true 仅当文件已写（或合格跳过）。path 填写入路径。title 填短名。beats_n 填你写了几段原文加批。\n";
+        let ar = agent(ap, #{
+            label: "annotate-" + name,
+            capability_mode: "read-write",
+            output_schema: annotate_schema,
+        });
+        if agent_ok(ar) { ok_n += 1; }
+        i += 1;
+    }
+    complete(#{
+        summary: "批注本轮结束",
+        pass: pass,
+        ok: ok_n > 0,
+        next_start: start + count,
+        cards_n: count,
+        out_dir: out_dir,
+    });
+}
+
+if do_craft {
+    phase("Craft");
+    let wanted = [];
+    if lens == "" {
+        wanted.push("章法");
+        wanted.push("机器");
+        wanted.push("镜头");
+    } else if lens == "章法" || lens == "机器" || lens == "镜头" {
+        wanted.push(lens);
+    } else {
+        pause("verification", "craft 的 lens 只能是 章法 / 机器 / 镜头。空=三面一个一个做。");
+    }
+    let ci2 = 0;
+    let lok = 0;
+    while ci2 < wanted.len() {
+        let b = budget();
+        let rem = 1;
+        if b != () { rem = as_int(b.remaining, 0); }
+        if rem < 1 && ci2 > 0 {
+            complete(#{
+                summary: "几套局写到一半，预算不够",
+                pass: pass,
+                ok: lok > 0,
+                lenses_ok: lok,
+                out_dir: out_dir,
+            });
+        }
+        let nm = wanted[ci2];
+        let heading = "第 8 轮 · 几套局";
+        let fname = "章法.md";
+        if nm == "机器" {
+            heading = "第 8 轮 · 三层怎么咬";
+            fname = "机器.md";
+        }
+        if nm == "镜头" {
+            heading = "第 8 轮 · 镜头和说话";
+            fname = "镜头.md";
+        }
+        let outp = out_dir + "/" + fname;
+        let cp2 = iron_prefix(source, prompts, out_dir);
+        cp2 += l2_iron();
+        cp2 += "先读提示文件里「";
+        cp2 += heading;
+        cp2 += "」，严格按那节做。\n";
+        cp2 += "索引：";
+        cp2 += index_path;
+        cp2 += "\n写到 ";
+        cp2 += outp;
+        cp2 += "\nforce=";
+        cp2 += force.to_string();
+        cp2 += "\nok=true 仅当文件已写（或合格跳过）。path 填写入路径。lens 填短名 ";
+        cp2 += nm;
+        cp2 += "。\n";
+        let cr = agent(cp2, #{
+            label: "craft-" + nm,
+            capability_mode: "read-write",
+            output_schema: lens_schema,
+        });
+        if agent_ok(cr) { lok += 1; }
+        ci2 += 1;
+    }
+    complete(#{
+        summary: "几套局本轮结束",
+        pass: pass,
+        ok: lok > 0,
+        lenses_ok: lok,
+        lenses_n: wanted.len(),
+        out_dir: out_dir,
+    });
+}
+
+if do_weave {
+    phase("Weave");
+    let outp = out_dir + "/参照本.md";
+    let wp = iron_prefix(source, prompts, out_dir);
+    wp += l2_iron();
+    wp += "先读提示文件里「第 9 轮 · 织进参照本」，严格按那节做。一至二十三一个字都不要动。\n";
+    wp += "目录：";
+    wp += out_dir;
+    wp += "\n写到 ";
+    wp += outp;
+    wp += "\nok=true 仅当参照本已写入或更新记号块。path 填参照本路径。can_stop=false。\n";
+    let wr = agent(wp, #{
+        label: "weave",
+        capability_mode: "read-write",
+        output_schema: synth_schema,
+    });
+    if !agent_ok(wr) {
+        complete(#{ summary: "没织进参照本", pass: pass, ok: false });
+    }
+    complete(#{ summary: "已织进参照本", pass: pass, ok: true, path: outp, out_dir: out_dir });
 }
 
 let next_start = start + cards_n;
