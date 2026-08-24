@@ -4,7 +4,7 @@
 |---|---|
 | 状态 | L2 已落地；薄切片另案 |
 | 日期 | 2026-08-24 |
-| 其后 | 因文收口 [`2026-08-24-tonglu-yinwen-audit.md`](./2026-08-24-tonglu-yinwen-audit.md)；笔记对照后的薄切片 [`2026-08-24-tonglu-craft-thin-slice.md`](./2026-08-24-tonglu-craft-thin-slice.md)（未点头不写 `对照.md`） |
+| 其后 | 因文收口 [`2026-08-24-tonglu-yinwen-audit.md`](./2026-08-24-tonglu-yinwen-audit.md)；薄切片已写 [`对照.md`](../worlds/乱世铜炉-拆文/对照.md) |
 | 作者 | Grok（设计）；实现者待指派 |
 | 受众 | 要加高参照本的人；要实现同一条工作流新轮次的人 |
 | 仓库 | `/home/admin/projects/scribe-writing-system` |

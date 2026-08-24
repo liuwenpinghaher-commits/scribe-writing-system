@@ -74,11 +74,9 @@
 - 部署机 SSH：`ssh scribe3-demo`（`82.157.130.140`，密钥 `~/.ssh/id_tencent_lh`，绑 `en0` 绕开 VPN）。直连不绑网卡会卡在 banner。
 - 「同步云端」= 代码 + SSH，不是把云端书库导回本机。
 
-### 拆文因文已收口；薄切片方案待点头（2026-08-24）
+### 拆文薄切片已写（2026-08-24）
 
-七场五句 + 旁挂七处在 [`worlds/乱世铜炉-拆文/因文.md`](./worlds/乱世铜炉-拆文/因文.md)。审查 [`plans/2026-08-24-tonglu-yinwen-audit.md`](./plans/2026-08-24-tonglu-yinwen-audit.md)。
-
-笔记对照后仍薄三点（距离、假破真、办事不剖心），方案 [`plans/2026-08-24-tonglu-craft-thin-slice.md`](./plans/2026-08-24-tonglu-craft-thin-slice.md)。未点头不写 `对照.md`。不要再扩 214 份。`缺口.md` 第一层「可以停」不改。
+[`worlds/乱世铜炉-拆文/对照.md`](./worlds/乱世铜炉-拆文/对照.md)：距离、假破真、办事不剖心。参照本 §二十七有指针。方案 [`plans/2026-08-24-tonglu-craft-thin-slice.md`](./plans/2026-08-24-tonglu-craft-thin-slice.md)。不要再扩 214 份。`缺口.md` 第一层「可以停」不改。
 
 ### Qoder 深度拆书方案已归档（2026-08-24）
 

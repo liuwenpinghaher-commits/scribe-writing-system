@@ -1,8 +1,8 @@
 ---
 title: 铜炉拆书薄切片（笔记对照后）
 created: 2026-08-24
-status: Draft
-type: 执行方案（未点头不写产物）
+status: 已执行
+type: 执行方案（对照.md 已写）
 tags: [铜炉, 拆书, 薄切片]
 ---
 
@@ -14,7 +14,7 @@ tags: [铜炉, 拆书, 薄切片]
 >
 > 真源仍是 [`docs/worlds/乱世铜炉-拆文/`](../worlds/乱世铜炉-拆文/) + [`2026-08-23-tonglu-mentor-extract-design.md`](./2026-08-23-tonglu-mentor-extract-design.md) + [`2026-08-24-tonglu-mentor-craft-design.md`](./2026-08-24-tonglu-mentor-craft-design.md)。因文收口见 [`2026-08-24-tonglu-yinwen-audit.md`](./2026-08-24-tonglu-yinwen-audit.md)。
 >
-> 没有点头，不许写 `对照.md`。
+> 2026-08-24 已按本稿写 `对照.md`，织进参照本 §二十七。第一层「可以停」未改。
 
 ## 对照结论（一句话）
 
@@ -74,4 +74,4 @@ tags: [铜炉, 拆书, 薄切片]
 
 ## 怎样算这页方案做完
 
-方案进仓库，指针写进 mentor-craft、因文审查、SESSION、README。`对照.md` 另等点头。
+`对照.md` 三节都有已有的戏；参照本 §二十七有指针；缺口第一层未改。已做完。
