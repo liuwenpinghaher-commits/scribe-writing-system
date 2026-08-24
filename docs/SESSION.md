@@ -66,10 +66,11 @@
 ### 作者面去重叠（2026-08-24）
 
 职责清单：[`docs/plans/2026-08-24-surface-ownership.md`](./plans/2026-08-24-surface-ownership.md)。总纲读这本书，旅程管下一步，跨章弧（参考）挂在旅程底部折叠，仪表盘只做质量/伏笔/码字。旧 `storyline`/`planning`/`arcs` 进旅程，不再进仪表盘。禁止「全局规划」顶栏。
+**代码已落地（未热更）：** `JourneyView` 底部折叠 `StorylineHub`；`InsightView` 去掉规划区。相关 vitest 15 passed。
 
 ### 本机同步（2026-08-24）
 
-- 本机 `main` 含总纲肖像页；demo 已 `./scripts/deploy_demo.sh frontend`。
+- 本机 `main` 已与 origin 对齐到拆文因文归档；其上还有作者面去重叠提交。demo 总纲已热更，去重叠未热更。
 - 部署机 SSH：`ssh scribe3-demo`（`82.157.130.140`，密钥 `~/.ssh/id_tencent_lh`，绑 `en0` 绕开 VPN）。直连不绑网卡会卡在 banner。
 - 「同步云端」= 代码 + SSH，不是把云端书库导回本机。
 
