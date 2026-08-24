@@ -63,6 +63,18 @@
 
 ## 当前状态
 
+### 仪表盘审计修复（2026-08-24 · 未提交）
+
+按仪表盘审计 prompt 审过并修了代码里能钉死的 P0/P1。现网 `GET /api/works` 无登录是 401，**不能**宣称 tonglu.qing.blue 点过页。
+**已改（工作区未 commit）：** `InsightView.jsx` + `targetNavigation.js`。
+- 质量汇总失败不再卸掉整页：码字进度、伏笔台账仍在；横幅「质量汇总加载失败」；图表/弱章隐藏。
+- 弱章点进左轨 **技法标尺** 的 `quality_review`（`quality:N`），不再伪造无证据区间的 `review_issue`。
+- 已删埋章是不可点文案（`insight-setup-missing`），不跳章。
+- 码字文案改成「码字进度（工程配额）/码字配额」，摘要写明不是总纲「写到/立到」。
+- 正文呼吸默认最后一章 `lastSeq`，改书后同步。
+**测：** 相关 vitest 6 文件 23 passed（`targetNavigation` / `insightView-error` / `cross-view-navigation` / `cross-view-real-views` / `surface-ownership` / `detailPane-routing`）。
+**未做：** commit / push / demo 热更；不改 play-contract / WCG；不新加仪表盘图表。
+
 ### 作者面去重叠（2026-08-24）
 
 职责清单：[`docs/plans/2026-08-24-surface-ownership.md`](./plans/2026-08-24-surface-ownership.md)。总纲读这本书，旅程管下一步，跨章弧（参考）挂在旅程底部折叠，仪表盘只做质量/伏笔/码字。旧 `storyline`/`planning`/`arcs` 进旅程，不再进仪表盘。禁止「全局规划」顶栏。
@@ -70,13 +82,15 @@
 
 ### 本机同步（2026-08-24）
 
-- 本机 `main` 已与 origin 对齐到拆文因文归档；其上还有作者面去重叠提交。demo 总纲已热更，去重叠未热更。
+- 本机 `main` 已与 origin 对齐到拆文 `对照.md`；本轮把方案/交接里「仍薄 / 待点头」改成已核过。demo 总纲已热更。
 - 部署机 SSH：`ssh scribe3-demo`（`82.157.130.140`，密钥 `~/.ssh/id_tencent_lh`，绑 `en0` 绕开 VPN）。直连不绑网卡会卡在 banner。
 - 「同步云端」= 代码 + SSH，不是把云端书库导回本机。
 
-### 拆文薄切片已写（2026-08-24）
+### 拆文薄切片已写并核过（2026-08-24）
 
-[`worlds/乱世铜炉-拆文/对照.md`](./worlds/乱世铜炉-拆文/对照.md)：距离、假破真、办事不剖心。参照本 §二十七有指针。方案 [`plans/2026-08-24-tonglu-craft-thin-slice.md`](./plans/2026-08-24-tonglu-craft-thin-slice.md)。不要再扩 214 份。`缺口.md` 第一层「可以停」不改。
+[`worlds/乱世铜炉-拆文/对照.md`](./worlds/乱世铜炉-拆文/对照.md) 50 行：距离、假破真、办事不剖心；有「不要学」。参照本 §二十七有指针。八条书证都能在拆文包里对上（本机无全文，未回原文）。`缺口.md` 第一层「可以停」未改。不要再扩 214 份。
+
+下一本翻：〇 → 二十二 → 章法 → 七场批注 → `因文.md` → `对照.md`。
 
 ### Qoder 深度拆书方案已归档（2026-08-24）
 

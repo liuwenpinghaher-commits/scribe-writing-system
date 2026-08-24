@@ -75,3 +75,7 @@ scribe3/.venv/bin/python -m scribe3.app
 ## 多书
 
 - Surreal `NS=scribe3`，一书一 `db=<work slug>`；MCP/API 传 `work`。
+
+## 铜炉拆文（给人开下一本）
+
+真源：[`docs/worlds/乱世铜炉-拆文/`](docs/worlds/乱世铜炉-拆文/)。翻序：参照本 〇 → 二十二 → 章法 → 七场批注 → `因文.md` → `对照.md`。不要按 Qoder 提纲重拆，不要给 214 节写因文，不要把情节灌进 Surreal。
