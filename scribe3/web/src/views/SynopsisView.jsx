@@ -149,17 +149,20 @@ export function SynopsisView({
                 const introShown = intro.length > 160 ? `${intro.slice(0, 160)}…` : intro
                 return (
                   <details key={vid || title} className="rounded-md border border-line/40 bg-surface/40 px-3 py-2" open={i === 0}>
-                    <summary
-                      className="cursor-pointer text-f13 text-ink font-medium"
-                      onClick={(e) => {
-                        if (!vid || vid === '_none') return
-                        e.preventDefault()
-                        onSelectNode?.({ id: `vol:${vid}`, type: 'volume', ref: vid, label: title })
-                      }}
-                    >
+                    <summary className="cursor-pointer text-f13 text-ink font-medium" data-testid={`synopsis-volume-${vid || 'none'}`}>
                       {title}
                       <span className="ml-2 text-meta text-faint font-normal">{lane.chapters.length} 章</span>
                     </summary>
+                    {vid && vid !== '_none' ? (
+                      <button
+                        type="button"
+                        data-testid={`synopsis-open-volume-${vid}`}
+                        className="mt-1.5 text-f12 text-brand hover:underline cursor-pointer"
+                        onClick={() => onSelectNode?.({ id: `vol:${vid}`, type: 'volume', ref: vid, label: title })}
+                      >
+                        看这卷
+                      </button>
+                    ) : null}
                     {introShown ? <p className="mt-1.5 text-f12 text-faint leading-snug">{introShown}</p> : null}
                     <ul className="mt-2 space-y-1">
                       {lane.chapters.map((c) => (

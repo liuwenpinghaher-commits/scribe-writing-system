@@ -152,6 +152,40 @@ describe('SynopsisView 总纲', () => {
     expect(onJumpChapter).toHaveBeenCalledWith(1)
   })
 
+  it('点卷名只展开，看这卷才进卷详情', async () => {
+    const onSelectNode = vi.fn()
+    render(<SynopsisView onSelectNode={onSelectNode} />)
+    fireEvent.click(await screen.findByTestId('synopsis-volume-vol-1'))
+    expect(onSelectNode).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId('synopsis-open-volume-vol-1'))
+    expect(onSelectNode).toHaveBeenCalledWith({
+      id: 'vol:vol-1',
+      type: 'volume',
+      ref: 'vol-1',
+      label: '第一卷',
+    })
+  })
+
+  it('还有人去设定库，不进图谱', async () => {
+    apiMock.entities.mockResolvedValue(Array.from({ length: 13 }, (_, i) => ({
+      id: `role:人${i}`,
+      kind: 'character',
+      name: `人${i}`,
+      importance: i === 0 ? '主要角色' : '龙套',
+    })))
+    const onNavigateToObject = vi.fn()
+    const onOpenView = vi.fn()
+    render(<SynopsisView onNavigateToObject={onNavigateToObject} onOpenView={onOpenView} />)
+    fireEvent.click(await screen.findByTestId('synopsis-open-codex'))
+    expect(onOpenView).not.toHaveBeenCalled()
+    expect(onNavigateToObject).toHaveBeenCalledWith({
+      type: 'codex_category',
+      id: 'cat:character',
+      ref: 'character',
+      label: '角色',
+    })
+  })
+
   it('s3-live 300ms 后刷新 outline，不拉评分卡和 snapshot', async () => {
     render(<SynopsisView />)
     await screen.findByTestId('synopsis-progress-line')

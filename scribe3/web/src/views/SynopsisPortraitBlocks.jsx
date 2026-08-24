@@ -33,7 +33,17 @@ export function SynopsisCast({ entities, onNavigateToObject, onOpenView }) {
           在图谱里看关系
         </button>
         {hidden > 0 ? (
-          <button type="button" className="text-faint hover:text-ink cursor-pointer" onClick={() => onOpenView?.('atlas')}>
+          <button
+            type="button"
+            data-testid="synopsis-open-codex"
+            className="text-faint hover:text-ink cursor-pointer"
+            onClick={() => onNavigateToObject?.({
+              type: 'codex_category',
+              id: 'cat:character',
+              ref: 'character',
+              label: '角色',
+            })}
+          >
             还有 {hidden} 人，去设定库
           </button>
         ) : null}
