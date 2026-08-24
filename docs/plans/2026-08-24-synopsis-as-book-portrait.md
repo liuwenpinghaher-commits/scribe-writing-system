@@ -415,7 +415,7 @@ function landSynopsisHall() {
 
 接线：
 
-- `App.handleView('synopsis'|'overview')` **不要** `setSel({ mode:'view', viewKey })`。派 `s3-open-synopsis-hall`（或 BinderLayout 回调），由四栏壳执行 `landSynopsisHall`。`journey` / `atlas` / … 仍走 `viewPatch`（藏目录，既有横切）。
+- `App.handleView('synopsis'|'overview')` **不要** `setSel({ mode:'view', viewKey })`。若在系统中心/设置/管理台，先空选退出 hub 挂上四栏壳，再 `hallTick++`（壳未挂时事件会丢）。打开书/刷新由 Binder 按 work 再请求一次落地。`journey` / `atlas` / … 仍走 `viewPatch`（藏目录，既有横切）。
 - 命令面板点「总纲」走同一 `handleView`。
 - **禁止** `handleActive('manuscript')` / `applyEntryKey('manuscript')` 当总纲落地（内部是 `planEntryChange`）。
 
