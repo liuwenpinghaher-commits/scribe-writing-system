@@ -2,9 +2,9 @@
 
 | 项 | 值 |
 |---|---|
-| 状态 | L2 已落地；薄切片已写 |
+| 状态 | L2 已落地；薄切片已写并核过 |
 | 日期 | 2026-08-24 |
-| 其后 | 因文收口 [`2026-08-24-tonglu-yinwen-audit.md`](./2026-08-24-tonglu-yinwen-audit.md)；薄切片已写 [`对照.md`](../worlds/乱世铜炉-拆文/对照.md) |
+| 其后 | 因文收口 [`2026-08-24-tonglu-yinwen-audit.md`](./2026-08-24-tonglu-yinwen-audit.md)；薄切片 [`对照.md`](../worlds/乱世铜炉-拆文/对照.md) 已写。现网点验《腕账》不改本层 |
 | 作者 | Grok（设计）；实现者待指派 |
 | 受众 | 要加高参照本的人；要实现同一条工作流新轮次的人 |
 | 仓库 | `/home/admin/projects/scribe-writing-system` |
