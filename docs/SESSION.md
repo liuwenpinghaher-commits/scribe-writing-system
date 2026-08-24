@@ -65,9 +65,15 @@
 
 ### 本机同步（2026-08-24）
 
-- 本机 `main` 在 `32f0509a` 之上还有总纲 PR-2～4 提交（肖像页）。未 push 也能 `./scripts/deploy_demo.sh frontend` 热更。
+- 本机 `main` 含总纲肖像页；demo 已 `./scripts/deploy_demo.sh frontend`。
 - 部署机 SSH：`ssh scribe3-demo`（`82.157.130.140`，密钥 `~/.ssh/id_tencent_lh`，绑 `en0` 绕开 VPN）。直连不绑网卡会卡在 banner。
 - 「同步云端」= 代码 + SSH，不是把云端书库导回本机。
+
+### 拆文因文审查收口（2026-08-24）
+
+规范过：七场五句都答了，不是贴标题。旁挂三处（选择、跳六年、切开）在 [`worlds/乱世铜炉-拆文/因文.md`](./worlds/乱世铜炉-拆文/因文.md)。
+
+后文审完：章卡仍是「事」。若补因文，只挂四条链，不扩 214 份——心藏腹（装疼/誓/苦肉）、天下第一门（铁律压场→龙到场不围官差）、塑魂（酒买坛→七月二十一破坛→八月初三醒了先叫从前的人）、别亦难钉（认杀机不认亲，孩子自己扔钉）。巧舌并进冤狱。两场开坛/中秋/年已有对照，不另开。`缺口.md` 第一层「可以停」不改。
 
 ### Qoder 深度拆书方案已归档（2026-08-24）
 
@@ -83,7 +89,7 @@
 
 **已落地 PR-1～4：** 打开书 / 从章点「总纲」落到空选门厅（hub 先退再 `hallTick`）；中间是肖像：书名、`north_star`、卷章进度（写到/立到）、人、规矩、母题、未收的账。点「让主编写入」派 `s3-right-tab=chief`。首屏只拉 outline + intent + entities + world-rules + motifs + promises/ledger；评分卡要点开才算，reconnect 不拉 snapshot/quality。写作台 `NorthStarBar` 未改。PR-5 `who_pays` / PR-6 `GET /book-portrait` 另案。
 
-**现网：** 本提交后走 `./scripts/deploy_demo.sh frontend`，浏览器强制刷新 `https://tonglu.qing.blue`。旧「概览」地址还认。
+**现网已验（2026-08-24）：** `https://tonglu.qing.blue` 已热更。`book_e4a6e353`《腕账》打开即门厅（目录还在）：书名、北极星、写到第 3 章、人/规矩/母题、还没收回 3 笔。从第 3 章点「总纲」回到门厅，不卡写作台。空书《手术室》空态 +「让主编写入」会把 `s3_set_intent` 种子送进右侧主编。系统中心点「总纲」先退 hub 再落门厅。总纲首屏有 outline/intent/entities/world-rules/motifs/ledger；无 quality / north-star/book。顶栏「继续」仍会打 `workflow/snapshot`（不是总纲自己）。
 
 ### 铜炉最优化改造（2026-08-23）
 
