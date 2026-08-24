@@ -43,4 +43,28 @@ describe('DetailPane 路由', () => {
     rerender(<DetailPane sel={{ mode: 'view', viewKey: 'overview' }} />)
     expect(await screen.findByTestId('view-synopsis')).toBeTruthy()
   })
+
+  it('手稿空选和 manuscript_root 是总纲，不是空白提示', async () => {
+    const { rerender } = render(
+      <DetailPane entryKey="manuscript" sel={{ mode: 'node', node: null }} />,
+    )
+    expect(await screen.findByTestId('view-synopsis')).toBeTruthy()
+    expect(screen.queryByTestId('detail-empty')).toBeNull()
+
+    rerender(
+      <DetailPane
+        entryKey="manuscript"
+        sel={{ mode: 'node', node: { id: 'manuscript_root', type: 'manuscript_root', label: '手稿' } }}
+      />,
+    )
+    expect(screen.getByTestId('view-synopsis')).toBeTruthy()
+    expect(screen.queryByText(/选择目录条目/)).toBeNull()
+  })
+
+  it('设定库空选仍是设定库空态', () => {
+    render(<DetailPane entryKey="codex" sel={{ mode: 'node', node: null }} />)
+    expect(screen.getByTestId('detail-empty')).toBeTruthy()
+    expect(screen.getByText('设定库')).toBeTruthy()
+    expect(screen.queryByTestId('view-synopsis')).toBeNull()
+  })
 })

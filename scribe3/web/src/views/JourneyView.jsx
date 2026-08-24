@@ -151,10 +151,10 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
           <div>
             <div className="flex items-center gap-2 text-brand font-medium text-f14">
               <Compass size={18} />
-              写作旅程
+              旅程
             </div>
             <p className="mt-1 text-meta text-faint leading-snug">
-              你只做想象与裁决；系统告诉你做到哪、下一步聊什么。
+              现在该干什么：这一站、下一步、卡住的地方。
             </p>
           </div>
           <button

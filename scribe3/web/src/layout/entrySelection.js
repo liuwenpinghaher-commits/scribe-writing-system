@@ -107,6 +107,14 @@ export function planEntryChange(entryKey, node, tree, label = '') {
   return { patch: entryPatch(entryKey, label), select: undefined }
 }
 
+/** 手稿门厅：空选或停在手稿根。禁止用 !entryKey 冒充手稿。 */
+export function isSynopsisHall(entryKey, sel) {
+  if (entryKey !== 'manuscript') return false
+  if (sel?.mode === 'view') return false
+  const t = sel?.node?.type
+  return !sel?.node || t === 'manuscript_root'
+}
+
 /** 空态文案：按当前入口域 */
 export function emptyDetailCopy(entryKey) {
   switch (entryKey) {

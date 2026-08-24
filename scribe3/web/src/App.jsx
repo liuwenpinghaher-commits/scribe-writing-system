@@ -6,6 +6,7 @@ import { ToastHost } from './ui/Toast'
 import { Login } from './Login'
 import { clearApiToken, logoutSession } from './authFetch'
 import { WorkflowCapsule, applyWorkflowContinue } from './WorkflowCapsule'
+import { shouldExitHubForSynopsis } from './layout/synopsisHall'
 
 const ACTIVE_WORK_STORAGE_KEY = 's3-active-work'
 const Library = lazy(() => import('./Library').then((mod) => ({ default: mod.Library })))
@@ -33,6 +34,9 @@ export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('s3-theme') || 'light')
   const [cmdOpen, setCmdOpen] = useState(false)
   const [sel, setSel] = useState({ mode: 'node', node: null })
+  const [synopsisHall, setSynopsisHall] = useState(false)
+  const [hallTick, setHallTick] = useState(0)
+  useEffect(() => { setSynopsisHall(false) }, [cur?.slug])
 
   const forceLogin = useCallback(() => {
     clearApiToken()
@@ -150,8 +154,14 @@ export default function App() {
       onView('system')
       return
     }
+    if (viewKey === 'synopsis' || viewKey === 'overview') {
+      if (!cur) return
+      if (shouldExitHubForSynopsis(sel)) setSel({ mode: 'node', node: null })
+      setHallTick((n) => n + 1)
+      return
+    }
     onView(viewKey)
-  }, [sel, onView, exitAdmin])
+  }, [sel, onView, exitAdmin, cur])
 
   // 编排 ui_directive 的 selection：主编/WriteChat 无 setSel 直连时经 s3-selection 落地栏3
   useEffect(() => {
@@ -239,6 +249,7 @@ export default function App() {
     setSel({ mode: 'node', node: null })
   }
   const activeView = sel.mode === 'view' ? sel.viewKey : null
+  const railView = synopsisHall ? 'synopsis' : activeView
   const isAdmin = !!(me?.is_admin)
 
   const hubViews = new Set(['system', 'settings', 'admin'])
@@ -280,6 +291,9 @@ export default function App() {
         onSel={setSel}
         onJumpChapter={handleJumpChapter}
         onWorkflowContinue={handleWorkflowContinue}
+        hallTick={hallTick}
+        onSynopsisHallChange={setSynopsisHall}
+        onRequestSynopsisHall={() => setHallTick((n) => n + 1)}
       />
     )
   }
@@ -289,7 +303,7 @@ export default function App() {
       <div className="h-full flex flex-col bg-canvas">
         <AppRail
           current={cur}
-          view={activeView}
+          view={railView}
           onView={handleView}
           onOpenLibrary={openLibrary}
           theme={theme}

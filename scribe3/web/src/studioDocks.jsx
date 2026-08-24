@@ -429,7 +429,7 @@ function DeliveryCard({ card, seq, onOpenProse }) {
 }
 
 
-export function useRightDockController({ sel, chapterSel, seq, lastSeq, onRestored }) {
+export function useRightDockController({ sel, chapterSel, seq, lastSeq, onRestored, synopsisHall = false }) {
   const [tab, setTab] = usePref('s3.rightTab', 'chief')
   const { setChiefMode } = useChiefSlot()
   // Task 8:undefined=尚未拉到(未知),null=拉取失败(未知),number=真实待办数。
@@ -462,7 +462,7 @@ export function useRightDockController({ sel, chapterSel, seq, lastSeq, onRestor
     // Task 8 · scope 作用域分组(裁决):chief/selection 作用于「当前对象」(随选中变),
     // context/versions/pilot 作用于「章节」(选中章才有意义),inbox 是「全局」常驻。
     // key 全部保留不动——s3.rightTab 偏好与 s3-right-tab 事件继续按旧 key 工作。
-    const next = [{ key: 'chief', icon: MessageSquare, label: '主编', bare: true, scope: 'object', render: () => <ChiefDock sel={sel} chapterSel={chapterSel} lastSeq={lastSeq} onRestored={onRestored} /> }]
+    const next = [{ key: 'chief', icon: MessageSquare, label: '主编', bare: true, scope: 'object', render: () => <ChiefDock sel={sel} chapterSel={chapterSel} lastSeq={lastSeq} onRestored={onRestored} synopsisHall={synopsisHall} /> }]
     // 选择环 / 主编驾驶已收进主编模式条，不再占右栏 tab。
     if (seq != null) next.push({ key: 'versions', icon: Archive, label: '存档', scope: 'chapter', render: () => <div className="p-3"><RightVersionPanel seq={seq} onRestored={onRestored} /></div> })
     // 主编主动化 T4:决策收件箱——badge=等作者事项数(needs_human/升格候选/pulse decision);
@@ -473,7 +473,7 @@ export function useRightDockController({ sel, chapterSel, seq, lastSeq, onRestor
       badgeUnknown: inboxCount === null ? '收件箱状态未知' : undefined,
       render: () => <div className="p-3"><InboxPanel seq={seq} onCount={setInboxCount} /></div> })
     return next
-  }, [sel, chapterSel, seq, lastSeq, onRestored, inboxCount])
+  }, [sel, chapterSel, seq, lastSeq, onRestored, inboxCount, synopsisHall])
   const active = caps.find((cap) => cap.key === tab) || caps[0]
   const activate = useCallback((key) => {
     const { tab: nextTab, mode } = resolveRightTab(key)

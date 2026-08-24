@@ -14,7 +14,8 @@ import { useContextSnapshot } from '../context/ContextSnapshotContext'
 import { entryPatch, nodePatch, viewPatch } from '../context/contextSnapshot'
 import { routeOf, selectionFromSnapshot } from './contextSelection'
 import { sanitizeLayout } from './sanitizeLayout'
-import { planEntryChange } from './entrySelection'
+import { isSynopsisHall, planEntryChange } from './entrySelection'
+import { landSynopsisHall, SYNOPSIS_HALL_EVENT } from './synopsisHall'
 import { useChiefSlot } from '../ChiefSlotContext'
 import {
   isJourneyViewSel,
@@ -78,6 +79,7 @@ function entryForActive(tree, active) {
 export function FourPaneShell({
   tree, selId, expanded, toggle, onSelectNode, treeCbs, sel, work, reload, onJumpChapter,
   chapterSel, curSeq, leftSeq, onRestored, onWorkflowContinue,
+  hallTick = 0, onSynopsisHallChange,
 }) {
   const [directoryRefresh, setDirectoryRefresh] = useState(0)
   const directoryRef = usePanelRef()
@@ -119,12 +121,14 @@ export function FourPaneShell({
   // 的选中态与 revision 同帧翻页;未导航(Provider 缺席/本地模式)时降级直通原 sel。
   // 事件回调仍只改本地 sel/onSelectNode——投影是只读的下行,不改变上行写路径。
   const effectiveSel = navigated ? selectionFromSnapshot(snapshot, sel) : sel
+  const synopsisHallForDock = isSynopsisHall(projectedEntryKey, effectiveSel)
   const rightDockController = useRightDockController({
     sel: effectiveSel,
     chapterSel,
     seq: curSeq,
     lastSeq: leftSeq,
     onRestored,
+    synopsisHall: synopsisHallForDock,
   })
   // isView 读投影后的 effectiveSel(而非本地 sel):栏2 显隐 / 栏3 minSize / 目录折叠
   // effect 全由它驱动,内容也读 effectiveSel——两者同源才不会在跨 view 边界对齐时
@@ -331,6 +335,30 @@ export function FourPaneShell({
     if (directoryCollapsed) expandDirectory()
     applyEntryKey(nextKey)
   }
+  const runLandSynopsisHall = () => {
+    landSynopsisHall({
+      setTab,
+      onSelectNode,
+      navigate,
+      directoryCollapsed,
+      expandDirectory,
+    })
+  }
+  const landHallRef = useRef(runLandSynopsisHall)
+  landHallRef.current = runLandSynopsisHall
+  useEffect(() => {
+    const onHall = () => landHallRef.current?.()
+    window.addEventListener(SYNOPSIS_HALL_EVENT, onHall)
+    return () => window.removeEventListener(SYNOPSIS_HALL_EVENT, onHall)
+  }, [])
+  useEffect(() => {
+    if (!hallTick) return
+    landHallRef.current?.()
+  }, [hallTick])
+  const synopsisHall = isSynopsisHall(projectedEntryKey, effectiveSel)
+  useEffect(() => {
+    onSynopsisHallChange?.(synopsisHall)
+  }, [synopsisHall, onSynopsisHallChange])
   // 顶栏搜索 / ⌘K 只 setTab 的旁路：同样收敛栏3，消除「搜索目录 + 伏笔详情」
   // 用 ref 读最新 plan 输入，避免把 sel/tree 放进 effect 依赖导致频繁重绑
   const entryApplyRef = useRef({ applyEntryKey, directoryCollapsed, expandDirectory, caps })

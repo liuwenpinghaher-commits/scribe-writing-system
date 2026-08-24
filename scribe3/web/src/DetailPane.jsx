@@ -9,7 +9,7 @@ import { ObjectFrame } from './layout/ObjectFrame'
 import { presentationForNode } from './layout/objectRegistry'
 import { ReferenceWorks } from './quality/ReferenceWorks'
 import { QualityReview } from './quality/QualityReview'
-import { emptyDetailCopy } from './layout/entrySelection'
+import { emptyDetailCopy, isSynopsisHall } from './layout/entrySelection'
 
 const lazyNamed = (load, name) => lazy(() => load().then((mod) => ({ default: mod[name] })))
 const ChapterStudio = lazyNamed(() => import('./ChapterStudio'), 'ChapterStudio')
@@ -85,10 +85,21 @@ export function DetailPane(props) {
 
 function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, onNavigateToObject, onChapterArchived, entryKey, qualitySeq, onWorkflowContinue }) {
   // onNavigateToObject: 设定详情「在图谱中打开」等跨栏定位(须透传 CodexDetail)
+  const openView = (vk) => onSelectNode?.({ type: 'view', id: `view:${vk}` })
+  if (isSynopsisHall(entryKey, sel)) {
+    return (
+      <SynopsisView
+        key={`${work}-hall`}
+        onJumpChapter={onJumpChapter}
+        onOpenView={openView}
+        onSelectNode={onSelectNode}
+        onNavigateToObject={onNavigateToObject}
+      />
+    )
+  }
   // —— 横切视图 ——
   if (sel?.mode === 'view') {
     const k = sel.viewKey
-    const openView = (vk) => onSelectNode?.({ type: 'view', id: `view:${vk}` })
     if (k === 'atlas') return <AtlasView key={work} onNavigateToObject={onNavigateToObject} />
     if (k === 'insight') {
       return (

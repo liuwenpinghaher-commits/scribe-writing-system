@@ -254,13 +254,23 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, looki
 // 据当前选中(章/素材/视图)给主编做上下文前缀 + 一句话定位 + 建议提问。
 // phase(章阶段 tab)给定时,章的上下文/建议按阶段(大纲/节拍/演绎/草稿)调整。
 // deduceName:演绎阶段当前编辑目标的展示名('场景真相' 或角色名),仅 phase==='deduce' 用。
-function selContext(sel, phase, deduceName) {
+function selContext(sel, phase, deduceName, extras = {}) {
+  if (extras.synopsisHall) {
+    return {
+      label: '总纲',
+      prefix: '【当前正在读这本书的总纲】\n',
+      suggests: ['这本书现在整体是什么感觉?', '还缺哪一块才能把书写清楚?'],
+    }
+  }
   if (!sel) return { label: '未选中', prefix: '', suggests: [] }
   if (sel.mode === 'view') {
-    const names = { atlas: '关系图谱', insight: '仪表盘', timeline: '时间线', overview: '概览', progress: '进度' }
+    const names = {
+      atlas: '关系图谱', insight: '仪表盘', timeline: '时间线',
+      overview: '总纲', synopsis: '总纲', journey: '旅程', progress: '进度',
+    }
     const n = names[sel.viewKey] || sel.viewKey
     return {
-      label: `视图 · ${n}`,
+      label: n === '总纲' || n === '旅程' ? n : `视图 · ${n}`,
       prefix: `【当前正在看横切视图:${n}】\n`,
       suggests: [`从${n}看,整体有什么风险或断点?`, '帮我梳理接下来该推进什么'],
     }
@@ -506,7 +516,7 @@ function WriteLayerRail({ seq }) {
   )
 }
 
-export function ChiefDock({ sel, chapterSel, lastSeq, onRestored }) {
+export function ChiefDock({ sel, chapterSel, lastSeq, onRestored, synopsisHall = false }) {
   const { chapterPhase, chiefMode } = useChiefSlot()
   const seq = selSeq(sel)
   const layerRail = seq != null ? <WriteLayerRail seq={seq} /> : null
@@ -547,7 +557,7 @@ export function ChiefDock({ sel, chapterSel, lastSeq, onRestored }) {
       <ChiefModeBar seq={seq} />
       {layerRail}
       {jobStrip}
-      <div className="flex-1 min-h-0"><DiscussionDock sel={sel} ctxSeq={lastSeq} /></div>
+      <div className="flex-1 min-h-0"><DiscussionDock sel={sel} ctxSeq={lastSeq} synopsisHall={synopsisHall} /></div>
     </div>
   )
 }
@@ -564,7 +574,7 @@ function selSeq(sel) {
 // 前置阶段各自独立 phase，走独立 LLM 生成合同（勿把大纲/节拍都折成 plan）。
 const WRITE_PHASE = { outline: 'outline', beats: 'beats', deduce: 'deduce', draft: 'draft', final: 'final' }
 
-function DiscussionDock({ sel, phase, ctxSeq }) {
+function DiscussionDock({ sel, phase, ctxSeq, synopsisHall = false }) {
   const seq = useMemo(() => selSeq(sel), [sel])
   const { setStageProposal, chiefIntent, setChiefIntent, jobBusy } = useChiefSlot()
   // 演绎阶段:读左树/中区共享的当前演绎目标('truth' 或 character_id),生成完按它发布 target。
@@ -590,8 +600,8 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
   // 上下文标签:线程模式跟随快照焦点(切焦点即改标签但不换线程);否则跟随选中总线 focus。
   const effectiveFocus = threadMode ? (snapshot?.focus || focus) : focus
   const ctx = useMemo(
-    () => threadFocusTalk(effectiveFocus, threadMode) || selContext(sel, phase, phase === 'deduce' ? deduceName : undefined),
-    [effectiveFocus, threadMode, sel, phase, deduceName])
+    () => threadFocusTalk(effectiveFocus, threadMode) || selContext(sel, phase, phase === 'deduce' ? deduceName : undefined, { synopsisHall }),
+    [effectiveFocus, threadMode, sel, phase, deduceName, synopsisHall])
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
