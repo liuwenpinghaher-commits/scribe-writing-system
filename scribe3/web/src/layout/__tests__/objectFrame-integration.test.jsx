@@ -41,6 +41,7 @@ vi.mock('../../NorthStarPanel', () => ({ NorthStarPanel: () => <div data-testid=
 vi.mock('../../views/AtlasView', () => ({ AtlasView: () => <div data-testid="view-atlas" /> }))
 vi.mock('../../views/InsightView', () => ({ InsightView: () => <div data-testid="view-insight" /> }))
 vi.mock('../../views/OverviewView', () => ({ OverviewView: () => <div data-testid="view-overview" /> }))
+vi.mock('../../views/SynopsisView', () => ({ SynopsisView: () => <div data-testid="view-synopsis" /> }))
 vi.mock('../../views/TimelineView', () => ({ TimelineView: () => <div data-testid="view-timeline" /> }))
 vi.mock('../CapabilityDetailPanes', () => ({
   CapabilityGroupDetailPane: () => <div />, DeduceDetailPane: () => <div />, MotifDetailPane: () => <div />,

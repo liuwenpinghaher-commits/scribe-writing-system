@@ -136,6 +136,18 @@ def test_snapshot_no_chapters_guides_intent_or_chapter():
     assert snap["next_step"]["id"] in ("set_intent", "add_chapter")
 
 
+def test_empty_book_intent_copy_is_作品意图_not_北极星():
+    st = MiniStore()
+    st.chapters = []
+    st.chars = []
+    st.intent = {}
+    snap = build_workflow_snapshot(st, work="empty")
+    assert snap["next_step"]["id"] == "set_intent"
+    assert "作品意图" in snap["next_step"]["title"]
+    assert "北极星" not in snap["next_step"]["title"]
+    assert "北极星" not in (snap.get("suggested_prompt") or "")
+
+
 def test_http_workflow_snapshot(monkeypatch):
     import scribe3.app as A
     from fastapi.testclient import TestClient

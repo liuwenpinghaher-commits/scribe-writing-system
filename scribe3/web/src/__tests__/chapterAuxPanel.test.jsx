@@ -9,7 +9,7 @@ const apiMock = vi.hoisted(() => ({
 
 vi.mock('../api', () => ({ api: apiMock }))
 vi.mock('../BriefPanel', () => ({ BriefPanel: ({ seq }) => <div data-testid="brief-panel">简报:{seq}</div> }))
-vi.mock('../NorthStarPanel', () => ({ NorthStarPanel: ({ seq }) => <div data-testid="northstar-panel">北极星:{seq}</div> }))
+vi.mock('../NorthStarPanel', () => ({ NorthStarPanel: ({ seq }) => <div data-testid="northstar-panel">评分卡:{seq}</div> }))
 vi.mock('../ExperiencePressurePanel', () => ({
   ExperiencePressurePanel: ({ seq }) => <div data-testid="experience-pressure-panel">压力:{seq}</div>,
 }))
@@ -52,7 +52,7 @@ describe('ChapterAuxPanel 章节辅助(章工作台栏3 内容区视图)', () =>
     expect(apiMock.chapter).toHaveBeenCalledWith(3)
   })
 
-  it('三页可切换:简报 → 关联 → 北极星,brief/northstar 正常渲染', async () => {
+  it('三页可切换:简报 → 关联 → 评分卡,brief/northstar 正常渲染', async () => {
     render(<ChapterAuxPanel seq={3} />)
 
     expect((await screen.findByTestId('brief-panel')).textContent).toBe('简报:3')
@@ -61,8 +61,8 @@ describe('ChapterAuxPanel 章节辅助(章工作台栏3 内容区视图)', () =>
     expect(await screen.findByTestId('frame-panel')).toBeTruthy()
     expect(screen.queryByTestId('brief-panel')).toBeNull()
 
-    fireEvent.click(screen.getByRole('tab', { name: '北极星' }))
-    expect((await screen.findByTestId('northstar-panel')).textContent).toBe('北极星:3')
+    fireEvent.click(screen.getByRole('tab', { name: '评分卡' }))
+    expect((await screen.findByTestId('northstar-panel')).textContent).toBe('评分卡:3')
     expect(screen.queryByTestId('frame-panel')).toBeNull()
   })
 

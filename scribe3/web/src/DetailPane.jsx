@@ -24,7 +24,7 @@ const ReviewIssueDetail = lazyNamed(() => import('./layout/CapabilityDetailPanes
 const QualityContractEditor = lazyNamed(() => import('./quality/QualityContractEditor'), 'QualityContractEditor')
 const AtlasView = lazyNamed(() => import('./views/AtlasView'), 'AtlasView')
 const InsightView = lazyNamed(() => import('./views/InsightView'), 'InsightView')
-const OverviewView = lazyNamed(() => import('./views/OverviewView'), 'OverviewView')
+const SynopsisView = lazyNamed(() => import('./views/SynopsisView'), 'SynopsisView')
 const TimelineView = lazyNamed(() => import('./views/TimelineView'), 'TimelineView')
 const JourneyView = lazyNamed(() => import('./views/JourneyView'), 'JourneyView')
 const CanonInboxView = lazyNamed(() => import('./views/CanonInboxView'), 'CanonInboxView')
@@ -60,7 +60,7 @@ const CONTAINER = new Set(['manuscript_root', 'codex_root', 'codex_category', 'm
 
 /**
  * 中间栏:按 sel 路由。
- *  - mode==='view'      → 横切视图(图谱/时间线/仪表盘/进度/概览)
+ *  - mode==='view'      → 横切视图(总纲/图谱/时间线/仪表盘/进度)
  *  - node.type 章/场景  → 完整写作台 WriteLayout(传 seq)
  *  - node.type 设定叶   → CodexDetail 详情卡
  *  - node.type 容器     → 子项列表(MVP)
@@ -101,7 +101,9 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
       )
     }
     if (k === 'timeline') return <TimelineView key={work} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} />
-    if (k === 'overview') return <OverviewView key={work} onJumpChapter={onJumpChapter} onOpenView={openView} />
+    if (k === 'overview' || k === 'synopsis') {
+      return <SynopsisView key={work} onJumpChapter={onJumpChapter} onOpenView={openView} />
+    }
     if (k === 'journey') {
       return (
         <JourneyView

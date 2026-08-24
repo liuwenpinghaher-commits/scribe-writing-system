@@ -1,4 +1,4 @@
-import { Sun, Moon, BookOpen, ChevronDown, Network, Activity, Clock, Search, Settings, Compass, Shield, LogOut } from 'lucide-react'
+import { Sun, Moon, BookOpen, BookText, ChevronDown, Network, Activity, Clock, Search, Settings, Compass, Shield, LogOut } from 'lucide-react'
 import { PC_LAYOUT } from './layout/tokens'
 import { BrandMark } from './BrandMark'
 
@@ -6,6 +6,7 @@ import { BrandMark } from './BrandMark'
 // 顶栏横切视图 + 写作旅程(导演状态页)。
 // 规划看板 + 跨章弧登记已并入「仪表盘」(不再单独占一个「故事线」Tab，避免与叙事主链混淆)。
 export const VIEWS = [
+  { key: 'synopsis', label: '总纲', icon: BookText },
   { key: 'journey', label: '旅程', icon: Compass },
   { key: 'atlas', label: '图谱', icon: Network },
   { key: 'timeline', label: '时间线', icon: Clock },

@@ -93,7 +93,7 @@ export const CAPABILITY_TREE = {
         label: '全书结构',
         meta: '全书/异常',
         tone: 'warn',
-        meaning: '从全书层面检查母题是否过薄、过度重复或偏离北极星。',
+        meaning: '从全书层面检查母题是否过薄、过度重复或偏离作品意图。',
         constraint: '全书母题应服务主题推进,不应变成重复意象堆叠。',
         scope: '全书母题结构',
         rows: [

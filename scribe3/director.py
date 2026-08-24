@@ -535,12 +535,12 @@ def build_workflow_snapshot(st, work: str = "main", seq: int | None = None) -> d
         if not (intent.get("reader_feeling") or intent.get("red_lines")):
             next_step = attach_next_domain({
                 "id": "set_intent",
-                "title": "先立北极星（读者感 / 红线）",
+                "title": "先立作品意图（读者感 / 红线）",
                 "why": "没有意图锚点，大纲容易飘。",
                 "how_chat": "告诉主编：这本书要让读者感到……红线是……",
                 "ui_target": {"kind": "northstar"},
             })
-            prompt = "帮我确立本书北极星：读者感、情绪弧、红线。先给 3 个选项我选。"
+            prompt = "帮我确立本书作品意图：读者感、情绪弧、红线。先给 3 个选项我选。"
             ui = {"entry": "manuscript", "phase": None, "node": None, "right_tab": "chief",
                   "layout_mode": "collaboration"}
         elif not motif_gap.get("ok"):

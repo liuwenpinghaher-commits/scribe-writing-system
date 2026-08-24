@@ -4,7 +4,7 @@ import { Input } from '../ui.jsx'
 import { seedChiefNarrativeWrite } from '../lib/chiefSeed.js'
 import { ReadOnlyText } from '../ui/EditableText.jsx'
 
-// 与 NorthStarBar.jsx 的 FIELDS 保持同一套字段/标签,顶栏北极星条与设置中心「本书设置」
+// 与 NorthStarBar.jsx 的 FIELDS 保持同一套字段/标签,总纲「作品意图」与设置中心「本书设置」
 // 两处编辑同一份 /intent,标签不一致会让作者以为是两份数据。
 const TEXT_FIELDS = [
   ['reader_feeling', '读者感受'],
@@ -106,7 +106,7 @@ export function BookSection({ work }) {
           data-testid="book-word-goal-missing"
           role="status"
         >
-          <span className="text-ink/90">尚未设定全书目标字数（craft-loop 北极星建议 4–6 万）。</span>
+          <span className="text-ink/90">尚未设定全书目标字数（建议 4–6 万）。</span>
           <button
             type="button"
             className="ml-2 text-brand hover:underline cursor-pointer"

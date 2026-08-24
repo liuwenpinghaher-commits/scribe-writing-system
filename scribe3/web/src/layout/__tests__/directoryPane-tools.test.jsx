@@ -22,6 +22,7 @@ vi.mock('../../NorthStarPanel', () => ({ NorthStarPanel: ({ scope }) => <div dat
 vi.mock('../../views/AtlasView', () => ({ AtlasView: () => <div data-testid="view-atlas" /> }))
 vi.mock('../../views/InsightView', () => ({ InsightView: ({ focus }) => <div data-testid="view-insight">{focus || ''}</div> }))
 vi.mock('../../views/OverviewView', () => ({ OverviewView: () => <div data-testid="view-overview" /> }))
+vi.mock('../../views/SynopsisView', () => ({ SynopsisView: () => <div data-testid="view-synopsis" /> }))
 vi.mock('../../views/TimelineView', () => ({ TimelineView: () => <div data-testid="view-timeline" /> }))
 
 describe('DirectoryPane 手稿书级工具', () => {

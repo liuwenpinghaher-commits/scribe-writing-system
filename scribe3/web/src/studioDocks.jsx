@@ -110,7 +110,7 @@ export function useLeftDockCapabilities({
     if (includeStageTabs) {
       base.push(
         { key: 'brief', icon: ScrollText, group: 'content', label: '简报', render: () => <BriefPanel seq={seq} /> },
-        { key: 'northstar', icon: Compass, group: 'craft', label: '北极星', render: () => <NorthStarPanel seq={seq} /> },   // 任务10:双级 scorecard
+        { key: 'northstar', icon: Compass, group: 'craft', label: '评分卡', render: () => <NorthStarPanel seq={seq} /> },   // 任务10:双级 scorecard；旧称北极星
         { key: 'frame', icon: Eye, group: 'craft', label: '帧/意图', render: () => <FramePanel focalizer={focalizer} chapter={seq} /> },
       )
     }

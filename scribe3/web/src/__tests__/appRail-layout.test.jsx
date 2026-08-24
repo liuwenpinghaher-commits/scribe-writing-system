@@ -1,9 +1,26 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { AppRail } from '../AppRail'
+import { AppRail, VIEWS } from '../AppRail'
 import { PC_LAYOUT } from '../layout/tokens'
 
 describe('AppRail 顶栏分组', () => {
+  it('总纲是顶栏第一项，点击派发 synopsis', () => {
+    const onView = vi.fn()
+    expect(VIEWS[0]).toMatchObject({ key: 'synopsis', label: '总纲' })
+    render(
+      <AppRail
+        current={{ slug: 'demo', title: '示例作品' }}
+        view={null}
+        onView={onView}
+        onOpenLibrary={vi.fn()}
+        theme="light"
+        onTheme={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /总纲/ }))
+    expect(onView).toHaveBeenCalledWith('synopsis')
+  })
+
   // Task 7:章阶段撤出全局栏(插槽链 useTopbarSlot→App→BinderLayout→AppRail 已删)——
   // 即便上游误传 extra,AppRail 也不得渲染章阶段插槽;全局分区顺序保持:
   // 作品切换 → 全局视图 → 搜索 → 主题 → 系统状态。

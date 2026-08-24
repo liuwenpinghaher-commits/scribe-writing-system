@@ -313,7 +313,7 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag("SCRIBE3_PREFETCH_PREFS_TEXT", "", "预取作者偏好文案", "hermes", "safe"),
     Flag("SCRIBE3_STRUCTURE_DIVERSITY_INJECT", "1", "结构多样性注入", "structure_style", "safe"),
     Flag("SCRIBE3_ENDING_FORMULA_BLOCKING", "0", "结尾套话硬拦", "structure_style", "caution"),
-    Flag("SCRIBE3_JOURNEY_PRECHECK", "1", "开写前检查北极星/母题", "journey", "caution"),
+    Flag("SCRIBE3_JOURNEY_PRECHECK", "1", "开写前检查作品意图/母题", "journey", "caution"),
     Flag("SCRIBE3_DUTY_SUMMARY_LOOKBACK", "3", "近几章责任摘要回看章数", "playbook", "safe"),
     Flag("SCRIBE3_DEFAULT_WORK", "main", "默认书名（changefeed/未指定 work）", "works", "safe"),
     Flag("SCRIBE3_ALERT_WEBHOOK", "", "关键事件 webhook", "ops", "caution"),
