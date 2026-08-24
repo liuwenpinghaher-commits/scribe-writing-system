@@ -4,6 +4,7 @@ import { maybeToastRollback } from '../lib/pilotRollback.js'
 import { Compass, ArrowRight, RefreshCw } from 'lucide-react'
 import { api } from '../api'
 import { Btn } from '../ui.jsx'
+import { StorylineHub } from './StorylineHub'
 
 const STAGE_ZH = {
   idle: '待开写',
@@ -26,7 +27,7 @@ const STAGE_ZH = {
  * 写作导演 · 旅程状态页（P0 + 设定债）
  * 数据源：GET /workflow/snapshot — 与顶栏进度胶囊同源。
  */
-export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
+export function JourneyView({ work, onContinue, onJumpChapter, onOpenView, focusArcs = false }) {
   const [snap, setSnap] = useState(null)
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(true)
@@ -39,6 +40,8 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
   const [stageInfo, setStageInfo] = useState(null)
   const [ledger, setLedger] = useState(null)
   const [extraOpen, setExtraOpen] = useState(false)
+  const [arcsOpen, setArcsOpen] = useState(!!focusArcs)
+  const arcsRef = useRef(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -50,6 +53,13 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
   }, [])
 
   useEffect(() => { load() }, [load, work])
+
+  useEffect(() => {
+    if (!focusArcs) return undefined
+    setArcsOpen(true)
+    const t = setTimeout(() => arcsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
+    return () => clearTimeout(t)
+  }, [focusArcs])
 
   const seqNow = snap?.chapter_lane?.seq
   useEffect(() => {
@@ -546,6 +556,33 @@ export function JourneyView({ work, onContinue, onJumpChapter, onOpenView }) {
         {snap?.note && (
           <p className="text-meta text-faint/70">{snap.note}</p>
         )}
+
+        <section
+          ref={arcsRef}
+          className="rounded-lg border border-line/60 bg-soft/20 p-3 space-y-2"
+          data-testid="journey-arcs"
+        >
+          <button
+            type="button"
+            className="w-full flex items-center justify-between text-left cursor-pointer"
+            onClick={() => setArcsOpen((v) => !v)}
+            aria-expanded={arcsOpen}
+            data-testid="journey-arcs-toggle"
+          >
+            <span className="text-f14 font-medium text-ink">跨章弧（参考）</span>
+            <span className="text-meta text-faint">{arcsOpen ? '收起' : '展开'}</span>
+          </button>
+          <p className="text-meta text-faint leading-snug">
+            给主线/副线起名。不替代总纲、大纲或伏笔。勾了「写入生成提示」才进写作提示。
+          </p>
+          {arcsOpen && (
+            <StorylineHub
+              work={work}
+              onJumpChapter={onJumpChapter}
+              embedded
+            />
+          )}
+        </section>
       </div>
     </div>
   )

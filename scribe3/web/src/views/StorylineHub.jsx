@@ -1,6 +1,6 @@
 /**
- * 规划看板 + 跨章弧登记（原「故事线」中枢）
- * - 挂在「仪表盘」下：章进度/情绪/对标 = 规划参考；实体 = 可选跨章弧标签
+ * 跨章弧（参考）（原「故事线」中枢）
+ * - 挂在旅程底部：章阶段/情绪/对标 = 只读投影；实体 = 可选跨章弧标签
  * - craft_only：仅「写入生成提示」勾选的 notes 会进写路径
  * - 不替代大纲、伏笔、因果
  */
@@ -288,7 +288,7 @@ export function StorylineHub({ work, onJumpChapter, embedded = false }) {
       <div className="h-full grid place-items-center text-f13 text-faint" data-testid="storyline-loading">
         <div className="flex items-center gap-2">
           <RefreshCw size={16} className="animate-spin opacity-60" />
-          加载规划看板…
+          加载跨章弧…
         </div>
       </div>
     )
@@ -322,9 +322,11 @@ export function StorylineHub({ work, onJumpChapter, embedded = false }) {
       <div className={innerClass}>
         <div className="flex items-center gap-2 flex-wrap">
           <GitBranch size={18} className="text-brand shrink-0" />
-          <h2 className={embedded ? 'text-f15 font-semibold text-ink' : 'type-page prose-serif text-ink'}>
-            规划看板 · 跨章弧
-          </h2>
+          {!embedded && (
+            <h2 className="type-page prose-serif text-ink">
+              跨章弧（参考）
+            </h2>
+          )}
           <span className="text-meta text-faint rounded bg-soft px-1.5 py-0.5">参考 · 不是打分</span>
           <div className="ml-auto flex items-center gap-2">
             <Btn
@@ -341,10 +343,8 @@ export function StorylineHub({ work, onJumpChapter, embedded = false }) {
           </div>
         </div>
         <p className="text-f12 text-faint -mt-2">
-          <strong className="font-medium text-ink/80">规划看板</strong>
-          （章进度 / 情绪 / 节奏）来自章节数据，不创建弧也有；
-          <strong className="font-medium text-ink/80">跨章弧</strong>
-          是可选标签，不替代大纲、伏笔或因果。
+          章阶段与情绪来自章节投影，不创建弧也有。
+          跨章弧是可选标签，不替代总纲、大纲、伏笔或因果。
         </p>
         {refs && (
           <div
@@ -355,7 +355,7 @@ export function StorylineHub({ work, onJumpChapter, embedded = false }) {
             <span data-testid="storyline-causal-state">{causalText}
               {refs.causal?.count ? `（${refs.causal.count}）` : ''}
             </span>
-            <span>未收线伏笔（本章）：{refs.open_promise_count ?? 0}</span>
+            <span>本章未收伏笔 {refs.open_promise_count ?? 0} 条（明细在仪表盘台账）</span>
           </div>
         )}
         {err && (
@@ -496,7 +496,7 @@ export function StorylineHub({ work, onJumpChapter, embedded = false }) {
           )}
         </Section>
 
-        <Section title="章进度（规划看板）" icon={Activity} testId="storyline-gantt">
+        <Section title="章阶段（投影 · 参考）" icon={Activity} testId="storyline-gantt">
           <div className="space-y-1.5">
             {rows.map((r) => {
               const wPct = Math.max(8, Math.round((Number(r.seq) / maxSeq) * 100))

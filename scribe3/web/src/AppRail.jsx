@@ -4,7 +4,7 @@ import { BrandMark } from './BrandMark'
 
 // F-06:write/codex 不再是顶栏 tab(已变成左侧项目树两支)。
 // 顶栏横切视图 + 写作旅程(导演状态页)。
-// 规划看板 + 跨章弧登记已并入「仪表盘」(不再单独占一个「故事线」Tab，避免与叙事主链混淆)。
+// 跨章弧挂在「旅程」底部；旧故事线 Tab 不再单独占顶栏。
 export const VIEWS = [
   { key: 'synopsis', label: '总纲', icon: BookText },
   { key: 'journey', label: '旅程', icon: Compass },

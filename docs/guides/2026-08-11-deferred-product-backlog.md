@@ -33,7 +33,7 @@
 
 ## 前端薄面板
 
-- `web/src/views/StorylineHub.jsx` — Gantt + 情绪 + 图摘要入口  
+- `web/src/views/StorylineHub.jsx` — 跨章弧（参考）；挂在旅程底部，不占顶栏  
 - `web/src/views/EventGraphPanel.jsx` — 多跳列表  
 - `web/src/views/BenchmarkLibrary.jsx` — 参考库  
 - 设置：Gateway/Admin 可链 cron 列表  

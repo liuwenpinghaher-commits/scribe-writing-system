@@ -18,6 +18,7 @@ vi.mock('../views/InsightView', () => ({ InsightView: () => <div data-testid="vi
 vi.mock('../views/OverviewView', () => ({ OverviewView: () => <div data-testid="view-overview" /> }))
 vi.mock('../views/SynopsisView', () => ({ SynopsisView: () => <div data-testid="view-synopsis" /> }))
 vi.mock('../views/TimelineView', () => ({ TimelineView: () => <div data-testid="view-timeline" /> }))
+vi.mock('../views/JourneyView', () => ({ JourneyView: () => <div data-testid="view-journey" /> }))
 vi.mock('../ContainerOutline', () => ({ ContainerOutline: () => <div data-testid="container-outline" /> }))
 
 describe('DetailPane 路由', () => {
@@ -59,6 +60,16 @@ describe('DetailPane 路由', () => {
     )
     expect(screen.getByTestId('view-synopsis')).toBeTruthy()
     expect(screen.queryByText(/选择目录条目/)).toBeNull()
+  })
+
+  it('旧规划/故事线入口进旅程，不进仪表盘', async () => {
+    const { rerender } = render(<DetailPane sel={{ mode: 'view', viewKey: 'storyline' }} />)
+    expect(await screen.findByTestId('view-journey')).toBeTruthy()
+    expect(screen.queryByTestId('view-insight')).toBeNull()
+    rerender(<DetailPane sel={{ mode: 'view', viewKey: 'planning' }} />)
+    expect(screen.getByTestId('view-journey')).toBeTruthy()
+    rerender(<DetailPane sel={{ mode: 'view', viewKey: 'arcs' }} />)
+    expect(screen.getByTestId('view-journey')).toBeTruthy()
   })
 
   it('设定库空选仍是设定库空态', () => {

@@ -7,7 +7,6 @@ import { showToast } from '../ui/Toast'
 import { useSelection } from '../selectionContext'
 import { scrollBehavior } from '../lib/utils'
 import { seedChiefCodexWrite } from '../lib/chiefSeed.js'
-import { StorylineHub } from './StorylineHub'
 import { safeWordGoal, wordGoalPct } from '../lib/wordGoal.js'
 import { liveTouchesTable } from '../lib/liveRefresh.js'
 
@@ -676,7 +675,6 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
   const [qualityKey, setQualityKey] = useState(0)
   const [qualityRefreshing, setQualityRefreshing] = useState(false)
   const progressRef = useRef(null)
-  const planningRef = useRef(null)
 
   useEffect(() => {
     let alive = true
@@ -702,14 +700,6 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
   useEffect(() => {
     if (focus === 'progress' && q) {
       const t = setTimeout(() => progressRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' }), 80)
-      return () => clearTimeout(t)
-    }
-  }, [focus, q])
-
-  // 旧「故事线」入口 / 概览链接：滚到规划看板 + 跨章弧
-  useEffect(() => {
-    if (focus === 'planning' && q) {
-      const t = setTimeout(() => planningRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' }), 100)
       return () => clearTimeout(t)
     }
   }, [focus, q])
@@ -749,7 +739,7 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
         <div className="flex items-center gap-2 mb-5">
           <Activity size={18} className="text-brand" />
           <h1 className="type-page prose-serif text-ink">仪表盘</h1>
-          <span className="text-meta text-faint">质量 · 伏笔 · 规划看板 · 跨章弧</span>
+          <span className="text-meta text-faint">质量 · 伏笔 · 码字</span>
         </div>
 
         {cacheStale && (
@@ -859,18 +849,6 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
         {/* Week-2 D5：正文呼吸 · 与章 soft 同源 API，无二套检测 */}
         <DiscourseBreathPanel work={work} onJumpChapter={onJumpChapter} />
 
-        {/* 规划看板 + 跨章弧（原顶栏「故事线」整页内容） */}
-        <div
-          ref={planningRef}
-          className={`mt-8 pt-6 border-t border-line/60 ${focus === 'planning' ? 'scroll-mt-4 rounded-md ring-2 ring-brand/40' : ''}`}
-          data-testid="insight-planning-section"
-        >
-          <StorylineHub
-            work={work}
-            onJumpChapter={onJumpChapter}
-            embedded
-          />
-        </div>
       </div>
     </div>
   )

@@ -61,7 +61,7 @@ describe('InsightView 错误态', () => {
     fireEvent.click(screen.getByRole('button', { name: /重试/ }))
 
     await waitFor(() => expect(apiMock.quality).toHaveBeenCalledTimes(2))
-    expect(await screen.findByText('质量仪表盘')).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '仪表盘' })).toBeTruthy()
   })
 
   it('进度接口失败时显示错误和重试', async () => {

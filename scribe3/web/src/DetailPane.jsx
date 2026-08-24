@@ -28,7 +28,7 @@ const SynopsisView = lazyNamed(() => import('./views/SynopsisView'), 'SynopsisVi
 const TimelineView = lazyNamed(() => import('./views/TimelineView'), 'TimelineView')
 const JourneyView = lazyNamed(() => import('./views/JourneyView'), 'JourneyView')
 const CanonInboxView = lazyNamed(() => import('./views/CanonInboxView'), 'CanonInboxView')
-// StorylineHub 已并入 InsightView（规划看板 + 跨章弧）；保留旧 viewKey 重定向
+// 跨章弧挂在旅程底部；旧 storyline/planning 别名进旅程，不进仪表盘
 const BenchmarkLibrary = lazyNamed(() => import('./views/BenchmarkLibrary'), 'BenchmarkLibrary')
 const EventGraphPanel = lazyNamed(() => import('./views/EventGraphPanel'), 'EventGraphPanel')
 function DetailLoading() {
@@ -116,7 +116,7 @@ function renderDetail({ sel, work, workTitle, onSelectNode, onTreeChanged, onJum
     if (k === 'overview' || k === 'synopsis') {
       return <SynopsisView key={work} workTitle={workTitle} onJumpChapter={onJumpChapter} onOpenView={openView} onSelectNode={onSelectNode} onNavigateToObject={onNavigateToObject} />
     }
-    if (k === 'journey') {
+    if (k === 'journey' || k === 'storyline' || k === 'arcs' || k === 'planning') {
       return (
         <JourneyView
           key={work}
@@ -124,6 +124,7 @@ function renderDetail({ sel, work, workTitle, onSelectNode, onTreeChanged, onJum
           onJumpChapter={onJumpChapter}
           onContinue={onWorkflowContinue}
           onOpenView={openView}
+          focusArcs={k !== 'journey'}
         />
       )
     }
@@ -145,18 +146,6 @@ function renderDetail({ sel, work, workTitle, onSelectNode, onTreeChanged, onJum
           onJumpChapter={onJumpChapter}
           onNavigateToObject={onNavigateToObject}
           focus="progress"
-        />
-      )
-    }
-    // 旧入口 storyline → 仪表盘规划区（跨章弧 + 章进度/情绪）
-    if (k === 'storyline' || k === 'arcs' || k === 'planning') {
-      return (
-        <InsightView
-          key={`${work}-planning`}
-          work={work}
-          onJumpChapter={onJumpChapter}
-          onNavigateToObject={onNavigateToObject}
-          focus="planning"
         />
       )
     }
