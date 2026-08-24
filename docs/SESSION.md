@@ -63,6 +63,16 @@
 
 ## 当前状态
 
+### 本机同步（2026-08-24）
+
+- GitHub `main` 已拉齐：`4a04358b`（与 `origin/main` 同 SHA）。
+- 部署机 SSH：`ssh scribe3-demo`（`82.157.130.140`，密钥 `~/.ssh/id_tencent_lh`，绑 `en0` 绕开 VPN）。直连不绑网卡会卡在 banner。
+- 「同步云端」= 代码 + SSH，不是把云端书库导回本机。
+
+### 总纲门厅落地（2026-08-24）
+
+从系统中心/设置点「总纲」会先退 hub，再手稿空选落到门厅。总纲只读 outline，不再拼仪表盘五站。进度文案：有正文说「写到」，只有纲说「立到」。
+
 ### Qoder 深度拆书方案已归档（2026-08-24）
 
 [`docs/plans/2026-08-24-tonglu-qoder-deep-analyze.md`](./plans/2026-08-24-tonglu-qoder-deep-analyze.md) **不是**执行方案。审查：范围错（43 章/25.7 万字是节选，全书 214 节）、配额填表、与已落地拆文冲突。拆书真源仍是 [`worlds/乱世铜炉-拆文/`](./worlds/乱世铜炉-拆文/) + mentor-extract / mentor-craft 两份设计。不要按 Qoder 文开拆，不要把铜炉情节灌进 Surreal。

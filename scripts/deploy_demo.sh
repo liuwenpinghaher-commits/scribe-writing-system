@@ -27,8 +27,14 @@ MODE="${1:-hot}"
 HOST="${DEPLOY_HOST:-82.157.130.140}"
 USER="${DEPLOY_USER:-ubuntu}"
 KEY="${SSH_KEY:-${DEPLOY_SSH_KEY_FILE:-$HOME/.ssh/id_tencent_lh}}"
-SSH=(ssh -i "$KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=15)
-SCP=(scp -i "$KEY" -o StrictHostKeyChecking=no)
+# 本机 VPN/utun 会劫持 82.157，SSH banner 超时；绑局域网网卡绕过。
+SSH_BIND_IFACE="${SSH_BIND_IFACE:-en0}"
+SSH=(ssh -i "$KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=15)
+SCP=(scp -i "$KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no)
+if ifconfig "$SSH_BIND_IFACE" >/dev/null 2>&1; then
+  SSH+=(-o "BindInterface=$SSH_BIND_IFACE")
+  SCP+=(-o "BindInterface=$SSH_BIND_IFACE")
+fi
 REMOTE="${USER}@${HOST}"
 CONTAINER="${BACKEND_CONTAINER:-prod-backend-1}"
 APP_DIR="${REMOTE_APP_DIR:-/opt/scribe3/app}"

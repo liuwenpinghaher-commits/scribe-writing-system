@@ -21,11 +21,18 @@
 
 ## 本机 SSH 注意
 
-若本机开了代理/VPN（常见 `utun0` + `198.18.0.0/15`），直连会卡在 SSH banner。绕过示例：
+若本机开了代理/VPN（常见 `utun0` + `198.18.0.0/15`），直连会卡在 SSH banner。本机已写 `~/.ssh/config` 主机 `scribe3-demo`（`BindInterface en0` + `~/.ssh/id_tencent_lh`）：
 
 ```bash
-# 绑定到局域网网卡 IP（ifconfig en0）
-ssh -b 192.168.101.114 -i ~/Downloads/gro01_openssh.pem -o IdentitiesOnly=yes ubuntu@82.157.130.140
+ssh scribe3-demo
+# 等价
+ssh ubuntu@82.157.130.140
+```
+
+若配置还没写上，可临时绑局域网网卡：
+
+```bash
+ssh -o BindInterface=en0 -i ~/.ssh/id_tencent_lh -o IdentitiesOnly=yes ubuntu@82.157.130.140
 ```
 
 私钥需 OpenSSH 格式；腾讯云下载的 PKCS#1 PEM 可用：
