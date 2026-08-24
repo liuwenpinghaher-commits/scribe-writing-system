@@ -106,7 +106,7 @@
 **已落地 PR-1～4：** 打开书 / 从章点「总纲」落到空选门厅（hub 先退再 `hallTick`）；中间是肖像：书名、`north_star`、卷章进度（写到/立到）、人、规矩、母题、未收的账。点「让主编写入」派 `s3-right-tab=chief`。首屏只拉 outline + intent + entities + world-rules + motifs + promises/ledger；评分卡要点开才算，reconnect 不拉 snapshot/quality。写作台 `NorthStarBar` 未改。PR-5 `who_pays` / PR-6 `GET /book-portrait` 另案。
 
 **现网已验（2026-08-24）：** `https://tonglu.qing.blue` 已热更。`book_e4a6e353`《腕账》打开即门厅（目录还在）：书名、北极星、写到第 3 章、人/规矩/母题、还没收回 3 笔。从第 3 章点「总纲」回到门厅，不卡写作台。空书《手术室》空态 +「让主编写入」会把 `s3_set_intent` 种子送进右侧主编。系统中心点「总纲」先退 hub 再落门厅。总纲首屏有 outline/intent/entities/world-rules/motifs/ledger；无 quality / north-star/book。顶栏「继续」仍会打 `workflow/snapshot`（不是总纲自己）。
-**交互补刀（现网点过）：** `book_e4a6e353` 总纲门厅「把这本书当一本书来读」。点卷名「讨账」只展开该卷，仍停在总纲；「看这卷」进 `volume-detail-pane`（讨账）。人名单 4 人，没有「去设定库」（未过 12 人阈值）；块里仍有 `synopsis-open-codex` 路。强制刷新后再验。
+**交互补刀（现网点过）：** `book_e4a6e353` 总纲门厅「把这本书当一本书来读」。点卷名「讨账」只展开该卷，仍停在总纲；「看这卷」进 `volume-detail-pane`（讨账）。人名单 4 人，没有「去设定库」（未过 12 人阈值）；块里仍有 `synopsis-open-codex` 路。空书《手术室》总纲写「还没有人。」，没有 `synopsis-cast` / 「去设定库」（`hidden>0` 才出，空书验不了这条链）。强制刷新后再验。
 
 ### 铜炉最优化改造（2026-08-23）
 
