@@ -57,7 +57,8 @@ describe('InsightView 错误态', () => {
 
     render(<InsightView />)
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/质量仪表盘加载失败/)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/质量汇总加载失败/)
+    expect(screen.getByText(/今日码字/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /重试/ }))
 
     await waitFor(() => expect(apiMock.quality).toHaveBeenCalledTimes(2))
@@ -77,5 +78,20 @@ describe('InsightView 错误态', () => {
 
     await waitFor(() => expect(apiMock.progress).toHaveBeenCalledTimes(2))
     expect(await screen.findByText(/今日码字/)).toBeTruthy()
+  })
+
+  it('已删埋章不可跳', async () => {
+    const onJump = vi.fn()
+    apiMock.quality.mockResolvedValue(qualityPayload)
+    apiMock.promisesLedger.mockResolvedValue({
+      open: [{ id: 'p1', text: '旧账', status: 'open', setup_chapter: 9, setup_missing: true }],
+      closed: [],
+      red_herring: [],
+      audit: {},
+    })
+    render(<InsightView onJumpChapter={onJump} />)
+    expect(await screen.findByTestId('insight-setup-missing')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('insight-setup-missing'))
+    expect(onJump).not.toHaveBeenCalled()
   })
 })

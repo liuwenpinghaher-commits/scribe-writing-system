@@ -63,17 +63,17 @@
 
 ## 当前状态
 
-### 仪表盘审计修复（2026-08-24 · 未提交）
+### 仪表盘审计修复（2026-08-24）
 
 按仪表盘审计 prompt 审过并修了代码里能钉死的 P0/P1。现网 `GET /api/works` 无登录是 401，**不能**宣称 tonglu.qing.blue 点过页。
-**已改（工作区未 commit）：** `InsightView.jsx` + `targetNavigation.js`。
+**已改：** `InsightView.jsx` + `targetNavigation.js`。
 - 质量汇总失败不再卸掉整页：码字进度、伏笔台账仍在；横幅「质量汇总加载失败」；图表/弱章隐藏。
 - 弱章点进左轨 **技法标尺** 的 `quality_review`（`quality:N`），不再伪造无证据区间的 `review_issue`。
 - 已删埋章是不可点文案（`insight-setup-missing`），不跳章。
 - 码字文案改成「码字进度（工程配额）/码字配额」，摘要写明不是总纲「写到/立到」。
 - 正文呼吸默认最后一章 `lastSeq`，改书后同步。
 **测：** 相关 vitest 6 文件 23 passed（`targetNavigation` / `insightView-error` / `cross-view-navigation` / `cross-view-real-views` / `surface-ownership` / `detailPane-routing`）。
-**未做：** commit / push / demo 热更；不改 play-contract / WCG；不新加仪表盘图表。
+**未做：** demo 热更；不改 play-contract / WCG；不新加仪表盘图表。
 
 ### 作者面去重叠（2026-08-24）
 
@@ -107,6 +107,7 @@
 **已落地 PR-1～4：** 打开书 / 从章点「总纲」落到空选门厅（hub 先退再 `hallTick`）；中间是肖像：书名、`north_star`、卷章进度（写到/立到）、人、规矩、母题、未收的账。点「让主编写入」派 `s3-right-tab=chief`。首屏只拉 outline + intent + entities + world-rules + motifs + promises/ledger；评分卡要点开才算，reconnect 不拉 snapshot/quality。写作台 `NorthStarBar` 未改。PR-5 `who_pays` / PR-6 `GET /book-portrait` 另案。
 
 **现网已验（2026-08-24）：** `https://tonglu.qing.blue` 已热更。`book_e4a6e353`《腕账》打开即门厅（目录还在）：书名、北极星、写到第 3 章、人/规矩/母题、还没收回 3 笔。从第 3 章点「总纲」回到门厅，不卡写作台。空书《手术室》空态 +「让主编写入」会把 `s3_set_intent` 种子送进右侧主编。系统中心点「总纲」先退 hub 再落门厅。总纲首屏有 outline/intent/entities/world-rules/motifs/ledger；无 quality / north-star/book。顶栏「继续」仍会打 `workflow/snapshot`（不是总纲自己）。
+**交互补刀（工作区未热更）：** 点卷名只展开，另有「看这卷」才进卷详情。「还有 N 人，去设定库」进角色分类，不再开图谱。相关 vitest 27 passed。
 
 ### 铜炉最优化改造（2026-08-23）
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { targetNodeToSelection } from '../targetNavigation.js'
 
 describe('targetNodeToSelection', () => {
-  it('keeps weak chapter targets in the review entry even when they include a chapter target_node', () => {
+  it('maps weak chapter targets to quality review with the chapter seq', () => {
     const next = targetNodeToSelection({
       type: 'weak_chapter',
       id: 'issue:weak:3',
@@ -13,16 +13,25 @@ describe('targetNodeToSelection', () => {
     })
 
     expect(next).toMatchObject({
-      entry: 'review',
+      entry: 'references',
       node: {
-        id: 'issue:weak:3',
-        type: 'review_issue',
-        label: '第3章 · 弱章诊断',
-        payload: {
-          chapter: 3,
-          target_node: { id: 'ch:3', type: 'chapter', ref: 3, label: '第3章' },
-        },
+        id: 'quality:3',
+        type: 'quality_review',
+        ref: { seq: 3 },
+        label: '质量审阅',
       },
+    })
+  })
+
+  it('maps 设定库分类到 codex 入口', () => {
+    expect(targetNodeToSelection({
+      type: 'codex_category',
+      id: 'cat:character',
+      ref: 'character',
+      label: '角色',
+    })).toMatchObject({
+      entry: 'codex',
+      node: { id: 'cat:character', type: 'codex_category', ref: 'character', label: '角色' },
     })
   })
 

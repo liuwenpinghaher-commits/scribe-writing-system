@@ -109,7 +109,11 @@ function PromiseCard({ p, maxChapter, onJumpChapter }) {
     payload: { setup_chapter: p.setup_chapter, payoff_chapter: p.payoff_chapter, status: p.status, overdue: !!p.overdue },
     origin: 'insight',
   })
-  const jump = (ch) => { if (onJumpChapter) { suppressNextMirror(); onJumpChapter(ch) } }
+  const jump = (ch, missing) => {
+    if (missing || ch == null || !onJumpChapter) return
+    suppressNextMirror()
+    onJumpChapter(ch)
+  }
 
   return (
     <div onClick={focusMe} title="聚焦此伏笔" data-testid="insight-promise-card"
@@ -127,10 +131,14 @@ function PromiseCard({ p, maxChapter, onJumpChapter }) {
       )}
       <div className="text-faint text-meta mt-1 pl-3 flex flex-wrap gap-x-2">
         {p.setup_chapter != null && (
-          <button type="button" className="hover:text-brand cursor-pointer underline-offset-2 hover:underline transition-colors"
-            onClick={(e) => { e.stopPropagation(); jump(p.setup_chapter) }}>
-            埋:第{p.setup_chapter}章{p.setup_missing ? ' ⚠️原章已删' : ''}
-          </button>
+          p.setup_missing ? (
+            <span className="text-danger" data-testid="insight-setup-missing">埋:第{p.setup_chapter}章 · 原章已删</span>
+          ) : (
+            <button type="button" className="hover:text-brand cursor-pointer underline-offset-2 hover:underline transition-colors"
+              onClick={(e) => { e.stopPropagation(); jump(p.setup_chapter, false) }}>
+              埋:第{p.setup_chapter}章
+            </button>
+          )
         )}
         {p.payoff_chapter != null && (
           <>
@@ -387,7 +395,7 @@ function ProgressPanel({ onGoalEdit }) {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <TrendingUp size={15} className="text-brand" />
-          <span className="text-meta font-semibold uppercase tracking-wider text-faint">码字进度</span>
+          <span className="text-meta font-semibold uppercase tracking-wider text-faint">码字进度（工程配额）</span>
           {/* 窗口切换按钮组 */}
           <div className="flex gap-0.5 ml-2 bg-soft rounded-lg p-0.5">
             {WIN_OPTS.map(({ v, label }) => (
@@ -436,7 +444,7 @@ function ProgressPanel({ onGoalEdit }) {
       {/* 整稿进度条 */}
       <div className="mb-4">
         <div className="flex items-center justify-between mb-1.5 text-f12">
-          <span className="text-faint">整稿进度</span>
+          <span className="text-faint">码字配额</span>
           <span className="tnum text-ink font-medium">{totalWords.toLocaleString()} / {totalGoal.toLocaleString()} 字 · {totalPct}%</span>
         </div>
         <div className="h-2 rounded-full bg-soft overflow-hidden">
@@ -698,26 +706,18 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
 
   // 「进度」入口:数据就绪后滚动并聚焦码字进度面板
   useEffect(() => {
-    if (focus === 'progress' && q) {
+    if (focus === 'progress' && (q || qErr)) {
       const t = setTimeout(() => progressRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' }), 80)
       return () => clearTimeout(t)
     }
-  }, [focus, q])
+  }, [focus, q, qErr])
 
-  if (qErr) {
-    return (
-      <div className="h-full overflow-y-auto bg-canvas">
-        <div className="max-w-5xl mx-auto px-8 py-8">
-          <ErrorState message="质量仪表盘加载失败" onRetry={() => setQualityKey((k) => k + 1)} />
-        </div>
-      </div>
-    )
-  }
-  if (!q) return <div className="p-8 text-faint">加载中…</div>
+  if (!q && !qErr) return <div className="p-8 text-faint">加载中…</div>
 
-  const chs = q.chapters || []
-  const cacheStale = (q.cache_stale_chapters || []).length > 0
+  const chs = q?.chapters || []
+  const cacheStale = (q?.cache_stale_chapters || []).length > 0
   const weak = cacheStale ? [] : [...chs].filter((c) => c.qc_issues > 0 || c.causal > 0).sort((a, b) => (b.qc_issues + b.causal) - (a.qc_issues + a.causal))
+  const lastSeq = chs.length ? Number(chs[chs.length - 1].seq) || 1 : 1
   const refreshQuality = async () => {
     setQualityRefreshing(true)
     try {
@@ -757,10 +757,9 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
         <section role="region" aria-label="洞察数据摘要" className="mb-6 pb-4 border-b border-line/60">
           <div className="text-f12 font-semibold text-ink mb-2">数据摘要</div>
           <div className="text-f13 text-faint leading-relaxed">
-            全书 {chs.length} 章,共 {q.total_words?.toLocaleString() || 0} 字(目标 {totalGoal.toLocaleString()} 字)。
-            伏笔未回收 {q.foreshadow?.open ?? 0} 条、已回收 {q.foreshadow?.closed ?? 0} 条、超期 {q.foreshadow?.overdue ?? 0} 条。
-            {cacheStale ? '质量缓存待刷新，暂不展示问题合计与弱章结论。' : `质检问题合计 ${chs.reduce((s, c) => s + c.qc_issues + c.causal, 0)} 项;其中 ${weak.length} 章问题较多需优先关注`}
-            {weak.length > 0 ? `:${weak.slice(0, 3).map((c) => chapterLabel(c.seq, c.title)).join('、')}${weak.length > 3 ? ' 等' : ''}` : ''}。
+            {qErr
+              ? '质量汇总暂时读不到；下面的码字和伏笔台账仍可用。质检数字不是总纲里的「写到/立到」。'
+              : `全书 ${chs.length} 章,共 ${q.total_words?.toLocaleString() || 0} 字(码字目标 ${totalGoal.toLocaleString()} 字，不是总纲进度)。伏笔未回收 ${q.foreshadow?.open ?? 0} 条、已回收 ${q.foreshadow?.closed ?? 0} 条、超期 ${q.foreshadow?.overdue ?? 0} 条。${cacheStale ? '质量缓存待刷新，暂不展示问题合计与弱章结论。' : `质检问题合计 ${chs.reduce((s, c) => s + c.qc_issues + c.causal, 0)} 项;其中 ${weak.length} 章问题较多需优先关注${weak.length > 0 ? `:${weak.slice(0, 3).map((c) => chapterLabel(c.seq, c.title)).join('、')}${weak.length > 3 ? ' 等' : ''}` : ''}。`}`}
           </div>
         </section>
 
@@ -779,17 +778,24 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          <Metric icon={FileText} label="规模" value={q.total_words?.toLocaleString() || 0}
-            sub={`${chs.length} 章 · 目标 ${totalGoal.toLocaleString()} 字`} />
-          <Metric icon={Bookmark} label="伏笔" value={q.foreshadow?.open ?? 0} sub={`未回收 · 已收 ${q.foreshadow?.closed ?? 0}`} tone="fore" />
-          <Metric icon={ShieldAlert} label="伏笔超期" value={q.foreshadow?.overdue ?? 0} sub="埋下 >3 章未回收" tone={q.foreshadow?.overdue ? 'danger' : 'ok'} />
-          <Metric icon={Activity} label="质检问题" value={cacheStale ? '待刷新' : chs.reduce((s, c) => s + c.qc_issues + c.causal, 0)} sub={cacheStale ? '缓存已过期' : '确定性 QC + 因果'} tone={cacheStale ? 'fore' : 'danger'} />
+          <Metric icon={FileText} label="规模" value={qErr ? '—' : (q.total_words?.toLocaleString() || 0)}
+            sub={qErr ? '质量汇总失败' : `${chs.length} 章 · 码字目标 ${totalGoal.toLocaleString()} 字`} />
+          <Metric icon={Bookmark} label="伏笔" value={qErr ? '—' : (q.foreshadow?.open ?? 0)} sub={qErr ? '见下方台账' : `未回收 · 已收 ${q.foreshadow?.closed ?? 0}`} tone="fore" />
+          <Metric icon={ShieldAlert} label="伏笔超期" value={qErr ? '—' : (q.foreshadow?.overdue ?? 0)} sub="埋下 >3 章未回收" tone={!qErr && q.foreshadow?.overdue ? 'danger' : 'ok'} />
+          <Metric icon={Activity} label="质检问题" value={qErr ? '—' : (cacheStale ? '待刷新' : chs.reduce((s, c) => s + c.qc_issues + c.causal, 0))} sub={qErr ? '未计入验收' : (cacheStale ? '缓存已过期' : '确定性 QC + 因果')} tone={cacheStale ? 'fore' : 'danger'} />
         </div>
 
         <div className="mb-5">
           <PromiseLedger onJumpChapter={onJumpChapter} />
         </div>
 
+        {qErr && (
+          <div className="mb-5">
+            <ErrorState message="质量汇总加载失败" onRetry={() => setQualityKey((k) => k + 1)} />
+          </div>
+        )}
+
+        {!qErr && (
         <div className="mb-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div>
             <div className="text-meta font-semibold uppercase tracking-wider text-faint mb-3">各章字数</div>
@@ -817,7 +823,9 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
             </ResponsiveContainer>
           </div>
         </div>
+        )}
 
+        {!qErr && (
         <div className="mb-2">
           <div className="text-meta font-semibold uppercase tracking-wider text-faint mb-2">弱章诊断(问题最多的章)</div>
           {cacheStale ? <div className="text-f13 text-fore">请先刷新质量缓存，再查看弱章诊断。</div>
@@ -830,7 +838,7 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
                   type="button"
                   onClick={() => onNavigateToObject?.({
                     type: 'weak_chapter',
-                    id: `issue:weak:${c.seq}`,
+                    id: `quality:${c.seq}`,
                     chapter: c.seq,
                     title: `${title} · 弱章诊断`,
                     reason: `该章有 ${c.qc_issues || 0} 个 QC 问题、${c.causal || 0} 个因果问题。`,
@@ -845,9 +853,10 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
               )
             })}
         </div>
+        )}
 
         {/* Week-2 D5：正文呼吸 · 与章 soft 同源 API，无二套检测 */}
-        <DiscourseBreathPanel work={work} onJumpChapter={onJumpChapter} />
+        <DiscourseBreathPanel work={work} onJumpChapter={onJumpChapter} defaultSeq={lastSeq} />
 
       </div>
     </div>
@@ -855,8 +864,9 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
 }
 
 /** D5：Insight 最小话语呼吸面板 — 只调 POST /soft/discourse，禁止本地 find_* */
-function DiscourseBreathPanel({ work, onJumpChapter }) {
-  const [seq, setSeq] = useState(1)
+function DiscourseBreathPanel({ work, onJumpChapter, defaultSeq = 1 }) {
+  const [seq, setSeq] = useState(defaultSeq)
+  useEffect(() => { setSeq(defaultSeq) }, [defaultSeq])
   const [data, setData] = useState(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')

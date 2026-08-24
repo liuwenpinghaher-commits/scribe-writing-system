@@ -111,15 +111,15 @@ describe('横切视图对象回跳四栏', () => {
     localStorage.clear()
   })
 
-  it('仪表盘弱章回到校验入口并打开 issue 详情', async () => {
+  it('仪表盘弱章回到技法标尺并打开质量审阅', async () => {
     render(<Harness viewKey="insight" />)
 
     expect(screen.queryByTestId('col-directory')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '模拟仪表盘弱章' }))
 
-    await waitFor(() => expect(screen.getByTestId('detail-content').textContent).toContain('node:issue:weak:4'))
+    await waitFor(() => expect(screen.getByTestId('detail-content').textContent).toContain('node:quality:4'))
     expect(screen.getByTestId('col-directory')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: '校验' })).toBeNull()
+    expect(screen.getByRole('button', { name: '技法标尺' })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('图谱角色回到设定库入口并打开角色详情', async () => {

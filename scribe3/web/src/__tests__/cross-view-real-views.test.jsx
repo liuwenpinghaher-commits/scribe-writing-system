@@ -179,7 +179,7 @@ describe('横切视图真实组件对象回流', () => {
 
     expect(onNavigateToObject).toHaveBeenCalledWith(expect.objectContaining({
       type: 'weak_chapter',
-      id: 'issue:weak:4',
+      id: 'quality:4',
       chapter: 4,
       title: '第4章 · 井底夜审 · 弱章诊断',
       target_node: { id: 'ch:4', type: 'chapter', ref: 4, label: '第4章 · 井底夜审' },
@@ -197,7 +197,7 @@ describe('横切视图真实组件对象回流', () => {
       sigmaMock.events.clickNode({ node: 'role:小翠' })
     })
 
-    fireEvent.click(await screen.findByRole('button', { name: /打开设定/ }))
+    fireEvent.click(await screen.findByRole('button', { name: '打开设定 小翠' }))
 
     expect(onNavigateToObject).toHaveBeenCalledWith(expect.objectContaining({
       id: 'role:小翠',

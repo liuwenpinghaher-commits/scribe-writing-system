@@ -97,7 +97,22 @@ export function targetNodeToSelection(raw) {
   const id = String(target.id || '')
   const type = target.type || ''
 
-  if (type === 'weak_chapter' || type === 'issue' || type === 'review_issue' || id.startsWith('issue:')) {
+  if (type === 'weak_chapter') {
+    const seq = target.chapter ?? target.ref?.seq ?? target.target_node?.ref
+    const n = Number(seq)
+    if (!Number.isFinite(n) || n < 1) return null
+    return {
+      entry: 'references',
+      node: {
+        id: `quality:${n}`,
+        type: 'quality_review',
+        ref: { seq: n },
+        meta: { seq: n },
+        label: '质量审阅',
+      },
+    }
+  }
+  if (type === 'issue' || type === 'review_issue' || id.startsWith('issue:')) {
     return { entry: 'review', node: type === 'review_issue' ? target : issueNode(target) }
   }
 
@@ -166,6 +181,20 @@ export function targetNodeToSelection(raw) {
         ref: local,
         label: target.label || target.title || local,
         meta: { seq: target.chapter ?? target.seq },
+      },
+    }
+  }
+
+  if (type === 'codex_category' || type === 'codex_root' || id.startsWith('cat:')) {
+    const ref = target.ref || id.replace(/^cat:/, '') || 'character'
+    const nodeType = type === 'codex_root' ? 'codex_root' : 'codex_category'
+    return {
+      entry: 'codex',
+      node: {
+        id: id || `cat:${ref}`,
+        type: nodeType,
+        ref: nodeType === 'codex_root' ? null : ref,
+        label: target.label || (ref === 'character' ? '角色' : ref),
       },
     }
   }
