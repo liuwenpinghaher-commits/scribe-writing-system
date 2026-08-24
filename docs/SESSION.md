@@ -63,6 +63,10 @@
 
 ## 当前状态
 
+### Qoder 深度拆书方案已归档（2026-08-24）
+
+[`docs/plans/2026-08-24-tonglu-qoder-deep-analyze.md`](./plans/2026-08-24-tonglu-qoder-deep-analyze.md) **不是**执行方案。审查：范围错（43 章/25.7 万字是节选，全书 214 节）、配额填表、与已落地拆文冲突。拆书真源仍是 [`worlds/乱世铜炉-拆文/`](./worlds/乱世铜炉-拆文/) + mentor-extract / mentor-craft 两份设计。不要按 Qoder 文开拆，不要把铜炉情节灌进 Surreal。
+
 ### 质量仪表盘加载失败（2026-08-24）
 
 修好了。后台读质量汇总时少带了一个函数，页面就会说加载失败。现网 `book_e4a6e353` 能读到 12 章。
@@ -70,6 +74,8 @@
 ### 总纲真正当总纲（设计已审过，2026-08-24）
 
 设计稿：[`docs/plans/2026-08-24-synopsis-as-book-portrait.md`](./plans/2026-08-24-synopsis-as-book-portrait.md)。总纲是读书（书的肖像），旅程是动手（向导）。打开书左边目录还在、中间是总纲；从某一章再点「总纲」要走专用落地，不能卡在写作台。现网门厅仍是仪表盘+五站拼盘，等按 PR-1 开工。
+
+**可用性复审（2026-08-24，对照现码）：方向可用，PR-1 可开工，但合同缺一条。** 从系统中心/设置页点「总纲」时 `BinderLayout`/`FourPaneShell` 未挂载，只派 `s3-open-synopsis-hall` 会丢。`handleView('synopsis')` 必须先退出 hub（空选挂上四栏壳）再落地。其余 KD-3 三步、KD-8 取数、停 snapshot/quality、不走 `planEntryChange` 均与现码一致。
 
 ### 总纲门厅（2026-08-24，现网，将被上一节替换）
 
