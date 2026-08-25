@@ -45,7 +45,7 @@
 
 云端 B/C：gitignore 全文**不会**随 git 进 VM。
 
-1. **已在本分支提供（可 merge）：** `docs/plans/2026-08-25-lotm-full-cards-loop.md`、`docs/worlds/诡秘之主-拆文/PROMPTS.md`、`章卡/README.md`。
+1. **已在本分支提供（可 merge）：** `docs/plans/2026-08-25-lotm-full-cards-loop.md`、`docs/worlds/诡秘之主-拆文/PROMPTS.md`、`章卡/README.md`、`scripts/lotm_draft_index.py`、`scripts/lotm_check_card.py`。
 2. **仍缺 · 切章索引（可 commit）：** 有全文后优先 `python3 scripts/lotm_draft_index.py` 出草稿，再按 PROMPTS 第0轮抽查修正 → `00-index.md`（须含 546–826 行号）。密度样板 `章卡/89.md` 未到前，对齐铜炉 `章卡/89.md`。
 3. **仍缺 · 全文（勿 commit）：** 放入本云端工作区 `docs/worlds/诡秘之主-全文.md`（scp/rsync/已授权 URL；禁止公开盗版源）。
 4. 全文+索引齐后本会话改 `running`，从 `next_seq=546` 一轮一张。
