@@ -101,7 +101,7 @@ function renderDetail({ sel, work, workTitle, onSelectNode, onTreeChanged, onJum
   // —— 横切视图 ——
   if (sel?.mode === 'view') {
     const k = sel.viewKey
-    if (k === 'atlas') return <AtlasView key={work} onNavigateToObject={onNavigateToObject} />
+    if (k === 'atlas') return <AtlasView key={work} chapter={qualitySeq} onNavigateToObject={onNavigateToObject} />
     if (k === 'insight') {
       return (
         <InsightView

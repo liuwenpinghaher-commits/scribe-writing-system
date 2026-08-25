@@ -17,7 +17,7 @@ import {
   humanizeFactId,
   SECRET_PLACEHOLDER,
 } from '../../lib/atlasNodeDetail.js'
-import { seedAtlasDiscuss } from '../../lib/atlasChiefSeed.js'
+import { seedAtlasDiscuss, seedAtlasNextStroke } from '../../lib/atlasChiefSeed.js'
 import { InputDialog } from '../../ui/Dialog.jsx'
 import { withFeedback } from '../../lib/withFeedback.js'
 
@@ -57,6 +57,7 @@ export function NodeDetail({
   focusLabel = '',
   sliceChapter = null,
   maxChapter = 0,
+  layout = 'overlay',
   onExpand,
   onHopBoost,
   onOpenNode,
@@ -132,10 +133,22 @@ export function NodeDetail({
     })
   }
 
+  const askNextStroke = () => {
+    seedAtlasNextStroke(node, {
+      chapter: sliceChapter,
+      focusId: focus,
+      focusLabel: focusLabel || focus,
+      onlyFocus: diff?.onlyFocus,
+      onlySelf: diff?.isSelfFocus ? diff.focusKnownPreview : diff?.onlySelf,
+    })
+  }
+
   return (
     <div
       data-testid="atlas-node-detail"
-      className="absolute top-3 right-3 z-20 w-80 sm:w-96 max-w-[calc(100%-1.5rem)] rounded-md border border-line/70 bg-surface/95 backdrop-blur p-3.5 flex flex-col gap-2.5 shadow-[var(--shadow-card)]"
+      className={layout === 'pane'
+        ? 'w-80 sm:w-96 shrink-0 h-full overflow-y-auto border-l border-line/70 bg-surface p-3.5 flex flex-col gap-2.5'
+        : 'absolute top-3 right-3 z-20 w-80 sm:w-96 max-w-[calc(100%-1.5rem)] rounded-md border border-line/70 bg-surface/95 backdrop-blur p-3.5 flex flex-col gap-2.5 shadow-[var(--shadow-card)]'}
     >
       {/* 顶栏 */}
       <div className="flex items-start gap-2">
@@ -192,6 +205,14 @@ export function NodeDetail({
           className="inline-flex items-center justify-center gap-1.5 h-8 rounded-lg bg-brand text-brandfg text-f13 font-medium hover:opacity-90 cursor-pointer"
         >
           <MessageSquare size={13} /> 问主编
+        </button>
+        <button
+          type="button"
+          data-testid="atlas-next-stroke"
+          onClick={askNextStroke}
+          className="inline-flex items-center justify-center gap-1.5 h-8 rounded-lg border border-line text-f13 text-ink hover:border-brand cursor-pointer"
+        >
+          用这个信息差写下一笔
         </button>
         <button
           type="button"

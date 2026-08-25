@@ -192,11 +192,6 @@ describe('横切视图真实组件对象回流', () => {
 
     render(<AtlasView onNavigateToObject={onNavigateToObject} />)
 
-    await waitFor(() => expect(sigmaMock.events?.clickNode).toBeTruthy())
-    act(() => {
-      sigmaMock.events.clickNode({ node: 'role:小翠' })
-    })
-
     fireEvent.click(await screen.findByRole('button', { name: '打开设定 小翠' }))
 
     expect(onNavigateToObject).toHaveBeenCalledWith(expect.objectContaining({

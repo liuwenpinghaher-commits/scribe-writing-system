@@ -68,6 +68,14 @@ describe('AtlasView 章切片', () => {
     expect(sessionStorage.getItem('s3.atlas.focus')).toBeNull()
   })
 
+  it('传入 chapter 时首个 ego 请求带该章', async () => {
+    render(<AtlasView chapter={3} onNavigateToObject={vi.fn()} />)
+    await waitFor(() => {
+      expect(apiMock.graph.mock.calls.some(([o]) => o?.focus && o?.chapter === 3)).toBe(true)
+    })
+    expect(screen.getByLabelText('章切片')).toHaveValue('3')
+  })
+
   it('默认全书:ego 请求不带 chapter', async () => {
     render(<AtlasView onNavigateToObject={vi.fn()} />)
 
@@ -102,6 +110,15 @@ describe('AtlasView 章切片', () => {
     })
 
     expect(slice).toHaveValue('3')
+  })
+
+  it('默认列表可读：无画布也能选中并看到下一笔', async () => {
+    render(<AtlasView onNavigateToObject={vi.fn()} />)
+    expect(await screen.findByRole('region', { name: '图谱对象列表' })).toBeTruthy()
+    expect(screen.queryByTestId('atlas-canvas')).toBeNull()
+    expect(await screen.findByTestId('atlas-node-detail')).toBeTruthy()
+    expect(screen.getByTestId('atlas-next-stroke')).toBeTruthy()
+    expect(screen.getByText('谁知道什么')).toBeTruthy()
   })
 
   it('从切片切回全书后 ego 请求不再带 chapter', async () => {

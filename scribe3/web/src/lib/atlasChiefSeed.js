@@ -20,7 +20,7 @@ export function buildAtlasDiscussSeed(node, ctx = {}) {
   const focusLabel = ctx.focusLabel || ctx.focusId || ''
   const degree = ctx.degree != null ? ctx.degree : null
   const lines = [
-    '【图谱操作台】请帮我分析当前选中对象，并给出可写入本章的戏剧建议（只讨论，不要调用写库工具）。',
+    '【图谱操作台】请帮我分析当前选中对象，并给出可用于本章的戏剧建议（只讨论，不要调用写库工具）。',
     `对象：${label}`,
     `类型：${type}`,
     focusLabel ? `图中心：${focusLabel}` : null,
@@ -37,9 +37,50 @@ export function buildAtlasDiscussSeed(node, ctx = {}) {
   return { text, isDiscuss: !hermes }
 }
 
+function gapLine(rows, prefix) {
+  const labels = (rows || []).slice(0, 4).map((r) => {
+    if (!r) return ''
+    if (r.secret) return SECRET_PLACEHOLDER
+    return String(r.label || '').trim() || SECRET_PLACEHOLDER
+  }).filter(Boolean)
+  if (!labels.length) return null
+  return `${prefix}：${labels.join('；')}`
+}
+
+/**
+ * 「用这个信息差写下一笔」：只讨论，带章号与子图知情差。
+ * 禁止 s3_ / 写库套话。
+ */
+export function buildAtlasNextStrokeSeed(node, ctx = {}) {
+  if (!node) return { text: '', isDiscuss: true }
+  const label = node.secret ? SECRET_PLACEHOLDER : displayNodeLabel(node)
+  const ch = Number(ctx.chapter)
+  const chapterBit = Number.isFinite(ch) && ch > 0 ? `截至第${ch}章` : '当前切片'
+  const focusLabel = ctx.focusLabel || ctx.focusId || ''
+  const lines = [
+    `【图谱·信息差】${chapterBit}，请只讨论下一笔可落地的动作（不要调用写库工具）。`,
+    `选中：${label}`,
+    focusLabel ? `图中心 / POV：${focusLabel}` : null,
+    gapLine(ctx.onlyFocus, focusLabel ? `${focusLabel}独知` : '中心独知'),
+    gapLine(ctx.onlySelf, `${label}独知`),
+    '请给出：这一笔谁开口、藏什么、读者先知道哪一句。',
+  ].filter(Boolean)
+  let text = lines.join('\n')
+  if (text.length > MAX_SEED) text = text.slice(0, MAX_SEED - 1) + '…'
+  const hermes = shouldUseHermesRun(text)
+  return { text, isDiscuss: !hermes }
+}
+
+export function seedAtlasNextStroke(node, ctx = {}) {
+  const { text } = buildAtlasNextStrokeSeed(node, ctx)
+  if (!text) return ''
+  focusChiefWithSeed(text)
+  return text
+}
+
 /** 主 CTA：问主编（discuss） */
 export function seedAtlasDiscuss(node, ctx = {}) {
-  const { text, isDiscuss } = buildAtlasDiscussSeed(node, ctx)
+  const { text } = buildAtlasDiscussSeed(node, ctx)
   if (!text) return ''
   focusChiefWithSeed(text)
   return text
