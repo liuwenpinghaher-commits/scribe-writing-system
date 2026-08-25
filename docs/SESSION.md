@@ -63,7 +63,28 @@
 
 ## 当前状态
 
+### 成色过夜续跑（2026-08-25）
+
+中断任务 = Oz run `01a034aa-cb3b-79f9-8b44-25f8f1f1faaa`（`tonglu-chengse-overnight`，用户取消）。SSOT：[`docs/plans/2026-08-24-tonglu-chengse-loop.md`](./plans/2026-08-24-tonglu-chengse-loop.md)。
+现网已是 playbook.3.2.6 + `SCRIBE3_CHENGSE_CRAFT=on`。设定写厚 NameError 已修并热更（`8fb67521`）。
+样例书 **`book_46cff31a`《井台灯》** 已建。第 1 章《井台上还在排队》定稿 2261 字，成色尺子过，低于循环写的 3–8 千。未删《腕账》。可停：否。
+
+### 时间线列表+抽屉（2026-08-25）
+
+时间线合同仍是「事在何时」。列表点选只开抽屉，不离开时间线；跳章只走抽屉「跳到第N章」或双击。vis 轴默认可见（没有「看图」开关，不重蹈图谱藏图）。有当前写作章时首屏拉 N-5…N+5，不再默认书末 50 章。空态分「还没有事件」/「这窗里是空的」。抽屉多一粒「围绕这件事写下一笔」（只讨论，不写库）。
+**已改未提交：** `TimelineView` + `views/timeline/*` + `timelineReadable` / `timelineChiefSeed`；`DetailPane` 透传 `chapter={qualitySeq}`。相关 vitest 5 文件 23 passed。`TimelineView` 现 959 行。未 commit / 未热更。920px 实机截图缺本机 vite+后端，测绿 ≠ 视觉过。
+
 ### 图谱先可读再助写（2026-08-25）
+
+知情图不再默认甩力导向网。列表+抽屉是主阅读面；画布「看图」才展开。默认章切片跟 `qualitySeq`（刚写过的章）；全书要显式选。空图说清缺知情边/角色。抽屉多一粒「用这个信息差写下一笔」（只讨论）。
+**已改并热更：** `63bd3603`。frontend `FRONTEND_DEPLOY_OK`，首页 `index-CjfTCmM2.js`，懒加载 `AtlasView-CFhaZ5wE.js` 含「谁知道什么」/下一笔。强制刷新后再开图谱。
+
+### 顶栏搜索压住「仪表盘」（2026-08-25）
+
+横切视图 nav 默认可收缩，子按钮 `shrink-0` 溢出去，后绘制的搜索盖住最后一项「仪表盘」。
+**已改并热更：** `698d63d2`。品牌/作品/视图/搜索收进不可压缩主群；进度胶囊自己 `flex-1 min-w-0` 让位。相关 vitest 6 passed。1100px 包围盒间隙 14px、无重叠。frontend `FRONTEND_DEPLOY_OK`，首页 `index-D1A__Skd.js` 含 `topbar-primary`。强制刷新后再看顶栏。
+
+### 弱章跳转回弹（2026-08-24）
 
 知情图不再默认甩力导向网。列表+抽屉是主阅读面；画布「看图」才展开。默认章切片跟 `qualitySeq`（刚写过的章）；全书要显式选。空图说清缺知情边/角色。抽屉多一粒「用这个信息差写下一笔」（只讨论）。
 **已改并热更：** `63bd3603`。frontend `FRONTEND_DEPLOY_OK`，首页 `index-CjfTCmM2.js`，懒加载 `AtlasView-CFhaZ5wE.js` 含「谁知道什么」/下一笔。强制刷新后再开图谱。
