@@ -69,6 +69,54 @@ def test_list_materials_page_simple_view_uses_sql_limit(store, monkeypatch):
     assert any("count()" in s for s in seen), seen
 
 
+def test_material_health_counts_does_not_scan_full_table(store, monkeypatch):
+    store.add_material("无摘要", "body", "note")
+    store.add_material("有摘要", "body", "note", summary="手法", tags=["a"])
+    listed = []
+    orig = store.list_materials
+
+    def wrap(*a, **k):
+        listed.append(1)
+        return orig(*a, **k)
+
+    monkeypatch.setattr(store, "list_materials", wrap)
+    h = store.material_health_counts()
+    assert listed == [], "健康度不得扫 list_materials 全表"
+    assert h["total"] >= 2
+    assert h["no_summary"] >= 1
+    assert h["never_recalled"] >= 1
+    assert "untagged" in h
+
+
+def test_material_graph_does_not_scan_full_table_or_all_edges(store, monkeypatch):
+    for i in range(4):
+        store.add_material(f"图节点 {i}", f"正文 {i}", "note")
+    listed = []
+    orig_list = store.list_materials
+    orig_query = store._query
+    seen: list[str] = []
+
+    def wrap_list(*a, **k):
+        listed.append(1)
+        return orig_list(*a, **k)
+
+    def wrap_query(sql, *a, **k):
+        seen.append(sql)
+        return orig_query(sql, *a, **k)
+
+    monkeypatch.setattr(store, "list_materials", wrap_list)
+    monkeypatch.setattr(store, "_query", wrap_query)
+    g = store.material_graph(limit=2)
+    assert listed == [], "全图不得扫 list_materials"
+    assert len(g["nodes"]) == 2
+    assert g["truncated"] is True
+    node_sql = [s for s in seen if "FROM material" in s]
+    assert any("LIMIT" in s for s in node_sql), node_sql
+    edge_sql = [s for s in seen if "FROM relates" in s]
+    assert edge_sql, seen
+    assert all("WHERE" in s for s in edge_sql), edge_sql
+
+
 def test_author_can_record_manual_material_reference_after_accepting_insert(store):
     mid = store.add_material("盐港勘察", "盐层与潮闸", "research")
     c = _client(store)

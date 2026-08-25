@@ -204,17 +204,23 @@ class MaterialsMixin:
         next_cursor = start + lim if start + lim < total else None
         return {"items": items, "next_cursor": next_cursor, "total": total}
 
+    def _material_count(self, extra: str = "") -> int:
+        where = "(archived = NONE OR archived != true)"
+        if extra:
+            where = f"{where} AND ({extra})"
+        rows = self._query(
+            f"SELECT count() AS n FROM material WHERE {where} GROUP ALL") or []
+        return int((rows[0].get("n") if rows else 0) or 0)
+
     def material_health_counts(self) -> dict:
-        """健康度计数:从未召回 / 无 summary / 无标签(活跃库,排除 archived)。"""
-        rows = self.list_materials(archived=False) or []
-        never = sum(1 for m in rows if not (m.get("recall_count") or 0))
-        no_sum = sum(1 for m in rows if not (m.get("summary") or "").strip())
-        untagged = sum(1 for m in rows if not (m.get("tags") or m.get("ref_tags")))
+        """健康度计数:从未召回 / 无 summary / 无标签(活跃库,排除 archived)。SQL COUNT,不扫全表。"""
         return {
-            "total": len(rows),
-            "never_recalled": never,
-            "no_summary": no_sum,
-            "untagged": untagged,
+            "total": self._material_count(),
+            "never_recalled": self._material_count("recall_count = NONE OR recall_count = 0"),
+            "no_summary": self._material_count("summary = NONE OR string::trim(summary) = ''"),
+            "untagged": self._material_count(
+                "(tags = NONE OR array::len(tags) = 0) AND "
+                "(ref_tags = NONE OR array::len(ref_tags) = 0)"),
         }
 
     def get_material(self, material_id: str) -> dict | None:
@@ -480,6 +486,22 @@ class MaterialsMixin:
             return out
         return out
 
+    def _relates_among(self, keep_ids: set[str]) -> tuple[list[dict], list[dict]]:
+        """只查 keep 集合内的 relates 边,不扫全表。"""
+        if not keep_ids:
+            return [], []
+        recs = [RecordID("material", i) for i in keep_ids]
+        try:
+            rows = self._query(
+                "SELECT meta::id(in) AS src, meta::id(out) AS dst, weight FROM relates "
+                "WHERE in IN $ids AND out IN $ids",
+                {"ids": recs}) or []
+            edges = [{"src": r["src"], "dst": r["dst"], "weight": r.get("weight") or 1.0}
+                     for r in rows if r.get("src") and r.get("dst")]
+            return edges, []
+        except Exception as e:
+            return [], [{"source": "relates", "reason": str(e)}]
+
     def material_graph(self, focus: str | None = None, limit: int = 200, hop: int = 1) -> dict:
         """素材记忆网络:节点 + relates 边。
 
@@ -535,16 +557,8 @@ class MaterialsMixin:
             keep_ids = {n["id"] for n in nodes}
             # truncated: 还有未纳入的邻居
             truncated = len(seen) > len(nodes)
-            edges = []
-            try:
-                rows = self._query(
-                    "SELECT meta::id(in) AS src, meta::id(out) AS dst, weight FROM relates") or []
-                edges = [{"src": r["src"], "dst": r["dst"], "weight": r.get("weight") or 1.0}
-                         for r in rows
-                         if r.get("src") in keep_ids and r.get("dst") in keep_ids]
-            except Exception as e:
-                edges = []
-                degraded_sources.append({"source": "relates", "reason": str(e)})
+            edges, edge_deg = self._relates_among(keep_ids)
+            degraded_sources.extend(edge_deg)
             return {
                 "nodes": nodes,
                 "edges": edges,
@@ -555,24 +569,22 @@ class MaterialsMixin:
                 "hop": hop,
             }
 
-        # 全图:列表截断
-        all_nodes = [{"id": m["id"], "title": m.get("title"), "kind": m.get("kind"),
-                      "recall_count": m.get("recall_count") or 0, "pinned": bool(m.get("pinned")),
-                      "ref_tags": m.get("ref_tags") or [], "origin": m.get("origin") or "manual",
-                      "summary": m.get("summary")}
-                     for m in self.list_materials()]
-        truncated = len(all_nodes) > limit
-        nodes = all_nodes[:limit]
+        # 全图:SQL 截断,不扫 list_materials
+        total = self._material_count()
+        truncated = total > limit
+        rows = self._query(
+            f"SELECT {self._MATERIAL_COLS} FROM material "
+            "WHERE (archived = NONE OR archived != true) "
+            "ORDER BY updated_at DESC LIMIT $lim",
+            {"lim": limit}) or []
+        nodes = [{"id": m["id"], "title": m.get("title"), "kind": m.get("kind"),
+                  "recall_count": m.get("recall_count") or 0, "pinned": bool(m.get("pinned")),
+                  "ref_tags": m.get("ref_tags") or [], "origin": m.get("origin") or "manual",
+                  "summary": m.get("summary")}
+                 for m in rows]
         keep = {n["id"] for n in nodes}
-        edges = []
-        try:
-            rows = self._query(
-                "SELECT meta::id(in) AS src, meta::id(out) AS dst, weight FROM relates")
-            edges = [{"src": r["src"], "dst": r["dst"], "weight": r.get("weight") or 1.0}
-                     for r in (rows or []) if r.get("src") in keep and r.get("dst") in keep]
-        except Exception as e:
-            edges = []
-            degraded_sources.append({"source": "relates", "reason": str(e)})
+        edges, edge_deg = self._relates_among(keep)
+        degraded_sources.extend(edge_deg)
         return {
             "nodes": nodes,
             "edges": edges,
