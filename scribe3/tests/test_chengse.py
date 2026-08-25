@@ -28,7 +28,7 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.7"
+    assert PLAYBOOK_VERSION == "playbook.3.2.8"
     d = duty_generate({"seq": 1})
     assert "【成色·验戏不验词表】" in d
     assert "先立还在过的日子" in d
@@ -157,6 +157,8 @@ def test_duty_day_blocks_identity_announce():
         who=["沈槐"],
         available_cast=["沈槐"],
         day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
         must_happen="沈槐把空盏摘下来",
     )
     assert check_duty_struct(lived, available_cast=["沈槐"])["ok"] is True
@@ -166,6 +168,37 @@ def test_duty_day_blocks_identity_announce():
     assert opener["code"] == "opener_announce"
     ok_open = check_opener_announce("井台上还在排队。沈槐把空盏摘下来。")
     assert ok_open["ok"] is True
+
+
+def test_duty_work_blocks_appraisal_and_same_want():
+    from scribe3.playbook.context import make_duty
+    from scribe3.playbook.structural import check_duty_struct
+
+    same = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="要六两银子",
+        needed="要六两银子",
+        must_happen="沈槐把空盏摘下来",
+    )
+    hit = check_duty_struct(same, available_cast=["沈槐"])
+    assert hit["ok"] is False
+    assert hit["code"] == "duty_work_no_fight"
+
+    tell = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="他是一个阴沉的人",
+        needed="灯盏是空的",
+        must_happen="沈槐把空盏摘下来",
+    )
+    hit2 = check_duty_struct(tell, available_cast=["沈槐"])
+    assert hit2["ok"] is False
+    assert hit2["code"] == "duty_work_appraisal"
 
 
 def test_source_has_no_classical_teaching_path():

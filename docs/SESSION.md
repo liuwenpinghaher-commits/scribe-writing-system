@@ -79,8 +79,8 @@
 ### 拆文倒逼翻主（2026-08-25）
 
 现行过夜 / 循环 SSOT：[`docs/plans/2026-08-25-tonglu-force-rebuild-loop.md`](./plans/2026-08-25-tonglu-force-rebuild-loop.md)（`tonglu-force-rebuild`）。旧 [`2026-08-24-tonglu-chengse-loop.md`](./plans/2026-08-24-tonglu-chengse-loop.md) **已结案，禁止续跑**。
-能力 0（反着教必死）：写协议无论旗开关都不教「端的/岂料」。关 `SCRIBE3_CHENGSE_CRAFT` = 过滤与成色块停，不回古白话。回退 = revert，不是关旗。
-样例书 **`book_46cff31a`《井台灯》** 可继作证据，本切片不写下一场、不开 10 万。未删《腕账》。可停：否。
+能力 0–2 代码已落。日子闸 + 办事闸（said/needed 必须打架）。playbook.3.2.8。回退 = revert。
+样例书 **`book_46cff31a`《井台灯》** 可继作证据，本切片不写下一场、不开 10 万。未删《腕账》。可停：否。下一轮：假破真。
 
 ### 时间线列表+抽屉（2026-08-25）
 

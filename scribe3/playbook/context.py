@@ -245,6 +245,8 @@ def make_duty(prev: dict[str, Any] | None = None, *, seq: int = 2, **fields: Any
         "who": list(fields.get("who") or ["沈烛若"]),
         "must_happen": fields.get("must_happen") or "办事",
         "day": fields.get("day") or "还在过的日子",
+        "said": fields.get("said") or "嘴上要的",
+        "needed": fields.get("needed") or "真正缺的",
         "bill": fields.get("bill") or "付账",
         "forbidden_reveal": list(fields.get("forbidden_reveal") or ["秘密"]),
         "bite_from_prev": None if int(seq) == 1 else hook,

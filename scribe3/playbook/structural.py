@@ -15,6 +15,7 @@
 - syntax_tics：叙述层「不是A是B」/毒句式 ≥2 处在定稿拦住（对白不计；糙稿只记账不硬拦）
 - chengse_filter：叙述层古白话套话 / 铜炉专名 / 空概括收尾（关旗不拦）
 - duty.day：必须先立还在过的日子；开篇报身份/扔钩子/先宣布法会不过
+- duty.work：嘴上要的和真正缺的必须打架；鉴定式人设/杯子余温/剖心不过
 """
 from __future__ import annotations
 
@@ -45,6 +46,10 @@ _OPENER_ANNOUNCE = re.compile(
 _DAY_LIVED = re.compile(
     r"还在|还没|正在|尚未|仍有|排队|过秤|喝酒|喜酒|守夜|赶路|散不|过年|过节|井台|柜上|日子"
 )
+# 对照.md 三：办事不剖心。
+_APPRAISAL_TELL = re.compile(
+    r"鉴定式|杯子余温|维特|剖心|人设是|性格是|他是一个|她是一个"
+)
 CLOCK_SPANS = frozenset({"scene", "day", "days"})
 CORE_FIELDS = ("goal", "choice", "decision", "hook")
 FIVE_LAYERS = ("perceived", "known", "believed", "acted", "blind")
@@ -72,6 +77,23 @@ def check_duty_day(duty: dict[str, Any]) -> dict[str, Any]:
         return _fail("duty_day_empty", "day 不能空：先写还在过的日子，再写必须办的那一件", "day")
     if not _DAY_LIVED.search(day):
         return _fail("duty_day_not_lived", "day 要能看见还在过的日子，不能只报一件动作", "day")
+    return _ok()
+
+
+def check_duty_work(duty: dict[str, Any]) -> dict[str, Any]:
+    """办事：看见谁办哪一件。嘴上要的和真正缺的必须打架。鉴定/剖心不过。"""
+    said = str((duty or {}).get("said") or "").strip()
+    needed = str((duty or {}).get("needed") or "").strip()
+    happen = str((duty or {}).get("must_happen") or "").strip()
+    blob = f"{said}\n{needed}\n{happen}"
+    if _APPRAISAL_TELL.search(blob):
+        return _fail("duty_work_appraisal", "用办事说。不要鉴定式人设、杯子余温、剖心", "said")
+    if not said:
+        return _fail("duty_said_empty", "said 不能空：嘴上要的那一件", "said")
+    if not needed:
+        return _fail("duty_needed_empty", "needed 不能空：真正缺的那一件", "needed")
+    if re.sub(r"\s+", "", said) == re.sub(r"\s+", "", needed):
+        return _fail("duty_work_no_fight", "嘴上要的和真正缺的不能同一句。要打架", "needed")
     return _ok()
 
 
@@ -140,6 +162,9 @@ def check_duty_struct(
     day_hit = check_duty_day(duty)
     if not day_hit.get("ok"):
         return day_hit
+    work_hit = check_duty_work(duty)
+    if not work_hit.get("ok"):
+        return work_hit
     fr = duty.get("forbidden_reveal")
     if not isinstance(fr, list) or not [x for x in fr if str(x).strip()]:
         return _fail("duty_forbid_empty", "forbidden_reveal 不能空", "forbidden_reveal")
