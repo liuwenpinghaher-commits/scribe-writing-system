@@ -245,6 +245,10 @@ def test_parse_url_markdown_not_raw_html(monkeypatch):
     def fake_fetch(url):
         return html
 
+    monkeypatch.setattr("socket.getaddrinfo", lambda *a, **k: [
+        (__import__("socket").AF_INET, __import__("socket").SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
+    ])
+
     class FakeConverter:
         def convert(self, path):
             class R:

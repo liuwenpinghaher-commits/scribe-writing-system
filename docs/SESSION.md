@@ -77,6 +77,7 @@
 **测：** 前端 46 passed；后端 P2 焦点 12 passed。
 **已合入并热更：** `29b62a65`。hot `HEALTH_OK` + v634 27/27。frontend `FRONTEND_DEPLOY_OK`，首页 `index-CgbrcZ3v.js`。宿主机与 nginx `index.html` 哈希一致。nginx unlink busy 非致命。强制刷新后再验素材库来源筛、插入按钮、健康度。
 **余项已合入并热更：** `8dad78c6`。健康度走 SQL COUNT，不扫全表。全图节点 `LIMIT`，边只查 keep 集合。hot `HEALTH_OK` + v634 27/27。前端未改，首页仍 `index-CgbrcZ3v.js`。近重仍只 warning。P3 不拆 `Materials.jsx`。
+**SSRF 二次校验（代码已改，未合入）：** 导入 URL 解析 IP 后再检私网（IPv6 回环/ULA、主机名解析到 127.0.0.1）。相关 pytest 9 passed。
 
 ### 素材库 P0+P1（2026-08-25）
 

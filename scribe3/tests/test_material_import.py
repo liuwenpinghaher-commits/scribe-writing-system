@@ -66,9 +66,33 @@ def test_parse_url_rejects_redirect_to_private_host(monkeypatch):
         return _Resp(url, content=b"SECRET")
 
     monkeypatch.setattr("httpx.get", fake_get)
+    monkeypatch.setattr("socket.getaddrinfo", lambda *a, **k: [
+        (__import__("socket").AF_INET, __import__("socket").SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
+    ])
     with pytest.raises(ValueError, match="内网|本地"):
         parse_url_to_markdown("https://example.com/notes.md")
     assert not any("169.254" in u for u in calls)
+
+
+def test_parse_url_rejects_hostname_resolving_to_private_ip(monkeypatch):
+    """公网主机名解析到回环/内网不得抓取。"""
+    import socket
+
+    def fake_getaddrinfo(host, *a, **k):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))]
+
+    monkeypatch.setattr("socket.getaddrinfo", fake_getaddrinfo)
+    fetched = []
+    with pytest.raises(ValueError, match="内网|本地"):
+        parse_url_to_markdown("https://evil.example/notes.md", fetcher=lambda u: fetched.append(u) or b"SECRET")
+    assert fetched == []
+
+
+def test_parse_url_rejects_ipv6_loopback_and_ula():
+    with pytest.raises(ValueError, match="内网|本地"):
+        parse_url_to_markdown("http://[::1]/secret", fetcher=lambda u: b"SECRET")
+    with pytest.raises(ValueError, match="内网|本地"):
+        parse_url_to_markdown("http://[fd12:3456:789a::1]/x", fetcher=lambda u: b"SECRET")
 
 
 def test_import_endpoint_flow(store, monkeypatch):

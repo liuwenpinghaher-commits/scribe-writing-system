@@ -5,9 +5,10 @@
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
-import re
+import socket
 import tempfile
 from urllib.parse import urlparse
 
@@ -22,37 +23,53 @@ def parse_to_markdown(src, converter=None) -> str:
     return converter.convert(src).text_content
 
 
+def _is_private_ip(ip: str) -> bool:
+    try:
+        addr = ipaddress.ip_address((ip or "").split("%")[0])
+    except ValueError:
+        return True
+    return bool(
+        addr.is_private or addr.is_loopback or addr.is_link_local
+        or addr.is_multicast or addr.is_reserved or addr.is_unspecified
+    )
+
+
 def _is_private_host(host: str) -> bool:
-    """基础 SSRF 防护:拦 loopback / 明显内网 host。"""
+    """SSRF 防护:拦 loopback / 内网 host / 私网 IP(含 IPv6)。"""
     h = (host or "").strip().lower().rstrip(".")
     if not h:
         return True
+    if h.startswith("[") and h.endswith("]"):
+        h = h[1:-1]
     if h in ("localhost", "metadata.google.internal"):
         return True
     if h.endswith(".local") or h.endswith(".internal"):
         return True
-    if h == "::1" or h.startswith("[::1]"):
+    try:
+        ipaddress.ip_address(h.split("%")[0])
+    except ValueError:
+        return False
+    return _is_private_ip(h)
+
+
+def _host_resolves_private(host: str) -> bool:
+    """解析后的任一地址是私网则拒。解析失败 fail-closed。"""
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
         return True
-    # 裸 IP 粗判
-    if re.match(r"^\d+\.\d+\.\d+\.\d+$", h):
-        parts = [int(x) for x in h.split(".")]
-        a, b = parts[0], parts[1]
-        if a == 10 or a == 127 or a == 0:
-            return True
-        if a == 192 and b == 168:
-            return True
-        if a == 172 and 16 <= b <= 31:
-            return True
-        if a == 169 and b == 254:
-            return True
-    return False
+    ips = {info[4][0] for info in infos if info and info[4]}
+    if not ips:
+        return True
+    return any(_is_private_ip(ip) for ip in ips)
 
 
 def _assert_public_http_url(url: str) -> None:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise ValueError(f"不支持的 URL scheme: {parsed.scheme!r}")
-    if _is_private_host(parsed.hostname or ""):
+    host = parsed.hostname or ""
+    if _is_private_host(host) or _host_resolves_private(host):
         raise ValueError("拒绝访问内网/本地地址")
 
 
