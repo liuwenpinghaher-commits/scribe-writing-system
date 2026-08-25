@@ -17,7 +17,7 @@ PLAY = "完全另一场戏，没有盒子也没有袖口。" * 40
 
 
 def test_version_is_32():
-    assert PLAYBOOK_VERSION == "playbook.3.2.14"
+    assert PLAYBOOK_VERSION == "playbook.3.2.15"
     assert "playbook.3.2" in VERSIONED_RUBRICS
     assert "playbook.3.2.1" in VERSIONED_RUBRICS
     assert "playbook.3.2.2" in VERSIONED_RUBRICS
@@ -33,6 +33,7 @@ def test_version_is_32():
     assert "playbook.3.2.12" in VERSIONED_RUBRICS
     assert "playbook.3.2.13" in VERSIONED_RUBRICS
     assert "playbook.3.2.14" in VERSIONED_RUBRICS
+    assert "playbook.3.2.15" in VERSIONED_RUBRICS
     assert "playbook.3.1" in VERSIONED_RUBRICS
 
 
@@ -112,7 +113,7 @@ def test_live_headline_shows_fail_reasons_while_running():
         "cursor_step_key": "playbook.struct",
         "notes": ["fail_reasons:draft_len", "fail_reasons:draft_len,draft_copy_play"],
     })
-    assert "字数不够" in h
+    assert "场面没立住" in h
     assert "抄了戏" in h
 
 

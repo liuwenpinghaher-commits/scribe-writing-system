@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import os
 from pathlib import Path
 import re
 from typing import Any
@@ -47,10 +48,16 @@ class DuizhaoMissing(RuntimeError):
     """对照.md 读不到。生成/审判不许用复述顶上。"""
 
 
+def _duizhao_path() -> Path:
+    """对照真源路径。容器可用 SCRIBE3_DUIZHAO_PATH 盖掉，默认仍是仓库根下那份。"""
+    override = (os.environ.get("SCRIBE3_DUIZHAO_PATH") or "").strip()
+    return Path(override) if override else DUIZHAO_PATH
+
+
 @lru_cache(maxsize=1)
 def load_duizhao() -> str:
     """读对照.md 原文。空或没有 = 失败。"""
-    path = DUIZHAO_PATH
+    path = _duizhao_path()
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:

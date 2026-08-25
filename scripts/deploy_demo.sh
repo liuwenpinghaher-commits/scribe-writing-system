@@ -98,7 +98,7 @@ mode_hot() {
   echo "==> [主路径] hot: 热更 scribe3 Python 包 → $REMOTE:$CONTAINER"
   TMP=$(mktemp -d)
   trap 'rm -rf "$TMP"' RETURN
-  mkdir -p "$TMP/scribe3"
+  mkdir -p "$TMP/scribe3" "$TMP/docs/worlds/乱世铜炉-拆文"
   rsync -a \
     --exclude '__pycache__' \
     --exclude '*.pyc' \
@@ -111,12 +111,18 @@ mode_hot() {
     --exclude '.DS_Store' \
     "$ROOT/scribe3/" "$TMP/scribe3/"
   find "$TMP/scribe3" -name '._*' -delete
+  DUIZHAO_SRC="$ROOT/docs/worlds/乱世铜炉-拆文/对照.md"
+  if [[ ! -s "$DUIZHAO_SRC" ]]; then
+    echo "缺对照.md 真源: $DUIZHAO_SRC" >&2
+    exit 1
+  fi
+  cp "$DUIZHAO_SRC" "$TMP/docs/worlds/乱世铜炉-拆文/对照.md"
   echo "==> compileall"
   python3 -m compileall -q -f "$TMP/scribe3" || {
     echo "compileall 失败，禁止上铜炉" >&2
     exit 1
   }
-  COPYFILE_DISABLE=1 tar -C "$TMP" -czf "$TMP/scribe3-hot.tgz" scribe3
+  COPYFILE_DISABLE=1 tar -C "$TMP" -czf "$TMP/scribe3-hot.tgz" scribe3 docs
   ls -lh "$TMP/scribe3-hot.tgz"
   "${SCP[@]}" "$TMP/scribe3-hot.tgz" "$REMOTE:/tmp/scribe3-hot.tgz"
   "${SSH[@]}" "$REMOTE" bash -s <<REMOTE
@@ -127,8 +133,11 @@ sudo mkdir -p "\$APP_DIR"
 sudo tar -xzf /tmp/scribe3-hot.tgz -C "\$APP_DIR"
 sudo find "\$APP_DIR/scribe3" -name '._*' -delete
 # docker cp 以当前用户打 tar，sudo 解包后必须可读
-sudo chmod -R a+rX "\$APP_DIR/scribe3"
+sudo chmod -R a+rX "\$APP_DIR/scribe3" "\$APP_DIR/docs"
 docker cp "\$APP_DIR/scribe3" "\$CONTAINER:/app/"
+# 对照.md 在 /app/docs/；只拷 scribe3/ 生成审判会 DuizhaoMissing
+docker exec "\$CONTAINER" mkdir -p /app/docs/worlds/乱世铜炉-拆文
+docker cp "\$APP_DIR/docs/worlds/乱世铜炉-拆文/对照.md" "\$CONTAINER:/app/docs/worlds/乱世铜炉-拆文/对照.md"
 docker restart "\$CONTAINER"
 rm -f /tmp/scribe3-hot.tgz
 echo restarted
@@ -217,6 +226,8 @@ git reset --hard origin/main
 # 热应用 backend 源码（避免 compose rebuild 占满内存）
 if docker ps --format '{{.Names}}' | grep -qx "\$CONTAINER"; then
   docker cp "\$APP_DIR/scribe3" "\$CONTAINER:/app/"
+  docker exec "\$CONTAINER" mkdir -p /app/docs/worlds/乱世铜炉-拆文
+  docker cp "\$APP_DIR/docs/worlds/乱世铜炉-拆文/对照.md" "\$CONTAINER:/app/docs/worlds/乱世铜炉-拆文/对照.md"
   docker restart "\$CONTAINER"
   echo restarted
 else

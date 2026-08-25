@@ -5,7 +5,7 @@
 - duty 人/事/账/禁揭/户口/线/上章钩
 - contract quote 保真 + beats 场数 + 恰好一场 stages_choice
 - deduce 五层+矿条数
-- draft 非空/字数 + 相对戏的 8 字重复率 + 章边界词 + 明喻密度
+- draft 非空/场面立住 + 相对戏的 8 字重复率 + 章边界词 + 明喻密度（字数不作完成）
 - final 字数 + 章边界词 + 明喻密度 + 必须有冻结契约 + finalize 最后一公里
 - gender_pronoun：上章末态/户口有性别的角色，正文名旁代词不得翻转
 - state_quote：章末态每条人物/物件 quote 必须字面存在于冻稿
@@ -767,8 +767,8 @@ def check_draft_struct(
     if not text:
         return _fail("draft_empty", "排演是空的")
     n = len(_plain(text))
-    if n < 2000:
-        return _fail("draft_len", f"排演字数 {n} 低于 2000")
+    if n < 400:
+        return _fail("draft_len", f"排演还没立住一场（{n} 字）。场面立住就停，不要为凑字注水")
     meta = _meta_chapter_fail(text)
     if meta:
         return meta

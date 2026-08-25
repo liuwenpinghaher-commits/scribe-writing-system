@@ -16,7 +16,7 @@ def smoke_imports() -> list[tuple[str, bool, str]]:
 
     try:
         from scribe3.playbook.quote import PLAYBOOK_VERSION
-        add("playbook_version", PLAYBOOK_VERSION == "playbook.3.2.14", PLAYBOOK_VERSION)
+        add("playbook_version", PLAYBOOK_VERSION == "playbook.3.2.15", PLAYBOOK_VERSION)
     except Exception as e:
         add("playbook_version", False, type(e).__name__)
 
@@ -49,6 +49,18 @@ def smoke_imports() -> list[tuple[str, bool, str]]:
         add("m8_scan", "M8" in (hit.get("claim_blocking_ids") or []), "")
     except Exception as e:
         add("m8_scan", False, type(e).__name__)
+
+    try:
+        from scribe3.playbook.chengse import DUIZHAO_PATH, load_duizhao
+        load_duizhao.cache_clear()
+        body = load_duizhao()
+        add(
+            "duizhao_ssot",
+            "把眼睛交给当场那个人" in body and "不要上来就掏底牌" in body,
+            str(DUIZHAO_PATH),
+        )
+    except Exception as e:
+        add("duizhao_ssot", False, type(e).__name__)
 
     try:
         from scribe3.playbook.prompts import draft_generate, duty_generate

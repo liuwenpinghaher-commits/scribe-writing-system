@@ -1,4 +1,4 @@
-"""playbook.3.2.14 identity + generate/judge prompts. 改法官问卷或门槛才升版本。"""
+"""playbook.3.2.15 identity + generate/judge prompts. 改法官问卷或门槛才升版本。"""
 from __future__ import annotations
 
 import json
@@ -487,7 +487,7 @@ def draft_generate(ctx: dict) -> str:
     hint_block = (
         f"\n【上一稿没过，照这个改，不要只换词】{hint}\n" if hint else ""
     )
-    return f"""按这场戏和演绎，写一遍糙稿（2000-4000 字）。{hint_block}
+    return f"""按这场戏和演绎，写一遍糙稿。场面立住就停，不要为凑字注水。{hint_block}
 {_iron_head(ctx)}{craft_generate_block()}
 【戏（设计图，不是文）】{ctx.get("play_text")}
 【契约】{ctx.get("contract_json")}
@@ -522,8 +522,8 @@ def draft_generate(ctx: dict) -> str:
 - 禁止泄露 {ctx.get("forbidden_reveal") or []}。
 - 禁止上帝视角乱跳。
 - 明喻（像/仿佛/似的）全文至多每 800 字一个；能用直陈就不用比喻。
-  两千字稿最多两处。宁可写「黑线贴着静脉走」，不要写「像细铁丝」。
-  写完自己数：去空白不足 2000 字，或「像/仿佛/似的」超标，整篇作废重写。
+  宁可写「黑线贴着静脉走」，不要写「像细铁丝」。
+  写完自己数：「像/仿佛/似的」超标，整篇作废重写。字数不够不是废稿理由。
 {_iron_tail(ctx)}
 """
 
@@ -690,4 +690,4 @@ def identity_for(kind: str) -> str:
     return IDENTITY_NOVELIST
 
 
-assert PLAYBOOK_VERSION == "playbook.3.2.14"
+assert PLAYBOOK_VERSION == "playbook.3.2.15"

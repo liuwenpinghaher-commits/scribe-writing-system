@@ -198,7 +198,7 @@ def test_flush_drains_recorder_and_failed_headline():
         st.chains[tid + "ok"]["status"] = "in_progress"
         finish_chain(st, trace_id=tid + "ok", status="ok", extra={"fail_reasons": ["draft_len"]})
         assert "过了" in str(st.chains[tid + "ok"].get("headline") or "")
-        assert "字数不够" in str(st.chains[tid + "ok"].get("headline") or "")
+        assert "场面没立住" in str(st.chains[tid + "ok"].get("headline") or "")
     finally:
         reset_trace_buffer(tok)
 
@@ -235,7 +235,7 @@ def test_stale_in_progress_closed_when_retry_opens():
         assert rid != old
         assert st.chains[old]["status"] == "failed"
         hl = str(st.chains[old].get("headline") or "")
-        assert "字数不够" in hl or "抄了戏" in hl
+        assert "场面没立住" in hl or "抄了戏" in hl
     finally:
         reset_trace_buffer(None)
 

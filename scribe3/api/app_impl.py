@@ -1766,7 +1766,7 @@ def _rebind_services() -> None:
         (_svc_hermes_status, ['_hermes_profile_config_summary', '_hermes_cron_status', '_profile_by_name', '_profile_has_skill', '_issue', '_summarize_hermes_runtime', '_hermes_runtime_status', '_hermes_runs_runtime', '_run_session_key', '_gateway_security_violations', '_startup_gateway_guard']),
         (_svc_ingest_bg, ['mark_chapter_ingest_status', '_refresh_scorecard_after_ingest', '_bg_ingest', '_enqueue_ingest', '_enqueue_ingest_raw', 'schedule_ingest', '_semantic_repair_violations', '_prose_stats']),
         (_svc_lifecycle, ['_normalize_lifecycle_id', '_impact_token', '_object_impact', '_delete_object_with_lifecycle', '_archive_object_with_lifecycle']),
-        (_svc_misc_helpers, ['_FACTION_TYPE_MAP', '_fact_item', '_facts', '_mask_field', '_search_excerpt', '_build_faction_in', '_field_violations', '_import_job_get', '_run_import', '_current_tail_block', '_focalizer_sincerity_block', '_phase_role_block', '_loop_journal_path', '_import_journal_path', '_is_selection_candidate_version', '_pilot_llm_gen', '_pilot_journal']),
+        (_svc_misc_helpers, ['_FACTION_TYPE_MAP', '_fact_item', '_facts', '_mask_field', '_search_excerpt', '_build_faction_in', '_field_violations', '_import_job_get', '_run_import', '_current_tail_block', '_focalizer_sincerity_block', '_phase_role_block', '_loop_journal_path', '_import_journal_path', '_is_selection_candidate_version', '_PLAYBOOK_PILOT_PHASES', '_CODEX_PILOT_PHASES', '_pilot_uses_official_complete', '_pilot_official_complete', '_pilot_llm_gen', '_pilot_journal']),
         # expand_beats 嵌套在 _pilot_executor 内，rebind 后 __globals__=app_impl，
         # 须把节拍 v2 解析/接地/门闩助手一并注入，否则 NameError: parse_beats_v2_output。
         (_svc_pilot_runtime, [

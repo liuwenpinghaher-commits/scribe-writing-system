@@ -28,7 +28,7 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.14"
+    assert PLAYBOOK_VERSION == "playbook.3.2.15"
     d = duty_generate({"seq": 1})
     assert "【对照·真源】" in d
     assert "【成色·验戏不验词表】" not in d
@@ -648,11 +648,30 @@ def test_duty_flip_blocks_heat_as_turn():
     assert check_duty_struct(good, available_cast=["沈槐"])["ok"] is True
 
 
+def test_draft_len_does_not_kill_lived_scene():
+    """字数不作完成。一场已立住的日子不得因不够 2000 被毙。"""
+    play = "完全另一场戏，井台上没有灯。" * 40
+    lived = (
+        "井台上还在排队。沈槐站在队尾，棉袄里那罐油贴着心口。"
+        "「灯油从哪来的？」前头有人问。"
+        "杏花说：「灯不是我点的，别从我这儿重排。」"
+        "老庚蹲在井台边拨泥。沈槐的桶底刮着冻地，咯地一响。"
+        "灯在横担上烧着，火光比先前稳了些。"
+    ) * 8
+    hit = check_draft_struct(lived, play_text=play)
+    assert hit.get("code") != "draft_len"
+    emptyish = "井台上还在排队。沈槐站着。"
+    miss = check_draft_struct(emptyish, play_text=play)
+    assert miss["ok"] is False
+    assert miss["code"] == "draft_len"
+
+
 def test_duizhao_is_generate_ssot_not_paraphrase():
-    from scribe3.playbook.chengse import DUIZHAO_PATH, DuizhaoMissing, load_duizhao
+    from scribe3.playbook.chengse import DUIZHAO_PATH, DuizhaoMissing, load_duizhao, _duizhao_path
 
     load_duizhao.cache_clear()
     raw = DUIZHAO_PATH.read_text(encoding="utf-8")
+    assert _duizhao_path() == DUIZHAO_PATH
     assert load_duizhao() == raw.strip()
     d = duty_generate({"seq": 1})
     assert raw.strip() in d
@@ -662,6 +681,13 @@ def test_duizhao_is_generate_ssot_not_paraphrase():
 
     missing = DuizhaoMissing("x")
     assert isinstance(missing, RuntimeError)
+
+    other = Path("/tmp/duizhao-override.md")
+    os.environ["SCRIBE3_DUIZHAO_PATH"] = str(other)
+    try:
+        assert _duizhao_path() == other
+    finally:
+        os.environ.pop("SCRIBE3_DUIZHAO_PATH", None)
 
 
 def test_source_has_no_classical_teaching_path():
@@ -712,3 +738,10 @@ def test_pilot_codex_kind_uses_official_complete(monkeypatch):
     out = mh._pilot_llm_gen(St(), "book_x", 1, "character", "写厚沈槐", max_tokens=200)
     assert out == "厚卡"
     assert called["ask"] == "写厚沈槐"
+
+    # generate-stage 走 app_impl 重绑后的 _pilot_llm_gen；邻居函数必须一起导出。
+    from scribe3.api import app_impl as core
+
+    assert callable(core._pilot_uses_official_complete)
+    assert core._pilot_uses_official_complete("duty") is True
+    assert core._pilot_llm_gen(St(), "book_x", 2, "duty", "立责任卡", max_tokens=200) == "厚卡"
