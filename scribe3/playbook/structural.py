@@ -24,6 +24,7 @@
 - duty.owed：上场 stay 这场还在过；只接 hook.quote 不算
 - duty.heat_new：热闹不得和上场同一套
 - duty.kind：这场进的是哪一种日子；只换节号 / 同一种不换谁闯进来不过
+- duty.bill_move：账换持有人或换地；换气换丢人不过
 """
 from __future__ import annotations
 
@@ -84,6 +85,8 @@ _STAY_WORLD = re.compile(r"还|没|仍|停|在|日子|墓|路|安危|欠|信")
 CLOCK_SPANS = frozenset({"scene", "day", "days"})
 DAY_KINDS = frozenset({"酒宴", "赶路", "开坛", "坐牢", "同场"})
 _KIND_CHAPTER = re.compile(r"换节号|下一节|第[一二三四五六七八九十0-9]+章")
+_SHAME_SWAP = re.compile(r"换气换丢人|换气|换丢人|丢人换人|换个人丢人")
+_CLAIM_MOVE = re.compile(r"转走|交到别人|换地|账走了|还清了")
 CORE_FIELDS = ("goal", "choice", "decision", "hook")
 FIVE_LAYERS = ("perceived", "known", "believed", "acted", "blind")
 
@@ -273,6 +276,8 @@ def check_duty_kind(
     *,
     prev_kind: str | None = None,
     prev_intruder: str | None = None,
+    prev_holder: str | None = None,
+    prev_place: str | None = None,
 ) -> dict[str, Any]:
     """这场进的是哪一种还在过的日子。只换节号不过；同一种不换谁闯进来不过。"""
     kind = str((duty or {}).get("kind") or "").strip()
@@ -295,6 +300,32 @@ def check_duty_kind(
         return _fail("duty_kind_same", "连写同一种日子，必须换谁闯进来。只换节号不过", "intruder")
     return _ok()
 
+
+
+def check_duty_bill_move(
+    duty: dict[str, Any],
+    *,
+    prev_holder: str | None = None,
+    prev_place: str | None = None,
+) -> dict[str, Any]:
+    """账要落在谁手里、在哪一处。换气换丢人不过。声称转走却人地都没换，不过。"""
+    holder = str((duty or {}).get("bill_holder") or "").strip()
+    place = str((duty or {}).get("bill_place") or "").strip()
+    bill = str((duty or {}).get("bill") or "").strip()
+    blob = f"{holder}\n{place}\n{bill}"
+    if _SHAME_SWAP.search(blob):
+        return _fail("duty_bill_shame", "不要换气换丢人。账要换持有人或换地", "bill_holder")
+    if not holder:
+        return _fail("duty_holder_empty", "bill_holder 不能空：这笔账此刻在谁手里", "bill_holder")
+    if not place:
+        return _fail("duty_place_empty", "bill_place 不能空：这笔账此刻在哪一处", "bill_place")
+    prev_h = re.sub(r"\s+", "", str(prev_holder or ""))
+    prev_p = re.sub(r"\s+", "", str(prev_place or ""))
+    now_h = re.sub(r"\s+", "", holder)
+    now_p = re.sub(r"\s+", "", place)
+    if prev_h and prev_p and now_h == prev_h and now_p == prev_p and _CLAIM_MOVE.search(bill):
+        return _fail("duty_bill_stuck", "声称账转走了，持有人和地都没换。换气换丢人也不算", "bill_holder")
+    return _ok()
 
 def check_duty_flip(duty: dict[str, Any]) -> dict[str, Any]:
     """热闹不算翻。热闹像翻了、处境还停在原处，不过。"""
@@ -384,6 +415,8 @@ def check_duty_struct(
     prev_heat: str | None = None,
     prev_kind: str | None = None,
     prev_intruder: str | None = None,
+    prev_holder: str | None = None,
+    prev_place: str | None = None,
 ) -> dict[str, Any]:
     def _who(x: str) -> str:
         s = str(x or "").strip()
@@ -426,6 +459,9 @@ def check_duty_struct(
     kind_hit = check_duty_kind(duty, prev_kind=prev_kind, prev_intruder=prev_intruder)
     if not kind_hit.get("ok"):
         return kind_hit
+    bill_hit = check_duty_bill_move(duty, prev_holder=prev_holder, prev_place=prev_place)
+    if not bill_hit.get("ok"):
+        return bill_hit
     fr = duty.get("forbidden_reveal")
     if not isinstance(fr, list) or not [x for x in fr if str(x).strip()]:
         return _fail("duty_forbid_empty", "forbidden_reveal 不能空", "forbidden_reveal")

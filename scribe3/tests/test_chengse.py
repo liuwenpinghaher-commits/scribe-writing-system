@@ -28,7 +28,7 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.18"
+    assert PLAYBOOK_VERSION == "playbook.3.2.19"
     d = duty_generate({"seq": 1})
     assert "【对照·真源】" in d
     assert "【成色·验戏不验词表】" not in d
@@ -841,6 +841,62 @@ def test_duty_kind_blocks_same_day_without_intruder():
     assert check_duty_struct(
         newcomer, available_cast=["沈槐"], prev_hook_quote=hook,
         prev_stay=stay, prev_heat=heat, prev_kind="同场", prev_intruder="杏花",
+    )["ok"] is True
+
+
+def test_duty_bill_blocks_shame_swap_and_stuck_move():
+    """账要换持有人或换地。换气换丢人、声称转走人地没换，不过。"""
+    from scribe3.playbook.context import make_duty
+    from scribe3.playbook.structural import check_duty_struct
+
+    shame = make_duty(
+        seq=1, who=["沈槐"], available_cast=["沈槐"],
+        day="井台上还在排队打水", said="认自家攒的油", needed="灯盏是空的",
+        must_happen="沈槐把空盏摘下来",
+        bill_holder="换气换丢人", bill_place="井台",
+    )
+    hit = check_duty_struct(shame, available_cast=["沈槐"])
+    assert hit["ok"] is False
+    assert hit["code"] == "duty_bill_shame"
+
+    stuck = make_duty(
+        seq=2, who=["沈槐"], available_cast=["沈槐"],
+        day="井台上还在排队打水", said="认自家攒的油", needed="灯盏是空的",
+        heat="有人趴下看井口，说黑得发亮",
+        stay="沈槐还排在队尾，油罐仍贴在棉袄里",
+        owed="没一个人当众认那盏灯",
+        must_happen="沈槐把空盏摘下来",
+        kind="赶路", bill="这笔账转走了",
+        bill_holder="沈槐", bill_place="井台",
+    )
+    stuck["bite_from_prev"] = "那盏灯在横担上烧着，火光比先前稳了些。"
+    hit2 = check_duty_struct(
+        stuck, available_cast=["沈槐"],
+        prev_hook_quote=stuck["bite_from_prev"],
+        prev_stay="油罐仍贴在棉袄里，没一个人当众认那盏灯。",
+        prev_heat="井台上有人认了这盏油",
+        prev_holder="沈槐", prev_place="井台",
+    )
+    assert hit2["ok"] is False
+    assert hit2["code"] == "duty_bill_stuck"
+
+    moved = make_duty(
+        seq=2, who=["沈槐"], available_cast=["沈槐"],
+        day="井台上还在排队打水", said="认自家攒的油", needed="灯盏是空的",
+        heat="有人趴下看井口，说黑得发亮",
+        stay="沈槐还排在队尾，油罐仍贴在棉袄里",
+        owed="没一个人当众认那盏灯",
+        must_happen="沈槐把空盏摘下来",
+        kind="赶路", bill="油账落到杏花柜上",
+        bill_holder="杏花", bill_place="柜上",
+    )
+    moved["bite_from_prev"] = stuck["bite_from_prev"]
+    assert check_duty_struct(
+        moved, available_cast=["沈槐"],
+        prev_hook_quote=moved["bite_from_prev"],
+        prev_stay="油罐仍贴在棉袄里，没一个人当众认那盏灯。",
+        prev_heat="井台上有人认了这盏油",
+        prev_holder="沈槐", prev_place="井台",
     )["ok"] is True
 
 

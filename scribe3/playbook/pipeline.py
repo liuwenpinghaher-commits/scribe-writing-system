@@ -432,6 +432,8 @@ def _run_duty(store, seq, ctx, llm_fn, *, force, persist):
             prev_heat=ctx.get("prev_heat"),
             prev_kind=ctx.get("prev_kind"),
             prev_intruder=ctx.get("prev_intruder"),
+            prev_holder=ctx.get("prev_holder"),
+            prev_place=ctx.get("prev_place"),
         ),
         judge_type="duty",
         judge_ctx=lambda d: {
@@ -445,6 +447,8 @@ def _run_duty(store, seq, ctx, llm_fn, *, force, persist):
             "prev_heat": ctx.get("prev_heat"),
             "prev_kind": ctx.get("prev_kind"),
             "prev_intruder": ctx.get("prev_intruder"),
+            "prev_holder": ctx.get("prev_holder"),
+            "prev_place": ctx.get("prev_place"),
             "seq": ctx.get("seq"),
             **_continuity_judge(ctx),
         },

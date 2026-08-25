@@ -256,6 +256,8 @@ def _pass_llm(kind_text: dict[str, str]):
                 "stay": "灯还是空的，日子没翻",
                 "kind": "同场",
                 "intruder": "",
+                "bill_holder": "沈烛若",
+                "bill_place": "当场",
                 "must_happen": "沈烛若把碎片按回胸口",
                 "bill": "四十二度成了他的常态",
                 "who": ["沈烛若"],
