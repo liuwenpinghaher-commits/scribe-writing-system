@@ -22,6 +22,8 @@
 - duty.yin：因文；一行本事说不完；删了会塌的那截必须另写
 - duty.flip：热闹像翻了、处境没翻不过；热闹不算翻
 - duty.owed：上场 stay 这场还在过；只接 hook.quote 不算
+- duty.heat_new：热闹不得和上场同一套
+- duty.kind：这场进的是哪一种日子；只换节号 / 同一种不换谁闯进来不过
 """
 from __future__ import annotations
 
@@ -80,6 +82,8 @@ _HEAT_AS_FLIP = re.compile(r"热闹就是翻|场面就算翻|热闹当翻|场面
 _HEAT_ONLY = re.compile(r"热闹|场面过了|社戏完了|筵席散了|鼓掌过了")
 _STAY_WORLD = re.compile(r"还|没|仍|停|在|日子|墓|路|安危|欠|信")
 CLOCK_SPANS = frozenset({"scene", "day", "days"})
+DAY_KINDS = frozenset({"酒宴", "赶路", "开坛", "坐牢", "同场"})
+_KIND_CHAPTER = re.compile(r"换节号|下一节|第[一二三四五六七八九十0-9]+章")
 CORE_FIELDS = ("goal", "choice", "decision", "hook")
 FIVE_LAYERS = ("perceived", "known", "believed", "acted", "blind")
 
@@ -264,6 +268,34 @@ def check_duty_heat_new(duty: dict[str, Any], *, prev_heat: str | None = None) -
     return _ok()
 
 
+def check_duty_kind(
+    duty: dict[str, Any],
+    *,
+    prev_kind: str | None = None,
+    prev_intruder: str | None = None,
+) -> dict[str, Any]:
+    """这场进的是哪一种还在过的日子。只换节号不过；同一种不换谁闯进来不过。"""
+    kind = str((duty or {}).get("kind") or "").strip()
+    day = str((duty or {}).get("day") or "").strip()
+    if _KIND_CHAPTER.search(kind) or _KIND_CHAPTER.search(day):
+        return _fail("duty_kind_chapter", "只换节号不算换日子。要写进的是哪一种还在过的日子", "kind")
+    if not kind:
+        return _fail("duty_kind_empty", "kind 不能空：这场进的是酒宴/赶路/开坛/坐牢/同场哪一种", "kind")
+    if kind not in DAY_KINDS:
+        return _fail("duty_kind_unknown", "kind 只能是酒宴、赶路、开坛、坐牢、同场", "kind")
+    seq = int((duty or {}).get("seq") or 0)
+    prev = str(prev_kind or "").strip()
+    if seq <= 1 or not prev or prev != kind:
+        return _ok()
+    now = re.sub(r"\s+", "", str((duty or {}).get("intruder") or ""))
+    was = re.sub(r"\s+", "", str(prev_intruder or ""))
+    if not now:
+        return _fail("duty_kind_same", "连写同一种日子，必须换谁闯进来。只换节号不过", "intruder")
+    if was and now == was:
+        return _fail("duty_kind_same", "连写同一种日子，必须换谁闯进来。只换节号不过", "intruder")
+    return _ok()
+
+
 def check_duty_flip(duty: dict[str, Any]) -> dict[str, Any]:
     """热闹不算翻。热闹像翻了、处境还停在原处，不过。"""
     heat = str((duty or {}).get("heat") or "").strip()
@@ -350,6 +382,8 @@ def check_duty_struct(
     prev_hook_quote: str | None = None,
     prev_stay: str | None = None,
     prev_heat: str | None = None,
+    prev_kind: str | None = None,
+    prev_intruder: str | None = None,
 ) -> dict[str, Any]:
     def _who(x: str) -> str:
         s = str(x or "").strip()
@@ -389,6 +423,9 @@ def check_duty_struct(
     heat_hit = check_duty_heat_new(duty, prev_heat=prev_heat)
     if not heat_hit.get("ok"):
         return heat_hit
+    kind_hit = check_duty_kind(duty, prev_kind=prev_kind, prev_intruder=prev_intruder)
+    if not kind_hit.get("ok"):
+        return kind_hit
     fr = duty.get("forbidden_reveal")
     if not isinstance(fr, list) or not [x for x in fr if str(x).strip()]:
         return _fail("duty_forbid_empty", "forbidden_reveal 不能空", "forbidden_reveal")

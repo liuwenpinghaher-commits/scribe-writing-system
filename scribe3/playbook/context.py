@@ -253,6 +253,32 @@ def prev_heat(store: Any, seq: int) -> str | None:
     return heat or None
 
 
+def prev_kind(store: Any, seq: int) -> str | None:
+    if int(seq) <= 1:
+        return None
+    fn = getattr(store, "get_frozen", None)
+    if not callable(fn):
+        return None
+    duty = fn("duty_card", int(seq) - 1)
+    if not isinstance(duty, dict):
+        return None
+    kind = str(duty.get("kind") or "").strip()
+    return kind or None
+
+
+def prev_intruder(store: Any, seq: int) -> str | None:
+    if int(seq) <= 1:
+        return None
+    fn = getattr(store, "get_frozen", None)
+    if not callable(fn):
+        return None
+    duty = fn("duty_card", int(seq) - 1)
+    if not isinstance(duty, dict):
+        return None
+    who = str(duty.get("intruder") or "").strip()
+    return who or None
+
+
 def prev_play_with_hook(quote: str) -> dict[str, Any]:
     """Contract-shaped stub whose hook.quote is the bite source."""
     q = str(quote or "")
@@ -286,6 +312,8 @@ def make_duty(prev: dict[str, Any] | None = None, *, seq: int = 2, **fields: Any
         "heat": fields.get("heat") or "井台上有人认了这盏油",
         "stay": fields.get("stay") or "灯还是空的，日子没翻",
         "owed": fields.get("owed") or "",
+        "kind": fields.get("kind") or "同场",
+        "intruder": fields.get("intruder") or "",
         "bill": fields.get("bill") or "付账",
         "forbidden_reveal": list(fields.get("forbidden_reveal") or ["秘密"]),
         "bite_from_prev": None if int(seq) == 1 else hook,
@@ -951,6 +979,8 @@ def build_ctx(
         "prev_hook_quote": prev_hook_quote(frozen, seq),
         "prev_stay": prev_stay(frozen, seq),
         "prev_heat": prev_heat(frozen, seq),
+        "prev_kind": prev_kind(frozen, seq),
+        "prev_intruder": prev_intruder(frozen, seq),
         "secret_list": secret_list(world),
         "prev_state": prev_state,
         "imagery": book_imagery(world),

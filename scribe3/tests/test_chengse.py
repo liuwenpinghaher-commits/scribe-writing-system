@@ -28,7 +28,7 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.17"
+    assert PLAYBOOK_VERSION == "playbook.3.2.18"
     d = duty_generate({"seq": 1})
     assert "【对照·真源】" in d
     assert "【成色·验戏不验词表】" not in d
@@ -781,6 +781,66 @@ def test_duty_heat_blocks_same_flip():
     assert check_duty_struct(
         fresh, available_cast=["沈槐"], prev_hook_quote=hook,
         prev_stay=prev_stay, prev_heat=prev_heat,
+    )["ok"] is True
+
+
+def test_duty_kind_blocks_same_day_without_intruder():
+    """日子种类必填。同一种不换谁闯进来、只换节号，不过。"""
+    from scribe3.playbook.context import make_duty
+    from scribe3.playbook.structural import check_duty_struct
+
+    hook = "那盏灯在横担上烧着，火光比先前稳了些。"
+    stay = "油罐仍贴在棉袄里，没一个人当众认那盏灯。"
+    heat = "井台上有人认了这盏油"
+    empty = make_duty(
+        seq=1, who=["沈槐"], available_cast=["沈槐"],
+        day="井台上还在排队打水", said="认自家攒的油", needed="灯盏是空的",
+        must_happen="沈槐把空盏摘下来",
+    )
+    empty["kind"] = ""
+    miss = check_duty_struct(empty, available_cast=["沈槐"])
+    assert miss["ok"] is False
+    assert miss["code"] == "duty_kind_empty"
+
+    chap = make_duty(
+        seq=1, who=["沈槐"], available_cast=["沈槐"],
+        day="井台上还在排队打水", said="认自家攒的油", needed="灯盏是空的",
+        must_happen="沈槐把空盏摘下来", kind="换节号",
+    )
+    hit = check_duty_struct(chap, available_cast=["沈槐"])
+    assert hit["ok"] is False
+    assert hit["code"] == "duty_kind_chapter"
+
+    same = make_duty(
+        seq=2, who=["沈槐"], available_cast=["沈槐"],
+        day="井台上还在排队打水", said="认自家攒的油", needed="灯盏是空的",
+        heat="有人趴下看井口，说黑得发亮",
+        stay="沈槐还排在队尾，油罐仍贴在棉袄里",
+        owed="没一个人当众认那盏灯",
+        must_happen="沈槐把空盏摘下来",
+        kind="同场", intruder="",
+    )
+    same["bite_from_prev"] = hook
+    hit2 = check_duty_struct(
+        same, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="同场",
+    )
+    assert hit2["ok"] is False
+    assert hit2["code"] == "duty_kind_same"
+
+    newcomer = make_duty(
+        seq=2, who=["沈槐"], available_cast=["沈槐"],
+        day="井台上还在排队打水", said="认自家攒的油", needed="灯盏是空的",
+        heat="有人趴下看井口，说黑得发亮",
+        stay="沈槐还排在队尾，油罐仍贴在棉袄里",
+        owed="没一个人当众认那盏灯",
+        must_happen="沈槐把空盏摘下来",
+        kind="同场", intruder="队尾那人",
+    )
+    newcomer["bite_from_prev"] = hook
+    assert check_duty_struct(
+        newcomer, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="同场", prev_intruder="杏花",
     )["ok"] is True
 
 

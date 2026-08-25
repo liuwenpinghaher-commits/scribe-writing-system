@@ -254,6 +254,8 @@ def _pass_llm(kind_text: dict[str, str]):
                 "keep": "灯油不是自家攒的，空盏才露出来",
                 "heat": "井台上有人认了这盏油",
                 "stay": "灯还是空的，日子没翻",
+                "kind": "同场",
+                "intruder": "",
                 "must_happen": "沈烛若把碎片按回胸口",
                 "bill": "四十二度成了他的常态",
                 "who": ["沈烛若"],
