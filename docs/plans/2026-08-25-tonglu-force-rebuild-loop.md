@@ -202,3 +202,8 @@ slug `book_46cff31a`。责任卡 3.2.14 七闸机器过。戏 837。糙稿先被
 现系统为什么写不出（施工前）：跨章只核 `bite_from_prev == hook.quote`。上场 `stay`（灯没人认、油罐还在棉袄里）没有机器要求还欠着。只接钩子、把处境清掉也能过。一本的骨头是还在过的日子，不是接钩子。
 已做：责任卡第2章起核上场 `stay`。`owed|day|must_happen|stay` 里认得出上场处境；只接钩子、把 stay 清掉 → `duty_stay_unpaid`。生成抄 `prev_stay` 进 `owed`（模型漏写时）。升 `playbook.3.2.16`。回退 = revert。
 证据：`test_duty_owed_blocks_cleared_stay`。本切片不写场C / 10 万。场B 另开，场不过停。
+
+### 字数不作完成 · `prose_len`
+现系统为什么写不出（施工前）：第3章糙稿 744、定稿 739，场面已立住（队尾、油罐没掏、灯没人认），被 `prose_len` 1000 字硬拦。和 `draft_len` 同一类字数冒充成色。
+已做：`prose_len` 只拦没立住一场（不足 400 字）。回退 = revert。
+证据：`test_prose_len_does_not_kill_lived_scene`。

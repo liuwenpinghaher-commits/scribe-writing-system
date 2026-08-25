@@ -530,7 +530,7 @@ _THICKEN_PHASES = frozenset({
 PLAYBOOK_FAIL_LABEL = {
     "dialogue_floor": "对白不够",
     "draft_len": "场面没立住",
-    "prose_len": "字数不够",
+    "prose_len": "场面没立住",
     "pov_consistency": "人称翻了",
     "state_quote": "原句对不上",
     "quote_not_in_play": "原句不在戏里",

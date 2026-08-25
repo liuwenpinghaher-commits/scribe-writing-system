@@ -845,8 +845,8 @@ def check_final_struct(prose_text: str, *, expected_pov: str | None = None) -> d
     if not text:
         return _fail("prose_empty", "正文是空的")
     n = len(re.sub(r"\s+", "", text))
-    if n < 1000:
-        return _fail("prose_len", f"正文字数 {n} 低于 1000")
+    if n < 400:
+        return _fail("prose_len", f"正文还没立住一场（{n} 字）。场面立住就停，不要为凑字注水")
     pov = check_pov_consistency(text, expected_pov)
     if not pov.get("ok"):
         return pov

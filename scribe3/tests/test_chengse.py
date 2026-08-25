@@ -739,6 +739,25 @@ def test_draft_len_does_not_kill_lived_scene():
     assert miss["code"] == "draft_len"
 
 
+def test_prose_len_does_not_kill_lived_scene():
+    """字数不作完成。一场已立住的日子不得因不够 1000 被毙。"""
+    from scribe3.playbook.structural import check_final_struct
+
+    lived = (
+        "井台上还在排队。沈槐站在队尾，棉袄里那罐油贴着心口。"
+        "「灯油从哪来的？」前头有人问。"
+        "杏花说：「灯不是我点的，别从我这儿重排。」"
+        "老庚蹲在井台边拨泥。沈槐的桶底刮着冻地，咯地一响。"
+        "灯在横担上烧着，火光比先前稳了些。"
+    ) * 8
+    hit = check_final_struct(lived)
+    assert hit.get("code") != "prose_len"
+    emptyish = "井台上还在排队。沈槐站着。"
+    miss = check_final_struct(emptyish)
+    assert miss["ok"] is False
+    assert miss["code"] == "prose_len"
+
+
 def test_duizhao_is_generate_ssot_not_paraphrase():
     from scribe3.playbook.chengse import DUIZHAO_PATH, DuizhaoMissing, load_duizhao, _duizhao_path
 
