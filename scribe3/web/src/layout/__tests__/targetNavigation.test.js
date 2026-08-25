@@ -18,7 +18,7 @@ describe('targetNodeToSelection', () => {
         id: 'quality:3',
         type: 'quality_review',
         ref: { seq: 3 },
-        label: '质量审阅',
+        label: '第3章 · 弱章诊断',
       },
     })
   })

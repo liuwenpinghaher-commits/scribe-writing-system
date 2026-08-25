@@ -36,6 +36,8 @@ const DELEGATE_TYPE = {
   motif: 'motif',
   fact: 'fact',
   review_issue: 'issue',
+  quality_review: 'quality_review',
+  quality_contract: 'quality_contract',
 }
 
 // 把本地 sel 归一成 detail_route 同构的字符串,用于与快照 detail_route 比对是否"同一处"。
@@ -61,6 +63,21 @@ export function selectionFromSnapshot(snapshot, fallbackSel) {
   // 视图入口:回填 view 模式(空视图无意义 → 回退)
   if (focus.type === 'view') {
     const viewKey = String(focus.id || '').replace(/^view:/, '')
+    // 旧快照曾把 quality_review 误记成 view:quality:N，投影回质量审阅，避免弹回总纲。
+    const qualitySeq = String(focus.id || viewKey || '').match(/(?:^|:)quality:(\d+)$/)
+    if (qualitySeq) {
+      const n = Number(qualitySeq[1])
+      return {
+        mode: 'node',
+        node: {
+          id: `quality:${n}`,
+          type: 'quality_review',
+          ref: { seq: n },
+          meta: { seq: n },
+          label: focus.label || '质量审阅',
+        },
+      }
+    }
     return viewKey && viewKey !== 'empty' ? { mode: 'view', viewKey } : fallbackSel
   }
   // 一级入口-only(entryPatch):不得把异域旧条目(伏笔详情等)继续投影到栏3。

@@ -73,6 +73,7 @@ export function bootstrapSnapshot(work) {
 const FOCUS_TYPES = new Set([
   'entry', 'view', 'chapter', 'scene', 'character', 'fact', 'event',
   'promise', 'motif', 'material', 'review_issue', 'selection',
+  'quality_review', 'quality_contract',
 ])
 // 前端节点类型 → 后端焦点类型的别名(与 targetNavigation 的命名习惯对齐)
 const FOCUS_ALIAS = {
@@ -82,6 +83,7 @@ const FOCUS_ALIAS = {
   promise_view: 'promise',
   motif_view: 'motif',
   entry_capability: 'entry',
+  references: 'selection',
 }
 // 后端 PhaseName 枚举:垃圾 phase 不入意图(后端同样会拒)
 const PHASES = new Set(['outline', 'beats', 'design', 'deduce', 'draft', 'final'])
@@ -129,7 +131,10 @@ export function entryPatch(key, label = '') {
 // 语义动作"选中目录/详情条目"的完整 patch;entryKey 给出时同步收敛 entry+path
 export function nodePatch(node, entryKey) {
   const isChapterish = node?.type === 'chapter' || node?.type === 'scene'
-  const seq = isChapterish ? Number(node.ref) : NaN
+  const qualitySeq = node?.type === 'quality_review'
+    ? Number(node.ref?.seq ?? node.meta?.seq ?? node.chapter)
+    : NaN
+  const seq = isChapterish ? Number(node.ref) : qualitySeq
   const patch = {
     focus: focusForNode(node),
     detail_route: detailRouteForNode(node),

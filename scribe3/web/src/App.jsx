@@ -36,6 +36,7 @@ export default function App() {
   const [sel, setSel] = useState({ mode: 'node', node: null })
   const [synopsisHall, setSynopsisHall] = useState(false)
   const [hallTick, setHallTick] = useState(0)
+  const requestSynopsisHall = useCallback(() => setHallTick((n) => n + 1), [])
   useEffect(() => { setSynopsisHall(false) }, [cur?.slug])
 
   const forceLogin = useCallback(() => {
@@ -157,11 +158,11 @@ export default function App() {
     if (viewKey === 'synopsis' || viewKey === 'overview') {
       if (!cur) return
       if (shouldExitHubForSynopsis(sel)) setSel({ mode: 'node', node: null })
-      setHallTick((n) => n + 1)
+      requestSynopsisHall()
       return
     }
     onView(viewKey)
-  }, [sel, onView, exitAdmin, cur])
+  }, [sel, onView, exitAdmin, cur, requestSynopsisHall])
 
   // 编排 ui_directive 的 selection：主编/WriteChat 无 setSel 直连时经 s3-selection 落地栏3
   useEffect(() => {
@@ -294,7 +295,7 @@ export default function App() {
         onWorkflowContinue={handleWorkflowContinue}
         hallTick={hallTick}
         onSynopsisHallChange={setSynopsisHall}
-        onRequestSynopsisHall={() => setHallTick((n) => n + 1)}
+        onRequestSynopsisHall={requestSynopsisHall}
       />
     )
   }

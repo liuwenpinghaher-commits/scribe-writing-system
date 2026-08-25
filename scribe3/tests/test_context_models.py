@@ -143,6 +143,12 @@ def test_context_focus_rejects_invalid_type():
         ContextFocus(type="galaxy", id="x")
 
 
+def test_context_focus_accepts_quality_review():
+    focus = ContextFocus(type="quality_review", id="quality:3", label="质量审阅")
+    assert focus.type == "quality_review"
+    assert focus.id == "quality:3"
+
+
 def make_intent(**overrides) -> NavigationIntent:
     payload = dict(
         navigation_id="nav-1",

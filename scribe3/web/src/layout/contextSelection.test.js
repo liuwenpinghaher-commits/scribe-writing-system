@@ -50,6 +50,35 @@ describe('selectionFromSnapshot', () => {
     expect(sel.node.ref).toBe('M1')
   })
 
+  it('projects quality_review to the quality workbench, not a fake view', () => {
+    const sel = selectionFromSnapshot({
+      entry: 'references',
+      detail_route: 'quality:3',
+      chapter: 3,
+      focus: { type: 'quality_review', id: 'quality:3', label: '质量审阅' },
+    }, null)
+    expect(sel).toEqual({
+      mode: 'node',
+      node: {
+        id: 'quality:3',
+        type: 'quality_review',
+        ref: { seq: 3 },
+        meta: { seq: 3 },
+        label: '质量审阅',
+      },
+    })
+  })
+
+  it('remaps a mistaken view:quality:N snapshot back to quality_review', () => {
+    const sel = selectionFromSnapshot({
+      entry: 'references',
+      detail_route: 'quality:3',
+      focus: { type: 'view', id: 'quality:3', label: '质量审阅' },
+    }, { mode: 'node', node: null })
+    expect(sel.node).toMatchObject({ id: 'quality:3', type: 'quality_review', ref: { seq: 3 } })
+    expect(sel.mode).toBe('node')
+  })
+
   it('projects a review_issue carrying payload/target_node (→ ReviewIssueDetail)', () => {
     const sel = selectionFromSnapshot({ detail_route: 'issue:weak:5', focus: { type: 'review_issue', id: 'issue:weak:5', label: '第5章诊断' } }, null)
     expect(sel.mode).toBe('node')

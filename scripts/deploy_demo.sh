@@ -152,8 +152,11 @@ mode_frontend() {
     --exclude 'node_modules' \
     --exclude 'dist' \
     --exclude 'e2e' \
+    --exclude '._*' \
+    --exclude '.DS_Store' \
     "$ROOT/scribe3/web/" "$TMP/scribe3/web/"
-  tar -C "$TMP" -czf "$TMP/web-src.tgz" scribe3/web
+  find "$TMP/scribe3/web" -name '._*' -delete
+  COPYFILE_DISABLE=1 tar -C "$TMP" -czf "$TMP/web-src.tgz" scribe3/web
   "${SCP[@]}" "$TMP/web-src.tgz" "$REMOTE:/tmp/web-src.tgz"
   # nginx 配置一并同步
   "${SCP[@]}" "$ROOT/deploy/prod/nginx/default.conf" "$REMOTE:/tmp/scribe3-nginx-default.conf"

@@ -34,6 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 FocusType = Literal[
     "entry", "view", "chapter", "scene", "character", "fact", "event",
     "promise", "motif", "material", "review_issue", "selection",
+    "quality_review", "quality_contract",
 ]
 
 # 与前端四阶段 tab + 演绎阶段对齐(见 ChapterStudio 的 phase 命名)。

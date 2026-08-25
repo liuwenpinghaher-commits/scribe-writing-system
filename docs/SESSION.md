@@ -63,7 +63,12 @@
 
 ## 当前状态
 
-### 仪表盘审计修复（2026-08-24 · 现网点过）
+### 弱章跳转回弹（2026-08-24）
+
+现网点弱章先到技法标尺质量审阅，随后弹回总纲。根因：`quality_review` 不在上下文 `FocusType` 白名单，`focusForNode` 把它记成 `view`；快照一确认，投影就把栏3当横切视图，再叠门厅空选就回总纲。换书时 `hallTick` 若因回调换身份再 bump，也会冲门厅。
+**已改：** 后端/前端白名单加 `quality_review`；旧 `view:quality:N` 快照投影回质量审阅；换书门厅只 bump 一次。相关 vitest + `test_context_models` 绿。本轮提交后走 hot + frontend 热更。
+
+### 仪表盘审计修复（2026-08-24）
 
 **已改：** `InsightView.jsx` + `targetNavigation.js`。
 - 质量汇总失败不再卸掉整页：码字进度、伏笔台账仍在；横幅「质量汇总加载失败」；图表/弱章隐藏。

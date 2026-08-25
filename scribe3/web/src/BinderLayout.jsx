@@ -80,7 +80,13 @@ export function BinderLayout({ work, workTitle, sel, onSel, onJumpChapter, onWor
   }).catch(() => {}), [])
 
   useEffect(() => { initedRef.current = false; reload() }, [work])
-  useEffect(() => { onRequestSynopsisHall?.() }, [work])
+  // 只在换书时落地门厅。回调换身份不得再 bump hallTick，否则弱章/横切跳转会被冲回总纲。
+  const hallWorkRef = useRef(null)
+  useEffect(() => {
+    if (!work || hallWorkRef.current === work) return
+    hallWorkRef.current = work
+    onRequestSynopsisHall?.()
+  }, [work, onRequestSynopsisHall])
 
   useEffect(() => {
     const h = () => { reload() }

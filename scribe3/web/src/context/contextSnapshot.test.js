@@ -138,8 +138,24 @@ describe('focus/route 投影辅助', () => {
     expect(focusForNode({ id: 'proposition:p1', type: 'proposition', ref: 'p1' }).type).toBe('fact')
     expect(focusForNode({ id: 'character:甲', type: 'character', ref: '甲' }).type).toBe('character')
     expect(focusForNode({ id: 'cat:character', type: 'codex_category', ref: 'character' }).type).toBe('view')
+    expect(focusForNode({ id: 'quality:3', type: 'quality_review', ref: { seq: 3 }, label: '质量审阅' })).toEqual({
+      type: 'quality_review', id: 'quality:3', label: '质量审阅',
+    })
     expect(focusForNode({ id: 'material:1', type: 'material', ref: 1 }).type).toBe('material')
     expect(focusForNode(null)).toEqual({ type: 'view', id: 'view:empty', label: '' })
+  })
+
+  it('弱章质量审阅 patch:焦点是 quality_review，不是 view', () => {
+    const node = { id: 'quality:3', type: 'quality_review', ref: { seq: 3 }, meta: { seq: 3 }, label: '质量审阅' }
+    expect(nodePatch(node, 'references')).toEqual({
+      entry: 'references',
+      directory_path: ['references', 'quality:3'],
+      focus: { type: 'quality_review', id: 'quality:3', label: '质量审阅' },
+      detail_route: 'quality:3',
+      chapter: 3,
+      phase: null,
+      reason: 'item',
+    })
   })
 
   it('detail_route:章走 chapter:seq,其余用节点 id', () => {

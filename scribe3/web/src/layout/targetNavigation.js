@@ -97,10 +97,25 @@ export function targetNodeToSelection(raw) {
   const id = String(target.id || '')
   const type = target.type || ''
 
-  if (type === 'weak_chapter') {
-    const seq = target.chapter ?? target.ref?.seq ?? target.target_node?.ref
+  if (type === 'weak_chapter' || type === 'quality_review' || id.startsWith('quality:')) {
+    const seq = target.chapter ?? target.ref?.seq ?? target.meta?.seq ?? target.target_node?.ref
+      ?? (id.startsWith('quality:') ? id.slice('quality:'.length) : null)
     const n = Number(seq)
-    if (!Number.isFinite(n) || n < 1) return null
+    if (!Number.isFinite(n) || n < 1) {
+      if (type === 'quality_review') {
+        return {
+          entry: 'references',
+          node: {
+            id: id || 'quality_review',
+            type: 'quality_review',
+            ref: target.ref ?? null,
+            meta: target.meta,
+            label: target.label || target.title || '质量审阅',
+          },
+        }
+      }
+      return null
+    }
     return {
       entry: 'references',
       node: {
@@ -108,7 +123,29 @@ export function targetNodeToSelection(raw) {
         type: 'quality_review',
         ref: { seq: n },
         meta: { seq: n },
-        label: '质量审阅',
+        label: target.label || target.title || '质量审阅',
+      },
+    }
+  }
+  if (type === 'quality_contract' || id === 'quality_contract') {
+    return {
+      entry: 'references',
+      node: {
+        id: id || 'quality_contract',
+        type: 'quality_contract',
+        ref: target.ref ?? null,
+        label: target.label || '质量合同',
+      },
+    }
+  }
+  if (type === 'references' || id === 'references') {
+    return {
+      entry: 'references',
+      node: {
+        id: 'references',
+        type: 'references',
+        ref: null,
+        label: target.label || '参考作品',
       },
     }
   }
