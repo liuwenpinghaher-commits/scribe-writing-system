@@ -98,7 +98,7 @@ _ALTAR_STAY_WORLD = re.compile(r"井|灯|墓")
 # 章法酒宴：酒还不散；面子按桌；有人闯进来；嘴上贺、账还欠。不要铜炉原词「那一桌」。
 _FEAST_UNENDED = re.compile(r"还不散|还没散|散不掉|喜酒|还在喝")
 _FEAST_FACE = re.compile(r"面子|桌上|敬酒|端杯|按在桌|酒盅|酒桌|桌旁|按住")
-_FEAST_IN = re.compile(r"进来|坐进|闯|掀帘|掀棉|推门")
+_FEAST_IN = re.compile(r"进来|坐进|闯|掀帘|掀棉|推门|带进|进了|进供")
 _FEAST_CONGRATS = re.compile(r"贺|敬|道喜|喝完|来贺")
 _FEAST_UNPAID = re.compile(r"欠|灯|账|回不去|当不成|坐不住")
 _SHAME_SWAP = re.compile(r"换气换丢人|换气|换丢人|丢人换人|换个人丢人")
