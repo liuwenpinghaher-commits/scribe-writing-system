@@ -306,6 +306,64 @@ async def s3_add_fact(ctx: Context, oid: str, entity: str, attribute: str, value
 
 
 @mcp.tool(annotations=_RW)
+async def s3_promote_material(ctx: Context, material_id: str,
+                              target: str = "fact",
+                              entity: str | None = None,
+                              attribute: str | None = None,
+                              value: str | None = None,
+                              valid_from: int = 1,
+                              secret: bool = False,
+                              fact_id: str | None = None,
+                              work: str | None = None) -> dict:
+    """把素材中的一条内容转为正典事实(写,待批)。
+
+    素材本身不改。血缘写在 fact.source=material:<id>。
+    target 目前只支持 fact。
+    """
+    mid = (material_id or "").strip()
+    if not mid:
+        return {"status": "error", "tool": "s3_promote_material",
+                "error": "material_id required"}
+    tgt = (target or "fact").strip().lower()
+    if tgt != "fact":
+        return {"status": "error", "tool": "s3_promote_material",
+                "error": f"unsupported target {tgt!r}; only fact"}
+    st = _store_for(work)
+    row = st.get_material(mid)
+    if not row:
+        return {"status": "error", "tool": "s3_promote_material",
+                "error": f"material '{mid}' 不存在"}
+    ent = (entity or "").strip()
+    attr = (attribute or "state").strip() or "state"
+    val = (value or "").strip() or (row.get("summary") or row.get("title") or "").strip()
+    if not ent or not val:
+        return {"status": "error", "tool": "s3_promote_material",
+                "error": "entity and value required"}
+    import uuid
+    oid = (fact_id or "").strip() or f"fact:{uuid.uuid4().hex[:8]}"
+    if not oid.startswith("fact:"):
+        oid = f"fact:{oid}"
+    ok = await _ask(ctx, f"素材 {mid} 转正典 {oid}:{ent}·{attr}={val}")
+
+    def _write():
+        cur = st.get_material(mid)
+        if not cur:
+            return {"error": f"material '{mid}' 不存在"}
+        st.add_fact(
+            Fact(oid, ent, attr, val, int(valid_from), secret=bool(secret),
+                 source=f"material:{mid}"),
+            supersede_open=True,
+        )
+        try:
+            st.semantic_index(oid, val)
+        except Exception:
+            pass
+        return {"fact_id": oid, "source_material_id": mid, "target": "fact"}
+
+    return commit_if_approved("s3_promote_material", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
 async def s3_add_event(ctx: Context, oid: str, etype: str, valid_from: int,
                        motivated_by_goal: str | None = None,
                        participants: list[dict] | None = None,
@@ -2029,15 +2087,19 @@ async def s3_delete_codex(ctx: Context, object_type: str, object_id: str,
                           work: str | None = None) -> dict:
     """归档或删除设定对象(写,待批)。
 
-    object_type: role|fact|material|faction|item|term|world_rule|promise|motif
+    object_type: role|fact|faction|item|term|world_rule|promise|motif
     object_id: 裸 id 或 name(势力/物件/术语/规则用 name)。
-    archive=True 优先软归档(role/fact/material);无 archive 能力的类型走硬删。
+    archive=True 优先软归档(role/fact);无 archive 能力的类型走硬删。
+    素材是作者直管非正典记忆，禁止经本工具归档或删除。
     """
     ot = (object_type or "").strip()
     oid = (object_id or "").strip()
     if not ot or not oid:
         return {"status": "error", "tool": "s3_delete_codex",
                 "error": "object_type and object_id required"}
+    if ot == "material":
+        return {"status": "error", "tool": "s3_delete_codex",
+                "error": "素材由作者直管，禁止主编经 s3_delete_codex 归档或删除 material"}
     mode = "归档" if archive else "删除"
     ok = await _ask(ctx, f"{mode}设定 {ot}:{oid}")
 
@@ -2046,7 +2108,7 @@ async def s3_delete_codex(ctx: Context, object_type: str, object_id: str,
         impact = None
         try:
             from scribe3.api.services.lifecycle import _object_impact
-            kind = {"role": "character", "fact": "fact", "material": "material",
+            kind = {"role": "character", "fact": "fact",
                     "faction": "faction", "item": "item", "term": "term",
                     "world_rule": "world_rule"}.get(ot)
             if kind:
@@ -2054,13 +2116,7 @@ async def s3_delete_codex(ctx: Context, object_type: str, object_id: str,
         except Exception:
             impact = None
         if ot == "material":
-            if archive:
-                if not st.update_material(oid, {"archived": True}):
-                    return False
-                return {"object_type": ot, "object_id": oid, "action": "archive"}
-            if not st.delete_material(oid, cleanup_refs=True):
-                return False
-            return {"object_type": ot, "object_id": oid, "action": "delete", "impact": impact}
+            return {"error": "素材由作者直管，禁止主编经 s3_delete_codex 归档或删除 material"}
         if ot in ("role", "fact"):
             full = oid if ":" in oid else f"{ot}:{oid}"
             if ot == "role" and not full.startswith("role:"):

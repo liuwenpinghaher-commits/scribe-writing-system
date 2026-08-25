@@ -1,6 +1,7 @@
 """P0 author paths under emergency REST off: MCP world writes + author-owned materials."""
 from __future__ import annotations
 
+import asyncio
 import inspect
 
 import pytest
@@ -95,6 +96,22 @@ def test_material_write_tools_are_not_available_to_chief():
     for name in ("s3_add_material", "s3_patch_material", "s3_delete_material"):
         assert name not in M.WRITE_GATED
         assert not hasattr(M, name)
+
+
+class _RefuseMaterialCtx:
+    async def elicit(self, message, schema):
+        raise AssertionError("素材生命周期不得进入审批")
+
+
+def test_s3_delete_codex_rejects_material_before_approval():
+    """素材由作者直管；s3_delete_codex 不得归档或硬删 material。"""
+    for archive in (True, False):
+        out = asyncio.run(M.s3_delete_codex(
+            _RefuseMaterialCtx(), "material", "mat-owned-by-author",
+            archive=archive, work="main"))
+        assert out.get("status") == "error", out
+        assert out.get("tool") == "s3_delete_codex"
+        assert "作者" in (out.get("error") or "") or "material" in (out.get("error") or "")
 
 
 def test_register_purpose_goes_through_commit(store, emergency_off):

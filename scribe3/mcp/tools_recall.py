@@ -8,8 +8,6 @@ from __future__ import annotations
 from scribe3.mcp._common import *  # noqa: F403
 from scribe3.mcp.gating import *  # noqa: F403
 
-@mcp.tool(annotations=_RO)
-
 def _semantic_recall_impl(query: str, k: int, reveal_secret: bool,
                           work: str | None, chapter: int | None = None) -> list[dict]:
     """chapter 非空时走 store 时间门(valid_from/valid_to),与 hybrid 一致。"""
@@ -21,6 +19,7 @@ def _semantic_recall_impl(query: str, k: int, reveal_secret: bool,
             for f in _store_for(work).semantic_recall(query, k, chapter=chapter)]
 
 
+@mcp.tool(annotations=_RO)
 def s3_semantic_recall(query: str, k: int = 5, chapter: int | None = None,
                        work: str | None = None) -> list[dict]:
     """语义召回最相关的设定/命题(向量 RAG,非字面匹配;头部工具仍多用字面,这是差异化)。
@@ -54,6 +53,7 @@ def _hybrid_recall_impl(query: str, chapter: int, k: int, reveal_secret: bool,
             for f in _store_for(work).hybrid_recall(query, chapter, k)]
 
 
+@mcp.tool(annotations=_RO)
 def s3_hybrid_recall(query: str, chapter: int, k: int = 5,
                      work: str | None = None) -> list[dict]:
     """混合召回:向量语义 + 中文关键词 → RRF 融合排名。
@@ -79,6 +79,7 @@ def s3_hybrid_recall_reveal(query: str, chapter: int, k: int = 5,
     return _hybrid_recall_impl(query, chapter, k, True, work)
 
 
+@mcp.tool(annotations=_RO)
 def s3_chapter_recall(query: str, k: int = 5, work: str | None = None) -> list[dict]:
     """章节语义召回:按标题+正文匹配语义最接近的章(向量 RAG)。
     用来查'与哪章描写接近'、'某主题首次出现在哪章'等。"""
@@ -96,6 +97,7 @@ def _graph_recall_impl(query: str, chapter: int, k: int, reveal_secret: bool,
     return results
 
 
+@mcp.tool(annotations=_RO)
 def s3_graph_recall(query: str, chapter: int, k: int = 5,
                     work: str | None = None) -> list[dict]:
     """Graph RAG 召回:语义相关命题 + 其知识子图(谁知道/来源事件/同场角色)。
@@ -121,6 +123,7 @@ def s3_graph_recall_reveal(query: str, chapter: int, k: int = 5,
     return _graph_recall_impl(query, chapter, k, True, work)
 
 
+@mcp.tool(annotations=_RO)
 def s3_material_recall(query: str, chapter: int = 9999, k: int = 5,
                        work: str | None = None) -> list[dict]:
     """素材记忆召回:三通道(语义+关键词+图)唤起与 query 相关的参考素材(借鉴非事实)。

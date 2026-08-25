@@ -108,6 +108,10 @@ def test_material_graph_focus_hop(store):
 def test_import_commit_origin_and_near_dup_warning(store, monkeypatch):
     existing = store.add_material("重复标题素材", "已有正文", "note", summary="旧")
     monkeypatch.setattr(store, "build_material_edges", lambda *_a, **_k: None)
+    store.save_import_job("job-near", {
+        "stage": "待预览确认", "done": True, "total": 2, "items": [],
+        "error": "", "work": store.db_name, "source": "t",
+    })
     c = _client(store)
     r = c.post("/materials/import/job-near/commit", json={"items": [
         {"title": "重复标题素材", "body": "新正文", "kind": "note",
@@ -155,7 +159,11 @@ def test_session_clip_origin_and_emergency_off(store, monkeypatch):
     row = store.get_material(clip.json()["id"])
     assert row["origin"] == "session_clip"
 
-    # import commit 放行
+    # import commit 放行（须先有预览 job）
+    store.save_import_job("job-emg", {
+        "stage": "待预览确认", "done": True, "total": 1, "items": [],
+        "error": "", "work": store.db_name, "source": "t",
+    })
     imp = c.post("/materials/import/job-emg/commit", json={
         "items": [{"title": "导入放行", "body": "x", "kind": "note", "summary": "s"}],
     })

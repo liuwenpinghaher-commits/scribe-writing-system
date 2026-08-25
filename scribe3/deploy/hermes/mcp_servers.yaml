@@ -130,6 +130,7 @@ scribe3_write:
       - s3_patch_world_rule
       - s3_patch_promise
       - s3_delete_codex
+      - s3_promote_material
     prompts: false
     resources: false
 scribe3_deduce_read:

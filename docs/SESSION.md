@@ -71,6 +71,12 @@
 
 ## 当前状态
 
+### 素材库 P0+P1（2026-08-25）
+
+作者直管仍走 `/materials`。主编不能经 `s3_delete_codex` 改素材。导入 URL 每跳再检私网。commit 必须对应未过期 preview job。写路径自动注入不再记「作者已用」。章内引用失败要响，草稿页也能看账。转正典走待批 `s3_promote_material`（`fact.source=material:<id>`），不改素材行。
+**测：** 后端焦点 26 passed；前端 workbench+sessionClip 25 passed。
+**热更预期：** hot + frontend。强制刷新后再验素材库/导入/章内引用。
+
 ### 主编可读面（2026-08-25）
 
 输入框上方状态条写现在谈什么、只讨论/会改库、种子来自哪页；空会话不再假绿。审批和分流不改。

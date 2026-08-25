@@ -1,6 +1,17 @@
 from .test_app import _client
 
 
+def test_material_import_commit_requires_preview_job(store):
+    """跳过预览的假 job_id 不得落库。"""
+    c = _client(store)
+    r = c.post("/materials/import/no-such-job/commit", json={"items": [
+        {"title": "偷渡素材", "body": "不该入库", "kind": "note"},
+    ]})
+    assert r.status_code == 404, r.text
+    assert store.list_materials() == [] or all(
+        m.get("title") != "偷渡素材" for m in store.list_materials())
+
+
 def test_material_import_commit_reports_failed_items(store, monkeypatch):
     original_add = store.add_material
 
@@ -11,6 +22,10 @@ def test_material_import_commit_reports_failed_items(store, monkeypatch):
 
     monkeypatch.setattr(store, "add_material", fake_add)
     monkeypatch.setattr(store, "build_material_edges", lambda *_args, **_kwargs: None)
+    store.save_import_job("job-1", {
+        "stage": "待预览确认", "done": True, "total": 3, "items": [],
+        "error": "", "work": store.db_name, "source": "t",
+    })
     c = _client(store)
 
     r = c.post("/materials/import/job-1/commit", json={"items": [

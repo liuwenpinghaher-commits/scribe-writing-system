@@ -31,6 +31,8 @@ def _is_private_host(host: str) -> bool:
         return True
     if h.endswith(".local") or h.endswith(".internal"):
         return True
+    if h == "::1" or h.startswith("[::1]"):
+        return True
     # 裸 IP 粗判
     if re.match(r"^\d+\.\d+\.\d+\.\d+$", h):
         parts = [int(x) for x in h.split(".")]
@@ -46,27 +48,48 @@ def _is_private_host(host: str) -> bool:
     return False
 
 
-def parse_url_to_markdown(url: str, fetcher=None, converter=None) -> str:
-    """抓取 URL 正文并经 markitdown 转 markdown(避免 raw HTML 直接入切分)。
-
-    fetcher(url)->bytes|str 可注入;默认 httpx。内网 host 拒绝。
-    """
+def _assert_public_http_url(url: str) -> None:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise ValueError(f"不支持的 URL scheme: {parsed.scheme!r}")
     if _is_private_host(parsed.hostname or ""):
         raise ValueError("拒绝访问内网/本地地址")
+
+
+def _default_public_fetcher(url: str, *, max_hops: int = 5):
+    """httpx 抓取:不自动跟随跳转,每跳再检私网。"""
+    import httpx
+    from urllib.parse import urljoin
+
+    current = url
+    for _ in range(max_hops):
+        _assert_public_http_url(current)
+        r = httpx.get(current, timeout=30, follow_redirects=False)
+        if 300 <= r.status_code < 400:
+            loc = (r.headers.get("location") or "").strip()
+            if not loc:
+                r.raise_for_status()
+                return r.content
+            current = urljoin(current, loc)
+            continue
+        r.raise_for_status()
+        return r.content
+    raise ValueError("拒绝访问内网/本地地址")
+
+
+def parse_url_to_markdown(url: str, fetcher=None, converter=None) -> str:
+    """抓取 URL 正文并经 markitdown 转 markdown(避免 raw HTML 直接入切分)。
+
+    fetcher(url)->bytes|str 可注入;默认 httpx。内网 host 与跳转后的内网一律拒绝。
+    """
+    _assert_public_http_url(url)
     if fetcher is None:
-        import httpx
-        def fetcher(u):
-            r = httpx.get(u, timeout=30, follow_redirects=True)
-            r.raise_for_status()
-            return r.content
+        fetcher = _default_public_fetcher
     raw = fetcher(url)
     if isinstance(raw, str):
         raw = raw.encode("utf-8", errors="replace")
     # 根据 path 猜后缀;默认 .html 让 markitdown 走 HTML 路径
-    path = parsed.path or ""
+    path = urlparse(url).path or ""
     suffix = os.path.splitext(path)[1] or ".html"
     if suffix.lower() not in (".html", ".htm", ".md", ".markdown", ".txt", ".pdf", ".docx"):
         suffix = ".html"

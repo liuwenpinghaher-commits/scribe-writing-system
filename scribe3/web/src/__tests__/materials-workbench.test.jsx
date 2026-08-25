@@ -324,4 +324,11 @@ describe('MaterialList 素材库工作台', () => {
     fireEvent.click(screen.getByRole('button', { name: /借命仪式资料/ }))
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ type: 'material', ref: 1 }))
   })
+
+  it('章级账本加载失败时显示错误，不装成没有参考', async () => {
+    apiMock.materialRefsByChapter.mockRejectedValue(new Error('refs down'))
+    render(<ChapterMaterialRefs seq={4} />)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/参考素材加载失败|refs down/)
+    expect(screen.queryByText('本章参考素材')).toBeNull()
+  })
 })

@@ -15,7 +15,7 @@
 ### 写入通道
 
 - 主编经 MCP / Hermes Run 使用正典写工具；**一律** `commit_if_approved`（或等价审批）。
-- 主编对素材仅保留只读搜索、召回和引用；不提供素材 CRUD 工具。素材要转为设定/事实时，必须另走对应正典写工具和审批。
+- 主编对素材仅保留只读搜索、召回和引用；不提供素材 CRUD 工具。`s3_delete_codex` 不得归档/删除 material。素材要转为事实时走 `s3_promote_material`（待批，不改素材行）。
 - 支持**批量 WriteProposal**（一次批准多条 op）。
 - 单一落库点：`_execute_write` / store 写门控不变。
 

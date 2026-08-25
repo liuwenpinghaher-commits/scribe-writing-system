@@ -908,17 +908,7 @@ def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", ll
         else:
             ranked = rerank_materials(cands, query, llm, k=3)
         block = render_material_block(ranked, budget_chars=800)
-        if block:
-            for c in ranked:   # 溯源反哺(recall_count++/last_recalled_at)
-                try:
-                    st.add_material_reference(
-                        c["material_id"], chapter,
-                        dimension=(c.get("ref_tags") or [None])[0],
-                        reason=c.get("reason"), via=f"phase:{phase}")
-                except Exception as _sf_e:
-                    from scribe3.soft_fail import soft_fail
-                    import logging as _sf_logging
-                    soft_fail('write_assemble_context_soft_2', _sf_e, logger='scribe3.write_assemble', level=_sf_logging.DEBUG)
+        # 进 prompt ≠ 作者已用。章级账本只认作者填入 / 手动 @。
         return "\n\n" + block if block else ""
     except Exception:
         logging.getLogger("scribe3").debug("素材召回块失败(不阻断写作)", exc_info=True)

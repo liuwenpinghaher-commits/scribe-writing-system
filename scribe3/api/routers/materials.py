@@ -148,6 +148,13 @@ def material_import_preview_ep(job_id: str, work: str = "main"):
 def material_import_commit_ep(job_id: str, req: ImportCommitReq, work: str = "main"):
     """作者确认(可编辑后)→ 批量落库 + 建联想边 + 近重警告。origin=import。"""
     from scribe3.material_import import near_dup_warning_payload
+    job = _import_job_get(job_id, work)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"导入任务 '{job_id}' 不存在或已清理")
+    if job.get("error"):
+        raise HTTPException(status_code=409, detail=f"导入任务 '{job_id}' 已失败,不能确认")
+    if not job.get("done"):
+        raise HTTPException(status_code=409, detail=f"导入任务 '{job_id}' 尚未完成预览")
     st = _store_for(work)
     ids = []
     failed = []

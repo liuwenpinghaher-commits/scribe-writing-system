@@ -44,7 +44,8 @@ EXPECTED_WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_r
                           # P0:结构运维 + 母题(emergency REST 关时作者主路径)
                           "s3_reorder_chapters", "s3_delete_volume",
                           "s3_add_motif", "s3_patch_motif", "s3_patch_promise",
-                          "s3_delete_codex", "s3_generate_codex"}
+                          "s3_delete_codex", "s3_generate_codex",
+                          "s3_promote_material"}
 EXPECTED_WRITE_UNGATED = {"s3_save_chapter"}   # manuscript 草稿,非世界状态,不待批
 EXPECTED_WRITE_UNGATED_WORLD = {"s3_ingest_chapter"}  # 世界知识态客观回写(读定稿抽),不待批
 EXPECTED_READ = {"s3_project_frame", "s3_find_leaks", "s3_causal_complete",

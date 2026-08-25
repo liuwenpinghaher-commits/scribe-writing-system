@@ -6,14 +6,14 @@ import scribe3.app as appmod
 
 
 def test_material_recall_block_injects_and_provenance(store, monkeypatch):
-    """有相关素材 → 注入参考段(带 reason),并写溯源(reason/via)。"""
+    """有相关素材 → 注入参考段(带 reason);进 prompt 不等于作者已用。"""
     mid = store.add_material("密室白描", "冷硬的密室描写，寒气逼人", "snippet", ref_tags=["手法"])
     monkeypatch.setattr(store, "get_chapter", lambda seq: {"synopsis": "沈砚在密室审讯囚犯", "beats": []})
     fake_llm = lambda p, **k: f'[{{"id":"{mid}","reason":"冷硬白描适合刑讯"}}]'
     block = appmod._material_recall_block(store, chapter=1, phase="draft", llm=fake_llm)
     assert "参考记忆" in block and "冷硬白描适合刑讯" in block
-    refs = store.material_refs_by_chapter(1)
-    assert len(refs) >= 1 and refs[0]["material_id"] == mid
+    assert store.material_refs_by_chapter(1) == []
+    assert (store.get_material(mid).get("recall_count") or 0) == 0
 
 
 def test_material_recall_uses_current_author_request_when_chapter_brief_is_empty(store, monkeypatch):
@@ -30,8 +30,8 @@ def test_material_recall_uses_current_author_request_when_chapter_brief_is_empty
     )
 
     assert "码头救援的潮汐节奏" in block
-    refs = store.material_refs_by_chapter(1)
-    assert any(ref["material_id"] == mid for ref in refs)
+    assert not any(ref["material_id"] == mid for ref in store.material_refs_by_chapter(1))
+    assert (store.get_material(mid).get("recall_count") or 0) == 0
 
 
 def test_material_block_empty_gated(store, monkeypatch):

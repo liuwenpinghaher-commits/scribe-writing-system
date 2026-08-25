@@ -1,5 +1,7 @@
 """Phase4 导入流水线:切分打标摘要 + fail-soft(不需 DB/网关,纯逻辑 + mock LLM)。"""
-from scribe3.material_import import split_and_tag
+import pytest
+
+from scribe3.material_import import parse_url_to_markdown, split_and_tag
 
 
 def test_split_and_tag():
@@ -35,6 +37,38 @@ def test_split_llm_failure_degrades_to_single():
 def test_split_empty():
     """空输入 → 空列表。"""
     assert split_and_tag("", lambda p, **k: "[]") == []
+
+
+def test_parse_url_rejects_redirect_to_private_host(monkeypatch):
+    """公网 302 到链路本地/内网不得跟随抓取。"""
+    calls: list[str] = []
+
+    class _Resp:
+        def __init__(self, url, status=200, headers=None, content=b"ok"):
+            self.url = url
+            self.status_code = status
+            self.headers = headers or {}
+            self.content = content
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"http {self.status_code}")
+
+    def fake_get(url, timeout=30, follow_redirects=True, **_k):
+        calls.append(url)
+        if "example.com" in url:
+            if follow_redirects:
+                calls.append("http://169.254.169.254/latest/meta-data")
+                return _Resp("http://169.254.169.254/latest/meta-data", content=b"SECRET")
+            return _Resp(url, status=302, headers={
+                "location": "http://169.254.169.254/latest/meta-data",
+            })
+        return _Resp(url, content=b"SECRET")
+
+    monkeypatch.setattr("httpx.get", fake_get)
+    with pytest.raises(ValueError, match="内网|本地"):
+        parse_url_to_markdown("https://example.com/notes.md")
+    assert not any("169.254" in u for u in calls)
 
 
 def test_import_endpoint_flow(store, monkeypatch):

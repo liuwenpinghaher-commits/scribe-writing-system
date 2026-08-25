@@ -38,6 +38,7 @@ DEFAULT_WRITE_GATED: frozenset[str] = frozenset({
     "s3_reorder_chapters", "s3_delete_volume",
     "s3_add_motif", "s3_patch_motif", "s3_patch_promise",
     "s3_delete_codex",
+    "s3_promote_material",
 })
 
 # tools_write 调用帧里不该进指纹的名字

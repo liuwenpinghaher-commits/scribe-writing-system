@@ -114,6 +114,7 @@ describe('citeSelection / discuss / cite material', () => {
     })
     expect(p.focus.id).toBe('mat-9')
     expect(p.seedText).toMatch(/mat-9|霜白城墙/)
+    expect(p.seedText).toMatch(/s3_promote_material/)
   })
 
   it('citeMaterial attaches stable material ref', () => {

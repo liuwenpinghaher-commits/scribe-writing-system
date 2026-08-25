@@ -139,7 +139,7 @@ export function discussMaterialPayload(material = {}) {
   }
   const talk = focusTalk(focus)
   const prefix = talk?.prefix || `【当前聚焦:素材「${title}」(id=${id})】\n`
-  const seedText = `${prefix}素材 id=${id}。请围绕这条素材讨论：如何用进当前故事？哪些点可转正典？`
+  const seedText = `${prefix}素材 id=${id}。请围绕这条素材讨论：如何用进当前故事？转正典必须 s3_promote_material(material_id=${id})，禁止改素材本身。`
   return { focus, prefix, seedText }
 }
 

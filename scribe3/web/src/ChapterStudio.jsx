@@ -228,15 +228,31 @@ function StageTitle({ title, subtitle, actions }) {
 
 export function ChapterMaterialRefs({ seq, onSelectMaterial }) {
   const [refs, setRefs] = useState(null)
+  const [err, setErr] = useState('')
   useEffect(() => {
-    if (seq == null) { setRefs([]); return }
+    if (seq == null) { setRefs([]); setErr(''); return }
     let alive = true
-    api.materialRefsByChapter(seq).then((r) => { if (alive) setRefs(Array.isArray(r) ? r : []) }).catch(() => { if (alive) setRefs([]) })
+    setErr('')
+    api.materialRefsByChapter(seq)
+      .then((r) => { if (alive) setRefs(Array.isArray(r) ? r : []) })
+      .catch((e) => {
+        if (!alive) return
+        setRefs(null)
+        setErr(e?.body?.detail || e?.message || '参考素材加载失败')
+      })
     return () => { alive = false }
   }, [seq])
+  if (err) {
+    return (
+      <div role="alert" data-testid="chapter-material-refs-error"
+        className="shrink-0 border-b border-danger/40 bg-danger/5 px-4 py-2 text-f12 text-danger">
+        参考素材加载失败：{err}
+      </div>
+    )
+  }
   if (!refs || refs.length === 0) return null
   return (
-    <div className="shrink-0 border-b border-line bg-surface px-4 py-2">
+    <div className="shrink-0 border-b border-line bg-surface px-4 py-2" data-testid="chapter-material-refs">
       <div className="mb-1 text-meta font-semibold text-faint">本章参考素材</div>
       <div className="flex flex-wrap gap-1.5">
         {refs.map((r, i) => {
@@ -1346,6 +1362,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
           ) : phase === 'draft' ? (
             <div className="h-full min-h-0 flex flex-col">
             <ScenePaper chapter={meta} seq={seq} />
+            <ChapterMaterialRefs seq={seq} onSelectMaterial={onSelectNode} />
             <div className="flex-1 min-h-0">
             <DraftTab seq={seq} work={work} meta={meta} onGoDeduce={() => setPhaseP('deduce')} onAdopt={async (text) => {
               // 采用为正文=把草稿真搬进 chapter.prose(彻查 B-4:旧实现丢弃 text 只切 tab → 正文空/旧)。
