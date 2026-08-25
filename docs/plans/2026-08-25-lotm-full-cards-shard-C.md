@@ -22,7 +22,8 @@
 | status | **BLOCKED** |
 | last_card | （尚未） |
 | blocked_at | 2026-08-25T15:02Z |
-| blocked_reason | 缺原文 `docs/worlds/诡秘之主-全文.md`；同时缺规则真源 `docs/plans/2026-08-25-lotm-full-cards-loop.md`、`docs/worlds/诡秘之主-拆文/PROMPTS.md`、密度样板 `章卡/89.md`、索引与章卡目录内容。云端工作区仅有 `docs/worlds/乱世铜炉-拆文/`，无诡秘之主资产。按一夜 goal：缺全文则 BLOCKED，不编造章卡。 |
+| last_recheck | 2026-08-25T15:05Z |
+| blocked_reason | 缺原文 `docs/worlds/诡秘之主-全文.md`；同时缺规则真源 `docs/plans/2026-08-25-lotm-full-cards-loop.md`、`docs/worlds/诡秘之主-拆文/PROMPTS.md`、密度样板 `章卡/89.md`、索引与章卡目录内容。云端工作区仅有 `docs/worlds/乱世铜炉-拆文/`，无诡秘之主资产。对照号段 B 同为 BLOCKED（PR #10）；Drive/Gmail/remote 均无全文。按一夜 goal：缺全文则 BLOCKED，不编造章卡、不外网扒书。 |
 
 ## 一夜 goal（本会话）
 
