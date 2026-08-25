@@ -28,7 +28,7 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.22"
+    assert PLAYBOOK_VERSION == "playbook.3.2.23"
     d = duty_generate({"seq": 1})
     assert "【对照·真源】" in d
     assert "【成色·验戏不验词表】" not in d
@@ -1031,6 +1031,51 @@ def test_duty_altar_blocks_hero_and_empty_fee():
         prev_stay=stay, prev_heat=heat, prev_kind="赶路", prev_intruder="摔桶的媳妇",
     )["ok"] is True
     assert check_opener_announce("祠堂前还在开坛做法。沈槐把油罐按在心口。")["ok"] is True
+
+
+def test_duty_feast_blocks_announce_without_table():
+    """酒宴必须酒还不散、面子按在桌上、不该看见的那一桌、读完当不成贺客。"""
+    from scribe3.playbook.context import make_duty
+    from scribe3.playbook.structural import check_duty_struct
+
+    hook = "灯还在横担上。"
+    stay = "灯还欠着，井还在"
+    heat = "村人鼓掌当社戏，信了"
+    empty = make_duty(
+        seq=7, who=["沈槐"], available_cast=["沈槐"],
+        day="井台上还在排队打水", said="把队占住", needed="灯还欠着",
+        heat="桌上人还在灌酒",
+        stay="灯还欠着，井还在",
+        owed="柜上账还在杏花秤上，灯还欠着",
+        must_happen="沈槐坐下喝酒",
+        kind="酒宴", intruder="贺客",
+        bill="面子", bill_holder="杏花", bill_place="柜上",
+    )
+    empty["bite_from_prev"] = hook
+    hit = check_duty_struct(
+        empty, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="开坛", prev_intruder="杏花",
+    )
+    assert hit["ok"] is False
+    assert hit["code"] == "duty_feast_day"
+
+    ok = make_duty(
+        seq=7, who=["沈槐"], available_cast=["沈槐"],
+        day="供销社柜后喜酒还没散，面子把人按在桌上",
+        said="再敬一杯",
+        needed="柜上油账还按着他，灯还欠着",
+        heat="不该看见的那一桌坐进来，堂屋像空了",
+        stay="沈槐当不成贺客，这场酒还坐不住；灯还欠着",
+        owed="柜上账还在杏花秤上，灯还欠着",
+        must_happen="沈槐被面子按在桌上敬酒，看见另一桌",
+        kind="酒宴", intruder="不该看见的那一桌",
+        bill="面子把他按在桌上", bill_holder="杏花", bill_place="柜上",
+    )
+    ok["bite_from_prev"] = hook
+    assert check_duty_struct(
+        ok, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="开坛", prev_intruder="杏花",
+    )["ok"] is True
 
 
 def test_draft_len_does_not_kill_lived_scene():

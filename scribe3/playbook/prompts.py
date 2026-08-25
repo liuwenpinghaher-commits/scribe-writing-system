@@ -1,4 +1,4 @@
-"""playbook.3.2.22 identity + generate/judge prompts. 改法官问卷或门槛才升版本。"""
+"""playbook.3.2.23 identity + generate/judge prompts. 改法官问卷或门槛才升版本。"""
 from __future__ import annotations
 
 import json
@@ -202,6 +202,7 @@ def duty_generate(ctx: dict) -> str:
    kind 必填：酒宴 / 赶路 / 开坛 / 坐牢 / 同场。只换节号 = 废卡。连写同一种必须换谁闯进来（intruder）。
    同场连写超两场 = 废卡。必须换五套局里另一套，人从这儿走到那儿。
    kind=开坛：必须看见交差钱把人按住；热闹当社戏信了；井/灯/墓还在。高人下山伏魔 = 废卡。开坛做法是日子，不是宣布法会。
+   kind=酒宴：必须先立还散不掉的酒；面子把人按在桌上；不该看见的那一桌坐进来；读完有人当不成贺客。先宣布法会再补喜事 = 废卡。
    bill_holder / bill_place 必填。换气换丢人 = 废卡。声称转走却人地都没换 = 废卡。
 9. must_happen——本章必须办的一件事。必须从 day 里长出来，用办事说。
    检验：能不能用一个动作说清（谁在什么物件上做什么）？
@@ -713,4 +714,4 @@ def identity_for(kind: str) -> str:
     return IDENTITY_NOVELIST
 
 
-assert PLAYBOOK_VERSION == "playbook.3.2.22"
+assert PLAYBOOK_VERSION == "playbook.3.2.23"

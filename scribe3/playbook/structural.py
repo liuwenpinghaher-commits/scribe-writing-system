@@ -26,6 +26,7 @@
 - duty.kind：这场进的是哪一种日子；只换节号 / 同一种不换谁闯进来 / 同场连写超两场不过
 - duty.bill_move：账换持有人或换地；换气换丢人不过
 - duty.altar：kind=开坛 必须看见交差钱把人按住；热闹当社戏信了；井/灯/墓还在；高人下山伏魔不过
+- duty.feast：kind=酒宴 必须看见还散不掉的酒、不该看见的那一桌、读完有人当不成贺客
 """
 from __future__ import annotations
 
@@ -94,6 +95,11 @@ _ALTAR_HERO = re.compile(r"高人下山|下山伏魔|高人伏魔|伏魔除害")
 _ALTAR_FEE = re.compile(r"交差|酬劳|柜上账|油账|油罐|银子|赊")
 _ALTAR_HEAT_BELIEVE = re.compile(r"信了|当社戏|社戏|鼓掌")
 _ALTAR_STAY_WORLD = re.compile(r"井|灯|墓")
+# 章法酒宴 / 引子批注：酒还不散；面子按在桌上；不该看见的那一桌；当不成贺客。
+_FEAST_UNENDED = re.compile(r"还不散|还没散|散不掉|喜酒|还在喝")
+_FEAST_FACE = re.compile(r"面子|桌上|敬酒|端杯|按在桌")
+_FEAST_TABLE = re.compile(r"那一桌|另一桌|不该看见|空堂|堂屋")
+_FEAST_GUEST = re.compile(r"贺客|回不去|当不成|坐不住")
 _SHAME_SWAP = re.compile(r"换气换丢人|换气|换丢人|丢人换人|换个人丢人")
 _CLAIM_MOVE = re.compile(r"转走|交到别人|换地|账走了|还清了")
 CORE_FIELDS = ("goal", "choice", "decision", "hook")
@@ -385,6 +391,29 @@ def check_duty_altar(duty: dict[str, Any]) -> dict[str, Any]:
     return _ok()
 
 
+def check_duty_feast(duty: dict[str, Any]) -> dict[str, Any]:
+    """酒宴：还散不掉的酒；不该看见的那一桌；读完有人当不成贺客。"""
+    kind = str((duty or {}).get("kind") or "").strip()
+    if kind != "酒宴":
+        return _ok()
+    day = str((duty or {}).get("day") or "").strip()
+    happen = str((duty or {}).get("must_happen") or "").strip()
+    said = str((duty or {}).get("said") or "").strip()
+    heat = str((duty or {}).get("heat") or "").strip()
+    stay = str((duty or {}).get("stay") or "").strip()
+    owed = str((duty or {}).get("owed") or "").strip()
+    live = f"{day}\n{happen}\n{said}"
+    if not _FEAST_UNENDED.search(live):
+        return _fail("duty_feast_day", "酒宴必须先立还散不掉的酒。不要先宣布法会再补喜事", "day")
+    if not _FEAST_FACE.search(live):
+        return _fail("duty_feast_face", "酒宴要看见面子把人按在桌上", "day")
+    if not _FEAST_TABLE.search(f"{happen}\n{heat}\n{stay}\n{owed}"):
+        return _fail("duty_feast_table", "酒宴要让不该看见的那一桌坐进来", "must_happen")
+    if not _FEAST_GUEST.search(stay):
+        return _fail("duty_feast_guest", "酒宴读完有人当不成贺客，或这场酒还坐不住", "stay")
+    return _ok()
+
+
 def check_duty_flip(duty: dict[str, Any]) -> dict[str, Any]:
     """热闹不算翻。热闹像翻了、处境还停在原处，不过。"""
     heat = str((duty or {}).get("heat") or "").strip()
@@ -526,6 +555,9 @@ def check_duty_struct(
     altar_hit = check_duty_altar(duty)
     if not altar_hit.get("ok"):
         return altar_hit
+    feast_hit = check_duty_feast(duty)
+    if not feast_hit.get("ok"):
+        return feast_hit
     fr = duty.get("forbidden_reveal")
     if not isinstance(fr, list) or not [x for x in fr if str(x).strip()]:
         return _fail("duty_forbid_empty", "forbidden_reveal 不能空", "forbidden_reveal")
