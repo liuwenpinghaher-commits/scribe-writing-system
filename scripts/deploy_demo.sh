@@ -123,6 +123,12 @@ mode_hot() {
     exit 1
   fi
   cp "$ZHANGFA_SRC" "$TMP/docs/worlds/乱世铜炉-拆文/章法.md"
+  YINWEN_SRC="$ROOT/docs/worlds/乱世铜炉-拆文/因文.md"
+  if [[ ! -s "$YINWEN_SRC" ]]; then
+    echo "缺因文.md 真源: $YINWEN_SRC" >&2
+    exit 1
+  fi
+  cp "$YINWEN_SRC" "$TMP/docs/worlds/乱世铜炉-拆文/因文.md"
   echo "==> compileall"
   python3 -m compileall -q -f "$TMP/scribe3" || {
     echo "compileall 失败，禁止上铜炉" >&2
@@ -145,6 +151,7 @@ docker cp "\$APP_DIR/scribe3" "\$CONTAINER:/app/"
 docker exec "\$CONTAINER" mkdir -p /app/docs/worlds/乱世铜炉-拆文
 docker cp "\$APP_DIR/docs/worlds/乱世铜炉-拆文/对照.md" "\$CONTAINER:/app/docs/worlds/乱世铜炉-拆文/对照.md"
 docker cp "\$APP_DIR/docs/worlds/乱世铜炉-拆文/章法.md" "\$CONTAINER:/app/docs/worlds/乱世铜炉-拆文/章法.md"
+docker cp "\$APP_DIR/docs/worlds/乱世铜炉-拆文/因文.md" "\$CONTAINER:/app/docs/worlds/乱世铜炉-拆文/因文.md"
 docker restart "\$CONTAINER"
 rm -f /tmp/scribe3-hot.tgz
 echo restarted
@@ -235,6 +242,8 @@ if docker ps --format '{{.Names}}' | grep -qx "\$CONTAINER"; then
   docker cp "\$APP_DIR/scribe3" "\$CONTAINER:/app/"
   docker exec "\$CONTAINER" mkdir -p /app/docs/worlds/乱世铜炉-拆文
   docker cp "\$APP_DIR/docs/worlds/乱世铜炉-拆文/对照.md" "\$CONTAINER:/app/docs/worlds/乱世铜炉-拆文/对照.md"
+  docker cp "\$APP_DIR/docs/worlds/乱世铜炉-拆文/章法.md" "\$CONTAINER:/app/docs/worlds/乱世铜炉-拆文/章法.md"
+  docker cp "\$APP_DIR/docs/worlds/乱世铜炉-拆文/因文.md" "\$CONTAINER:/app/docs/worlds/乱世铜炉-拆文/因文.md"
   docker restart "\$CONTAINER"
   echo restarted
 else

@@ -26,8 +26,9 @@
 - duty.kind：这场进的是哪一种日子；只换节号 / 同一种不换谁闯进来 / 同场连写超两场不过
 - duty.bill_move：账换持有人或换地；换气换丢人不过
 - duty.altar：kind=开坛 必须看见交差钱把人按住；热闹当社戏信了；井/灯/墓还在；高人下山伏魔不过
-- duty.feast：kind=酒宴 必须酒还不散、面子按桌、有人闯进来、嘴上贺而账还欠着。不要字面「那一桌」
+- duty.feast：kind=酒宴 必须酒还不散、面子按桌、有人闯进来、嘴上贺而账还欠。不要字面「那一桌」
 - duty.jail：kind=坐牢 必须先立进城/镇上找活路；官差收了东西改口；救人的人进了绳。清官断案、点名黑白不过。不要字面「六百两」
+- duty.skip_year：kind=跳年 必须写成街上还在过的一天；补日历 / N年后说明书不过。不要字面六年、不要铜炉歌名
 """
 from __future__ import annotations
 
@@ -59,6 +60,7 @@ _DAY_LIVED = re.compile(
     r"还在|还没|正在|尚未|仍有|排队|过秤|喝酒|喜酒|守夜|赶路|散不|过年|过节|井台|柜上|日子"
     r"|往家|回家|土路|巷口|窄巷|开坛|改运|交差|酬劳"
     r"|进城|进镇|镇上|城里|找活|活路|官差|绳"
+    r"|街上|茶馆|店还|开张|早上|行人|还在过|还在唱|还在讲|还在走"
 )
 # 对照.md 三：办事不剖心。
 _APPRAISAL_TELL = re.compile(
@@ -81,6 +83,7 @@ _CUT_SENSED = re.compile(
     r"一声|一响|响了|闷响|碎了|开了|停住|磕|砸|摔|撞|落地|堕地"
     r"|啪|嚓|喀喇|尖鸣|穿|门开|钉子|杯子|酒盅|碰杯"
     r"|捆|勒|绳|塞嘴|押走"
+    r"|枯腐|枯了|铜子|帘"
 )
 # 因文.md：一行本事说不完；删了那一截场会塌。
 _ONE_LINE_OK = re.compile(r"一行就够|本事说完|过场即可|说明书")
@@ -89,7 +92,7 @@ _HEAT_AS_FLIP = re.compile(r"热闹就是翻|场面就算翻|热闹当翻|场面
 _HEAT_ONLY = re.compile(r"热闹|场面过了|社戏完了|筵席散了|鼓掌过了")
 _STAY_WORLD = re.compile(r"还|没|仍|停|在|日子|墓|路|安危|欠|信")
 CLOCK_SPANS = frozenset({"scene", "day", "days"})
-DAY_KINDS = frozenset({"酒宴", "赶路", "开坛", "坐牢", "同场"})
+DAY_KINDS = frozenset({"酒宴", "赶路", "开坛", "坐牢", "跳年", "同场"})
 _KIND_CHAPTER = re.compile(r"换节号|下一节|第[一二三四五六七八九十0-9]+章")
 _KIND_WELL_QUEUE = re.compile(r"井台|排队|队尾|横担")
 SAME_KIND_RUN_MAX = 2
@@ -106,6 +109,14 @@ _FEAST_CONGRATS = re.compile(r"贺|敬|道喜|喝完|来贺")
 _FEAST_UNPAID = re.compile(r"欠|灯|账|回不去|当不成|坐不住")
 # 章法坐牢 / 冤狱批注：进城找活路；官差收了东西改口；救人的人进绳。不要清官断案、不要点名黑白、不要字面六百两。
 _JAIL_JUDGE = re.compile(r"清官断案|清官明断|明察私访|大义凛然|黑白")
+# 因文·一沙一世界：削日历，补街上还在过的一天。不要 N年后说明书，不要字面六年，不要铜炉歌名。
+_SKIP_CALENDAR = re.compile(
+    r"\d+年后|[一二三四五六七八九十百]+年后|几年后|若干年后|六年后|六年"
+    r"|补日历|跳过了六年|跳过六年|光阴荏苒|一晃就|转眼就|说明书|淳化"
+)
+_SKIP_STREET = re.compile(r"街上|茶馆|店还|开张|早上|还在过|行人|唱|还在讲|还在走")
+_SKIP_SONG = re.compile(r"乱世铜炉|十八摸")
+_SKIP_STILL = re.compile(r"还|欠|没")
 _JAIL_CITY = re.compile(r"进城|进镇|镇上|城里|城门|找活|活路|找活路|找工")
 _JAIL_BRIBE = re.compile(r"收了|接了|递上|递了|小包|包裹|收银|银子|收东西")
 _JAIL_FLIP = re.compile(r"改口|眉花|良民|改叫|笑着说")
@@ -324,9 +335,9 @@ def check_duty_kind(
     if _KIND_CHAPTER.search(kind) or _KIND_CHAPTER.search(day):
         return _fail("duty_kind_chapter", "只换节号不算换日子。要写进的是哪一种还在过的日子", "kind")
     if not kind:
-        return _fail("duty_kind_empty", "kind 不能空：这场进的是酒宴/赶路/开坛/坐牢/同场哪一种", "kind")
+        return _fail("duty_kind_empty", "kind 不能空：这场进的是酒宴/赶路/开坛/坐牢/跳年/同场哪一种", "kind")
     if kind not in DAY_KINDS:
-        return _fail("duty_kind_unknown", "kind 只能是酒宴、赶路、开坛、坐牢、同场", "kind")
+        return _fail("duty_kind_unknown", "kind 只能是酒宴、赶路、开坛、坐牢、跳年、同场", "kind")
     seq = int((duty or {}).get("seq") or 0)
     if seq > 1 and kind == "同场":
         try:
@@ -460,6 +471,33 @@ def check_duty_jail(duty: dict[str, Any]) -> dict[str, Any]:
         return _fail("duty_jail_rope", "坐牢读完救人的人进了绳。不要把黑白两个字当写好", "stay")
     if not _JAIL_SAVE.search(f"{happen}\n{stay}\n{heat}\n{said}\n{who}"):
         return _fail("duty_jail_rope", "坐牢必须看见救人的人进绳。藏东西的人进绳不算", "stay")
+    return _ok()
+
+
+def check_duty_skip_year(duty: dict[str, Any]) -> dict[str, Any]:
+    """跳年：削日历，补街上还在过的一天。N年后说明书、铜炉歌名不过。"""
+    kind = str((duty or {}).get("kind") or "").strip()
+    if kind != "跳年":
+        return _ok()
+    day = str((duty or {}).get("day") or "").strip()
+    happen = str((duty or {}).get("must_happen") or "").strip()
+    said = str((duty or {}).get("said") or "").strip()
+    heat = str((duty or {}).get("heat") or "").strip()
+    stay = str((duty or {}).get("stay") or "").strip()
+    owed = str((duty or {}).get("owed") or "").strip()
+    keep = str((duty or {}).get("keep") or "").strip()
+    one_line = str((duty or {}).get("one_line") or "").strip()
+    who = str((duty or {}).get("intruder") or "").strip()
+    blob = f"{day}\n{happen}\n{said}\n{heat}\n{stay}\n{owed}\n{keep}\n{one_line}\n{who}"
+    if _SKIP_SONG.search(blob):
+        return _fail("duty_skip_song", "不要铜炉歌名。主题可以当街不值钱，换自己的名", "kind")
+    if _SKIP_CALENDAR.search(blob):
+        return _fail("duty_skip_calendar", "跳年不要补日历。不要写成 N 年后说明书。削日历，补街上还在过的一天", "day")
+    live = f"{day}\n{happen}\n{said}\n{heat}"
+    if not _SKIP_STREET.search(live):
+        return _fail("duty_skip_street", "跳年必须写成街上还在过的一天。店还没开张的早上、茶馆还在讲、行人还在走", "day")
+    if not _SKIP_STILL.search(f"{stay}\n{owed}"):
+        return _fail("duty_skip_stay", "跳年读完账还欠着。删掉街上那一天只剩说明书", "stay")
     return _ok()
 
 
@@ -610,6 +648,9 @@ def check_duty_struct(
     jail_hit = check_duty_jail(duty)
     if not jail_hit.get("ok"):
         return jail_hit
+    skip_hit = check_duty_skip_year(duty)
+    if not skip_hit.get("ok"):
+        return skip_hit
     fr = duty.get("forbidden_reveal")
     if not isinstance(fr, list) or not [x for x in fr if str(x).strip()]:
         return _fail("duty_forbid_empty", "forbidden_reveal 不能空", "forbidden_reveal")

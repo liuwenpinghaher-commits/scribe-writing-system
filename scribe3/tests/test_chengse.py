@@ -28,7 +28,7 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.25"
+    assert PLAYBOOK_VERSION == "playbook.3.2.26"
     d = duty_generate({"seq": 1})
     assert "【对照·真源】" in d
     assert "【成色·验戏不验词表】" not in d
@@ -1241,6 +1241,134 @@ def test_gen_duty_nails_savior_into_rope():
     assert "救人" in out["stay"]
 
 
+def test_duty_skip_year_blocks_calendar_and_song():
+    """跳年验结构：街上还在过的一天。补日历 / N年后说明书不过。不要铜炉歌名。"""
+    from scribe3.playbook.context import make_duty
+    from scribe3.playbook.structural import check_duty_struct
+
+    hook = "空桶还在柜上。"
+    stay = "救人的人进了绳，灯还欠着"
+    heat = "官差改口叫良民，救人的杏花被按住"
+    later = make_duty(
+        seq=9, who=["沈槐"], available_cast=["沈槐"],
+        day="六年后街上还在过",
+        said="把歌改成好卖的",
+        needed="灯还欠着，救人的人还在绳上",
+        heat="茶馆把旧年当茶讲",
+        stay="灯还欠着，街上这一天还没过完",
+        owed="救人的人进了绳，灯还欠着",
+        must_happen="茶馆还在讲旧年，行人还在走",
+        kind="跳年", intruder="行人要改歌",
+        bill="年跳了账还在", bill_holder="杏花", bill_place="绳上",
+    )
+    later["bite_from_prev"] = hook
+    hit = check_duty_struct(
+        later, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="坐牢", prev_intruder="差收了小包",
+    )
+    assert hit["ok"] is False
+    assert hit["code"] == "duty_skip_calendar"
+
+    song = make_duty(
+        seq=9, who=["沈槐"], available_cast=["沈槐"],
+        day="店还没开张的早上，街上还在过这一天",
+        said="把歌改成好卖的",
+        needed="灯还欠着，救人的人还在绳上",
+        heat="茶馆把旧年当茶讲",
+        stay="灯还欠着，街上这一天还没过完",
+        owed="救人的人进了绳，灯还欠着",
+        must_happen="瞎子唱《乱世铜炉》，行人要他改《十八摸》",
+        kind="跳年", intruder="行人要改歌",
+        bill="年跳了账还在", bill_holder="杏花", bill_place="绳上",
+    )
+    song["bite_from_prev"] = hook
+    hit2 = check_duty_struct(
+        song, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="坐牢", prev_intruder="差收了小包",
+    )
+    assert hit2["ok"] is False
+    assert hit2["code"] == "duty_skip_song"
+
+    empty = make_duty(
+        seq=9, who=["沈槐"], available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="把账清了",
+        needed="灯还欠着，救人的人还在绳上",
+        heat="队又挤了一层",
+        stay="灯还欠着",
+        owed="救人的人进了绳，灯还欠着",
+        must_happen="沈槐还在井台排队",
+        kind="跳年", intruder="队尾那句",
+        bill="年跳了账还在", bill_holder="杏花", bill_place="绳上",
+    )
+    empty["bite_from_prev"] = hook
+    hit3 = check_duty_struct(
+        empty, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="坐牢", prev_intruder="差收了小包",
+    )
+    assert hit3["ok"] is False
+    assert hit3["code"] == "duty_skip_street"
+
+    ok = make_duty(
+        seq=9, who=["沈槐"], available_cast=["沈槐"],
+        day="店还没开张的早上，街上还在过这一天",
+        said="把歌改成好卖的",
+        needed="灯还欠着，救人的人还在绳上",
+        heat="茶馆把旧年当茶讲，像年已经翻了",
+        stay="灯还欠着，救人的人还在绳上，街上这一天还没过完",
+        owed="救人的人进了绳，灯还欠着",
+        must_happen="茶馆还在讲旧年，行人还在走，有人当街要改歌",
+        kind="跳年", intruder="行人要改歌",
+        bill="年跳了账还在", bill_holder="杏花", bill_place="绳上",
+        cut="铜子落在茶馆柜上那一声",
+        one_line="年跳过去了",
+        keep="店还没开张的早上和茶馆还在讲，删了只剩过场",
+    )
+    ok["bite_from_prev"] = hook
+    assert check_duty_struct(
+        ok, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="坐牢", prev_intruder="差收了小包",
+    )["ok"] is True
+
+
+def test_gen_duty_nails_skip_year_off_calendar():
+    """模型写成六年后说明书时，生成层钉回街上还在过的一天。"""
+    from scribe3.playbook.layers import _nail_skip_year_duty, gen_duty
+
+    raw = {
+        "kind": "跳年",
+        "day": "六年后",
+        "must_happen": "补日历",
+        "stay": "日子翻了",
+        "heat": "年过了",
+        "who": ["沈槐"],
+    }
+    nailed = _nail_skip_year_duty(raw, {"chapter_duty": "跳年写成街上还在过的一天"})
+    assert nailed["kind"] == "跳年"
+    assert "街上" in nailed["day"] or "开张" in nailed["day"]
+    assert "六年" not in nailed["day"]
+    assert "乱世铜炉" not in str(nailed)
+    assert "十八摸" not in str(nailed)
+
+    def llm(prompt, **kw):
+        return (
+            '{"day":"六年后街上还在过","said":"把歌改了","needed":"灯还欠着",'
+            '"mask":"年已经翻了","crack":"茶馆帘子枯了","real":"账还欠着",'
+            '"eye":"沈槐","dist":"near","cut":"铜子一响",'
+            '"one_line":"跳过六年","keep":"补日历",'
+            '"heat":"年过了","stay":"日子翻了",'
+            '"owed":"灯还欠着","kind":"跳年","intruder":"行人",'
+            '"bill_holder":"杏花","bill_place":"绳上",'
+            '"must_happen":"补日历",'
+            '"bill":"年跳了","who":["沈槐"],"forbidden_reveal":["油从哪来"]}'
+        )
+
+    out = gen_duty({"seq": 9, "available_cast": ["沈槐"], "chapter_duty": "街上还在过的一天"}, llm)
+    assert out["kind"] == "跳年"
+    assert "六年" not in out["day"]
+    assert "街上" in out["day"] or "开张" in out["day"]
+
+
 def test_draft_copy_does_not_kill_lived_expansion():
     """场面已立住的扩写不得因跟戏 24% 重复被毙。整段搬戏才拦。"""
     play = (
@@ -1314,6 +1442,10 @@ def test_duizhao_is_generate_ssot_not_paraphrase():
     load_zhangfa.cache_clear()
     assert "面子把人按在桌上" in d
     assert load_zhangfa() in d
+    from scribe3.playbook.chengse import load_yinwen
+    load_yinwen.cache_clear()
+    assert "街上还在过的一天" in d
+    assert load_yinwen() in d
     assert "CRAFT_GENERATE" not in (Path := __import__("pathlib").Path)(
         __file__
     ).resolve().parents[1].joinpath("playbook", "chengse.py").read_text(encoding="utf-8")

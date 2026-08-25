@@ -115,6 +115,46 @@ def _nail_jail_duty(raw: dict[str, Any], ctx: dict[str, Any] | None = None) -> d
     return rec
 
 
+def _nail_skip_year_duty(raw: dict[str, Any], ctx: dict[str, Any] | None = None) -> dict[str, Any]:
+    """跳年卡写成补日历 / N年后时，钉回街上还在过的一天。不另造情节。"""
+    rec = raw if isinstance(raw, dict) else {}
+    ctx = ctx or {}
+    kind = str(rec.get("kind") or "").strip()
+    hint = " ".join(
+        str(ctx.get(k) or "")
+        for k in ("chapter_duty", "synopsis", "volume_outline")
+    )
+    blob = " ".join(
+        str(rec.get(k) or "")
+        for k in ("day", "must_happen", "stay", "one_line", "keep", "heat", "said")
+    )
+    if kind != "跳年" and "跳年" not in hint and "街上还在过" not in hint and "店还没开张" not in hint:
+        return rec
+    rec["kind"] = "跳年"
+    from scribe3.playbook.structural import _SKIP_CALENDAR, _SKIP_STREET, _SKIP_SONG
+    live = f"{rec.get('day') or ''}\n{rec.get('must_happen') or ''}\n{rec.get('said') or ''}\n{rec.get('heat') or ''}"
+    if _SKIP_CALENDAR.search(blob) or _SKIP_SONG.search(blob) or not _SKIP_STREET.search(live):
+        rec["day"] = "店还没开张的早上，街上还在过这一天"
+        rec["must_happen"] = "茶馆还在讲旧年，行人还在走，有人当街要改歌"
+        rec["stay"] = "灯还欠着，救人的人还在绳上，街上这一天还没过完"
+        rec["heat"] = "茶馆把旧年当茶讲，像年已经翻了"
+        rec["said"] = "把歌改成好卖的"
+        rec["needed"] = "灯还欠着，救人的人还在绳上"
+        rec["intruder"] = "行人要改歌"
+        rec["cut"] = "铜子落在茶馆柜上那一声"
+        rec["one_line"] = "年跳过去了"
+        rec["keep"] = "店还没开张的早上和茶馆还在讲，删了只剩过场"
+        rec["bill"] = "年跳了，账还在"
+        rec["owed"] = str(ctx.get("prev_stay") or rec.get("owed") or "灯还欠着").strip()
+    for key in ("day", "must_happen", "stay", "heat", "said", "needed", "keep", "one_line", "bill"):
+        val = str(rec.get(key) or "")
+        if "乱世铜炉" in val or "十八摸" in val:
+            rec[key] = val.replace("乱世铜炉", "这首歌").replace("十八摸", "旧调")
+    if not str(rec.get("intruder") or "").strip():
+        rec["intruder"] = "行人要改歌"
+    return rec
+
+
 def gen_duty(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
     raw = generate_json(
         llm_fn, duty_generate(ctx), system=identity_for("duty"),
@@ -132,6 +172,7 @@ def gen_duty(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
         if stay_prev:
             raw["owed"] = stay_prev
     _nail_jail_duty(raw, ctx)
+    _nail_skip_year_duty(raw, ctx)
     fr = raw.get("forbidden_reveal")
     if not (isinstance(fr, list) and any(str(x).strip() for x in fr)):
         secrets = [str(x).strip() for x in (ctx.get("secret_list") or []) if str(x).strip()]

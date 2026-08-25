@@ -1,7 +1,7 @@
 """铜炉成色：词表过滤 + 对照.md 真源。
 
 旗 SCRIBE3_CHENGSE_CRAFT 默认开。关 = 过滤停，不回古白话教学。
-对照.md + 章法.md 是生成/审判真源，不跟旗走。找不到文件 = 失败，不许用复述顶上。
+对照.md + 章法.md + 因文.md 是生成/审判真源，不跟旗走。找不到文件 = 失败，不许用复述顶上。
 """
 from __future__ import annotations
 
@@ -17,6 +17,9 @@ DUIZHAO_PATH = (
 )
 ZHANGFA_PATH = (
     Path(__file__).resolve().parents[2] / "docs" / "worlds" / "乱世铜炉-拆文" / "章法.md"
+)
+YINWEN_PATH = (
+    Path(__file__).resolve().parents[2] / "docs" / "worlds" / "乱世铜炉-拆文" / "因文.md"
 )
 
 # 写协议曾逼模型堆的套话。对白里角色可以偶尔说；叙述层不行。
@@ -39,6 +42,7 @@ TONGLU_PROPER = (
     "贺家庄",
     "赵家庄",
     "乱世铜炉",
+    "十八摸",
     "梧桐村",
     "奈何谷",
 )
@@ -97,6 +101,30 @@ def load_zhangfa() -> str:
     return body
 
 
+class YinwenMissing(RuntimeError):
+    """因文.md 读不到。跳年骨头不许用复述顶上。"""
+
+
+def _yinwen_path() -> Path:
+    override = (os.environ.get("SCRIBE3_YINWEN_PATH") or "").strip()
+    return Path(override) if override else YINWEN_PATH
+
+
+@lru_cache(maxsize=1)
+def load_yinwen() -> str:
+    path = _yinwen_path()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise YinwenMissing(f"因文.md 读不到：{path}") from exc
+    body = text.strip()
+    if not body:
+        raise YinwenMissing(f"因文.md 是空的：{path}")
+    if "街上还在过的一天" not in body or "不要补日历" not in body:
+        raise YinwenMissing(f"因文.md 不像真源：{path}")
+    return body
+
+
 def duizhao_generate_block() -> str:
     """生成真源：对照.md + 章法.md 原文。不跟成色旗走。"""
     return (
@@ -106,6 +134,9 @@ def duizhao_generate_block() -> str:
         "【章法·真源】\n"
         "下一本照着开的几套局。酒宴先立还散不掉的酒；开坛银子是交差钱；坐牢看见银子到了谁进绳。换自己的名。\n"
         f"{load_zhangfa()}\n"
+        "【因文·真源】\n"
+        "必须跳的年，写成街上还在过的一天，不要补日历。不要铜炉歌名。\n"
+        f"{load_yinwen()}\n"
     )
 
 
@@ -118,6 +149,8 @@ def duizhao_judge_block() -> str:
         f"{load_duizhao()}\n"
         "【章法·真源·审判】\n"
         f"{load_zhangfa()}\n"
+        "【因文·真源·审判】\n"
+        f"{load_yinwen()}\n"
     )
 
 PROTOCOL_STYLE = (
