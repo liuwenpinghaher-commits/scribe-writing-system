@@ -23,6 +23,8 @@ import { useContextSnapshot } from './context/ContextSnapshotContext'
 import { MaterialAtPicker } from './ui/MaterialAtPicker.jsx'
 import { useMaterialAt } from './lib/useMaterialAt.js'
 import { Btn } from './ui.jsx'
+import { pendingApprovalOf } from './lib/chiefReadable.js'
+import { ChiefStatusStrip } from './views/chief/ChiefStatusStrip.jsx'
 
 // Task 13 I-1:章内写作槽发起的 approval 型 run 也要绑发起时上下文,让重校验对它生效
 // (WriteChat 与 ChiefDock 同走 scribe3_write 写路径;不绑=章内 run 永不受闸=假象)。
@@ -529,6 +531,12 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
         </div>
       )}
 
+      <ChiefStatusStrip
+        label={chapter != null ? `第 ${chapter} 章${phase ? ` · ${phase}` : ''}` : '未选中'}
+        input={input}
+        pending={!!pendingApprovalOf(msgs)}
+        onJumpPending={() => document.querySelector('[data-testid="chief-pending-card"], [data-testid="run-approve"]')?.scrollIntoView({ block: 'nearest' })}
+      />
       {/* 输入区 */}
       <div className="shrink-0 border-t border-line/60 bg-surface px-3 py-2.5">
         {contextPreparing && (

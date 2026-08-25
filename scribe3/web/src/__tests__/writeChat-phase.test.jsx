@@ -199,4 +199,23 @@ describe('WriteChat phase', () => {
     expect(await screen.findByText(/铜炉曾在第二章出现/)).toBeTruthy()
     expect(screen.getByText('hybrid_recall')).toBeTruthy()
   })
+
+  it('空写作槽不说一切有账，输入框上方有状态条', () => {
+    render(<WriteChat chapter={4} focalizer="崔判" phase="final" />)
+    expect(screen.getByTestId('chief-status-strip')).toBeTruthy()
+    expect(screen.getByTestId('chief-status-label').textContent).toMatch(/第 4 章/)
+    expect(screen.queryByText(/一切有账/)).toBeNull()
+  })
+
+  it('时间线种子标只讨论，写库句标会改库', () => {
+    render(<WriteChat chapter={4} focalizer="崔判" phase="final" />)
+    const input = screen.getByPlaceholderText(/提思路/)
+    fireEvent.change(input, {
+      target: { value: '【时间线】围绕第4章的「井底夜审」只讨论下一笔可落地的动作（不要调用写库工具）。' },
+    })
+    expect(screen.getByTestId('chief-seed-origin').textContent).toBe('来自时间线')
+    expect(screen.getByTestId('chief-send-hint').textContent).toMatch(/只讨论/)
+    fireEvent.change(input, { target: { value: '请调用 s3_patch_character 写入落库(需我审批)' } })
+    expect(screen.getByTestId('chief-send-hint').textContent).toMatch(/改库/)
+  })
 })
