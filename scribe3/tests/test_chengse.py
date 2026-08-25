@@ -28,7 +28,7 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.20"
+    assert PLAYBOOK_VERSION == "playbook.3.2.21"
     d = duty_generate({"seq": 1})
     assert "【对照·真源】" in d
     assert "【成色·验戏不验词表】" not in d
@@ -842,6 +842,45 @@ def test_duty_kind_blocks_same_day_without_intruder():
         newcomer, available_cast=["沈槐"], prev_hook_quote=hook,
         prev_stay=stay, prev_heat=heat, prev_kind="同场", prev_intruder="杏花",
     )["ok"] is True
+
+    third = make_duty(
+        seq=5, who=["沈槐"], available_cast=["沈槐"],
+        day="井台上还在排队打水", said="认自家攒的油", needed="灯盏是空的",
+        heat="柜上有人把油路认到沈槐名下",
+        stay="沈槐还排在队尾，油罐仍贴在棉袄里",
+        owed="没一个人当众认那盏灯",
+        must_happen="沈槐把空盏摘下来",
+        kind="同场", intruder="又一个人",
+    )
+    third["bite_from_prev"] = hook
+    stuck = check_duty_struct(
+        third, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="同场", prev_intruder="杏花",
+        same_kind_run=2,
+    )
+    assert stuck["ok"] is False
+    assert stuck["code"] == "duty_kind_stuck"
+
+    road = make_duty(
+        seq=5, who=["沈槐"], available_cast=["沈槐"],
+        day="沈槐还在往家赶路，空桶提在手里", said="今晚要把油添上", needed="柜上账还在，灯还欠着",
+        heat="路上有人拦他问柜上那笔油",
+        stay="桶还空着，柜上账还在杏花秤上，灯还欠着",
+        owed="油罐仍贴在棉袄里，没一个人当众认那盏灯",
+        must_happen="沈槐离开井台往家走",
+        kind="赶路", intruder="拦路的人",
+        bill_holder="杏花", bill_place="柜上",
+    )
+    road["bite_from_prev"] = hook
+    assert check_duty_struct(
+        road, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="同场", prev_intruder="杏花",
+        same_kind_run=0,
+    )["ok"] is True
+
+    from scribe3.playbook.structural import infer_duty_kind
+    old = {"stay": "沈槐仍在队尾，桶空着，灯还在横担上，没人当众认那盏灯。"}
+    assert infer_duty_kind(old) == "同场"
 
 
 def test_duty_bill_blocks_shame_swap_and_stuck_move():

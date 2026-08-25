@@ -47,6 +47,7 @@ from scribe3.playbook.structural import (
     check_final_last_mile,
     check_final_struct,
     check_play_struct,
+    infer_duty_kind,
     list_syntax_tics,
     realign_state_quotes,
 )
@@ -102,6 +103,23 @@ _TABLE = {
     "draft": "chapter_draft",
     "state": "chapter_state",
 }
+
+
+def _same_kind_run(store: Any, seq: int, duty: dict[str, Any] | None) -> int:
+    """上场起连写了几场与本卡同一种日子。旧卡没 kind、井台排队算同场。"""
+    kind = infer_duty_kind(duty)
+    if not kind:
+        return 0
+    n = 0
+    getter = getattr(store, "get_frozen", None)
+    if not callable(getter):
+        return 0
+    for i in range(int(seq) - 1, 0, -1):
+        prev = getter("duty_card", i)
+        if infer_duty_kind(prev if isinstance(prev, dict) else None) != kind:
+            break
+        n += 1
+    return n
 
 
 def _roster(ctx: dict[str, Any]) -> list[dict[str, str]]:
@@ -434,6 +452,7 @@ def _run_duty(store, seq, ctx, llm_fn, *, force, persist):
             prev_intruder=ctx.get("prev_intruder"),
             prev_holder=ctx.get("prev_holder"),
             prev_place=ctx.get("prev_place"),
+            same_kind_run=_same_kind_run(store, seq, d),
         ),
         judge_type="duty",
         judge_ctx=lambda d: {

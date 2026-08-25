@@ -262,7 +262,8 @@ def prev_kind(store: Any, seq: int) -> str | None:
     duty = fn("duty_card", int(seq) - 1)
     if not isinstance(duty, dict):
         return None
-    kind = str(duty.get("kind") or "").strip()
+    from scribe3.playbook.structural import infer_duty_kind
+    kind = infer_duty_kind(duty)
     return kind or None
 
 

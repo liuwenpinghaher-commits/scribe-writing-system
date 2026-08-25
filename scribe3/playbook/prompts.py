@@ -1,4 +1,4 @@
-"""playbook.3.2.20 identity + generate/judge prompts. 改法官问卷或门槛才升版本。"""
+"""playbook.3.2.21 identity + generate/judge prompts. 改法官问卷或门槛才升版本。"""
 from __future__ import annotations
 
 import json
@@ -200,6 +200,7 @@ def duty_generate(ctx: dict) -> str:
    第2章起 heat 不得和上场同一套。假翻不犯同一种热闹。
    第2章起还要写 owed：上场没翻的处境这场还在过。只接章末钩子、把上场 stay 清掉 = 废卡。
    kind 必填：酒宴 / 赶路 / 开坛 / 坐牢 / 同场。只换节号 = 废卡。连写同一种必须换谁闯进来（intruder）。
+   同场连写超两场 = 废卡。必须换五套局里另一套，人从这儿走到那儿。
    bill_holder / bill_place 必填。换气换丢人 = 废卡。声称转走却人地都没换 = 废卡。
 9. must_happen——本章必须办的一件事。必须从 day 里长出来，用办事说。
    检验：能不能用一个动作说清（谁在什么物件上做什么）？
@@ -711,4 +712,4 @@ def identity_for(kind: str) -> str:
     return IDENTITY_NOVELIST
 
 
-assert PLAYBOOK_VERSION == "playbook.3.2.20"
+assert PLAYBOOK_VERSION == "playbook.3.2.21"

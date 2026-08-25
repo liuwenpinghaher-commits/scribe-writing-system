@@ -23,7 +23,7 @@
 - duty.flip：热闹像翻了、处境没翻不过；热闹不算翻
 - duty.owed：上场 stay 这场还在过；只接 hook.quote 不算
 - duty.heat_new：热闹不得和上场同一套
-- duty.kind：这场进的是哪一种日子；只换节号 / 同一种不换谁闯进来不过
+- duty.kind：这场进的是哪一种日子；只换节号 / 同一种不换谁闯进来 / 同场连写超两场不过
 - duty.bill_move：账换持有人或换地；换气换丢人不过
 """
 from __future__ import annotations
@@ -85,6 +85,8 @@ _STAY_WORLD = re.compile(r"还|没|仍|停|在|日子|墓|路|安危|欠|信")
 CLOCK_SPANS = frozenset({"scene", "day", "days"})
 DAY_KINDS = frozenset({"酒宴", "赶路", "开坛", "坐牢", "同场"})
 _KIND_CHAPTER = re.compile(r"换节号|下一节|第[一二三四五六七八九十0-9]+章")
+_KIND_WELL_QUEUE = re.compile(r"井台|排队|队尾|横担")
+SAME_KIND_RUN_MAX = 2
 _SHAME_SWAP = re.compile(r"换气换丢人|换气|换丢人|丢人换人|换个人丢人")
 _CLAIM_MOVE = re.compile(r"转走|交到别人|换地|账走了|还清了")
 CORE_FIELDS = ("goal", "choice", "decision", "hook")
@@ -271,6 +273,18 @@ def check_duty_heat_new(duty: dict[str, Any], *, prev_heat: str | None = None) -
     return _ok()
 
 
+def infer_duty_kind(duty: dict[str, Any] | None) -> str:
+    """责任卡日子种类。旧卡没 kind、日子还停在井台排队，算同场。"""
+    rec = duty or {}
+    kind = str(rec.get("kind") or "").strip()
+    if kind in DAY_KINDS:
+        return kind
+    blob = f"{rec.get('day') or ''}\n{rec.get('stay') or ''}\n{rec.get('owed') or ''}"
+    if _KIND_WELL_QUEUE.search(blob):
+        return "同场"
+    return kind
+
+
 def check_duty_kind(
     duty: dict[str, Any],
     *,
@@ -278,8 +292,9 @@ def check_duty_kind(
     prev_intruder: str | None = None,
     prev_holder: str | None = None,
     prev_place: str | None = None,
+    same_kind_run: int = 0,
 ) -> dict[str, Any]:
-    """这场进的是哪一种还在过的日子。只换节号不过；同一种不换谁闯进来不过。"""
+    """这场进的是哪一种还在过的日子。只换节号不过；同一种不换谁闯进来不过；同场连写超两场不过。"""
     kind = str((duty or {}).get("kind") or "").strip()
     day = str((duty or {}).get("day") or "").strip()
     if _KIND_CHAPTER.search(kind) or _KIND_CHAPTER.search(day):
@@ -289,7 +304,18 @@ def check_duty_kind(
     if kind not in DAY_KINDS:
         return _fail("duty_kind_unknown", "kind 只能是酒宴、赶路、开坛、坐牢、同场", "kind")
     seq = int((duty or {}).get("seq") or 0)
-    prev = str(prev_kind or "").strip()
+    if seq > 1 and kind == "同场":
+        try:
+            run = int(same_kind_run or 0)
+        except (TypeError, ValueError):
+            run = 0
+        if run >= SAME_KIND_RUN_MAX:
+            return _fail(
+                "duty_kind_stuck",
+                "同场连写超两场。叠同一种日子过了就空。换五套局里另一套，人从这儿走到那儿",
+                "kind",
+            )
+    prev = str(prev_kind or "").strip() or infer_duty_kind({"kind": prev_kind} if prev_kind else {})
     if seq <= 1 or not prev or prev != kind:
         return _ok()
     now = re.sub(r"\s+", "", str((duty or {}).get("intruder") or ""))
@@ -417,6 +443,7 @@ def check_duty_struct(
     prev_intruder: str | None = None,
     prev_holder: str | None = None,
     prev_place: str | None = None,
+    same_kind_run: int = 0,
 ) -> dict[str, Any]:
     def _who(x: str) -> str:
         s = str(x or "").strip()
@@ -456,7 +483,9 @@ def check_duty_struct(
     heat_hit = check_duty_heat_new(duty, prev_heat=prev_heat)
     if not heat_hit.get("ok"):
         return heat_hit
-    kind_hit = check_duty_kind(duty, prev_kind=prev_kind, prev_intruder=prev_intruder)
+    kind_hit = check_duty_kind(
+        duty, prev_kind=prev_kind, prev_intruder=prev_intruder, same_kind_run=same_kind_run,
+    )
     if not kind_hit.get("ok"):
         return kind_hit
     bill_hit = check_duty_bill_move(duty, prev_holder=prev_holder, prev_place=prev_place)
