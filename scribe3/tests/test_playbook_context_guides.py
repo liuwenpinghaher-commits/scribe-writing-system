@@ -157,7 +157,7 @@ def test_three_chapter_two_matching_keeps_unique_third():
 
 def test_strip_pad_and_version():
     assert PAD not in strip_seed_pad("真种子。" + PAD + PAD)
-    assert PLAYBOOK_VERSION == "playbook.3.2.11"
+    assert PLAYBOOK_VERSION == "playbook.3.2.12"
     assert "【本章责】" in duty_generate({})
     assert "【本章责】" in duty_judge({})
     assert metaphor_per_800("像火。") >= 0
@@ -204,7 +204,7 @@ def test_guide_fail_only_on_throw_not_natural_empty():
     text = src.read_text(encoding="utf-8")
     assert "2000-4000" in text
     assert "连续 8 个字" not in draft_generate({})
-    assert PLAYBOOK_VERSION == "playbook.3.2.11"
+    assert PLAYBOOK_VERSION == "playbook.3.2.12"
 
 
 def test_extra_can_override_guide_fail():

@@ -19,6 +19,7 @@
 - duty.mask：假破真；先反面再破功；上来掏底牌不过
 - duty.dist：远近；共情就把眼睛交给当场那个人；人还在办事时报年号/上课不过
 - duty.cut：切；热过再冷，切在能听见看见的那一下；切在叹气/夜色深了不过
+- duty.yin：因文；一行本事说不完；删了会塌的那截必须另写
 """
 from __future__ import annotations
 
@@ -70,6 +71,8 @@ _CUT_SENSED = re.compile(
     r"一声|一响|响了|碎了|开了|停住|磕|砸|摔|落地|堕地"
     r"|啪|嚓|喀喇|尖鸣|穿|门开|钉子|杯子"
 )
+# 因文.md：一行本事说不完；删了那一截场会塌。
+_ONE_LINE_OK = re.compile(r"一行就够|本事说完|过场即可|说明书")
 CLOCK_SPANS = frozenset({"scene", "day", "days"})
 CORE_FIELDS = ("goal", "choice", "decision", "hook")
 FIVE_LAYERS = ("perceived", "known", "believed", "acted", "blind")
@@ -174,6 +177,29 @@ def check_duty_cut(duty: dict[str, Any]) -> dict[str, Any]:
     return _ok()
 
 
+def check_duty_yin(duty: dict[str, Any]) -> dict[str, Any]:
+    """因文：一行本事说不完。删了会塌的那截必须另写。"""
+    one = str((duty or {}).get("one_line") or "").strip()
+    keep = str((duty or {}).get("keep") or "").strip()
+    happen = str((duty or {}).get("must_happen") or "").strip()
+    if not one:
+        return _fail("duty_one_line_empty", "one_line 不能空：一行本事是什么", "one_line")
+    if not keep:
+        return _fail("duty_keep_empty", "keep 不能空：删了场会塌的那一截", "keep")
+    if _ONE_LINE_OK.search(keep) or _ONE_LINE_OK.search(one):
+        return _fail("duty_yin_one_line", "一行本事说不完。不要写过场即可", "keep")
+    compact_one = re.sub(r"\s+", "", one)
+    compact_keep = re.sub(r"\s+", "", keep)
+    compact_happen = re.sub(r"\s+", "", happen)
+    if compact_keep == compact_one:
+        return _fail("duty_yin_same", "删了会塌的那截不能跟一行本事同一句", "keep")
+    if compact_happen and compact_keep == compact_happen:
+        return _fail("duty_yin_same", "删了会塌的那截不能只复述 must_happen", "keep")
+    if len(compact_keep) < 6:
+        return _fail("duty_keep_empty", "keep 太短：要写出删了场会塌的那一截", "keep")
+    return _ok()
+
+
 def check_opener_announce(text: str) -> dict[str, Any]:
     """开篇头一段叙述不得报身份/扔钩子/先宣布法会。"""
     narr = narration_layer(text or "")
@@ -266,6 +292,9 @@ def check_duty_struct(
     cut_hit = check_duty_cut(duty)
     if not cut_hit.get("ok"):
         return cut_hit
+    yin_hit = check_duty_yin(duty)
+    if not yin_hit.get("ok"):
+        return yin_hit
     fr = duty.get("forbidden_reveal")
     if not isinstance(fr, list) or not [x for x in fr if str(x).strip()]:
         return _fail("duty_forbid_empty", "forbidden_reveal 不能空", "forbidden_reveal")
