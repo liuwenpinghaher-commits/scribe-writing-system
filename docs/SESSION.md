@@ -71,6 +71,11 @@
 
 ## 当前状态
 
+### 仪表盘先可读再助写（2026-08-25）
+
+仪表盘合同仍是「机器体检」。第一屏改成弱章+未收账；码字图/各章图仍在，只是挪到名单下面。空书说「还没有章」，不再谎称「质检干净」。`DetailPane` 透传 `chapter={qualitySeq}`：当前章若也弱则钉顶；呼吸默认跟写作章。弱章/开口账多一粒「针对这条体检写下一笔」（只讨论）。弱章仍进 `quality_review`，不回退。
+**已改未提交：** `InsightView` 收成 177 行拼装层；`views/insight/*` + `insightReadable` / `insightChiefSeed`。相关 vitest 6 文件 26 passed。未 commit / 未热更。920px 实机未截；测绿 ≠ 视觉过。
+
 ### 拆文倒逼翻主（2026-08-25）
 
 现行过夜 / 循环 SSOT：[`docs/plans/2026-08-25-tonglu-force-rebuild-loop.md`](./plans/2026-08-25-tonglu-force-rebuild-loop.md)（`tonglu-force-rebuild`）。旧 [`2026-08-24-tonglu-chengse-loop.md`](./plans/2026-08-24-tonglu-chengse-loop.md) **已结案，禁止续跑**。

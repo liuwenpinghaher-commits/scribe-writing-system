@@ -148,8 +148,8 @@ def empty_narrative_drive(*, reason: str = "empty") -> dict[str, Any]:
         "stakes_line": "",
         "anti_stroll": {
             "guidance_opener_hint": [
-                "prefer_event_or_confrontation",
-                "pov_follow_ok_if_serves_conflict",
+                "prefer_lived_day_first",
+                "oddity_from_day_not_announce",
             ],
             "required_force_before_mid": False,
         },
@@ -158,8 +158,8 @@ def empty_narrative_drive(*, reason: str = "empty") -> dict[str, Any]:
             "min_external_before_mid_beat": False,
         },
         "openers_plan": {
-            "opener_class": "continuation_hook",
-            "first_beat_must": "force_felt_or_conflict_approaching",
+            "opener_class": "lived_day",
+            "first_beat_must": "lived_day_on_stage",
         },
         "multi_scene_pov": None,
         "composed_from": {
@@ -444,8 +444,8 @@ def compose_narrative_drive_dict(
         "stakes_line": stakes_line,
         "anti_stroll": {
             "guidance_opener_hint": [
-                "prefer_event_or_confrontation",
-                "pov_follow_ok_if_serves_conflict",
+                "prefer_lived_day_first",
+                "oddity_from_day_not_announce",
             ],
             "required_force_before_mid": True,
         },
@@ -455,7 +455,7 @@ def compose_narrative_drive_dict(
         },
         "openers_plan": {
             "opener_class": opener_class,
-            "first_beat_must": "opposition_on_stage_or_force_felt",
+            "first_beat_must": "lived_day_on_stage",
         },
         "multi_scene_pov": None,
         "composed_from": {

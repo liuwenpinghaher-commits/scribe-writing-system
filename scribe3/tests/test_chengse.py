@@ -28,7 +28,7 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.6"
+    assert PLAYBOOK_VERSION == "playbook.3.2.7"
     d = duty_generate({"seq": 1})
     assert "【成色·验戏不验词表】" in d
     assert "先立还在过的日子" in d
@@ -129,6 +129,43 @@ def test_final_last_mile_hits_empty_summary():
     hit = check_final_last_mile(prose)
     assert hit["ok"] is False
     assert hit["code"] == "chengse_empty_summary"
+
+
+def test_duty_day_blocks_identity_announce():
+    from scribe3.playbook.context import make_duty
+    from scribe3.playbook.structural import check_duty_struct, check_opener_announce
+
+    announce = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="他是看井的人，开篇钩子先扔出去",
+        must_happen="报身份",
+    )
+    hit = check_duty_struct(announce, available_cast=["沈槐"])
+    assert hit["ok"] is False
+    assert hit["code"] == "duty_day_announce"
+
+    empty = make_duty(seq=1, who=["沈槐"], available_cast=["沈槐"], day="", must_happen="摘灯")
+    empty["day"] = ""
+    miss = check_duty_struct(empty, available_cast=["沈槐"])
+    assert miss["ok"] is False
+    assert miss["code"] == "duty_day_empty"
+
+    lived = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        must_happen="沈槐把空盏摘下来",
+    )
+    assert check_duty_struct(lived, available_cast=["沈槐"])["ok"] is True
+
+    opener = check_opener_announce("他是看井的人。开坛做法从今夜起。井绳还冻着。")
+    assert opener["ok"] is False
+    assert opener["code"] == "opener_announce"
+    ok_open = check_opener_announce("井台上还在排队。沈槐把空盏摘下来。")
+    assert ok_open["ok"] is True
 
 
 def test_source_has_no_classical_teaching_path():

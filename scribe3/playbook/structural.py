@@ -14,6 +14,7 @@
 - dialogue_floor：糙稿对白行字数比 ≥15%
 - syntax_tics：叙述层「不是A是B」/毒句式 ≥2 处在定稿拦住（对白不计；糙稿只记账不硬拦）
 - chengse_filter：叙述层古白话套话 / 铜炉专名 / 空概括收尾（关旗不拦）
+- duty.day：必须先立还在过的日子；开篇报身份/扔钩子/先宣布法会不过
 """
 from __future__ import annotations
 
@@ -35,6 +36,15 @@ _STRAIGHT_Q = re.compile(r'"[^"]*"|\'[^\']*\'')
 _NEG_LIKE = re.compile(r"并不像是|并不像|不像是|不像似|不像")
 _RESIDUE = re.compile(r"不似乎|，又[烧冻碎压]|确实[一-龥]{2}[^的]|([一-龥])\1\1")
 _SENT_SPLIT = re.compile(r"(?<=[。！？\n])")
+# 开篇报身份 / 扔钩子 / 先宣布法会。对照.md 三、参照本二十二.1。
+_OPENER_ANNOUNCE = re.compile(
+    r"(我是|他是|她是).{0,16}(先生|掌门|神汉|风水|侦探|杀手|看井|管闸)"
+    r"|报身份|开篇钩子|强钩子|先宣布法会|宣布法会|开坛做法"
+    r"|黄金三章|三次失败"
+)
+_DAY_LIVED = re.compile(
+    r"还在|还没|正在|尚未|仍有|排队|过秤|喝酒|喜酒|守夜|赶路|散不|过年|过节|井台|柜上|日子"
+)
 CLOCK_SPANS = frozenset({"scene", "day", "days"})
 CORE_FIELDS = ("goal", "choice", "decision", "hook")
 FIVE_LAYERS = ("perceived", "known", "believed", "acted", "blind")
@@ -49,6 +59,32 @@ def _fail(code: str, message: str, field: str = "") -> dict[str, Any]:
 
 def _ok() -> dict[str, Any]:
     return {"ok": True}
+
+
+def check_duty_day(duty: dict[str, Any]) -> dict[str, Any]:
+    """日子必须先立还在过的世界。报身份/扔钩子/先宣布法会不过。"""
+    day = str((duty or {}).get("day") or "").strip()
+    happen = str((duty or {}).get("must_happen") or "").strip()
+    blob = f"{day}\n{happen}"
+    if _OPENER_ANNOUNCE.search(blob):
+        return _fail("duty_day_announce", "先立还在过的日子，不要开篇报身份、扔钩子、先宣布法会", "day")
+    if not day:
+        return _fail("duty_day_empty", "day 不能空：先写还在过的日子，再写必须办的那一件", "day")
+    if not _DAY_LIVED.search(day):
+        return _fail("duty_day_not_lived", "day 要能看见还在过的日子，不能只报一件动作", "day")
+    return _ok()
+
+
+def check_opener_announce(text: str) -> dict[str, Any]:
+    """开篇头一段叙述不得报身份/扔钩子/先宣布法会。"""
+    narr = narration_layer(text or "")
+    head = re.sub(r"\s+", "", narr)[:180]
+    if not head:
+        return _ok()
+    m = _OPENER_ANNOUNCE.search(head)
+    if m:
+        return _fail("opener_announce", f"开篇在报身份或先宣布法会：「{m.group(0)}」。先立还在过的日子。")
+    return _ok()
 
 
 def _quoted(node: Any) -> tuple[str, str]:
@@ -101,6 +137,9 @@ def check_duty_struct(
         return _fail("duty_must_empty", "must_happen 不能空", "must_happen")
     if not str(duty.get("bill") or "").strip():
         return _fail("duty_bill_empty", "bill 不能空", "bill")
+    day_hit = check_duty_day(duty)
+    if not day_hit.get("ok"):
+        return day_hit
     fr = duty.get("forbidden_reveal")
     if not isinstance(fr, list) or not [x for x in fr if str(x).strip()]:
         return _fail("duty_forbid_empty", "forbidden_reveal 不能空", "forbidden_reveal")
@@ -567,6 +606,9 @@ def check_draft_struct(
     dlg = dialogue_ratio(text)
     if dlg < 0.15:
         return _fail("dialogue_floor", f"对白占比 {dlg:.1%} 低于 15%")
+    opener = check_opener_announce(text)
+    if not opener.get("ok"):
+        return opener
     from scribe3.playbook.chengse import check_chengse_filter
     ch = check_chengse_filter(text)
     if not ch.get("ok"):
@@ -612,6 +654,9 @@ def check_final_last_mile(
     tics = check_syntax_tics(prose_text)
     if not tics.get("ok"):
         return tics
+    opener = check_opener_announce(prose_text)
+    if not opener.get("ok"):
+        return opener
     from scribe3.playbook.chengse import check_chengse_filter
     ch = check_chengse_filter(prose_text)
     if not ch.get("ok"):

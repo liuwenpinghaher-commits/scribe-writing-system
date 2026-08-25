@@ -88,14 +88,13 @@
 
 ## 进度
 
-- 阶段：能力 0 代码已落（反着教必死）。旧过夜已结案。下一轮开能力 1「日子」。
+- 阶段：能力 1 代码已落（日子）。下一轮开能力 2「办事」。
 - 现网样例 slug：`book_46cff31a`《井台灯》（可继作证据，本切片不写下一场）
 - 累计汉字：2261（第 1 章旧过夜遗留；本切片不算成色过关）
-- 能力闭合：0 代码闭合 / 1–7 未开
-- 对照.md 进生成/审判真源：否
+- 能力闭合：0–1 代码闭合 / 2–7 未开
+- 对照.md 进生成/审判真源：否（日子已进 duty 闸，尚未整份接真源）
 - 可停：否
 - 阻塞：无
-- 门禁：`test_chengse` + `test_playbook32` + `test_final_reminder_core` + `test_craft_block_injected` → 30 passed
 
 ### 能力 0 · 反着教必死
 
@@ -104,3 +103,11 @@
 已做：删 `PROTOCOL_STYLE_LEGACY` 与 `_LUANSHI_EXEMPLAR`。写协议无论旗开关都不教词表。关旗只停过滤 / 成色生成审判块。回退 = revert 本能力 commit。
 
 证据：`scribe3/tests/test_chengse.py` 主路径 + 关旗都不含「多用'端的、岂料」；源码钉无 `PROTOCOL_STYLE_LEGACY` / `_LUANSHI_EXEMPLAR`。本切片不写《井台灯》下一场。
+
+### 能力 1 · 日子
+
+现系统为什么写不出（施工前）：`check_duty_struct` 只问 `must_happen` 非空。开篇报身份、扔钩子、先宣布法会也能过。`narrative_drive.openers_plan.first_beat_must` 催开篇外力，和对照.md「先立还在过的日子」反着。
+
+已做：责任卡必有 `day`。报身份 / 扔钩子 / 先宣布法会 → `duty_day_announce`。糙稿/定稿开篇叙述同拒。开篇闸改成先立日子。升 `playbook.3.2.7`。回退 = revert。
+
+证据：`test_duty_day_blocks_identity_announce`。本切片不写《井台灯》下一场。

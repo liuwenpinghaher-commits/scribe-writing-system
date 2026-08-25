@@ -1,4 +1,4 @@
-"""playbook.3.2.6 identity + generate/judge prompts. 改法官问卷或门槛才升版本。"""
+"""playbook.3.2.7 identity + generate/judge prompts. 改法官问卷或门槛才升版本。"""
 from __future__ import annotations
 
 import json
@@ -12,7 +12,7 @@ IDENTITY_NOVELIST = (
     "具体的时间、具体的地方、谁在办哪一件。读完要能看见日子怎么变，"
     "不是报身份、扔钩子、升华收尾。"
 )
-IDENTITY_DUTY = "你是这本书的主编剧，管整本书的账房：每章办什么事、付什么账，你说了算。"
+IDENTITY_DUTY = "你是这本书的主编剧，管整本书的账房：先立还在过的日子，再立每章办什么事、付什么账。"
 IDENTITY_PLAY = (
     "你是这本书的场记导演。你写的是给剧组看的一场戏："
     "谁在场、发生哪一件事、两难落在哪个动作、账怎么付、章末悬着什么。"
@@ -177,19 +177,21 @@ def duty_generate(ctx: dict) -> str:
 【相关设定】{ctx.get("codex_recall") or "（无）"}
 【全书秘密清单】{ctx.get("secret_list") or []}
 
-立五件事：
-1. must_happen——本章必须办的一件事。
+立六件事：
+1. day——还在过的日子。检验：读者能不能看见人正在过什么（排队、过秤、喜酒还没散），而不是报身份。
+   开篇报身份、扔钩子、先宣布法会 = 废卡。
+2. must_happen——本章必须办的一件事。必须从 day 里长出来。
    检验：能不能用一个动作说清（谁在什么物件上做什么）？
-2. bill——本章的账：办成这件事必须付出的、收不回来的东西。
+3. bill——本章的账：办成这件事必须付出的、收不回来的东西。
    账必须从这章的具体处境里长出来，不是从类型里挑一个。
-3. who——在场做事的人，只能从户口里选。
+4. who——在场做事的人，只能从户口里选。
    除焦点者外，至少还要有一个有意志的人（对手/同伴/旁观者——能说话或能对抗的）。
    整章只有焦点者一个人的责任卡，不成立。
-4. forbidden_reveal——从秘密清单里选本章还不能揭的。
-5. 第二人要能在这场戏里做事，不能只站着。
+5. forbidden_reveal——从秘密清单里选本章还不能揭的。
+6. 第二人要能在这场戏里做事，不能只站着。
 {_iron_tail(ctx)}
 输出 JSON（不输出任何别的文字）：
-{{"must_happen": "...", "bill": "...", "who": ["..."],
+{{"day": "还在过的日子", "must_happen": "...", "bill": "...", "who": ["..."],
  "forbidden_reveal": ["..."], "line_to_touch": "线id 或 null"}}
 """
 
@@ -203,7 +205,7 @@ def duty_judge_v2(ctx: dict) -> str:
 【上一章章末钩子】{ctx.get("prev_hook_quote") or "（第1章无）"}
 
 七问：
-1. must_happen 是不是一个可演的具体动作（不是情绪/方向/主题）？
+1. day 是还在过的日子吗？must_happen 是不是从日子里长出来的可演动作？开篇报身份/扔钩子/先宣布法会 → 不过。
 2. bill 是不是一笔收不回来的账（不是"付出代价"这种空话）？
 3. 这份责任和近 3 章的账单同类型吗？（同质 → 不过）
 4. 这份责任接住上一章的钩子了吗？（字符串核对是机器的事，你只判「责任与钩子有没有关系」）
@@ -228,7 +230,7 @@ def duty_judge(ctx: dict) -> str:
 【全书意象域】{_imagery_line(ctx)}
 
 八问：
-1. must_happen 是不是一个可演的具体动作（不是情绪/方向/主题）？
+1. day 是还在过的日子吗？must_happen 是不是从日子里长出来的可演动作（不是情绪/方向/主题）？开篇报身份/扔钩子/先宣布法会 → 不过。
 2. bill 是不是一笔收不回来的账（不是"付出代价"这种空话）？
 3. 这份责任和近 3 章的账单同类型吗？（同质 → 不过）
 4. 这份责任接住上一章的钩子了吗？（字符串核对是机器的事，你只判「责任与钩子有没有关系」）
@@ -247,6 +249,7 @@ def play_generate(ctx: dict) -> str:
     return f"""写第 {ctx.get("seq")} 章的戏。这是给全书定"这一章发生什么"的一篇短戏，不是给读者的正文。
 {_iron_head(ctx)}{craft_generate_block()}
 【本章责任】（责任卡已冻结，严格照此写，不得另办一件事）
+- 还在过的日子：{d.get("day")}
 - 要办的一件事：{d.get("must_happen")}
 - 要付的账：{d.get("bill")}
 - 在场做事的人：{d.get("who")}
@@ -654,4 +657,4 @@ def identity_for(kind: str) -> str:
     return IDENTITY_NOVELIST
 
 
-assert PLAYBOOK_VERSION == "playbook.3.2.6"
+assert PLAYBOOK_VERSION == "playbook.3.2.7"

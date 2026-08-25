@@ -218,6 +218,19 @@ def test_good_contract_passes():
     assert check_contract_struct(_sample_contract(PLAY), PLAY)["ok"] is True
 
 
+def _duty_ctx(**extra):
+    ctx = {
+        "seq": 1,
+        "focalizer": "沈烛若",
+        "available_cast": ["沈烛若"],
+        "available_lines": [],
+        "prev_hook_quote": None,
+        "synopsis": "井台上还在排队。沈烛若必须决定按不按回碎片。",
+    }
+    ctx.update(extra)
+    return ctx
+
+
 def _pass_llm(kind_text: dict[str, str]):
     def llm_fn(prompt, max_tokens=2048, system="", temperature=0.8):
         if "你是审稿的" in prompt or "五问" in prompt or "两问" in prompt or "六问" in prompt or "七问" in prompt or "四问" in prompt or "八问" in prompt or "三问" in prompt or "九问" in prompt or "十一问" in prompt or "十二问" in prompt:
@@ -226,8 +239,9 @@ def _pass_llm(kind_text: dict[str, str]):
                 "verdict": "pass",
                 "opinion": "",
             }, ensure_ascii=False)
-        if "立\"责任\"" in prompt or "立四件事" in prompt or "立五件事" in prompt:
+        if "立\"责任\"" in prompt or "立四件事" in prompt or "立五件事" in prompt or "立六件事" in prompt:
             return json.dumps({
+                "day": "井台上还在排队打水",
                 "must_happen": "沈烛若把碎片按回胸口",
                 "bill": "四十二度成了他的常态",
                 "who": ["沈烛若"],
@@ -269,14 +283,7 @@ def _pass_llm(kind_text: dict[str, str]):
 def test_force_later_layer_leaves_play_sha():
     store = MemoryPlaybookStore()
     llm = _pass_llm({})
-    ctx = {
-        "seq": 1,
-        "focalizer": "沈烛若",
-        "available_cast": ["沈烛若"],
-        "available_lines": [],
-        "prev_hook_quote": None,
-        "forbidden_reveal": ["炉认主"],
-    }
+    ctx = _duty_ctx(forbidden_reveal=["炉认主"])
     d = run_stage(store, 1, "duty", llm_fn=llm, ctx=ctx)
     assert d["ok"] is True
     design = run_stage(store, 1, "design", llm_fn=llm, ctx={**ctx, "duty": d["artifact"]})
@@ -292,11 +299,7 @@ def test_force_later_layer_leaves_play_sha():
 def test_rewrite_design_supersedes_play_and_downstream():
     store = MemoryPlaybookStore()
     llm = _pass_llm({})
-    ctx = {
-        "seq": 1, "focalizer": "沈烛若",
-        "available_cast": ["沈烛若"], "available_lines": [],
-        "prev_hook_quote": None,
-    }
+    ctx = _duty_ctx()
     d = run_stage(store, 1, "duty", llm_fn=llm, ctx=ctx)
     design = run_stage(store, 1, "design", llm_fn=llm, ctx={**ctx, "duty": d["artifact"]})
     old_sha = design["sha"]
@@ -525,11 +528,7 @@ def test_playbook_persists_via_surreal_mixin_methods():
 def test_rewrite_persists_downstream_supersede_on_copying_store():
     store = CopyingStore()
     llm = _pass_llm({})
-    ctx = {
-        "seq": 1, "focalizer": "沈烛若",
-        "available_cast": ["沈烛若"], "available_lines": [],
-        "prev_hook_quote": None,
-    }
+    ctx = _duty_ctx()
     d = run_stage(store, 1, "duty", llm_fn=llm, ctx=ctx)
     run_stage(store, 1, "design", llm_fn=llm, ctx={**ctx, "duty": d["artifact"]})
     run_stage(store, 1, "deduce", llm_fn=llm, ctx=ctx)
@@ -551,7 +550,7 @@ def test_json_parse_fail_is_infra_not_needs_human():
 
     out = run_stage(
         store, 1, "duty", llm_fn=llm_fn,
-        ctx={"seq": 1, "available_cast": ["沈烛若"], "prev_hook_quote": None},
+        ctx=_duty_ctx(),
     )
     assert out.get("ok") is False
     assert out.get("code") == "infra"
@@ -562,11 +561,7 @@ def test_review_and_freeze_play_supersedes_old():
     from scribe3.playbook.pipeline import review_and_freeze_play
     store = CopyingStore()
     llm = _pass_llm({})
-    ctx = {
-        "seq": 1, "focalizer": "沈烛若",
-        "available_cast": ["沈烛若"], "available_lines": [],
-        "prev_hook_quote": None,
-    }
+    ctx = _duty_ctx()
     d = run_stage(store, 1, "duty", llm_fn=llm, ctx=ctx)
     first = run_stage(store, 1, "design", llm_fn=llm, ctx={**ctx, "duty": d["artifact"]})
     old = first["sha"]
@@ -602,11 +597,7 @@ def test_final_last_mile_calls_finalize_gate(monkeypatch):
     monkeypatch.setattr(pipeline_mod, "check_final_last_mile", wrapped)
     store = MemoryPlaybookStore()
     llm = _pass_llm({})
-    ctx = {
-        "seq": 1, "focalizer": "沈烛若",
-        "available_cast": ["沈烛若"], "available_lines": [],
-        "prev_hook_quote": None,
-    }
+    ctx = _duty_ctx()
     d = run_stage(store, 1, "duty", llm_fn=llm, ctx=ctx)
     run_stage(store, 1, "design", llm_fn=llm, ctx={**ctx, "duty": d["artifact"]})
     run_stage(store, 1, "deduce", llm_fn=llm, ctx=ctx)
