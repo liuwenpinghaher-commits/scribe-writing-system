@@ -22,7 +22,7 @@
 | status | **BLOCKED** |
 | last_card | （尚未） |
 | blocked_at | 2026-08-25T15:02Z |
-| last_recheck | 2026-08-25T15:10Z |
+| last_recheck | 2026-08-25T15:27Z |
 | blocked_reason | 缺原文 `docs/worlds/诡秘之主-全文.md`；同时缺 `lotm-full-cards-loop.md`、`诡秘之主-拆文/PROMPTS.md`、`章卡/89.md`、索引。空壳章卡目录 0 卡。B 同 BLOCKED。Drive/Gmail 空。demo SSH（`~/.ssh/id_tencent_lh` → 82.157.130.140）本云端无密钥，无法从宿主机取全文。不编造章卡、不外网扒书。 |
 
 ## 一夜 goal（本会话）
