@@ -76,7 +76,7 @@
 合同：左轨「技法标尺」= 参考作品 / 质量审阅 / 质量合同。不是仪表盘、不是文学总分。`craft_ruler.py` 只是情绪曲线 advisory。
 **已改：** 创建评价不再手填合同 ID，绑定本书 `quality-contract:{work}` 已批准修订；没有批准合同则禁用创建。合同页已批准标尺加载失败要响。栏2 标题与空态改成「技法标尺」。
 **测：** QualityReview + QualityContractEditor + 入口/弱章跳转 31 passed。
-**已合入，待 frontend 热更。** 未改评价算法、指纹生成、十维权重。
+**已合入并热更：** `f64f5323`。frontend `FRONTEND_DEPLOY_OK`，首页 `index-j3oc4sue.js`。宿主机与 nginx `index.html` 哈希一致。nginx unlink busy 非致命。强制刷新后再开技法标尺。未改评价算法、指纹生成、十维权重。
 
 ### 素材库 P3（2026-08-25）
 
