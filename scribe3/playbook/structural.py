@@ -17,6 +17,7 @@
 - duty.day：必须先立还在过的日子；开篇报身份/扔钩子/先宣布法会不过
 - duty.work：嘴上要的和真正缺的必须打架；鉴定式人设/杯子余温/剖心不过
 - duty.mask：假破真；先反面再破功；上来掏底牌不过
+- duty.dist：远近；共情就把眼睛交给当场那个人；人还在办事时报年号/上课不过
 """
 from __future__ import annotations
 
@@ -53,6 +54,12 @@ _APPRAISAL_TELL = re.compile(
 )
 # 对照.md 二：假破真。上来掏底牌不过。
 _DUMP_TRUTH = re.compile(r"掏底牌|真相是|原来是|其实是|底牌就是|先把真意")
+# 对照.md 一：远近。人还在办事时报年号/上课不过。
+_LECTURE = re.compile(
+    r"报年号|铺戒律|先上课|评点先|说书站到外头"
+    r"|北宋[，,、]?\s*雍熙|雍熙三年|把天地比成"
+)
+_CAMERA_OUT = re.compile(r"说书|旁白|作者视角|站到外头")
 CLOCK_SPANS = frozenset({"scene", "day", "days"})
 CORE_FIELDS = ("goal", "choice", "decision", "hook")
 FIVE_LAYERS = ("perceived", "known", "believed", "acted", "blind")
@@ -123,6 +130,28 @@ def check_duty_mask(duty: dict[str, Any]) -> dict[str, Any]:
     return _ok()
 
 
+def check_duty_dist(duty: dict[str, Any]) -> dict[str, Any]:
+    """远近：共情就把眼睛交给当场那个人。人还在办事时报年号/上课不过。"""
+    eye = str((duty or {}).get("eye") or "").strip()
+    dist = str((duty or {}).get("dist") or "near").strip().lower()
+    if dist in ("远", "旁观"):
+        dist = "far"
+    if dist in ("近", "共情", ""):
+        dist = "near"
+    happen = str((duty or {}).get("must_happen") or "").strip()
+    blob = f"{eye}\n{happen}\n{str((duty or {}).get('day') or '')}"
+    if not eye:
+        return _fail("duty_eye_empty", "eye 不能空：共情就把眼睛交给当场那个人", "eye")
+    if dist not in ("near", "far"):
+        return _fail("duty_dist_bad", "dist 只能是 near 或 far。要人旁观才写 far", "dist")
+    if dist != "far":
+        if _LECTURE.search(blob) or _LECTURE.search(eye):
+            return _fail("duty_dist_lecture", "要人共情，把眼睛交给当场那个人。人还在办事时报年号、上课不过", "eye")
+        if _CAMERA_OUT.search(eye):
+            return _fail("duty_dist_outside", "眼睛交给了说书/旁白。要人旁观才站外头", "eye")
+    return _ok()
+
+
 def check_opener_announce(text: str) -> dict[str, Any]:
     """开篇头一段叙述不得报身份/扔钩子/先宣布法会。"""
     narr = narration_layer(text or "")
@@ -132,6 +161,21 @@ def check_opener_announce(text: str) -> dict[str, Any]:
     m = _OPENER_ANNOUNCE.search(head)
     if m:
         return _fail("opener_announce", f"开篇在报身份或先宣布法会：「{m.group(0)}」。先立还在过的日子。")
+    lec = check_opener_lecture(text)
+    if not lec.get("ok"):
+        return lec
+    return _ok()
+
+
+def check_opener_lecture(text: str) -> dict[str, Any]:
+    """开篇叙述不得报年号、铺戒律、先上课。"""
+    narr = narration_layer(text or "")
+    head = re.sub(r"\s+", "", narr)[:180]
+    if not head:
+        return _ok()
+    m = _LECTURE.search(head)
+    if m:
+        return _fail("opener_lecture", f"开篇在报年号或上课：「{m.group(0)}」。共情就把眼睛交给当场那个人。")
     return _ok()
 
 
@@ -194,6 +238,9 @@ def check_duty_struct(
     mask_hit = check_duty_mask(duty)
     if not mask_hit.get("ok"):
         return mask_hit
+    dist_hit = check_duty_dist(duty)
+    if not dist_hit.get("ok"):
+        return dist_hit
     fr = duty.get("forbidden_reveal")
     if not isinstance(fr, list) or not [x for x in fr if str(x).strip()]:
         return _fail("duty_forbid_empty", "forbidden_reveal 不能空", "forbidden_reveal")

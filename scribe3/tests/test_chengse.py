@@ -28,18 +28,21 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.9"
+    assert PLAYBOOK_VERSION == "playbook.3.2.10"
     d = duty_generate({"seq": 1})
     assert "【成色·验戏不验词表】" in d
     assert "先立还在过的日子" in d
-    assert "立九件事" in d
+    assert "立十件事" in d
     assert "mask" in d and "crack" in d and "real" in d
+    assert "eye" in d and "dist" in d
     p = play_generate({"seq": 1, "duty": {}})
     assert "假破真" in p
     assert "假破真是这章的骨头" in p
     assert "两难是这章的心脏" not in p
+    assert "眼睛交给当场那个人" in p
     from scribe3.playbook.prompts import identity_for
     assert "两难落在哪个动作" not in identity_for("play")
+    assert "眼睛交给谁" in identity_for("play")
     dr = draft_generate({})
     assert "切在能听见看见" in dr
     f = final_generate({})
@@ -286,6 +289,102 @@ def test_duty_mask_blocks_dump_and_same_sentence():
         must_happen="沈槐把空盏摘下来",
     )
     assert check_duty_struct(good, available_cast=["沈槐"])["ok"] is True
+
+
+def test_duty_dist_blocks_lecture_and_empty_eye():
+    from scribe3.playbook.context import make_duty
+    from scribe3.playbook.structural import check_duty_struct, check_opener_announce
+
+    lecture = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        mask="井台认油",
+        crack="空盏",
+        real="不是自家油",
+        eye="说书站到外头报年号",
+        dist="near",
+        must_happen="沈槐把空盏摘下来",
+    )
+    hit = check_duty_struct(lecture, available_cast=["沈槐"])
+    assert hit["ok"] is False
+    assert hit["code"] == "duty_dist_lecture"
+
+    empty = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        mask="井台认油",
+        crack="空盏",
+        real="不是自家油",
+        must_happen="沈槐把空盏摘下来",
+    )
+    empty["eye"] = ""
+    miss = check_duty_struct(empty, available_cast=["沈槐"])
+    assert miss["ok"] is False
+    assert miss["code"] == "duty_eye_empty"
+
+    outside = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        mask="井台认油",
+        crack="空盏",
+        real="不是自家油",
+        eye="作者视角旁白",
+        dist="near",
+        must_happen="沈槐把空盏摘下来",
+    )
+    hit2 = check_duty_struct(outside, available_cast=["沈槐"])
+    assert hit2["ok"] is False
+    assert hit2["code"] == "duty_dist_outside"
+
+    far_ok = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        mask="井台认油",
+        crack="空盏",
+        real="不是自家油",
+        eye="站到外头报年号",
+        dist="far",
+        must_happen="沈槐把空盏摘下来",
+    )
+    assert check_duty_struct(far_ok, available_cast=["沈槐"])["ok"] is True
+
+    near_ok = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        mask="井台认油",
+        crack="空盏",
+        real="不是自家油",
+        eye="沈槐",
+        dist="near",
+        must_happen="沈槐把空盏摘下来",
+    )
+    assert check_duty_struct(near_ok, available_cast=["沈槐"])["ok"] is True
+
+    opener = check_opener_announce("北宋，雍熙三年。井台上还在排队。")
+    assert opener["ok"] is False
+    assert opener["code"] == "opener_lecture"
+    ok_open = check_opener_announce("井台上还在排队。沈槐把空盏摘下来。")
+    assert ok_open["ok"] is True
 
 
 def test_source_has_no_classical_teaching_path():

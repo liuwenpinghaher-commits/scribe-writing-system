@@ -250,6 +250,8 @@ def make_duty(prev: dict[str, Any] | None = None, *, seq: int = 2, **fields: Any
         "mask": fields.get("mask") or "先给的反面",
         "crack": fields.get("crack") or "破功的那一下",
         "real": fields.get("real") or "破完才落的真意",
+        "eye": fields.get("eye") or fields.get("focalizer") or "沈烛若",
+        "dist": fields.get("dist") or "near",
         "bill": fields.get("bill") or "付账",
         "forbidden_reveal": list(fields.get("forbidden_reveal") or ["秘密"]),
         "bite_from_prev": None if int(seq) == 1 else hook,

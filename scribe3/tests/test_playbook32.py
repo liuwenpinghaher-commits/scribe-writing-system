@@ -17,7 +17,7 @@ PLAY = "完全另一场戏，没有盒子也没有袖口。" * 40
 
 
 def test_version_is_32():
-    assert PLAYBOOK_VERSION == "playbook.3.2.9"
+    assert PLAYBOOK_VERSION == "playbook.3.2.10"
     assert "playbook.3.2" in VERSIONED_RUBRICS
     assert "playbook.3.2.1" in VERSIONED_RUBRICS
     assert "playbook.3.2.2" in VERSIONED_RUBRICS
@@ -28,6 +28,7 @@ def test_version_is_32():
     assert "playbook.3.2.7" in VERSIONED_RUBRICS
     assert "playbook.3.2.8" in VERSIONED_RUBRICS
     assert "playbook.3.2.9" in VERSIONED_RUBRICS
+    assert "playbook.3.2.10" in VERSIONED_RUBRICS
     assert "playbook.3.1" in VERSIONED_RUBRICS
 
 

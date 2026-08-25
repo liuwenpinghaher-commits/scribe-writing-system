@@ -239,7 +239,7 @@ def _pass_llm(kind_text: dict[str, str]):
                 "verdict": "pass",
                 "opinion": "",
             }, ensure_ascii=False)
-        if "立\"责任\"" in prompt or "立四件事" in prompt or "立五件事" in prompt or "立六件事" in prompt or "立八件事" in prompt or "立九件事" in prompt:
+        if "立\"责任\"" in prompt or "立四件事" in prompt or "立五件事" in prompt or "立六件事" in prompt or "立八件事" in prompt or "立九件事" in prompt or "立十件事" in prompt:
             return json.dumps({
                 "day": "井台上还在排队打水",
                 "said": "认自家攒的油",
@@ -247,6 +247,8 @@ def _pass_llm(kind_text: dict[str, str]):
                 "mask": "井台认油",
                 "crack": "空盏",
                 "real": "不是自家油",
+                "eye": "沈烛若",
+                "dist": "near",
                 "must_happen": "沈烛若把碎片按回胸口",
                 "bill": "四十二度成了他的常态",
                 "who": ["沈烛若"],
