@@ -243,6 +243,27 @@ def check_duty_owed(duty: dict[str, Any], *, prev_stay: str | None = None) -> di
     return _ok()
 
 
+def check_duty_heat_new(duty: dict[str, Any], *, prev_heat: str | None = None) -> dict[str, Any]:
+    """热闹不得和上场同一套。假翻不犯同一种热闹。"""
+    seq = int((duty or {}).get("seq") or 0)
+    heat_prev = str(prev_heat or "").strip()
+    if seq <= 1 or not heat_prev:
+        return _ok()
+    heat = str((duty or {}).get("heat") or "").strip()
+    if not heat:
+        return _ok()
+    a = re.sub(r"\s+", "", heat)
+    b = re.sub(r"\s+", "", heat_prev)
+    if a == b:
+        return _fail("duty_heat_repeat", "热闹不得和上场同一套。假翻不犯同一种热闹", "heat")
+    grams = _stay_grams(heat_prev)
+    need = 3 if len(grams) >= 3 else max(2, len(grams))
+    hits = [g for g in grams if g and g in heat]
+    if len(hits) >= need:
+        return _fail("duty_heat_repeat", "热闹不得和上场同一套。假翻不犯同一种热闹", "heat")
+    return _ok()
+
+
 def check_duty_flip(duty: dict[str, Any]) -> dict[str, Any]:
     """热闹不算翻。热闹像翻了、处境还停在原处，不过。"""
     heat = str((duty or {}).get("heat") or "").strip()
@@ -328,6 +349,7 @@ def check_duty_struct(
     available_lines: list[Any] | None = None,
     prev_hook_quote: str | None = None,
     prev_stay: str | None = None,
+    prev_heat: str | None = None,
 ) -> dict[str, Any]:
     def _who(x: str) -> str:
         s = str(x or "").strip()
@@ -364,6 +386,9 @@ def check_duty_struct(
     owed_hit = check_duty_owed(duty, prev_stay=prev_stay)
     if not owed_hit.get("ok"):
         return owed_hit
+    heat_hit = check_duty_heat_new(duty, prev_heat=prev_heat)
+    if not heat_hit.get("ok"):
+        return heat_hit
     fr = duty.get("forbidden_reveal")
     if not isinstance(fr, list) or not [x for x in fr if str(x).strip()]:
         return _fail("duty_forbid_empty", "forbidden_reveal 不能空", "forbidden_reveal")

@@ -28,7 +28,7 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.16"
+    assert PLAYBOOK_VERSION == "playbook.3.2.17"
     d = duty_generate({"seq": 1})
     assert "【对照·真源】" in d
     assert "【成色·验戏不验词表】" not in d
@@ -719,6 +719,69 @@ def test_duty_owed_blocks_cleared_stay():
         must_happen="沈槐把空盏摘下来",
     )
     assert check_duty_struct(ch1, available_cast=["沈槐"])["ok"] is True
+
+
+def test_duty_heat_blocks_same_flip():
+    """热闹不得和上场同一套。假翻不犯同一种热闹。"""
+    from scribe3.playbook.context import make_duty
+    from scribe3.playbook.structural import check_duty_struct
+
+    prev_heat = "井台上有人认了这盏油"
+    prev_stay = "油罐仍贴在棉袄里，没一个人当众认那盏灯。"
+    hook = "那盏灯在横担上烧着，火光比先前稳了些。"
+    same = make_duty(
+        seq=2,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        mask="井台认油",
+        crack="空盏",
+        real="不是自家油",
+        eye="沈槐",
+        dist="near",
+        cut="空盏磕在井沿上",
+        one_line="他把空盏摘下来",
+        keep="灯油不是自家攒的，空盏才露出来",
+        heat=prev_heat,
+        stay="沈槐还排在队尾，油罐仍贴在棉袄里",
+        owed="没一个人当众认那盏灯",
+        must_happen="沈槐把空盏摘下来",
+    )
+    same["bite_from_prev"] = hook
+    hit = check_duty_struct(
+        same, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=prev_stay, prev_heat=prev_heat,
+    )
+    assert hit["ok"] is False
+    assert hit["code"] == "duty_heat_repeat"
+
+    fresh = make_duty(
+        seq=2,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        mask="井台认油",
+        crack="空盏",
+        real="不是自家油",
+        eye="沈槐",
+        dist="near",
+        cut="空盏磕在井沿上",
+        one_line="他把空盏摘下来",
+        keep="灯油不是自家攒的，空盏才露出来",
+        heat="有人趴下看井口，说黑得发亮",
+        stay="沈槐还排在队尾，油罐仍贴在棉袄里",
+        owed="没一个人当众认那盏灯",
+        must_happen="沈槐把空盏摘下来",
+    )
+    fresh["bite_from_prev"] = hook
+    assert check_duty_struct(
+        fresh, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=prev_stay, prev_heat=prev_heat,
+    )["ok"] is True
 
 
 def test_draft_len_does_not_kill_lived_scene():

@@ -239,6 +239,20 @@ def prev_stay(store: Any, seq: int) -> str | None:
     return stay or None
 
 
+def prev_heat(store: Any, seq: int) -> str | None:
+    """上场热闹像翻了的那一层。旧卡没 heat 不拦。"""
+    if int(seq) <= 1:
+        return None
+    fn = getattr(store, "get_frozen", None)
+    if not callable(fn):
+        return None
+    duty = fn("duty_card", int(seq) - 1)
+    if not isinstance(duty, dict):
+        return None
+    heat = str(duty.get("heat") or "").strip()
+    return heat or None
+
+
 def prev_play_with_hook(quote: str) -> dict[str, Any]:
     """Contract-shaped stub whose hook.quote is the bite source."""
     q = str(quote or "")
@@ -936,6 +950,7 @@ def build_ctx(
         "available_lines": available_lines(world),
         "prev_hook_quote": prev_hook_quote(frozen, seq),
         "prev_stay": prev_stay(frozen, seq),
+        "prev_heat": prev_heat(frozen, seq),
         "secret_list": secret_list(world),
         "prev_state": prev_state,
         "imagery": book_imagery(world),
