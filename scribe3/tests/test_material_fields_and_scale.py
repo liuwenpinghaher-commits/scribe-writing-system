@@ -105,7 +105,7 @@ def test_material_graph_focus_hop(store):
     assert "truncated" in focused
 
 
-def test_import_commit_origin_and_near_dup_warning(store, monkeypatch):
+def test_import_commit_blocks_near_duplicate(store, monkeypatch):
     existing = store.add_material("重复标题素材", "已有正文", "note", summary="旧")
     monkeypatch.setattr(store, "build_material_edges", lambda *_a, **_k: None)
     store.save_import_job("job-near", {
@@ -120,18 +120,16 @@ def test_import_commit_origin_and_near_dup_warning(store, monkeypatch):
     ]})
     assert r.status_code == 200
     body = r.json()
-    assert body["created"] == 2
-    # 近重警告至少一条
-    stages = [w.get("stage") for w in body.get("warnings") or []]
-    assert "near_duplicate" in stages or any("重复" in (w.get("reason") or "") for w in body["warnings"])
-
-    rows = store.list_materials()
-    origins = {m["title"]: m.get("origin") for m in rows}
-    assert origins.get("全新素材") == "import"
-    # 单条可读 summary
-    fresh = next(m for m in rows if m["title"] == "全新素材")
+    assert body["created"] == 1
+    assert len(body["ids"]) == 1
+    failed = body.get("failed") or []
+    assert any(f.get("index") == 0 and "重复" in (f.get("reason") or "") for f in failed), failed
+    titles = [m["title"] for m in store.list_materials()]
+    assert titles.count("重复标题素材") == 1
+    fresh = next(m for m in store.list_materials() if m["title"] == "全新素材")
+    assert fresh.get("origin") == "import"
     assert fresh.get("summary") == "独"
-    assert existing  # keep linter happy
+    assert existing
 
 
 def test_session_clip_origin_and_emergency_off(store, monkeypatch):

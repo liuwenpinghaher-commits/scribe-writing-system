@@ -156,16 +156,26 @@ def split_and_tag(markdown: str, llm, source: str | None = None) -> list[dict]:
     return out
 
 
-def near_dup_warning_payload(dups: list[dict], index: int, title: str) -> dict | None:
-    """把 find_near_duplicate 结果压成 commit warning 形状;无候选则 None。"""
+def near_dup_block_reason(dups: list[dict]) -> str | None:
+    """近重命中则返回失败原因;无候选则 None。"""
     if not dups:
         return None
     top = dups[0]
+    return (
+        f"与已有素材重复,未入库: {top.get('title') or top.get('id')} "
+        f"(sim={top.get('sim')}, {top.get('reason')})"
+    )
+
+
+def near_dup_warning_payload(dups: list[dict], index: int, title: str) -> dict | None:
+    """兼容旧调用:近重压成 warning 形状。新路径用 near_dup_block_reason 挡入库。"""
+    reason = near_dup_block_reason(dups)
+    if not reason:
+        return None
     return {
         "index": index,
         "title": title,
         "stage": "near_duplicate",
-        "reason": f"疑似与已有素材重复: {top.get('title') or top.get('id')} "
-                  f"(sim={top.get('sim')}, {top.get('reason')})",
+        "reason": reason,
         "matches": dups,
     }

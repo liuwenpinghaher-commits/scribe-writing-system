@@ -146,8 +146,8 @@ def material_import_preview_ep(job_id: str, work: str = "main"):
             "items": job["items"]}
 
 def material_import_commit_ep(job_id: str, req: ImportCommitReq, work: str = "main"):
-    """作者确认(可编辑后)→ 批量落库 + 建联想边 + 近重警告。origin=import。"""
-    from scribe3.material_import import near_dup_warning_payload
+    """作者确认(可编辑后)→ 批量落库 + 建联想边。近重挡入库进 failed。origin=import。"""
+    from scribe3.material_import import near_dup_block_reason
     job = _import_job_get(job_id, work)
     if job is None:
         raise HTTPException(status_code=404, detail=f"导入任务 '{job_id}' 不存在或已清理")
@@ -165,18 +165,22 @@ def material_import_commit_ep(job_id: str, req: ImportCommitReq, work: str = "ma
             failed.append({"index": idx, "title": "", "reason": "标题为空"})
             continue
         try:
-            # 近重警告(不阻断)
             try:
                 dups = st.find_near_duplicate_materials(
                     title, it.get("body"), threshold=0.88, limit=3)
-                w = near_dup_warning_payload(dups, idx, title)
-                if w:
-                    warnings.append(w)
+                blocked = near_dup_block_reason(dups)
             except Exception as e:
                 warnings.append({
                     "index": idx, "title": title, "stage": "near_dup_scan",
                     "reason": str(e)[:200],
                 })
+                blocked = None
+            if blocked:
+                failed.append({
+                    "index": idx, "title": title, "reason": blocked,
+                    "matches": dups,
+                })
+                continue
             mid = st.add_material(
                 title, it.get("body"), it.get("kind") or "note",
                 it.get("tags"), it.get("source"),

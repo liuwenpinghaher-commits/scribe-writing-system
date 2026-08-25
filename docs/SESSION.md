@@ -76,7 +76,8 @@
 不改合同。插入按钮写「填入后才记引用」。去掉恒空的「历史主编记录」。健康度失败要响。空库探测 `materials_exist` 只探一条。简单视图列表走 SQL `LIMIT/START`。情绪卡标签不再装成笔记。`@` 有查询时把 `q` 交给服务端，素材请求失败不装空目录。`/objects/material` 删/归档走作者直管闸外。
 **测：** 前端 46 passed；后端 P2 焦点 12 passed。
 **已合入并热更：** `29b62a65`。hot `HEALTH_OK` + v634 27/27。frontend `FRONTEND_DEPLOY_OK`，首页 `index-CgbrcZ3v.js`。宿主机与 nginx `index.html` 哈希一致。nginx unlink busy 非致命。强制刷新后再验素材库来源筛、插入按钮、健康度。
-**余项已合入并热更：** `8dad78c6`。健康度走 SQL COUNT，不扫全表。全图节点 `LIMIT`，边只查 keep 集合。hot `HEALTH_OK` + v634 27/27。前端未改，首页仍 `index-CgbrcZ3v.js`。近重仍只 warning。P3 不拆 `Materials.jsx`。
+**余项已合入并热更：** `8dad78c6`。健康度走 SQL COUNT，不扫全表。全图节点 `LIMIT`，边只查 keep 集合。hot `HEALTH_OK` + v634 27/27。前端未改，首页仍 `index-CgbrcZ3v.js`。P3 不拆 `Materials.jsx`。
+**近重挡入库（代码已改，未合入）：** 导入 commit 近重进 `failed`，不落库；同批其余条照常。扫描失败仍 warning 放行。相关 pytest 5 passed。
 **SSRF 二次校验已合入并热更：** `643c5b4e`。导入 URL 解析 IP 后再检私网。hot `HEALTH_OK` + v634 27/27。前端未改，首页仍 `index-CgbrcZ3v.js`。
 
 ### 素材库 P0+P1（2026-08-25）
