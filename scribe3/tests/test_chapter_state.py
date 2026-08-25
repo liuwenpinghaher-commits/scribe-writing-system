@@ -35,7 +35,7 @@ def _ok_state(seq: int = 2) -> dict:
 
 
 def test_playbook_version_is_3():
-    assert PLAYBOOK_VERSION == "playbook.3.2.19"
+    assert PLAYBOOK_VERSION == "playbook.3.2.20"
     assert "playbook.3" in VERSIONED_RUBRICS
     assert "playbook.3.1" in VERSIONED_RUBRICS
     assert "playbook.3.2" in VERSIONED_RUBRICS
@@ -58,6 +58,7 @@ def test_playbook_version_is_3():
     assert "playbook.3.2.17" in VERSIONED_RUBRICS
     assert "playbook.3.2.18" in VERSIONED_RUBRICS
     assert "playbook.3.2.19" in VERSIONED_RUBRICS
+    assert "playbook.3.2.20" in VERSIONED_RUBRICS
     assert SCHEMA_NAME == "chapter_state.v1"
     assert "chapter_state" in TABLES
 
@@ -124,6 +125,29 @@ def test_gender_pronoun_skips_mixed_window():
     )
     assert still["ok"] is False
     assert still["code"] == "gender_pronoun"
+
+
+def test_gender_pronoun_does_not_count_focalizer_he_before_woman():
+    """限知「他」落在女人名旁不是翻户口。贴名写「杏花他」仍拦。"""
+    roster = [
+        {"name": "沈槐", "gender": "男"},
+        {"name": "杏花", "gender": "女"},
+        {"name": "老庚", "gender": "男"},
+    ]
+    lived = (
+        "沈槐盯着那截缝。杏花从队里出来，篮子提在左手里。"
+        "柜上那盏灯照着杏花半边脸。她把油瓶排到秤边。"
+        "沈槐不看你。他看井口。杏花的声音从那边过来。"
+        "沈槐看见杏花把那油瓶挂上秤钩。她拿笔在账本上写。"
+    )
+    hit = check_gender_pronoun(lived, roster)
+    assert hit["ok"] is True, hit
+    flip = check_gender_pronoun(
+        "杏花他把油瓶挂上秤钩。杏花他拿笔写沈槐。",
+        roster,
+    )
+    assert flip["ok"] is False
+    assert flip["code"] == "gender_pronoun"
 
 
 def test_thin_metaphors_drops_narrative_similes_keeps_dialogue():

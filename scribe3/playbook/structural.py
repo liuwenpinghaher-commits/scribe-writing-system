@@ -7,7 +7,7 @@
 - deduce 五层+矿条数
 - draft 非空/场面立住 + 相对戏的 8 字重复率 + 章边界词 + 明喻密度（字数不作完成）
 - final 字数 + 章边界词 + 明喻密度 + 必须有冻结契约 + finalize 最后一公里
-- gender_pronoun：上章末态/户口有性别的角色，正文名旁代词不得翻转
+- gender_pronoun：上章末态/户口有性别的角色，名后短窗代词不得翻转（限知「他」落在女人名旁不算翻户口）
 - state_quote：章末态每条人物/物件 quote 必须字面存在于冻稿
 - simile_density：明喻密度（draft/final 已有；对白内与豁免原句不计入）
 - pov_consistency：叙述人称沿用首章（剥对白后数「我」）
@@ -795,9 +795,10 @@ def dialogue_ratio(text: str) -> float:
 
 
 def check_gender_pronoun(text: str, characters: list[Any] | None = None) -> dict[str, Any]:
-    """角色名 ±30 字窗口内，对已登记男/女的角色统计他/她。反向上位则拦。
+    """角色名后短窗内，对已登记男/女的角色统计他/她。反向上位则拦。
 
-    同窗里出现另一个户口名字时跳过该窗：对手同框时「他」常指对方，不是把她写成男的。
+    只看名后，不看名前：限知第三人称的「他」常落在女人名旁，不是把她写成男的。
+    同窗里出现另一个户口名字时跳过该窗：对手同框时「他」常指对方。
     """
     blob = text or ""
     roster: list[tuple[str, str]] = []
@@ -808,6 +809,8 @@ def check_gender_pronoun(text: str, characters: list[Any] | None = None) -> dict
         gender = str(ch.get("gender") or "").strip()
         if name and gender in ("男", "女"):
             roster.append((name, gender))
+    after = 16
+    around = 16
     for name, gender in roster:
         windows: list[str] = []
         start = 0
@@ -815,11 +818,12 @@ def check_gender_pronoun(text: str, characters: list[Any] | None = None) -> dict
             i = blob.find(name, start)
             if i < 0:
                 break
-            lo = max(0, i - 30)
-            hi = min(len(blob), i + len(name) + 30)
-            win = blob[lo:hi]
+            lo = max(0, i - around)
+            hi = min(len(blob), i + len(name) + after)
+            ctx = blob[lo:hi]
+            win = blob[i + len(name) : hi]
             start = i + len(name)
-            if any(other != name and other in win for other, _ in roster):
+            if any(other != name and other in ctx for other, _ in roster):
                 continue
             windows.append(win)
         if not windows:
@@ -830,13 +834,13 @@ def check_gender_pronoun(text: str, characters: list[Any] | None = None) -> dict
         if gender == "男" and she_n > he_n:
             return _fail(
                 "gender_pronoun",
-                f"{name} 户口为男，名旁窗口「她」{she_n} 多于「他」{he_n}",
+                f"{name} 户口为男，名后窗口「她」{she_n} 多于「他」{he_n}",
                 name,
             )
         if gender == "女" and he_n > she_n:
             return _fail(
                 "gender_pronoun",
-                f"{name} 户口为女，名旁窗口「他」{he_n} 多于「她」{she_n}",
+                f"{name} 户口为女，名后窗口「他」{he_n} 多于「她」{she_n}",
                 name,
             )
     return _ok()
