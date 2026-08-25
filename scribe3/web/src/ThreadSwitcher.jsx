@@ -38,18 +38,24 @@ export function ThreadSwitcher({ busy = false }) {
   const menuRef = useRef(null)
   const current = snapshot?.thread_id || null
 
-  const pull = () => api.threads()
-    .then((d) => {
-      const list = d.threads || []
-      setThreads(list)
-      setError(false)
-      return list
-    })
-    .catch(() => {
+  const pull = () => {
+    if (typeof api.threads !== 'function') {
       setThreads([])
-      setError(true)
-      return []
-    })
+      return Promise.resolve([])
+    }
+    return api.threads()
+      .then((d) => {
+        const list = d.threads || []
+        setThreads(list)
+        setError(false)
+        return list
+      })
+      .catch(() => {
+        setThreads([])
+        setError(true)
+        return []
+      })
+  }
 
   // 打开菜单时拉列表
   useEffect(() => { if (open) pull() }, [open])

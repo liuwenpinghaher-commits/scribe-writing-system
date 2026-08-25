@@ -248,7 +248,7 @@ describe('ChiefDock UI', () => {
     expect(apiMock.runWrite.mock.calls[0][0]).toContain('请新增角色')
     expect(apiMock.runWrite.mock.calls[0][1]).toMatchObject({
       chapter: 7,
-      phase: '',
+      phase: 'outline',
     })
   })
 
@@ -322,5 +322,26 @@ describe('ChiefDock UI', () => {
     expect(chip.title).toContain('不限次数')
     expect(chip.title).not.toMatch(/\/\s*0/)
     expect(chip.title).not.toContain('日帽 0')
+  })
+
+  it('空会话说可以问，不说一切有账', async () => {
+    render(<Harness phase="outline" />)
+    expect(await screen.findByTestId('chief-empty')).toBeTruthy()
+    expect(screen.getByText('空会话可以问')).toBeTruthy()
+    expect(screen.queryByText(/一切有账/)).toBeNull()
+    expect(screen.getByTestId('chief-chat-composer')).toBeTruthy()
+    expect(screen.getByTestId('chief-status-strip')).toBeTruthy()
+  })
+
+  it('时间线种子标只讨论，写库句标会改库', async () => {
+    render(<Harness phase="outline" />)
+    const input = await screen.findByPlaceholderText(/就当前内容问主编/)
+    fireEvent.change(input, {
+      target: { value: '【时间线】围绕第4章的「井底夜审」只讨论下一笔可落地的动作（不要调用写库工具）。' },
+    })
+    expect(screen.getByTestId('chief-seed-origin').textContent).toBe('来自时间线')
+    expect(screen.getByTestId('chief-send-hint').textContent).toMatch(/只讨论/)
+    fireEvent.change(input, { target: { value: '请调用 s3_patch_character 写入落库(需我审批)' } })
+    expect(screen.getByTestId('chief-send-hint').textContent).toMatch(/改库/)
   })
 })

@@ -35,6 +35,8 @@ import { PilotDock } from './PilotDock'
 import { showToast } from './ui/Toast.jsx'
 import { Btn } from './ui.jsx'
 import { notifyWorldWriteApproved } from './lib/codexLifecycle.js'
+import { chiefEmptyCopy, chiefEmptyKind, pendingApprovalOf } from './lib/chiefReadable.js'
+import { ChiefStatusStrip } from './views/chief/ChiefStatusStrip.jsx'
 
 // P0b:早期摘要卡(折叠可展开)——近窗之外的更早讨论压缩在此;summary_error 红字如实示警。
 function ThreadSummaryCard({ meta }) {
@@ -179,7 +181,7 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, looki
               // Hermes MCP elicitation 常不带 approval_id;用 message+idx 防 React 同 key 刷屏
               const apKey = `${ap.run_id || ''}:${ap.approval_id || ap.message || ''}:${apIdx}`
               return (
-                <div key={apKey} className="border-l-2 border-brand/50 pl-2.5 py-1">
+                <div key={apKey} data-testid="chief-pending-card" className="border-l-2 border-brand/50 pl-2.5 py-1">
                   <div className="text-f12 font-medium text-ink">Hermes 请求审批</div>
                   <div className="mt-0.5 text-f12 text-faint whitespace-pre-wrap">{ap.message || '需要你确认后继续'}</div>
                   <div className="mt-2 flex items-center gap-2">
@@ -473,7 +475,7 @@ function ChiefModeBar({ seq }) {
 function WriteLayerRail({ seq }) {
   const [row, setRow] = useState(null)
   useEffect(() => {
-    if (seq == null) return undefined
+    if (seq == null || typeof api.pipelineTraces !== 'function') return undefined
     let cancelled = false
     const tick = () => {
       api.pipelineTraces({ chapter: seq, kind: 'write', limit: 8 })
@@ -1044,6 +1046,16 @@ function DiscussionDock({ sel, phase, ctxSeq, synopsisHall = false }) {
     })
   }
   sendRef.current = send
+  const pending = pendingApprovalOf(msgs)
+  const emptyKind = chiefEmptyKind({
+    work: api.getWork?.() || '',
+    msgs,
+    pending,
+    threadMode,
+    threadId,
+    threadMeta,
+  })
+  const emptyCopy = chiefEmptyCopy(emptyKind || 'empty_ask')
 
   return (
     <div data-testid="chief-chat-shell" className="h-full w-full min-w-0 bg-surface flex flex-col min-h-0 overflow-hidden">
@@ -1091,17 +1103,11 @@ function DiscussionDock({ sel, phase, ctxSeq, synopsisHall = false }) {
           </div>
         )}
         {msgs.length === 0 ? (
-          <div className="pt-1 space-y-2">
-            {/* 空态按会话类型分文案(作者语义:新建=界面清洁不是失忆):
-                有 parent=延续会话(近窗+摘要都带着);无 parent=手动全新会话 */}
-            {threadMode && threadMeta && (
-              threadMeta.parent_thread_id ? (
-                <div className="rounded-md bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">已延续上一会话的上下文(近窗对话+早期摘要)——主编记得之前聊的,这个新会话只是界面归档分组。</div>
-              ) : (
-                <div className="rounded-md bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">全新会话,不带对话历史——主编的长期记忆(设定圣经/伏笔/正典)仍然在。</div>
-              )
-            )}
-            <div className="rounded-md bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">就当前打开的这本书跟主编聊。主编会自己翻书，不用离开这栏。</div>
+          <div className="pt-1 space-y-2" data-testid="chief-empty">
+            <div className="rounded-md bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">
+              <div className="text-ink">{emptyCopy.title}</div>
+              <div className="mt-0.5">{emptyCopy.body}</div>
+            </div>
             <div className="space-y-1.5">
               {ctx.suggests.map((s) => (
                 <button key={s} onClick={() => send(s)}
@@ -1131,6 +1137,12 @@ function DiscussionDock({ sel, phase, ctxSeq, synopsisHall = false }) {
         <div ref={endRef} />
       </div>
 
+      <ChiefStatusStrip
+        label={ctx.label}
+        input={input}
+        pending={!!pending}
+        onJumpPending={() => document.querySelector('[data-testid="chief-pending-card"]')?.scrollIntoView({ block: 'nearest' })}
+      />
       {/* 输入区 */}
       <div className="shrink-0 border-t border-line/60 bg-surface px-3 py-2.5">
         <div

@@ -177,7 +177,7 @@ describe('ChiefDock 线程连续性(Task 6)', () => {
     const input = await screen.findByPlaceholderText(/就当前内容问主编/)
     fireEvent.change(input, { target: { value: '请只调用 s3_add_chapter 新建第1章，需审批' } })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
-    expect(runOptions).toBeTruthy()
+    await waitFor(() => expect(runOptions).toBeTruthy())
 
     // 真实竞态：首次线程历史的空结果先落地，随后网关才推送 Run/approval SSE。
     await act(async () => { resolveHistory([]) })
