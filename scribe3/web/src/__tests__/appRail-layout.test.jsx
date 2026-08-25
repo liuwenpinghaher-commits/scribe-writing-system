@@ -80,6 +80,38 @@ describe('AppRail 顶栏分组', () => {
     expect(theme.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
+  // 搜索紧跟视图，但不能跟 nav 共用一个可压缩盒子——nav 一被挤窄，「仪表盘」溢出后会被后绘制的搜索按钮盖住。
+  it('视图主群不可压缩，搜索不在视图盒内，胶囊只能自己收缩', () => {
+    render(
+      <AppRail
+        current={{ slug: 'demo', title: '示例作品' }}
+        view="insight"
+        onView={vi.fn()}
+        onOpenLibrary={vi.fn()}
+        theme="light"
+        onTheme={vi.fn()}
+        capsule={<div data-testid="workflow-capsule">{'进度胶囊'.repeat(20)}</div>}
+      />,
+    )
+
+    const primary = screen.getByTestId('topbar-primary')
+    const globalViews = screen.getByTestId('topbar-global-views')
+    const search = screen.getByTestId('topbar-search')
+    const capsule = screen.getByTestId('topbar-capsule')
+    const theme = screen.getByTestId('topbar-theme')
+
+    expect(primary.contains(globalViews)).toBe(true)
+    expect(primary.contains(search)).toBe(true)
+    expect(globalViews.contains(search)).toBe(false)
+    expect(primary.className).toMatch(/\bshrink-0\b/)
+    expect(globalViews.className).toMatch(/\bshrink-0\b/)
+    expect(capsule.className).toMatch(/min-w-0/)
+    expect(capsule.className).toMatch(/flex-1/)
+    expect(search.compareDocumentPosition(capsule) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(capsule.compareDocumentPosition(theme) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByRole('button', { name: /仪表盘/ })).toBeTruthy()
+  })
+
   // Task 3 收尾①:搜索触发是真交互——传 onSearch 时点击必回调,
   // 不传时点击派发既有 s3-open-capability 事件(打开左轨「搜索」能力),二者取实现实际行为。
   it('点击搜索触发会回调 onSearch,缺省则派发 s3-open-capability', () => {

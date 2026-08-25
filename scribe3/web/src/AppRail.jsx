@@ -35,46 +35,53 @@ export function AppRail({
 }) {
   return (
     <header data-testid="app-rail" style={{ height: PC_LAYOUT.topbar }}
-      className="shrink-0 flex items-center border-b border-line/70 bg-surface px-4 gap-3">
-      <BrandMark size={22} showWordmark />
-      <button onClick={onOpenLibrary} title="切换 / 选择作品"
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-f13 max-w-[200px] text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-brand">
-        <BookOpen size={14} className="shrink-0" />
-        <span className="truncate">{current ? current.title : '选择作品'}</span>
-        <ChevronDown size={11} className="shrink-0 opacity-50" />
-      </button>
-
-      {current && showViews && (
-        <>
-          <div className="w-px h-5 bg-line/80 shrink-0" data-testid="topbar-view-separator" />
-          <nav className="flex items-center gap-0.5 rounded-md bg-soft/70 p-0.5" data-testid="topbar-global-views">
-            {VIEWS.map(({ key, label, icon: Icon }) => {
-              const on = view === key
-              return (
-                <button key={key} onClick={() => onView(key)} aria-current={on ? 'page' : undefined}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-f13 transition-colors shrink-0 cursor-pointer ${on ? 'bg-surface text-brand font-medium shadow-sm' : 'text-faint hover:text-ink'}`}>
-                  <Icon size={14} /><span className="hidden sm:inline">{label}</span>
-                </button>
-              )
-            })}
-          </nav>
-        </>
-      )}
-
-      {/* 搜索触发区:紧随全局视图的全局动作。theme 的 ml-auto 把「主题·系统状态」整体推到右缘。 */}
-      {current && (
-        <button data-testid="topbar-search" onClick={() => triggerSearch(onSearch)}
-          title="全局搜索" aria-label="全局搜索"
-          className="w-8 h-8 rounded-lg text-faint hover:text-ink hover:bg-soft inline-flex items-center justify-center cursor-pointer shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-brand">
-          <Search size={15} />
+      className="shrink-0 flex items-center border-b border-line/70 bg-surface px-4 gap-3 min-w-0">
+      {/* 主群不可压缩：品牌·作品·横切视图·搜索必须完整可见。
+          旧实现里 nav 默认可收缩，子按钮 shrink-0 溢出去，后绘制的搜索会盖住「仪表盘」。 */}
+      <div className="flex items-center gap-3 shrink-0" data-testid="topbar-primary">
+        <BrandMark size={22} showWordmark />
+        <button onClick={onOpenLibrary} title="切换 / 选择作品"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-f13 max-w-[200px] text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-brand">
+          <BookOpen size={14} className="shrink-0" />
+          <span className="truncate">{current ? current.title : '选择作品'}</span>
+          <ChevronDown size={11} className="shrink-0 opacity-50" />
         </button>
-      )}
 
-      {/* 写作导演进度胶囊(P0)：放在搜索与右簇之间 */}
-      {current && capsule}
+        {current && showViews && (
+          <>
+            <div className="w-px h-5 bg-line/80 shrink-0" data-testid="topbar-view-separator" />
+            <nav className="flex items-center gap-0.5 rounded-md bg-soft/70 p-0.5 shrink-0" data-testid="topbar-global-views">
+              {VIEWS.map(({ key, label, icon: Icon }) => {
+                const on = view === key
+                return (
+                  <button key={key} onClick={() => onView(key)} aria-current={on ? 'page' : undefined}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-f13 transition-colors shrink-0 cursor-pointer ${on ? 'bg-surface text-brand font-medium shadow-sm' : 'text-faint hover:text-ink'}`}>
+                    <Icon size={14} /><span className="hidden sm:inline">{label}</span>
+                  </button>
+                )
+              })}
+            </nav>
+          </>
+        )}
+
+        {current && (
+          <button data-testid="topbar-search" onClick={() => triggerSearch(onSearch)}
+            title="全局搜索" aria-label="全局搜索"
+            className="w-8 h-8 rounded-lg text-faint hover:text-ink hover:bg-soft inline-flex items-center justify-center cursor-pointer shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-brand">
+            <Search size={15} />
+          </button>
+        )}
+      </div>
+
+      {/* 写作导演进度胶囊：夹在主群与右簇之间，窄栏只裁这一段。 */}
+      {current && capsule ? (
+        <div data-testid="topbar-capsule" className="flex-1 min-w-0 overflow-hidden">
+          {capsule}
+        </div>
+      ) : null}
 
       {/* 主题:保留为右簇锚点(ml-auto)。设置中心入口(Task 12)紧贴主题按钮前,同属右簇。 */}
-      <div className="ml-auto flex items-center gap-1" data-testid="topbar-theme">
+      <div className="ml-auto flex items-center gap-1 shrink-0" data-testid="topbar-theme">
         {isAdmin && (
           <button onClick={() => onView('admin')} aria-current={(view === 'admin' || (view === 'system')) ? 'page' : undefined}
             title={(view === 'admin' || view === 'system') ? '退出系统中心' : '管理台'}
