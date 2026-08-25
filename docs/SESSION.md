@@ -120,8 +120,8 @@
 ### craft-eval · 会拆才会写（2026-08-26）
 
 现行循环 SSOT：[`docs/plans/2026-08-26-craft-ruler-loop.md`](./plans/2026-08-26-craft-ruler-loop.md)（`craft-eval`）。先拆后写。P1 不写小说。
-**P0 已冻：** 留出 43 章 `scribe3/eval/holdout.json` hash `fb460682bfcff4f2345699068cf818893094e733b987f1c19a91c267dfda4649`。母本 30812 行在 gitignored `docs/worlds/乱世铜炉-全文.md`。`pytest scribe3/tests/test_craft_eval_p0.py` 4 passed。
-**未做：** 现网清书；P1 尺子；P0.4 生成侧债（等 before 分）。
+**P0 齐：** 留出冻结 hash `fb460682…da4649`。母本 30812 行 gitignored。现网三本书已 purge（手术室 / 井台灯 / 腕账），`/works` 空。
+**下一件：** P1.2 R1 评分器。拆卡产出已接线（`scribe3/eval/extract_card.py`），尚未对留出集打分。P0.4 生成侧债仍等 before 分。
 
 ### 时间线列表+抽屉（2026-08-25）
 

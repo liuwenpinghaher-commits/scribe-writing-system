@@ -204,16 +204,21 @@ P1 出口：R1/R2 在留出集上有数，天花板/地板/停机线三个数字
 
 ## 进度
 
-- 阶段：P0 进行中（母本行号 + 留出集已冻；现网清书未做）
+- 阶段：P0 齐；P1.1 拆卡产出链路已接线（尚未跑留出集 R1）
 - 留出集：已落盘 `scribe3/eval/holdout.json` seed=20260826 n=43
 - 留出 hash：`fb460682bfcff4f2345699068cf818893094e733b987f1c19a91c267dfda4649`
 - 母本行号：现存 30812 行母本已拷到 gitignored `docs/worlds/乱世铜炉-全文.md`；214 节章界在 `scribe3/eval/chapters.json`；20/20 书证句子可搜到
-- R1 / R2 / R3：无数据（P1 未开）
+- R1 / R2 / R3：无数据（评分器未开）
 - 天花板 / 地板 / 停机线：未测
-- 现网书：待全删（P0.1）
+- 现网书：已空（active=[] archived=[]）
 - 阻塞：无
-- 裁决：P0.1 现网清书需要 demo SSH，本轮未做。尺子冻结不依赖现网书，P1 可在本地开。清书留到下一 tick。
-- 本轮证据：`scribe3/.venv/bin/python -m pytest scribe3/tests/test_craft_eval_p0.py -q` → 4 passed
+- 本轮证据：demo purge 后空库；`pytest scribe3/tests/test_craft_eval_p0.py scribe3/tests/test_craft_eval_extract.py -q` → 10 passed
+
+### P0.1 · 现网清书（本轮）
+
+现系统为什么要清：旧 loop 的《井台灯》《腕账》是为过闸写的，留着会污染下一阶段场判。
+
+已做：HTTPS 登录 admin，archive+purge 三本：`book_3f21d610` 手术室、`book_46cff31a` 井台灯（14章）、`book_e4a6e353` 腕账（12章）。两道门都过。回退：没有——真删。再要样例书必须新建，禁止 overlay。
 
 ### P0.2–P0.3 · 母本与留出（本轮）
 
@@ -222,3 +227,9 @@ P1 出口：R1/R2 在留出集上有数，天花板/地板/停机线三个数字
 已做：拷母本（gitignore，不入库）；按标题+别名重切 214 节；空壳 85/101/102 零长度；103–105 母本有正文但金卡写「几乎没有」，标 `source_gold_mismatch`，R1 跳过。留出 43 章冻结。回退 = revert 本 commit。
 
 P0.4 四条流程债（戏层扫专名等）是生成侧约束，铁律一：P1 跑出 before 分之前不做。
+
+### P1.1 · 拆卡产出
+
+现系统为什么做不到：没有「给一节原文 → 21 段卡」的入口，章卡全是人工/旧会话写下的。
+
+已做：`extract_card.py` 切原文、禁读留出 gold、few-shot 只从 dev 抽、空壳直接出合格空卡。尚未对留出集调用模型，所以还没有 R1。回退 = revert 本能力 commit。
