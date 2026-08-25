@@ -79,8 +79,8 @@
 ### 拆文倒逼翻主（2026-08-25）
 
 现行过夜 / 循环 SSOT：[`docs/plans/2026-08-25-tonglu-force-rebuild-loop.md`](./plans/2026-08-25-tonglu-force-rebuild-loop.md)（`tonglu-force-rebuild`）。旧 [`2026-08-24-tonglu-chengse-loop.md`](./plans/2026-08-24-tonglu-chengse-loop.md) **已结案，禁止续跑**。
-能力 0–4 代码已落。日子闸 + 办事闸 + 假破真闸 + 远近闸（eye/dist：共情就把眼睛交给当场那个人，报年号上课不过）。playbook.3.2.10。回退 = revert。
-样例书 **`book_46cff31a`《井台灯》** 可继作证据，本切片不写下一场、不开 10 万。未删《腕账》。可停：否。下一轮：切。
+能力 0–5 代码已落。日子闸 + 办事闸 + 假破真闸 + 远近闸 + 切闸（cut：热过再冷，切在能听见看见的那一下，叹气/夜色深了不过）。playbook.3.2.11。回退 = revert。
+样例书 **`book_46cff31a`《井台灯》** 可继作证据，本切片不写下一场、不开 10 万。未删《腕账》。可停：否。下一轮：因文。
 
 ### 时间线列表+抽屉（2026-08-25）
 

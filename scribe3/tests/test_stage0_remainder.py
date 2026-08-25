@@ -21,7 +21,7 @@ from scribe3.playbook.quote import PLAYBOOK_VERSION
 
 
 def test_version_324():
-    assert PLAYBOOK_VERSION == "playbook.3.2.10"
+    assert PLAYBOOK_VERSION == "playbook.3.2.11"
     assert PACE_EXEMPT in duty_judge({"seq": 1})
     assert PACE_EXEMPT in play_judge({"seq": 1})
     assert PACE_EXEMPT in draft_judge({})

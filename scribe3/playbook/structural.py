@@ -18,6 +18,7 @@
 - duty.work：嘴上要的和真正缺的必须打架；鉴定式人设/杯子余温/剖心不过
 - duty.mask：假破真；先反面再破功；上来掏底牌不过
 - duty.dist：远近；共情就把眼睛交给当场那个人；人还在办事时报年号/上课不过
+- duty.cut：切；热过再冷，切在能听见看见的那一下；切在叹气/夜色深了不过
 """
 from __future__ import annotations
 
@@ -60,6 +61,15 @@ _LECTURE = re.compile(
     r"|北宋[，,、]?\s*雍熙|雍熙三年|把天地比成"
 )
 _CAMERA_OUT = re.compile(r"说书|旁白|作者视角|站到外头")
+# 参照本十七：切在手上那一下，不切在一段叹气上。
+_SIGH_CUT = re.compile(
+    r"叹气|叹了口气|一声叹息|夜色深了|他决定了|她决定了"
+    r"|他付出了代价|她付出了代价|一段抒情|气氛收"
+)
+_CUT_SENSED = re.compile(
+    r"一声|一响|响了|碎了|开了|停住|磕|砸|摔|落地|堕地"
+    r"|啪|嚓|喀喇|尖鸣|穿|门开|钉子|杯子"
+)
 CLOCK_SPANS = frozenset({"scene", "day", "days"})
 CORE_FIELDS = ("goal", "choice", "decision", "hook")
 FIVE_LAYERS = ("perceived", "known", "believed", "acted", "blind")
@@ -152,6 +162,18 @@ def check_duty_dist(duty: dict[str, Any]) -> dict[str, Any]:
     return _ok()
 
 
+def check_duty_cut(duty: dict[str, Any]) -> dict[str, Any]:
+    """切：热过再冷，切在能听见看见的那一下。不切在叹气/夜色深了上。"""
+    cut = str((duty or {}).get("cut") or "").strip()
+    if not cut:
+        return _fail("duty_cut_empty", "cut 不能空：切在能听见看见的那一下", "cut")
+    if _SIGH_CUT.search(cut):
+        return _fail("duty_cut_sigh", "切在叹气或夜色深了上。切在手上、门上、杯子上那一下", "cut")
+    if not _CUT_SENSED.search(cut):
+        return _fail("duty_cut_not_sensed", "切要能听见看见：一声响、门开、杯子落地，不是气氛词", "cut")
+    return _ok()
+
+
 def check_opener_announce(text: str) -> dict[str, Any]:
     """开篇头一段叙述不得报身份/扔钩子/先宣布法会。"""
     narr = narration_layer(text or "")
@@ -241,6 +263,9 @@ def check_duty_struct(
     dist_hit = check_duty_dist(duty)
     if not dist_hit.get("ok"):
         return dist_hit
+    cut_hit = check_duty_cut(duty)
+    if not cut_hit.get("ok"):
+        return cut_hit
     fr = duty.get("forbidden_reveal")
     if not isinstance(fr, list) or not [x for x in fr if str(x).strip()]:
         return _fail("duty_forbid_empty", "forbidden_reveal 不能空", "forbidden_reveal")
