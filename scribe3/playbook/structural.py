@@ -25,6 +25,7 @@
 - duty.heat_new：热闹不得和上场同一套
 - duty.kind：这场进的是哪一种日子；只换节号 / 同一种不换谁闯进来 / 同场连写超两场不过
 - duty.bill_move：账换持有人或换地；换气换丢人不过
+- duty.altar：kind=开坛 必须看见交差钱把人按住；热闹当社戏信了；井/灯/墓还在；高人下山伏魔不过
 """
 from __future__ import annotations
 
@@ -49,12 +50,12 @@ _SENT_SPLIT = re.compile(r"(?<=[。！？\n])")
 # 开篇报身份 / 扔钩子 / 先宣布法会。对照.md 三、参照本二十二.1。
 _OPENER_ANNOUNCE = re.compile(
     r"(我是|他是|她是).{0,16}(先生|掌门|神汉|风水|侦探|杀手|看井|管闸)"
-    r"|报身份|开篇钩子|强钩子|先宣布法会|宣布法会|开坛做法"
+    r"|报身份|开篇钩子|强钩子|先宣布法会|宣布法会"
     r"|黄金三章|三次失败"
 )
 _DAY_LIVED = re.compile(
     r"还在|还没|正在|尚未|仍有|排队|过秤|喝酒|喜酒|守夜|赶路|散不|过年|过节|井台|柜上|日子"
-    r"|往家|回家|土路|巷口|窄巷"
+    r"|往家|回家|土路|巷口|窄巷|开坛|改运|交差|酬劳"
 )
 # 对照.md 三：办事不剖心。
 _APPRAISAL_TELL = re.compile(
@@ -88,6 +89,11 @@ DAY_KINDS = frozenset({"酒宴", "赶路", "开坛", "坐牢", "同场"})
 _KIND_CHAPTER = re.compile(r"换节号|下一节|第[一二三四五六七八九十0-9]+章")
 _KIND_WELL_QUEUE = re.compile(r"井台|排队|队尾|横担")
 SAME_KIND_RUN_MAX = 2
+# 章法开坛 / 怪墓批注：银子是交差钱；热闹当社戏；墓还在。不要高人下山伏魔。
+_ALTAR_HERO = re.compile(r"高人下山|下山伏魔|高人伏魔|伏魔除害")
+_ALTAR_FEE = re.compile(r"交差|酬劳|柜上账|油账|油罐|银子|赊")
+_ALTAR_HEAT_BELIEVE = re.compile(r"信了|当社戏|社戏|鼓掌")
+_ALTAR_STAY_WORLD = re.compile(r"井|灯|墓")
 _SHAME_SWAP = re.compile(r"换气换丢人|换气|换丢人|丢人换人|换个人丢人")
 _CLAIM_MOVE = re.compile(r"转走|交到别人|换地|账走了|还清了")
 CORE_FIELDS = ("goal", "choice", "decision", "hook")
@@ -354,6 +360,31 @@ def check_duty_bill_move(
         return _fail("duty_bill_stuck", "声称账转走了，持有人和地都没换。换气换丢人也不算", "bill_holder")
     return _ok()
 
+
+def check_duty_altar(duty: dict[str, Any]) -> dict[str, Any]:
+    """开坛：交差钱把人按住；热闹当社戏信了；井/灯/墓还在。高人下山伏魔不过。"""
+    kind = str((duty or {}).get("kind") or "").strip()
+    if kind != "开坛":
+        return _ok()
+    day = str((duty or {}).get("day") or "").strip()
+    happen = str((duty or {}).get("must_happen") or "").strip()
+    bill = str((duty or {}).get("bill") or "").strip()
+    heat = str((duty or {}).get("heat") or "").strip()
+    stay = str((duty or {}).get("stay") or "").strip()
+    owed = str((duty or {}).get("owed") or "").strip()
+    blob = f"{day}\n{happen}\n{bill}\n{heat}\n{stay}\n{owed}"
+    if _ALTAR_HERO.search(blob):
+        return _fail("duty_altar_hero", "不要学成高人下山伏魔。银子是交差钱，开坛可以假，墓必须还在", "kind")
+    fee_blob = f"{day}\n{happen}\n{bill}"
+    if not _ALTAR_FEE.search(fee_blob):
+        return _fail("duty_altar_fee", "开坛必须看见交差钱把人按住。银子是交差钱不是救命钱", "bill")
+    if not _ALTAR_HEAT_BELIEVE.search(heat):
+        return _fail("duty_altar_heat", "开坛的热闹要当社戏信了。村人信了不算翻", "heat")
+    if not _ALTAR_STAY_WORLD.search(stay):
+        return _fail("duty_altar_stay", "开坛读完井/灯/墓还得在。热闹当社戏，处境没翻", "stay")
+    return _ok()
+
+
 def check_duty_flip(duty: dict[str, Any]) -> dict[str, Any]:
     """热闹不算翻。热闹像翻了、处境还停在原处，不过。"""
     heat = str((duty or {}).get("heat") or "").strip()
@@ -492,6 +523,9 @@ def check_duty_struct(
     bill_hit = check_duty_bill_move(duty, prev_holder=prev_holder, prev_place=prev_place)
     if not bill_hit.get("ok"):
         return bill_hit
+    altar_hit = check_duty_altar(duty)
+    if not altar_hit.get("ok"):
+        return altar_hit
     fr = duty.get("forbidden_reveal")
     if not isinstance(fr, list) or not [x for x in fr if str(x).strip()]:
         return _fail("duty_forbid_empty", "forbidden_reveal 不能空", "forbidden_reveal")

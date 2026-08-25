@@ -28,7 +28,7 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.21"
+    assert PLAYBOOK_VERSION == "playbook.3.2.22"
     d = duty_generate({"seq": 1})
     assert "【对照·真源】" in d
     assert "【成色·验戏不验词表】" not in d
@@ -174,11 +174,13 @@ def test_duty_day_blocks_identity_announce():
     )
     assert check_duty_struct(lived, available_cast=["沈槐"])["ok"] is True
 
-    opener = check_opener_announce("他是看井的人。开坛做法从今夜起。井绳还冻着。")
+    opener = check_opener_announce("他是看井的人。先宣布法会从今夜起。井绳还冻着。")
     assert opener["ok"] is False
     assert opener["code"] == "opener_announce"
     ok_open = check_opener_announce("井台上还在排队。沈槐把空盏摘下来。")
     assert ok_open["ok"] is True
+    altar_open = check_opener_announce("祠堂前还在开坛做法。沈槐把油罐按在心口。")
+    assert altar_open["ok"] is True
 
     road_day = make_duty(
         seq=1,
@@ -949,6 +951,86 @@ def test_duty_bill_blocks_shame_swap_and_stuck_move():
         prev_heat="井台上有人认了这盏油",
         prev_holder="沈槐", prev_place="井台",
     )["ok"] is True
+
+
+def test_duty_altar_blocks_hero_and_empty_fee():
+    """开坛必须交差钱、社戏信了、井灯墓还在。高人下山伏魔不过。开坛做法不当宣布法会。"""
+    from scribe3.playbook.context import make_duty
+    from scribe3.playbook.structural import check_duty_struct, check_opener_announce
+
+    hook = "灯还在横担，灯芯蜷得更小。"
+    stay = "桶还空着，柜上账还在杏花秤上，灯还欠着"
+    heat = "路上有人说早散早烧香"
+    hero = make_duty(
+        seq=6, who=["沈槐"], available_cast=["沈槐"],
+        day="村子还在请人开坛改运", said="把井改干净", needed="柜上油账还按着他",
+        heat="村人鼓掌当社戏，信了",
+        stay="灯还欠着，井还在",
+        owed="柜上账还在杏花秤上，灯还欠着",
+        must_happen="高人下山伏魔",
+        kind="开坛", intruder="请人开坛的村长",
+        bill="交差钱", bill_holder="杏花", bill_place="柜上",
+    )
+    hero["bite_from_prev"] = hook
+    hit = check_duty_struct(
+        hero, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="赶路", prev_intruder="摔桶的媳妇",
+    )
+    assert hit["ok"] is False
+    assert hit["code"] == "duty_altar_hero"
+
+    no_fee = make_duty(
+        seq=6, who=["沈槐"], available_cast=["沈槐"],
+        day="村子还在请人开坛改运", said="把井改干净", needed="家里那盏添不上",
+        heat="村人鼓掌当社戏，信了",
+        stay="灯还欠着，井还在",
+        owed="柜上账还在杏花秤上，灯还欠着",
+        must_happen="沈槐在井口开坛",
+        kind="开坛", intruder="请人开坛的村长",
+        bill="他把场面过了", bill_holder="杏花", bill_place="柜上",
+    )
+    no_fee["bite_from_prev"] = hook
+    hit2 = check_duty_struct(
+        no_fee, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="赶路", prev_intruder="摔桶的媳妇",
+    )
+    assert hit2["ok"] is False
+    assert hit2["code"] == "duty_altar_fee"
+
+    no_heat = make_duty(
+        seq=6, who=["沈槐"], available_cast=["沈槐"],
+        day="村子还在请人开坛改运", said="把井改干净", needed="柜上油账还按着他",
+        heat="井口又挤出一层油",
+        stay="灯还欠着，井还在",
+        owed="柜上账还在杏花秤上，灯还欠着",
+        must_happen="沈槐被柜上油账按在井口开坛",
+        kind="开坛", intruder="请人开坛的村长",
+        bill="柜上油账把他按住", bill_holder="杏花", bill_place="柜上",
+    )
+    no_heat["bite_from_prev"] = hook
+    hit3 = check_duty_struct(
+        no_heat, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="赶路", prev_intruder="摔桶的媳妇",
+    )
+    assert hit3["ok"] is False
+    assert hit3["code"] == "duty_altar_heat"
+
+    ok = make_duty(
+        seq=6, who=["沈槐"], available_cast=["沈槐"],
+        day="村子还在请人开坛改运", said="把井改干净", needed="柜上油账还按着他",
+        heat="村人鼓掌当社戏，信了",
+        stay="灯还欠着，井还在",
+        owed="柜上账还在杏花秤上，灯还欠着",
+        must_happen="沈槐被柜上油账按在井口开坛",
+        kind="开坛", intruder="请人开坛的村长",
+        bill="柜上油账把他按住", bill_holder="杏花", bill_place="柜上",
+    )
+    ok["bite_from_prev"] = hook
+    assert check_duty_struct(
+        ok, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="赶路", prev_intruder="摔桶的媳妇",
+    )["ok"] is True
+    assert check_opener_announce("祠堂前还在开坛做法。沈槐把油罐按在心口。")["ok"] is True
 
 
 def test_draft_len_does_not_kill_lived_scene():
