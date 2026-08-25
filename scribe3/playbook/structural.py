@@ -97,7 +97,7 @@ _ALTAR_HEAT_BELIEVE = re.compile(r"信了|当社戏|社戏|鼓掌")
 _ALTAR_STAY_WORLD = re.compile(r"井|灯|墓")
 # 章法酒宴 / 引子批注：酒还不散；面子按在桌上；不该看见的那一桌；当不成贺客。
 _FEAST_UNENDED = re.compile(r"还不散|还没散|散不掉|喜酒|还在喝")
-_FEAST_FACE = re.compile(r"面子|桌上|敬酒|端杯|按在桌")
+_FEAST_FACE = re.compile(r"面子|桌上|敬酒|端杯|按在桌|酒盅|酒桌|桌旁|按住")
 _FEAST_TABLE = re.compile(r"那一桌|另一桌|不该看见|空堂|堂屋")
 _FEAST_GUEST = re.compile(r"贺客|回不去|当不成|坐不住")
 _SHAME_SWAP = re.compile(r"换气换丢人|换气|换丢人|丢人换人|换个人丢人")
