@@ -309,7 +309,7 @@ def s0(r: Runner) -> None:
         ["git", "log", "-1", "origin/main", "--format=%H %ci %s"],
         cwd=str(ROOT), capture_output=True, text=True,
     ).stdout.strip()
-    pb = "playbook.3.2.12"
+    pb = "playbook.3.2.13"
     started_iso = None
     if isinstance(started, (int, float)):
         started_iso = datetime.fromtimestamp(float(started)).isoformat()
@@ -320,7 +320,7 @@ def s0(r: Runner) -> None:
         "playbook": pb,
         "started_at": started,
         "started_iso": started_iso,
-        "note": "docs-only commit 不要求进程晚于方案文档；产品代码指纹以 playbook.3.2.12 + 已部署 pipeline 为准",
+        "note": "docs-only commit 不要求进程晚于方案文档；产品代码指纹以 playbook.3.2.13 + 已部署 pipeline 为准",
     }
     dump(r.evid / "00-baseline.json", rec)
     print("  health", code, "started", started_iso, "git", git[:80], flush=True)

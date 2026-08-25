@@ -28,15 +28,16 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.12"
+    assert PLAYBOOK_VERSION == "playbook.3.2.13"
     d = duty_generate({"seq": 1})
     assert "【成色·验戏不验词表】" in d
     assert "先立还在过的日子" in d
-    assert "立十二件事" in d
+    assert "立十三件事" in d
     assert "mask" in d and "crack" in d and "real" in d
     assert "eye" in d and "dist" in d
     assert "cut" in d
     assert "one_line" in d and "keep" in d
+    assert "heat" in d and "stay" in d
     p = play_generate({"seq": 1, "duty": {}})
     assert "假破真" in p
     assert "假破真是这章的骨头" in p
@@ -44,6 +45,7 @@ def test_version_and_prompts_carry_craft():
     assert "眼睛交给当场那个人" in p
     assert "切在能听见看见的那一下" in p
     assert "一行本事说不完" in p
+    assert "热闹不算翻" in p
     from scribe3.playbook.prompts import identity_for
     assert "两难落在哪个动作" not in identity_for("play")
     assert "眼睛交给谁" in identity_for("play")
@@ -553,6 +555,100 @@ def test_duty_yin_blocks_one_line_and_same():
         cut="空盏磕在井沿上",
         one_line="他把空盏摘下来",
         keep="灯油不是自家攒的，空盏才露出来",
+        must_happen="沈槐把空盏摘下来",
+    )
+    assert check_duty_struct(good, available_cast=["沈槐"])["ok"] is True
+
+
+def test_duty_flip_blocks_heat_as_turn():
+    from scribe3.playbook.context import make_duty
+    from scribe3.playbook.structural import check_duty_struct
+
+    empty = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        mask="井台认油",
+        crack="空盏",
+        real="不是自家油",
+        eye="沈槐",
+        dist="near",
+        cut="空盏磕在井沿上",
+        one_line="他把空盏摘下来",
+        keep="灯油不是自家攒的，空盏才露出来",
+        must_happen="沈槐把空盏摘下来",
+    )
+    empty["stay"] = ""
+    miss = check_duty_struct(empty, available_cast=["沈槐"])
+    assert miss["ok"] is False
+    assert miss["code"] == "duty_stay_empty"
+
+    same = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        mask="井台认油",
+        crack="空盏",
+        real="不是自家油",
+        eye="沈槐",
+        dist="near",
+        cut="空盏磕在井沿上",
+        one_line="他把空盏摘下来",
+        keep="灯油不是自家攒的，空盏才露出来",
+        heat="井台上有人认了这盏油",
+        stay="井台上有人认了这盏油",
+        must_happen="沈槐把空盏摘下来",
+    )
+    hit = check_duty_struct(same, available_cast=["沈槐"])
+    assert hit["ok"] is False
+    assert hit["code"] == "duty_flip_same"
+
+    heat_ok = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        mask="井台认油",
+        crack="空盏",
+        real="不是自家油",
+        eye="沈槐",
+        dist="near",
+        cut="空盏磕在井沿上",
+        one_line="他把空盏摘下来",
+        keep="灯油不是自家攒的，空盏才露出来",
+        heat="井台上有人认了这盏油",
+        stay="热闹就是翻",
+        must_happen="沈槐把空盏摘下来",
+    )
+    hit2 = check_duty_struct(heat_ok, available_cast=["沈槐"])
+    assert hit2["ok"] is False
+    assert hit2["code"] == "duty_flip_heat"
+
+    good = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        mask="井台认油",
+        crack="空盏",
+        real="不是自家油",
+        eye="沈槐",
+        dist="near",
+        cut="空盏磕在井沿上",
+        one_line="他把空盏摘下来",
+        keep="灯油不是自家攒的，空盏才露出来",
+        heat="井台上有人认了这盏油",
+        stay="灯还是空的，日子没翻",
         must_happen="沈槐把空盏摘下来",
     )
     assert check_duty_struct(good, available_cast=["沈槐"])["ok"] is True

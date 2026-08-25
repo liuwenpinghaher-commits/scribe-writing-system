@@ -20,6 +20,7 @@
 - duty.dist：远近；共情就把眼睛交给当场那个人；人还在办事时报年号/上课不过
 - duty.cut：切；热过再冷，切在能听见看见的那一下；切在叹气/夜色深了不过
 - duty.yin：因文；一行本事说不完；删了会塌的那截必须另写
+- duty.flip：热闹像翻了、处境没翻不过；热闹不算翻
 """
 from __future__ import annotations
 
@@ -73,6 +74,10 @@ _CUT_SENSED = re.compile(
 )
 # 因文.md：一行本事说不完；删了那一截场会塌。
 _ONE_LINE_OK = re.compile(r"一行就够|本事说完|过场即可|说明书")
+# 参照本十七：热闹不算翻。热闹当场面也能过 = 还没这条。
+_HEAT_AS_FLIP = re.compile(r"热闹就是翻|场面就算翻|热闹当翻|场面过了就算|热闹算翻")
+_HEAT_ONLY = re.compile(r"热闹|场面过了|社戏完了|筵席散了|鼓掌过了")
+_STAY_WORLD = re.compile(r"还|没|仍|停|在|日子|墓|路|安危|欠|信")
 CLOCK_SPANS = frozenset({"scene", "day", "days"})
 CORE_FIELDS = ("goal", "choice", "decision", "hook")
 FIVE_LAYERS = ("perceived", "known", "believed", "acted", "blind")
@@ -200,6 +205,25 @@ def check_duty_yin(duty: dict[str, Any]) -> dict[str, Any]:
     return _ok()
 
 
+def check_duty_flip(duty: dict[str, Any]) -> dict[str, Any]:
+    """热闹不算翻。热闹像翻了、处境还停在原处，不过。"""
+    heat = str((duty or {}).get("heat") or "").strip()
+    stay = str((duty or {}).get("stay") or "").strip()
+    blob = f"{heat}\n{stay}"
+    if not heat:
+        return _fail("duty_heat_empty", "heat 不能空：热闹像翻了的那一层", "heat")
+    if not stay:
+        return _fail("duty_stay_empty", "stay 不能空：处境还停在哪。热闹不算翻", "stay")
+    if _HEAT_AS_FLIP.search(blob):
+        return _fail("duty_flip_heat", "热闹不算翻。不要把场面过了写成日子翻了", "stay")
+    compact = [re.sub(r"\s+", "", x) for x in (heat, stay)]
+    if compact[0] == compact[1]:
+        return _fail("duty_flip_same", "热闹像翻了的那一层，和处境还停在哪，不能同一句", "stay")
+    if _HEAT_ONLY.search(stay) and not _STAY_WORLD.search(stay):
+        return _fail("duty_flip_heat", "处境还停在哪，不能只写场面过了。热闹不算翻", "stay")
+    return _ok()
+
+
 def check_opener_announce(text: str) -> dict[str, Any]:
     """开篇头一段叙述不得报身份/扔钩子/先宣布法会。"""
     narr = narration_layer(text or "")
@@ -295,6 +319,9 @@ def check_duty_struct(
     yin_hit = check_duty_yin(duty)
     if not yin_hit.get("ok"):
         return yin_hit
+    flip_hit = check_duty_flip(duty)
+    if not flip_hit.get("ok"):
+        return flip_hit
     fr = duty.get("forbidden_reveal")
     if not isinstance(fr, list) or not [x for x in fr if str(x).strip()]:
         return _fail("duty_forbid_empty", "forbidden_reveal 不能空", "forbidden_reveal")
