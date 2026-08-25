@@ -22,8 +22,8 @@
 | status | **BLOCKED** |
 | last_card | （尚未） |
 | blocked_at | 2026-08-25T15:02Z |
-| last_recheck | 2026-08-25T15:09Z |
-| blocked_reason | 缺原文 `docs/worlds/诡秘之主-全文.md`；同时缺规则真源 `docs/plans/2026-08-25-lotm-full-cards-loop.md`、`docs/worlds/诡秘之主-拆文/PROMPTS.md`、密度样板 `章卡/89.md`、索引与章卡目录内容。云端工作区仅有空壳 `诡秘之主-拆文/章卡/`（0 卡）。对照号段 B 同 BLOCKED（PR #10，最新仍 blocked）。Drive 空；remote 无诡秘资产。按一夜 goal：缺全文则 BLOCKED，不编造章卡、不外网扒书。 |
+| last_recheck | 2026-08-25T15:10Z |
+| blocked_reason | 缺原文 `docs/worlds/诡秘之主-全文.md`；同时缺 `lotm-full-cards-loop.md`、`诡秘之主-拆文/PROMPTS.md`、`章卡/89.md`、索引。空壳章卡目录 0 卡。B 同 BLOCKED。Drive/Gmail 空。demo SSH（`~/.ssh/id_tencent_lh` → 82.157.130.140）本云端无密钥，无法从宿主机取全文。不编造章卡、不外网扒书。 |
 
 ## 一夜 goal（本会话）
 
