@@ -50,7 +50,7 @@ def test_ledger_lists_later_chapters_for_tonight():
     assert "tonight" not in text
     assert "later" not in text
     assert "done" not in text
-    assert PLAYBOOK_VERSION == "playbook.3.2.27"
+    assert PLAYBOOK_VERSION == "playbook.3.2.28"
 
 
 def test_ledger_not_via_compact_volume_intro():

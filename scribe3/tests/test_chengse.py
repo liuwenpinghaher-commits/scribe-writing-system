@@ -28,7 +28,7 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.27"
+    assert PLAYBOOK_VERSION == "playbook.3.2.28"
     d = duty_generate({"seq": 1})
     assert "【对照·真源】" in d
     assert "【成色·验戏不验词表】" not in d
@@ -1505,6 +1505,143 @@ def test_gen_duty_nails_choice_off_ambush():
     assert out["kind"] == "选择"
     assert "掉头" in out["must_happen"]
     assert "遇袭丢魂" not in out["must_happen"]
+
+
+def test_duty_xin_blocks_trick_and_proper():
+    """心藏腹验结构：藏锋、可破的誓。小孩要心眼 / 铜炉专名不过。"""
+    from scribe3.playbook.context import make_duty
+    from scribe3.playbook.structural import check_duty_struct
+
+    hook = "灯还欠着，救人的人把名交了，还是救不了人。"
+    stay = "人不等于放了。名交出去了，灯还欠着"
+    heat = "求情像把人护住了"
+    trick = make_duty(
+        seq=11, who=["沈槐", "孩子"], available_cast=["沈槐", "杏花", "孩子"],
+        day="他还抬臂装疼的那一截",
+        said="除非自保",
+        needed="锋还在肚子里，符已经交出去了",
+        heat="嘴里放过了，像日子翻了",
+        stay="誓是假放过，追杀还在。灯还欠着",
+        owed="人不等于放了。名交出去了，灯还欠着",
+        must_happen="小孩要心眼",
+        kind="心藏腹", intruder="自己人开口要符",
+        bill="符交出去了", bill_holder="孩子", bill_place="井台绳边",
+        cut="掠鬓那一下",
+        one_line="孩子装疼交符",
+        keep="装疼、乱画、除非自保，删了只剩小孩要心眼",
+    )
+    trick["bite_from_prev"] = hook
+    hit = check_duty_struct(
+        trick, available_cast=["沈槐", "杏花", "孩子"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="选择", prev_intruder="自己人抢先报名",
+    )
+    assert hit["ok"] is False
+    assert hit["code"] == "duty_xin_trick"
+
+    proper = make_duty(
+        seq=11, who=["沈槐", "孩子"], available_cast=["沈槐", "杏花", "孩子"],
+        day="他还抬臂装疼的那一截",
+        said="除非自保",
+        needed="锋还在肚子里，符已经交出去了",
+        heat="嘴里放过了，像日子翻了",
+        stay="誓是假放过，追杀还在。灯还欠着",
+        owed="人不等于放了。名交出去了，灯还欠着",
+        must_happen="他装还疼把锋藏进肚子，白娴放过钉成除非自保",
+        kind="心藏腹", intruder="自己人开口要符",
+        bill="符交出去了", bill_holder="孩子", bill_place="井台绳边",
+        cut="掠鬓那一下",
+        one_line="孩子装疼交符",
+        keep="装疼、乱画、除非自保，删了只剩小孩要心眼",
+    )
+    proper["bite_from_prev"] = hook
+    hit2 = check_duty_struct(
+        proper, available_cast=["沈槐", "杏花", "孩子"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="选择", prev_intruder="自己人抢先报名",
+    )
+    assert hit2["ok"] is False
+    assert hit2["code"] == "duty_xin_name"
+
+    no_hide = make_duty(
+        seq=11, who=["沈槐", "孩子"], available_cast=["沈槐", "杏花", "孩子"],
+        day="井台上还在排队打水",
+        said="除非自保",
+        needed="锋还在肚子里，符已经交出去了",
+        heat="嘴里放过了，像日子翻了",
+        stay="誓是假放过，追杀还在。灯还欠着",
+        owed="人不等于放了。名交出去了，灯还欠着",
+        must_happen="放过钉成除非自保，符交出去",
+        kind="心藏腹", intruder="自己人开口要符",
+        bill="符交出去了", bill_holder="孩子", bill_place="井台绳边",
+        cut="掠鬓那一下",
+        one_line="孩子装疼交符",
+        keep="装疼、乱画、除非自保，删了只剩小孩要心眼",
+    )
+    no_hide["bite_from_prev"] = hook
+    hit3 = check_duty_struct(
+        no_hide, available_cast=["沈槐", "杏花", "孩子"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="选择", prev_intruder="自己人抢先报名",
+    )
+    assert hit3["ok"] is False
+    assert hit3["code"] == "duty_xin_hide"
+
+    ok = make_duty(
+        seq=11, who=["沈槐", "杏花", "孩子"], available_cast=["沈槐", "杏花", "孩子"],
+        day="他还抬臂装疼的那一截",
+        said="除非自保",
+        needed="锋还在肚子里，符已经交出去了",
+        heat="嘴里放过了，像日子翻了",
+        stay="誓是假放过，追杀还在。灯还欠着",
+        owed="人不等于放了。名交出去了，灯还欠着",
+        must_happen="他装还疼把锋藏进肚子，放过钉成除非自保，符交出去",
+        kind="心藏腹", intruder="自己人开口要符",
+        bill="符交出去了", bill_holder="孩子", bill_place="井台绳边",
+        cut="掠鬓那一下",
+        one_line="孩子装疼交符",
+        keep="装疼、乱画、除非自保，删了只剩小孩要心眼",
+    )
+    ok["bite_from_prev"] = hook
+    assert check_duty_struct(
+        ok, available_cast=["沈槐", "杏花", "孩子"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="选择", prev_intruder="自己人抢先报名",
+    )["ok"] is True
+
+
+def test_gen_duty_nails_xin_off_trick():
+    """模型写成小孩要心眼时，生成层钉回藏锋、可破的誓。"""
+    from scribe3.playbook.layers import _nail_xin_duty, gen_duty
+
+    raw = {
+        "kind": "心藏腹",
+        "day": "路上",
+        "must_happen": "小孩要心眼",
+        "stay": "人走了",
+        "heat": "坑完了",
+        "who": ["沈槐"],
+    }
+    nailed = _nail_xin_duty(raw, {"chapter_duty": "锋藏进肚子，除非自保", "available_cast": ["沈槐", "杏花", "孩子"]})
+    assert nailed["kind"] == "心藏腹"
+    assert "装疼" in nailed["day"] or "藏" in nailed["must_happen"]
+    assert "自保" in nailed["must_happen"] or "自保" in nailed["said"]
+    assert "胡炭" not in str(nailed)
+    assert "小孩要心眼" not in nailed["must_happen"]
+
+    def llm(prompt, **kw):
+        return (
+            '{"day":"路上","said":"放过","needed":"灯还欠着",'
+            '"mask":"他装没事","crack":"姑姑动手","real":"符交出去了",'
+            '"eye":"沈槐","dist":"near","cut":"掠鬓那一下",'
+            '"one_line":"小孩要心眼","keep":"门派互坑",'
+            '"heat":"坑完了","stay":"人走了",'
+            '"owed":"灯还欠着","kind":"心藏腹","intruder":"姑姑",'
+            '"bill_holder":"孩子","bill_place":"井台",'
+            '"must_happen":"小孩要心眼",'
+            '"bill":"交符","who":["沈槐"],"forbidden_reveal":["油从哪来"]}'
+        )
+
+    out = gen_duty({"seq": 11, "available_cast": ["沈槐", "杏花", "孩子"], "chapter_duty": "除非自保"}, llm)
+    assert out["kind"] == "心藏腹"
+    assert "自保" in out["must_happen"] or "自保" in out["said"]
+    assert "小孩要心眼" not in out["must_happen"]
 
 
 def test_draft_copy_does_not_kill_lived_expansion():

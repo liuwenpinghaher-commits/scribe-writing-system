@@ -95,7 +95,7 @@ def test_gate0_imports_continuity_adversaries():
 
 
 def test_playbook2_and_d1_code_is_draft_copy_play():
-    assert PLAYBOOK_VERSION == "playbook.3.2.27"
+    assert PLAYBOOK_VERSION == "playbook.3.2.28"
     play = "沈烛若把场核碎片按回胸口，四十二度顺着袖口往上爬。" * 80
     hit = check_draft_struct(play + "他又看了一眼裂口。" * 20, play_text=play)
     assert hit["code"] == "draft_copy_play"

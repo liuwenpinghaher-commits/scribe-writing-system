@@ -30,6 +30,7 @@
 - duty.jail：kind=坐牢 必须先立进城/镇上找活路；官差收了东西改口；救人的人进了绳。清官断案、点名黑白不过。不要字面「六百两」
 - duty.skip_year：kind=跳年 必须写成街上还在过的一天；补日历 / N年后说明书不过。不要字面六年、不要铜炉歌名
 - duty.choice_name：kind=选择 必须还能跑、自己掉头、自己人把命名交出去；遇袭丢魂 / 当场打死不过。不要铜炉专名
+- duty.xin：kind=心藏腹 必须锋藏进肚子、放过钉成可破的誓；小孩要心眼 / 铜炉专名不过
 """
 from __future__ import annotations
 
@@ -63,6 +64,7 @@ _DAY_LIVED = re.compile(
     r"|进城|进镇|镇上|城里|找活|活路|官差|绳"
     r"|街上|茶馆|店还|开张|早上|行人|还在过|还在唱|还在讲|还在走"
     r"|还能跑|还能走|掉头|交名|报名"
+    r"|装疼|还疼|藏锋|自保|交符|誓"
 )
 # 对照.md 三：办事不剖心。
 _APPRAISAL_TELL = re.compile(
@@ -87,6 +89,7 @@ _CUT_SENSED = re.compile(
     r"|捆|勒|绳|塞嘴|押走"
     r"|枯腐|枯了|铜子|帘"
     r"|报名|交名|掉头|封"
+    r"|掠鬓|乱画|装疼"
 )
 # 因文.md：一行本事说不完；删了那一截场会塌。
 _ONE_LINE_OK = re.compile(r"一行就够|本事说完|过场即可|说明书")
@@ -95,7 +98,7 @@ _HEAT_AS_FLIP = re.compile(r"热闹就是翻|场面就算翻|热闹当翻|场面
 _HEAT_ONLY = re.compile(r"热闹|场面过了|社戏完了|筵席散了|鼓掌过了")
 _STAY_WORLD = re.compile(r"还|没|仍|停|在|日子|墓|路|安危|欠|信")
 CLOCK_SPANS = frozenset({"scene", "day", "days"})
-DAY_KINDS = frozenset({"酒宴", "赶路", "开坛", "坐牢", "跳年", "选择", "同场"})
+DAY_KINDS = frozenset({"酒宴", "赶路", "开坛", "坐牢", "跳年", "选择", "心藏腹", "同场"})
 _KIND_CHAPTER = re.compile(r"换节号|下一节|第[一二三四五六七八九十0-9]+章")
 _KIND_WELL_QUEUE = re.compile(r"井台|排队|队尾|横担")
 SAME_KIND_RUN_MAX = 2
@@ -127,6 +130,12 @@ _CHOICE_RUN = re.compile(r"还能跑|还能走|还能逃|本可跑|本可走")
 _CHOICE_TURN = re.compile(r"掉头|折回|停住|回身")
 _CHOICE_NAME = re.compile(r"交名|报名|报出|真名|自己人")
 _CHOICE_KEEP = re.compile(r"不杀|没死|交出去|封|还欠|人交")
+# 因文·心藏腹：锋藏进肚子；放过钉成可破的誓。小孩要心眼不过。不要铜炉专名。
+_XIN_TRICK = re.compile(r"小孩要心眼|要心眼|门派互坑")
+_XIN_PROPER = re.compile(r"胡炭|白娴|小胡兄弟|逆沉慑斗阵|三五千金")
+_XIN_HIDE = re.compile(r"藏进肚子|藏锋|装疼|还疼|乱画")
+_XIN_OATH = re.compile(r"除非自保|自保|可破的誓|誓留")
+_XIN_KEEP = re.compile(r"追杀还在|放过|符交|交符|还欠")
 _JAIL_CITY = re.compile(r"进城|进镇|镇上|城里|城门|找活|活路|找活路|找工")
 _JAIL_BRIBE = re.compile(r"收了|接了|递上|递了|小包|包裹|收银|银子|收东西")
 _JAIL_FLIP = re.compile(r"改口|眉花|良民|改叫|笑着说")
@@ -345,9 +354,9 @@ def check_duty_kind(
     if _KIND_CHAPTER.search(kind) or _KIND_CHAPTER.search(day):
         return _fail("duty_kind_chapter", "只换节号不算换日子。要写进的是哪一种还在过的日子", "kind")
     if not kind:
-        return _fail("duty_kind_empty", "kind 不能空：这场进的是酒宴/赶路/开坛/坐牢/跳年/选择/同场哪一种", "kind")
+        return _fail("duty_kind_empty", "kind 不能空：这场进的是酒宴/赶路/开坛/坐牢/跳年/选择/心藏腹/同场哪一种", "kind")
     if kind not in DAY_KINDS:
-        return _fail("duty_kind_unknown", "kind 只能是酒宴、赶路、开坛、坐牢、跳年、选择、同场", "kind")
+        return _fail("duty_kind_unknown", "kind 只能是酒宴、赶路、开坛、坐牢、跳年、选择、心藏腹、同场", "kind")
     seq = int((duty or {}).get("seq") or 0)
     if seq > 1 and kind == "同场":
         try:
@@ -542,6 +551,35 @@ def check_duty_choice(duty: dict[str, Any]) -> dict[str, Any]:
     return _ok()
 
 
+def check_duty_xin(duty: dict[str, Any]) -> dict[str, Any]:
+    """心藏腹：锋藏进肚子；放过钉成可破的誓。小孩要心眼不过。"""
+    kind = str((duty or {}).get("kind") or "").strip()
+    if kind != "心藏腹":
+        return _ok()
+    day = str((duty or {}).get("day") or "").strip()
+    happen = str((duty or {}).get("must_happen") or "").strip()
+    said = str((duty or {}).get("said") or "").strip()
+    heat = str((duty or {}).get("heat") or "").strip()
+    stay = str((duty or {}).get("stay") or "").strip()
+    owed = str((duty or {}).get("owed") or "").strip()
+    keep = str((duty or {}).get("keep") or "").strip()
+    one_line = str((duty or {}).get("one_line") or "").strip()
+    who = str((duty or {}).get("intruder") or "").strip()
+    blob = f"{day}\n{happen}\n{said}\n{heat}\n{stay}\n{owed}\n{who}"
+    if _XIN_PROPER.search(blob):
+        return _fail("duty_xin_name", "不要铜炉专名。救命可以是料，换自己的名", "kind")
+    if _XIN_TRICK.search(blob):
+        return _fail("duty_xin_trick", "不要写成小孩要心眼。锋藏进肚子，放过钉成可破的誓", "must_happen")
+    live = f"{day}\n{happen}\n{said}"
+    if not _XIN_HIDE.search(live):
+        return _fail("duty_xin_hide", "心藏腹必须看见锋藏进肚子。删掉装疼和乱画，只剩小孩要心眼", "day")
+    if not _XIN_OATH.search(f"{happen}\n{keep}\n{said}\n{stay}"):
+        return _fail("duty_xin_oath", "心藏腹必须把放过钉成可破的誓。删掉除非自保，掠鬓只是反咬", "must_happen")
+    if not _XIN_KEEP.search(f"{stay}\n{owed}\n{keep}\n{happen}"):
+        return _fail("duty_xin_keep", "心藏腹读完追杀还在。誓是假放过，符交出去了", "stay")
+    return _ok()
+
+
 def check_duty_flip(duty: dict[str, Any]) -> dict[str, Any]:
     """热闹不算翻。热闹像翻了、处境还停在原处，不过。"""
     heat = str((duty or {}).get("heat") or "").strip()
@@ -695,6 +733,9 @@ def check_duty_struct(
     choice_hit = check_duty_choice(duty)
     if not choice_hit.get("ok"):
         return choice_hit
+    xin_hit = check_duty_xin(duty)
+    if not xin_hit.get("ok"):
+        return xin_hit
     fr = duty.get("forbidden_reveal")
     if not isinstance(fr, list) or not [x for x in fr if str(x).strip()]:
         return _fail("duty_forbid_empty", "forbidden_reveal 不能空", "forbidden_reveal")
