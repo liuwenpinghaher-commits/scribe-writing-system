@@ -689,7 +689,8 @@ def _editor_system(st, focalizer: str = "", chapter: int = None,
     # 素材记忆能力提示(非空库时引导主编按需经 s3_material_recall 唤起参考素材;借鉴非事实)
     mat_hint = ""
     try:
-        if st.list_materials():
+        exists = st.materials_exist() if hasattr(st, "materials_exist") else bool(st.list_materials())
+        if exists:
             mat_hint = ("\n【素材记忆库】作者备有素材记忆(研究/风格/桥段等参考),讨论或构思时"
                         "可经 s3_material_recall(query) 按当前话题唤起相关素材借鉴(借鉴非照搬),"
                         "并向作者说明为什么参考。")

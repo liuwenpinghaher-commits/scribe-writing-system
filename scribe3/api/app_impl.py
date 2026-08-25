@@ -222,6 +222,10 @@ def _is_rest_world_write_path(path: str) -> bool:
     if path == _INTENT_ENGINEERING_PATH or path.startswith(_INTENT_ENGINEERING_PATH + "/"):
         return False
     # 素材库是作者直管的非正典参考记忆，整个 /materials 路由不在世界写闸内。
+    # /objects/material 是同一条作者直管生命周期(影响令牌/硬删/归档)，不是正典写。
+    if path == "/objects/material" or path.startswith("/objects/material/"):
+        return False
+    # 素材库是作者直管的非正典参考记忆，整个 /materials 路由不在世界写闸内。
     # 章节软生命周期 + 版本恢复是作者手稿台一等操作,与 /save-chapter 同级闸外。
     # 永久删除仍走 /chapters/{seq} DELETE + impact token,保持在世界写闸内。
     # 形态: /chapters/{seq}/archive|restore|restore-version

@@ -322,8 +322,8 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
               disabled={!(draft.body || draft.summary || '').trim()}
               data-testid="material-insert-current"
               title={currentChapterSeq
-                ? `插入当前第 ${currentChapterSeq} 章草稿并记引用`
-                : '把素材发布到某章草稿(填入/追加),并记 material_reference'}>
+                ? `插入当前第 ${currentChapterSeq} 章草稿，填入后才记引用`
+                : '把素材发布到某章草稿(填入/追加)，填入后才记引用'}>
               <SendToBack size={13} />{currentChapterSeq ? `插入第${currentChapterSeq}章` : '插入到草稿'}
             </Btn>
             {!currentChapterSeq && (
@@ -417,11 +417,12 @@ export function MaterialList({ node, onSelect }) {
   const [q, setQ] = useState('')
   const [activeView, setActiveView] = useState('all')
   const [activeKind, setActiveKind] = useState(kind || 'all')
-  const [activeOrigin, setActiveOrigin] = useState('all') // all|manual|import|session_clip|chief
+  const [activeOrigin, setActiveOrigin] = useState('all') // all|manual|import|session_clip
   const [reloadTick, setReloadTick] = useState(0)
   const [pageInfo, setPageInfo] = useState({ nextCursor: null, total: null })
   const [loadingMore, setLoadingMore] = useState(false)
   const [health, setHealth] = useState(null)
+  const [healthErr, setHealthErr] = useState('')
   const [recallDegraded, setRecallDegraded] = useState([])
 
   useEffect(() => {
@@ -435,11 +436,17 @@ export function MaterialList({ node, onSelect }) {
     // 测试 mock 可能未挂 materialsHealth:跳过不炸
     if (typeof api.materialsHealth !== 'function') {
       setHealth(null)
+      setHealthErr('')
       return () => { alive = false }
     }
     api.materialsHealth()
-      .then((h) => { if (alive) setHealth(h) })
-      .catch(() => { if (alive) setHealth(null) })
+      .then((h) => { if (alive) { setHealth(h); setHealthErr('') } })
+      .catch((e) => {
+        if (alive) {
+          setHealth(null)
+          setHealthErr(e?.body?.detail || e?.message || '健康度加载失败')
+        }
+      })
     return () => { alive = false }
   }, [reloadTick])
 
@@ -549,7 +556,6 @@ export function MaterialList({ node, onSelect }) {
     { key: 'manual', label: '手建' },
     { key: 'import', label: '来自导入' },
     { key: 'session_clip', label: '剪藏' },
-    { key: 'chief', label: '历史主编记录' },
   ]
 
   return (
@@ -585,7 +591,12 @@ export function MaterialList({ node, onSelect }) {
             </button>
           ))}
         </div>
-        {health && (
+        {healthErr && (
+          <div role="alert" data-testid="material-health-error" className="px-3 py-1.5 text-meta text-danger border-b border-line/30">
+            健康度加载失败: {healthErr}
+          </div>
+        )}
+        {health && !healthErr && (
           <div data-testid="material-health" className="px-3 py-1.5 text-meta text-faint border-b border-line/30 bg-surface/80">
             健康度: 共 {health.total ?? 0} · 未召回 {health.never_recalled ?? 0} · 无摘要 {health.no_summary ?? 0} · 无标签 {health.untagged ?? 0}
           </div>

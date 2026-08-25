@@ -37,6 +37,38 @@ def test_material_refs_by_chapter_enriches_material_rows(store):
     assert refs[0]["kind"] == "research"
 
 
+def test_materials_exist_does_not_scan_full_table(store, monkeypatch):
+    store.add_material("探针", "正文", "note")
+    listed = []
+    orig = store.list_materials
+
+    def wrap(*a, **k):
+        listed.append(1)
+        return orig(*a, **k)
+
+    monkeypatch.setattr(store, "list_materials", wrap)
+    assert store.materials_exist() is True
+    assert listed == []
+
+
+def test_list_materials_page_simple_view_uses_sql_limit(store, monkeypatch):
+    for i in range(5):
+        store.add_material(f"分页条 {i}", f"正文 {i}", "note")
+    seen: list[str] = []
+    orig = store._query
+
+    def wrap(sql, *a, **k):
+        seen.append(sql)
+        return orig(sql, *a, **k)
+
+    monkeypatch.setattr(store, "_query", wrap)
+    page = store.list_materials_page(view="all", limit=2, cursor=0)
+    assert len(page["items"]) == 2
+    assert page["total"] >= 5
+    assert any("LIMIT" in s and ("START" in s or "$start" in s) for s in seen), seen
+    assert any("count()" in s for s in seen), seen
+
+
 def test_author_can_record_manual_material_reference_after_accepting_insert(store):
     mid = store.add_material("盐港勘察", "盐层与潮闸", "research")
     c = _client(store)

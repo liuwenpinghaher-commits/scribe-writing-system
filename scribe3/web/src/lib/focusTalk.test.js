@@ -108,6 +108,14 @@ describe('focusTalk material 分支(块四a-1 素材库)', () => {
     expect(t.prefix).toContain('笔记')
     expect(t.prefix).not.toContain('来源')
   })
+  it('情绪卡 kind 显示情绪卡,不当笔记', () => {
+    const t = focusTalk({
+      type: 'material', id: 'em1', label: '憋屈反杀',
+      payload: { kind: 'emotion_module' }, origin: 'panel',
+    })
+    expect(t.prefix).toContain('情绪卡')
+    expect(t.prefix).not.toContain('笔记')
+  })
   it('镜像来源(origin=sel)仍回退 null', () => {
     expect(focusTalk({ type: 'material', id: 'm1', label: 'x', origin: 'sel' })).toBeNull()
   })

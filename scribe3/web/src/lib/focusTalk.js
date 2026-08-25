@@ -13,6 +13,7 @@ const KIND_NAME = {
 // 素材库分类 → 展示名(块四a-1)
 const MATERIAL_KIND_NAME = {
   research: '研究', reference: '参考', snippet: '片段', inspiration: '灵感', note: '笔记',
+  emotion_module: '情绪卡',
 }
 
 const short = (s, n = 24) => { const t = String(s || ''); return t.length > n ? t.slice(0, n - 1) + '…' : t }

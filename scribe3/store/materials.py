@@ -76,6 +76,19 @@ class MaterialsMixin:
                 logging.getLogger("scribe3").warning("build_material_edges fail %s: %s", mid, e)
         return mid
 
+    def materials_exist(self, archived: bool | None = False) -> bool:
+        """是否有素材。只探一条，不扫全表。"""
+        filters = []
+        vars: dict[str, Any] = {}
+        if archived is True:
+            filters.append("archived = true")
+        elif archived is False:
+            filters.append("(archived = NONE OR archived != true)")
+        where = f" WHERE {' AND '.join(filters)}" if filters else ""
+        rows = self._query(
+            f"SELECT meta::id(id) AS id FROM material{where} LIMIT 1", vars) or []
+        return bool(rows)
+
     def list_materials(self, kind: str | None = None, archived: bool | None = False) -> list[dict]:
         """素材列表(可选 kind 过滤),按 updated_at DESC。"""
         filters = []
@@ -131,6 +144,22 @@ class MaterialsMixin:
 
         where = f" WHERE {' AND '.join(filters)}" if filters else ""
         order = "ORDER BY created_at DESC" if view == "recent" else "ORDER BY updated_at DESC"
+        needle = (q or "").strip().lower()
+        post_filter = view in ("referenced", "untagged") or bool(needle)
+
+        if not post_filter and limit is not None:
+            start = max(0, int(cursor or 0))
+            lim = int(limit)
+            count_rows = self._query(
+                f"SELECT count() AS n FROM material{where} GROUP ALL", vars) or []
+            total = int((count_rows[0].get("n") if count_rows else 0) or 0)
+            page_vars = {**vars, "lim": lim, "start": start}
+            rows = self._query(
+                f"SELECT {self._MATERIAL_COLS} FROM material{where} {order} "
+                f"LIMIT $lim START $start", page_vars) or []
+            next_cursor = start + lim if start + lim < total else None
+            return {"items": rows, "next_cursor": next_cursor, "total": total}
+
         rows = self._query(
             f"SELECT {self._MATERIAL_COLS} FROM material{where} {order}",
             vars) or []
@@ -141,7 +170,6 @@ class MaterialsMixin:
         elif view == "untagged":
             rows = [m for m in rows if not (m.get("tags") or m.get("ref_tags"))]
 
-        needle = (q or "").strip().lower()
         if needle:
             def _blob(m):
                 return "\n".join([

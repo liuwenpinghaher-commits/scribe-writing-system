@@ -71,6 +71,12 @@
 
 ## 当前状态
 
+### 素材库 P2（2026-08-25）
+
+不改合同。插入按钮写「填入后才记引用」。去掉恒空的「历史主编记录」。健康度失败要响。空库探测 `materials_exist` 只探一条。简单视图列表走 SQL `LIMIT/START`。情绪卡标签不再装成笔记。`@` 有查询时把 `q` 交给服务端，素材请求失败不装空目录。`/objects/material` 删/归档走作者直管闸外。
+**测：** 前端 46 passed；后端 P2 焦点 12 passed。未合入、未热更。
+**未做：** 近重仍只 warning；健康度计数仍全表；记忆网络全图截 200；P3 拆 `Materials.jsx`。
+
 ### 素材库 P0+P1（2026-08-25）
 
 作者直管仍走 `/materials`。主编不能经 `s3_delete_codex` 改素材。导入 URL 每跳再检私网。commit 必须对应未过期 preview job。写路径自动注入不再记「作者已用」。章内引用失败要响，草稿页也能看账。转正典走待批 `s3_promote_material`（`fact.source=material:<id>`），不改素材行。

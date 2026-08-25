@@ -25,9 +25,10 @@ function maxChapterFromTree(manuscriptRoot) {
   return max
 }
 
-async function loadAtCatalogSources() {
+export async function loadAtCatalogSources(query = '') {
+  const q = String(query || '').trim()
   const [matPayload, tree, timelinePayload, entitiesPayload] = await Promise.all([
-    api.materials({ limit: 300 }).catch(() => []),
+    api.materials(q ? { q, limit: 80 } : { limit: 300 }),
     api.projectTree().catch(() => null),
     api.timeline(1).catch(() => null),
     api.entities().catch(() => []),
@@ -69,7 +70,7 @@ export function useMaterialAt({ input, setInput, taRef }) {
     let alive = true
     setLoading(true)
     setError('')
-    loadAtCatalogSources()
+    loadAtCatalogSources(at.query)
       .then((cat) => {
         if (!alive) return
         setCatalog(cat)

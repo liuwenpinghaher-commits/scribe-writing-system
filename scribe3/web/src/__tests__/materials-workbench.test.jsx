@@ -157,7 +157,7 @@ describe('MaterialList 素材库工作台', () => {
     expect(origins.getByRole('button', { name: /手建/ })).toBeTruthy()
     expect(origins.getByRole('button', { name: /来自导入/ })).toBeTruthy()
     expect(origins.getByRole('button', { name: /剪藏/ })).toBeTruthy()
-    expect(origins.getByRole('button', { name: /历史主编记录/ })).toBeTruthy()
+    expect(origins.queryByRole('button', { name: /历史主编记录/ })).toBeNull()
 
     fireEvent.click(origins.getByRole('button', { name: /来自导入/ }))
 
@@ -299,9 +299,19 @@ describe('MaterialList 素材库工作台', () => {
 
   it('插入当前章只发布待采纳草稿，不能在作者填入前伪记 material_reference', async () => {
     render(<MaterialDetail node={{ id: 'material:1', type: 'material', ref: 1, label: '城墙外环' }} />)
-    expect(await screen.findByTestId('material-insert-current')).toBeTruthy()
-    fireEvent.click(screen.getByTestId('material-insert-current'))
+    const insert = await screen.findByTestId('material-insert-current')
+    expect(insert).toBeTruthy()
+    expect(insert.getAttribute('title') || '').not.toMatch(/并记引用/)
+    expect(insert.getAttribute('title') || '').toMatch(/填入后/)
+    fireEvent.click(insert)
     expect(apiMock.addMaterialReference).not.toHaveBeenCalled()
+  })
+
+  it('健康度加载失败时显示错误，不装成没有这块', async () => {
+    apiMock.materialsHealth.mockRejectedValue(new Error('health down'))
+    render(<MaterialList node={{ id: 'material_root', type: 'material_root', label: '素材库' }} />)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/健康度/)
+    expect(screen.queryByTestId('material-health')).toBeNull()
   })
 
   it('详情展示 summary/pinned 字段', async () => {

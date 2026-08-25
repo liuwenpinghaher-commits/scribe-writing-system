@@ -44,11 +44,20 @@ def test_material_block_empty_gated(store, monkeypatch):
     assert not called, "门控应在调 LLM 前拦截空库"
 
 
-def test_editor_system_material_hint(store):
+def test_editor_system_material_hint(store, monkeypatch):
     """Task3.2:素材库非空 → 主编系统提示带能力提示(引导 s3_material_recall)。"""
     store.add_material("武侠打斗资料", "冷兵器格斗的节奏", "research")
+    listed = []
+    orig = store.list_materials
+
+    def wrap(*a, **k):
+        listed.append(1)
+        return orig(*a, **k)
+
+    monkeypatch.setattr(store, "list_materials", wrap)
     sys_prompt = appmod._editor_system(store)
     assert "素材" in sys_prompt and "s3_material_recall" in sys_prompt
+    assert listed == [], "空库探测不得扫全表 list_materials"
 
 
 def test_editor_system_no_hint_when_empty(store):

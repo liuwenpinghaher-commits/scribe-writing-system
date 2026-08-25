@@ -112,6 +112,23 @@ def test_author_materials_and_session_clip_allowed_when_rest_world_write_off(sto
     assert str(data["id"]) in ids
 
 
+def test_objects_material_write_allowed_when_rest_world_write_off(store, monkeypatch):
+    """/objects/material 是作者直管生命周期,不经世界写闸。"""
+    monkeypatch.setenv("SCRIBE3_EMERGENCY_REST_WRITE", "0")
+    S.invalidate_cache()
+    c = _client(store)
+    mid = store.add_material("闸外可删", "正文", "note")
+    impact = c.get(f"/objects/material/{mid}/impact?work=main")
+    assert impact.status_code == 200, impact.text
+    token = impact.json()["confirm_impact_token"]
+    deleted = c.delete(
+        f"/objects/material/{mid}?work=main",
+        params={"confirm_impact_token": token},
+    )
+    assert deleted.status_code == 200, deleted.text
+    assert store.get_material(mid) is None
+
+
 def test_author_session_clip_rejects_empty_and_coerces_kind(store, monkeypatch):
     monkeypatch.setenv("SCRIBE3_EMERGENCY_REST_WRITE", "0")
     S.invalidate_cache()
