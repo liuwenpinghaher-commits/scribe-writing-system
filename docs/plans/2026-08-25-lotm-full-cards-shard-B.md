@@ -22,8 +22,8 @@
 | status | **BLOCKED** |
 | last_card | （尚未） |
 | blocked_at | 2026-08-25T15:02Z |
-| last_checked | 2026-08-25T15:15Z |
-| blocked_reason | 缺原文 `docs/worlds/诡秘之主-全文.md`（按合同 → BLOCKED）。同环境亦缺：`2026-08-25-lotm-full-cards-loop.md`、`docs/worlds/诡秘之主-拆文/`（含 PROMPTS、章卡/89.md、索引）。本会话不编造章卡、不灌 Surreal、不改 A/C/D/主 loop/SESSION。已 `.gitignore` 全文路径；无 demo SSH 密钥；R2 未启用；Drive/Gmail 空。订阅 repo PR + 15min 定时复检，资产到位即从 `next_seq=546` 开写。 |
+| last_checked | 2026-08-25T15:16Z |
+| blocked_reason | 缺原文 `docs/worlds/诡秘之主-全文.md`（按合同 → BLOCKED）。同环境亦缺：`2026-08-25-lotm-full-cards-loop.md`、`docs/worlds/诡秘之主-拆文/`（含 PROMPTS、章卡/89.md、索引）。云端 VM 无 gitignore 本地全文、无 demo SSH 密钥；不外网扒书、不编造章卡。订阅 repo PR + 15min 定时复检。 |
 
 ## 一夜 goal（本会话只贴这段）
 
@@ -43,6 +43,12 @@
 
 ## 解阻清单（人侧 / 协调侧）
 
-1. 本机放入 `docs/worlds/诡秘之主-全文.md`（UTF-8；勿 commit；可仿 `乱世铜炉-全文.md` 进 gitignore）。
-2. 推上脚手架：`docs/plans/2026-08-25-lotm-full-cards-loop.md`、`docs/worlds/诡秘之主-拆文/`（至少 PROMPTS 第1轮厚卡 + 密度样板 `章卡/89.md` + 可定位 546–826 的索引）。
-3. 再开 B 会话：读本表 → `status=running` → 从 `next_seq=546` 起一轮一张。
+云端 B/C 与本机不同：gitignore 全文**不会**随 git 进 VM；脚手架必须先 push 到 remote。
+
+1. **脚手架（可 commit）** push 到 `main` 或任一支，B 会 fetch：
+   - `docs/plans/2026-08-25-lotm-full-cards-loop.md`
+   - `docs/worlds/诡秘之主-拆文/PROMPTS.md`（第1轮厚卡）
+   - `docs/worlds/诡秘之主-拆文/章卡/89.md`（密度样板）
+   - `docs/worlds/诡秘之主-拆文/00-index.md`（或 loop 指定的切章索引，须含 546–826 行号）
+2. **全文（勿 commit）** 放入**本云端工作区**路径 `docs/worlds/诡秘之主-全文.md`（UTF-8）。途径：本机 scp/rsync 进 agent VM、或 follow-up 提供可拉的内网/已授权 URL（禁止公开盗版源）。`.gitignore` 已列此路径。
+3. 资产齐后本会话自动把 `status` 改回 `running`，从 `next_seq=546` 一轮一张；不必重开（若已杀再开亦可）。
