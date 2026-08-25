@@ -750,13 +750,13 @@ def _editor_identity_block() -> str:
 
 
 def _write_protocol_block() -> str:
-    """写作硬协议(讨论 vs 动稿)+ 文风基准(纯静态,零数据)。原 _editor_write_system 内联串
-    原样抽出,供旧 _editor_write_system 与 v1 共用——不改一字,保旧路径字节一致。"""
+    """写作硬协议(讨论 vs 动稿)+ 文风基准。成色旗开则拆古白话贴铜炉。"""
     try:
         exemplar = _LUANSHI_EXEMPLAR  # type: ignore[name-defined]
     except NameError:
         from scribe3.api import app_impl as _core
         exemplar = getattr(_core, "_LUANSHI_EXEMPLAR", "……")
+    from scribe3.playbook.chengse import protocol_style_block
     return (
         "\n\n你是这部小说的主编,以**作者视角**帮作者写/改这本书的手稿——作者在写一本书,"
         "不是从某个角色的受限视角做渲染。\n\n"
@@ -773,16 +773,8 @@ def _write_protocol_block() -> str:
         "## 写作规则\n"
         "- 若作者给了某角色的「演绎草稿」(那角色这一场的限知体验)作为素材,把它**织进**书的叙事。\n"
         "- 尊重已确立设定/伏笔/北极星意图。默认作者视角(可全知);仅当作者明确指定本章跟某焦点者的"
-        "限知走时,叙事才贴该视角、不写他不知道的私密。\n\n"
-        "## 文风基准:贴《乱世铜炉》(志怪笔记体)——两条硬要求\n"
-        "1. **古白话语体**:句子要带旧白话的筋骨与风物实词,少用现代抽象/翻译腔。多用'端的、岂料、怎禁得、"
-        "却原来、一径、约莫'这类词;状物用具体名物(花脚毛驴、青骡子、喜糕、水酒)而非笼统形容。"
-        "**禁**'像散了一地的骨头''张牙舞爪'这类用力过猛的现代文学比喻——冷笔、素描,信物自身说话。\n"
-        "2. **世界密度(乱世铜炉的命门)**:每章须织入与主线无关、却让世界活起来的市井风物侧笔——"
-        "婚丧社戏的张罗、乡邻帮衬、打更人讨水酒、行当忌讳、节庆吃食。别一上来直奔情节;让村镇先有烟火气,"
-        "妖异方有依附。范例语感(仅供体感,勿照抄字句):\n"
-        "  「" + exemplar + "」\n"
-        "  ——注意它如何用一整段写婚宴的杀猪宰羊、姑嫂蒸糕、打更人讨酒,世界先活,事件才落地。"
+        "限知走时,叙事才贴该视角、不写他不知道的私密。"
+        + protocol_style_block(exemplar=exemplar)
     )
 
 

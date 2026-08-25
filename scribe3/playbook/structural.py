@@ -13,6 +13,7 @@
 - pov_consistency：叙述人称沿用首章（剥对白后数「我」）
 - dialogue_floor：糙稿对白行字数比 ≥15%
 - syntax_tics：叙述层「不是A是B」/毒句式 ≥2 处在定稿拦住（对白不计；糙稿只记账不硬拦）
+- chengse_filter：叙述层古白话套话 / 铜炉专名 / 空概括收尾（关旗不拦）
 """
 from __future__ import annotations
 
@@ -566,6 +567,10 @@ def check_draft_struct(
     dlg = dialogue_ratio(text)
     if dlg < 0.15:
         return _fail("dialogue_floor", f"对白占比 {dlg:.1%} 低于 15%")
+    from scribe3.playbook.chengse import check_chengse_filter
+    ch = check_chengse_filter(text)
+    if not ch.get("ok"):
+        return ch
     return _ok()
 
 
@@ -607,6 +612,10 @@ def check_final_last_mile(
     tics = check_syntax_tics(prose_text)
     if not tics.get("ok"):
         return tics
+    from scribe3.playbook.chengse import check_chengse_filter
+    ch = check_chengse_filter(prose_text)
+    if not ch.get("ok"):
+        return ch
     if store is None:
         return hit
     getter = getattr(store, "get_frozen", None)

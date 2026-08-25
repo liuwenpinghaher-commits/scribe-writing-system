@@ -1,15 +1,16 @@
-"""playbook.3.2.5 identity + generate/judge prompts. 改法官问卷或门槛才升版本。"""
+"""playbook.3.2.6 identity + generate/judge prompts. 改法官问卷或门槛才升版本。"""
 from __future__ import annotations
 
 import json
 
+from scribe3.playbook.chengse import craft_generate_block, craft_judge_block
 from scribe3.playbook.quote import PLAYBOOK_VERSION
 from scribe3.playbook.schema import snapshot_body
 
 IDENTITY_NOVELIST = (
-    "你是一个写了二十年长篇类型小说的小说家。你从不写提纲式概括，你写场面："
-    "具体的时间、具体的地方、人在做什么说什么。你写的时候心里装着读者："
-    "读完这章，要能说出发生了什么、谁付出了什么、还想不想翻下一页。"
+    "你是一个写了二十年长篇的小说家。你从不写提纲式概括，你写还在过的日子："
+    "具体的时间、具体的地方、谁在办哪一件。读完要能看见日子怎么变，"
+    "不是报身份、扔钩子、升华收尾。"
 )
 IDENTITY_DUTY = "你是这本书的主编剧，管整本书的账房：每章办什么事、付什么账，你说了算。"
 IDENTITY_PLAY = (
@@ -155,7 +156,7 @@ def _iron_tail(ctx: dict) -> str:
 def duty_generate(ctx: dict) -> str:
     return f"""你在为第 {ctx.get("seq")} 章立"责任"——这一章必须办成的事。
 这份责任卡直接驱动下游写戏：写戏的严格按你立的来，立歪了整章歪。
-{_iron_head(ctx)}
+{_iron_head(ctx)}{craft_generate_block()}
 【全书定位】
 卷纲：{ctx.get("volume_outline") or "（无）"}
 北极星：{ctx.get("north_star") or "（无）"}
@@ -210,6 +211,7 @@ def duty_judge_v2(ctx: dict) -> str:
 6. 这章除了焦点者，有没有第二个有意志的在场者？（能说话或能对抗；远远看着不算）
 7. 打开本卷还要办的几笔：这份责任是不是第 {ctx.get("seq")} 章该办的那一笔？后面的可以挂着当没做完的事。有没有把后面某章的夜提前写成了这一夜？
 
+{craft_judge_block()}
 {VERDICT_SCHEMA}
 """
 
@@ -235,6 +237,7 @@ def duty_judge(ctx: dict) -> str:
 7. 这章摸起来还是这本书吗？（全书意象域未设则本问 yes；若这章要跨到另一个世界的质感，责任卡必须先在场上放一个同时属于两个世界的物件作桥，否则 no）
 8. 打开本卷还要办的几笔：这份责任是不是第 {ctx.get("seq")} 章该办的那一笔？后面的可以挂着当没做完的事。有没有把后面某章的夜提前写成了这一夜？{PACE_EXEMPT}
 
+{craft_judge_block()}
 {VERDICT_SCHEMA}
 """
 
@@ -242,7 +245,7 @@ def duty_judge(ctx: dict) -> str:
 def play_generate(ctx: dict) -> str:
     d = ctx.get("duty") or {}
     return f"""写第 {ctx.get("seq")} 章的戏。这是给全书定"这一章发生什么"的一篇短戏，不是给读者的正文。
-{_iron_head(ctx)}
+{_iron_head(ctx)}{craft_generate_block()}
 【本章责任】（责任卡已冻结，严格照此写，不得另办一件事）
 - 要办的一件事：{d.get("must_happen")}
 - 要付的账：{d.get("bill")}
@@ -304,6 +307,7 @@ def play_judge_v2(ctx: dict) -> str:
 8. 有没有提前拆穿禁止拆穿的事？
 9. 这场戏有没有把本卷后面的夜提前演完？章末挂着没做完的事不算演完。
 
+{craft_judge_block()}
 {VERDICT_SCHEMA}
 """
 
@@ -332,6 +336,7 @@ def play_judge(ctx: dict) -> str:
 11. 这章戏里新写出的可见事实，有没有跟上一章已经写死的事实打架？（无末态则 yes）
 12. 这场戏有没有把本卷后面的夜提前演完？章末挂着没做完的事不算演完。{PACE_EXEMPT}
 
+{craft_judge_block()}
 {VERDICT_SCHEMA}
 """
 
@@ -447,7 +452,7 @@ def draft_generate(ctx: dict) -> str:
         f"\n【上一稿没过，照这个改，不要只换词】{hint}\n" if hint else ""
     )
     return f"""按这场戏和演绎，写一遍糙稿（2000-4000 字）。{hint_block}
-{_iron_head(ctx)}
+{_iron_head(ctx)}{craft_generate_block()}
 【戏（设计图，不是文）】{ctx.get("play_text")}
 【契约】{ctx.get("contract_json")}
 【演绎（矿与限知，施工材料）】{ctx.get("deduction_json")}
@@ -509,6 +514,7 @@ def draft_judge(ctx: dict) -> str:
 10. 上章记下、到这章该响的悬念，这章碰到了吗？（没有到期条目则 yes）
 11. 这章新写出的可见事实，有没有跟上一章已经写死的事实打架？（无末态则 yes）
 
+{craft_judge_block()}
 {VERDICT_SCHEMA}
 """
 
@@ -522,7 +528,7 @@ def final_generate(ctx: dict) -> str:
         f"\n【上一稿没过，照这个改，不要只换词】{hint}\n" if hint else ""
     )
     return f"""把这份糙稿打磨成正文（面向读者的最终文本）。{hint_block}
-{_iron_head(ctx)}
+{_iron_head(ctx)}{craft_generate_block()}
 【糙稿（蓝本，结构照此）】{ctx.get("draft_text")}
 【本章必须兑现的】
 - 要办的事：{ctx.get("goal_text")}
@@ -572,6 +578,7 @@ def final_judge_v2(ctx: dict) -> str:
 4. 这章读得下去吗？——一口气读下来，有没有哪里你会跳行？
 5. 正文里有没有出现"上一章/这一章/下一章"这类章边界词？（引原句；有则 no）
 
+{craft_judge_block()}
 {VERDICT_SCHEMA}
 """
 
@@ -599,6 +606,7 @@ def final_judge(ctx: dict) -> str:
 7. 上章记下、到这章该响的悬念，这章碰到了吗？（没有到期条目则 yes）
 8. 这章新写出的可见事实，有没有跟上一章已经写死的事实打架？（无末态则 yes）
 
+{craft_judge_block()}
 {VERDICT_SCHEMA}
 """
 
@@ -646,4 +654,4 @@ def identity_for(kind: str) -> str:
     return IDENTITY_NOVELIST
 
 
-assert PLAYBOOK_VERSION == "playbook.3.2.5"
+assert PLAYBOOK_VERSION == "playbook.3.2.6"

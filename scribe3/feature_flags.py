@@ -317,6 +317,13 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag("SCRIBE3_DUTY_SUMMARY_LOOKBACK", "3", "近几章责任摘要回看章数", "playbook", "safe"),
     Flag("SCRIBE3_DEFAULT_WORK", "main", "默认书名（changefeed/未指定 work）", "works", "safe"),
     Flag("SCRIBE3_ALERT_WEBHOOK", "", "关键事件 webhook", "ops", "caution"),
+    Flag(
+        "SCRIBE3_CHENGSE_CRAFT",
+        "1",
+        "成色：拆古白话贴铜炉；日子/办事/假破真进生成与审判；关=回旧文案",
+        "playbook",
+        "caution",
+    ),
 )
 
 
