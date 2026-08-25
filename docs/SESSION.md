@@ -52,10 +52,11 @@
 
 ### 拆文倒逼翻主（短入口）
 
+已结案。后继：
+
 ```
-执行 docs/plans/2026-08-25-tonglu-force-rebuild-loop.md
-短名 tonglu-force-rebuild。先读 AGENTS.md 与 docs/SESSION.md。
-一轮一能力。禁止续跑 chengse-overnight。禁止 10 万单独开跑。
+执行 docs/plans/2026-08-26-craft-ruler-loop.md
+短名 craft-eval。先读 AGENTS.md 与 docs/SESSION.md。
 ```
 
 ### 故事招式库 · 命名绕法卡片（短入口）
@@ -112,11 +113,15 @@
 仪表盘合同仍是「机器体检」。第一屏改成弱章+未收账；码字图/各章图仍在，只是挪到名单下面。空书说「还没有章」，不再谎称「质检干净」。`DetailPane` 透传 `chapter={qualitySeq}`：当前章若也弱则钉顶；呼吸默认跟写作章。弱章/开口账多一粒「针对这条体检写下一笔」（只讨论）。弱章仍进 `quality_review`，不回退。
 **已改并热更：** `90ae4032`。frontend `FRONTEND_DEPLOY_OK`，首页 `index-CX6-iORL.js`，懒加载 `InsightView-BGApNdVF.js` 含「针对这条体检写下一笔」/「还没有章」。强制刷新后再开仪表盘。nginx unlink busy 非致命。测绿 ≠ 视觉过。
 
-### 拆文倒逼翻主（2026-08-25）
+### 拆文倒逼翻主（2026-08-25）· 已结案
 
-现行过夜 / 循环 SSOT：[`docs/plans/2026-08-25-tonglu-force-rebuild-loop.md`](./plans/2026-08-25-tonglu-force-rebuild-loop.md)（`tonglu-force-rebuild`）。旧 [`2026-08-24-tonglu-chengse-loop.md`](./plans/2026-08-24-tonglu-chengse-loop.md) **已结案，禁止续跑**。
-能力 0–21 代码已落。对照.md + 章法.md + 因文.md 已接进生成/审判真源。playbook.3.2.29：天下第一门验铁律压场再抢场；塑魂验醒了先叫从前的人；别亦难验钉认杀机不认亲。回退 = revert。
-样例书 **`book_46cff31a`《井台灯》**：第1章不算。第2–5章场A–D。第6章《井口那坛》场E开坛。第7章《喜酒还没散》场F酒宴。第8章《镇上找活》场G坐牢。第9章《店还没开张》定稿 1293 场H跳年。第10章《还能跑》定稿 986 场I选择。第11章《还在疼》定稿 851 场J心藏腹。第12章《酒还没收成罪》定稿 1036 场K天下第一门。第13章《醒了先叫》定稿 782 场L塑魂。第14章《钉不认亲》定稿 851 场M别亦难。不开 10 万。未删《腕账》。可停：因文后文四条链写完。仍不是铜炉全书成色。
+旧过夜 SSOT [`docs/plans/2026-08-25-tonglu-force-rebuild-loop.md`](./plans/2026-08-25-tonglu-force-rebuild-loop.md) **禁止续跑**。能力 0–21 与《井台灯》场A–M 作为旧证据留档，不复用为过闸书。后继：`craft-eval`。
+
+### craft-eval · 会拆才会写（2026-08-26）
+
+现行循环 SSOT：[`docs/plans/2026-08-26-craft-ruler-loop.md`](./plans/2026-08-26-craft-ruler-loop.md)（`craft-eval`）。先拆后写。P1 不写小说。
+**P0 已冻：** 留出 43 章 `scribe3/eval/holdout.json` hash `fb460682bfcff4f2345699068cf818893094e733b987f1c19a91c267dfda4649`。母本 30812 行在 gitignored `docs/worlds/乱世铜炉-全文.md`。`pytest scribe3/tests/test_craft_eval_p0.py` 4 passed。
+**未做：** 现网清书；P1 尺子；P0.4 生成侧债（等 before 分）。
 
 ### 时间线列表+抽屉（2026-08-25）
 
