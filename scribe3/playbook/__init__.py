@@ -1,4 +1,4 @@
-"""Play & Contract chapter pipeline (playbook.3.2.15)."""
+"""Play & Contract chapter pipeline (playbook.3.2.16)."""
 from scribe3.playbook.quote import PLAYBOOK_VERSION, _norm, quote_in_play
 from scribe3.playbook.errors import FrozenAssetError, StageGone, StructFail
 from scribe3.playbook.envelope import artifact_sha, wrap

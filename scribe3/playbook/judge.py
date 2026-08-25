@@ -32,7 +32,7 @@ RUBRICS_V2 = {
     "play": play_judge_v2,
     "final": final_judge_v2,
 }
-VERSIONED_RUBRICS = ("playbook.2", "playbook.3", "playbook.3.1", "playbook.3.2", "playbook.3.2.1", "playbook.3.2.2", "playbook.3.2.3", "playbook.3.2.4", "playbook.3.2.5", "playbook.3.2.6", "playbook.3.2.7", "playbook.3.2.8", "playbook.3.2.9", "playbook.3.2.10", "playbook.3.2.11", "playbook.3.2.12", "playbook.3.2.13", "playbook.3.2.14", "playbook.3.2.15")
+VERSIONED_RUBRICS = ("playbook.2", "playbook.3", "playbook.3.1", "playbook.3.2", "playbook.3.2.1", "playbook.3.2.2", "playbook.3.2.3", "playbook.3.2.4", "playbook.3.2.5", "playbook.3.2.6", "playbook.3.2.7", "playbook.3.2.8", "playbook.3.2.9", "playbook.3.2.10", "playbook.3.2.11", "playbook.3.2.12", "playbook.3.2.13", "playbook.3.2.14", "playbook.3.2.15", "playbook.3.2.16")
 
 
 def _rubrics_for(version: str) -> dict:

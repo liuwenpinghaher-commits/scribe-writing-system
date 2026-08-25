@@ -428,6 +428,7 @@ def _run_duty(store, seq, ctx, llm_fn, *, force, persist):
             available_cast=ctx.get("available_cast") or [],
             available_lines=ctx.get("available_lines") or [],
             prev_hook_quote=ctx.get("prev_hook_quote"),
+            prev_stay=ctx.get("prev_stay"),
         ),
         judge_type="duty",
         judge_ctx=lambda d: {
@@ -437,6 +438,7 @@ def _run_duty(store, seq, ctx, llm_fn, *, force, persist):
             "chapter_duty": ctx.get("chapter_duty"),
             "recent_duty_summary": ctx.get("recent_duty_summary"),
             "prev_hook_quote": ctx.get("prev_hook_quote"),
+            "prev_stay": ctx.get("prev_stay"),
             "seq": ctx.get("seq"),
             **_continuity_judge(ctx),
         },

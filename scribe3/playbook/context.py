@@ -225,6 +225,20 @@ def prev_hook_quote(store: Any, seq: int) -> str | None:
     return str(q) if q else None
 
 
+def prev_stay(store: Any, seq: int) -> str | None:
+    """上场责任卡没翻的处境。旧卡没 stay 不拦。"""
+    if int(seq) <= 1:
+        return None
+    fn = getattr(store, "get_frozen", None)
+    if not callable(fn):
+        return None
+    duty = fn("duty_card", int(seq) - 1)
+    if not isinstance(duty, dict):
+        return None
+    stay = str(duty.get("stay") or "").strip()
+    return stay or None
+
+
 def prev_play_with_hook(quote: str) -> dict[str, Any]:
     """Contract-shaped stub whose hook.quote is the bite source."""
     q = str(quote or "")
@@ -257,6 +271,7 @@ def make_duty(prev: dict[str, Any] | None = None, *, seq: int = 2, **fields: Any
         "keep": fields.get("keep") or "灯油不是自家攒的，空盏才露出来",
         "heat": fields.get("heat") or "井台上有人认了这盏油",
         "stay": fields.get("stay") or "灯还是空的，日子没翻",
+        "owed": fields.get("owed") or "",
         "bill": fields.get("bill") or "付账",
         "forbidden_reveal": list(fields.get("forbidden_reveal") or ["秘密"]),
         "bite_from_prev": None if int(seq) == 1 else hook,
@@ -920,6 +935,7 @@ def build_ctx(
         "cast_cards": cards,
         "available_lines": available_lines(world),
         "prev_hook_quote": prev_hook_quote(frozen, seq),
+        "prev_stay": prev_stay(frozen, seq),
         "secret_list": secret_list(world),
         "prev_state": prev_state,
         "imagery": book_imagery(world),

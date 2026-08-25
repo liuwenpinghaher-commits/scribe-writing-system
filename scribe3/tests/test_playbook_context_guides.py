@@ -59,7 +59,7 @@ class _Both(_World):
     def __init__(self):
         super().__init__()
         self._frozen = {
-            ("duty_card", 1): {"must_happen": "按回碎片", "bill": "一层皮"},
+            ("duty_card", 1): {"must_happen": "按回碎片", "bill": "一层皮", "stay": "砖缝的水还在往指甲缝里钻"},
             ("chapter_play", 1): {"text": "柳岸青把掌心按在潮砖上，砖缝返上来的水往指甲缝里钻。"},
             ("chapter_contract", 1): {"fields": {"hook": {"quote": "等着人来兑现"}}},
             ("chapter_state", 1): {"characters": [{"name": "柳岸青", "gender": "男"}]},
@@ -90,7 +90,9 @@ def test_same_object_slots_are_filled():
     assert "看不见场核坐标" not in ctx["codex_recall"]
     assert "请点名" not in ctx["codex_recall"]
     assert ctx["prev_hook_quote"] == "等着人来兑现"
+    assert ctx["prev_stay"] == "砖缝的水还在往指甲缝里钻"
     d = duty_generate(ctx)
+    assert "砖缝的水还在往指甲缝里钻" in d
     assert "（无）" not in d.split("卷纲：", 1)[1][:80]
     assert "【本章责】" in d
     assert "（无）" not in d.split("【本章责】", 1)[1].split("\n", 1)[0]
@@ -104,6 +106,7 @@ def test_split_world_must_not_fake_frozen():
     assert "囚笼" in ctx["volume_outline"]
     assert "按回碎片" in ctx["recent_duty_summary"]
     assert ctx["prev_hook_quote"] == "等着人来兑现"
+    assert ctx["prev_stay"] == "砖缝的水还在往指甲缝里钻"
     assert "四十二度不是病是标价" in ctx["codex_recall"]
 
 
@@ -157,7 +160,7 @@ def test_three_chapter_two_matching_keeps_unique_third():
 
 def test_strip_pad_and_version():
     assert PAD not in strip_seed_pad("真种子。" + PAD + PAD)
-    assert PLAYBOOK_VERSION == "playbook.3.2.15"
+    assert PLAYBOOK_VERSION == "playbook.3.2.16"
     assert "【本章责】" in duty_generate({})
     assert "【本章责】" in duty_judge({})
     assert metaphor_per_800("像火。") >= 0
@@ -205,7 +208,7 @@ def test_guide_fail_only_on_throw_not_natural_empty():
     assert "2000-4000" not in text
     assert "场面立住就停" in text
     assert "连续 8 个字" not in draft_generate({})
-    assert PLAYBOOK_VERSION == "playbook.3.2.15"
+    assert PLAYBOOK_VERSION == "playbook.3.2.16"
 
 
 def test_extra_can_override_guide_fail():

@@ -73,6 +73,10 @@ def gen_duty(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
     raw["bite_from_prev"] = ctx.get("prev_hook_quote")
     if int(raw["seq"] or 0) == 1:
         raw["bite_from_prev"] = None
+    if not str(raw.get("owed") or "").strip():
+        stay_prev = str(ctx.get("prev_stay") or "").strip()
+        if stay_prev:
+            raw["owed"] = stay_prev
     fr = raw.get("forbidden_reveal")
     if not (isinstance(fr, list) and any(str(x).strip() for x in fr)):
         secrets = [str(x).strip() for x in (ctx.get("secret_list") or []) if str(x).strip()]

@@ -28,7 +28,7 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.15"
+    assert PLAYBOOK_VERSION == "playbook.3.2.16"
     d = duty_generate({"seq": 1})
     assert "【对照·真源】" in d
     assert "【成色·验戏不验词表】" not in d
@@ -646,6 +646,79 @@ def test_duty_flip_blocks_heat_as_turn():
         must_happen="沈槐把空盏摘下来",
     )
     assert check_duty_struct(good, available_cast=["沈槐"])["ok"] is True
+
+
+def test_duty_owed_blocks_cleared_stay():
+    """上场 stay 这场必须还在过。只接 hook.quote、把 stay 清掉，不算。"""
+    from scribe3.playbook.context import make_duty
+    from scribe3.playbook.structural import check_duty_struct
+
+    prev = "油罐仍贴在棉袄里，没一个人当众认那盏灯。"
+    hook = "那盏灯在横担上烧着，火光比先前稳了些。"
+    unpaid = make_duty(
+        seq=2,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        mask="井台认油",
+        crack="空盏",
+        real="不是自家油",
+        eye="沈槐",
+        dist="near",
+        cut="空盏磕在井沿上",
+        one_line="他把空盏摘下来",
+        keep="灯油不是自家攒的，空盏才露出来",
+        heat="井台上有人认了这盏油",
+        stay="灯还是空的，日子没翻",
+        owed="接住了横担上那句火光",
+        must_happen="沈槐把空盏摘下来",
+        bite_from_prev=hook,
+    )
+    unpaid["bite_from_prev"] = hook
+    miss = check_duty_struct(
+        unpaid, available_cast=["沈槐"], prev_hook_quote=hook, prev_stay=prev,
+    )
+    assert miss["ok"] is False
+    assert miss["code"] == "duty_stay_unpaid"
+
+    living = make_duty(
+        seq=2,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        mask="井台认油",
+        crack="空盏",
+        real="不是自家油",
+        eye="沈槐",
+        dist="near",
+        cut="空盏磕在井沿上",
+        one_line="他把空盏摘下来",
+        keep="灯油不是自家攒的，空盏才露出来",
+        heat="井台上有人认了这盏油",
+        stay="沈槐还排在队尾，油罐仍贴在棉袄里",
+        owed="没一个人当众认那盏灯",
+        must_happen="沈槐把空盏摘下来",
+        bite_from_prev=hook,
+    )
+    living["bite_from_prev"] = hook
+    assert check_duty_struct(
+        living, available_cast=["沈槐"], prev_hook_quote=hook, prev_stay=prev,
+    )["ok"] is True
+
+    ch1 = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        must_happen="沈槐把空盏摘下来",
+    )
+    assert check_duty_struct(ch1, available_cast=["沈槐"])["ok"] is True
 
 
 def test_draft_len_does_not_kill_lived_scene():

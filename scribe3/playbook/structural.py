@@ -21,6 +21,7 @@
 - duty.cut：切；热过再冷，切在能听见看见的那一下；切在叹气/夜色深了不过
 - duty.yin：因文；一行本事说不完；删了会塌的那截必须另写
 - duty.flip：热闹像翻了、处境没翻不过；热闹不算翻
+- duty.owed：上场 stay 这场还在过；只接 hook.quote 不算
 """
 from __future__ import annotations
 
@@ -205,6 +206,43 @@ def check_duty_yin(duty: dict[str, Any]) -> dict[str, Any]:
     return _ok()
 
 
+def _stay_grams(text: str) -> list[str]:
+    """上场处境里还能认的两字。虚词两字丢掉。"""
+    stop = set("的了着在是把被与和及就都还没不人那这一个上下来去过")
+    blob = re.sub(r"\s+", "", str(text or ""))
+    out: list[str] = []
+    for i in range(len(blob) - 1):
+        g = blob[i : i + 2]
+        if all(ch in stop for ch in g):
+            continue
+        if g not in out:
+            out.append(g)
+    return out
+
+
+def check_duty_owed(duty: dict[str, Any], *, prev_stay: str | None = None) -> dict[str, Any]:
+    """上场没翻的处境这场还得过。只接章末钩子不算。"""
+    seq = int((duty or {}).get("seq") or 0)
+    stay_prev = str(prev_stay or "").strip()
+    if seq <= 1 or not stay_prev:
+        return _ok()
+    owed = str((duty or {}).get("owed") or "").strip()
+    day = str((duty or {}).get("day") or "").strip()
+    happen = str((duty or {}).get("must_happen") or "").strip()
+    stay = str((duty or {}).get("stay") or "").strip()
+    blob = f"{owed}\n{day}\n{happen}\n{stay}"
+    grams = _stay_grams(stay_prev)
+    need = 2 if len(grams) >= 2 else max(1, len(grams))
+    hits = [g for g in grams if g and g in blob]
+    if len(hits) < need:
+        return _fail(
+            "duty_stay_unpaid",
+            "上场没翻的处境这场还得过。只接章末钩子、把上场 stay 清掉，不算",
+            "owed",
+        )
+    return _ok()
+
+
 def check_duty_flip(duty: dict[str, Any]) -> dict[str, Any]:
     """热闹不算翻。热闹像翻了、处境还停在原处，不过。"""
     heat = str((duty or {}).get("heat") or "").strip()
@@ -289,6 +327,7 @@ def check_duty_struct(
     available_cast: list[str] | None = None,
     available_lines: list[Any] | None = None,
     prev_hook_quote: str | None = None,
+    prev_stay: str | None = None,
 ) -> dict[str, Any]:
     def _who(x: str) -> str:
         s = str(x or "").strip()
@@ -322,6 +361,9 @@ def check_duty_struct(
     flip_hit = check_duty_flip(duty)
     if not flip_hit.get("ok"):
         return flip_hit
+    owed_hit = check_duty_owed(duty, prev_stay=prev_stay)
+    if not owed_hit.get("ok"):
+        return owed_hit
     fr = duty.get("forbidden_reveal")
     if not isinstance(fr, list) or not [x for x in fr if str(x).strip()]:
         return _fail("duty_forbid_empty", "forbidden_reveal 不能空", "forbidden_reveal")
