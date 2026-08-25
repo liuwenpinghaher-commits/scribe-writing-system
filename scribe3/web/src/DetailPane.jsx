@@ -107,6 +107,7 @@ function renderDetail({ sel, work, workTitle, onSelectNode, onTreeChanged, onJum
         <InsightView
           key={work}
           work={work}
+          chapter={qualitySeq}
           onJumpChapter={onJumpChapter}
           onNavigateToObject={onNavigateToObject}
         />
@@ -143,6 +144,7 @@ function renderDetail({ sel, work, workTitle, onSelectNode, onTreeChanged, onJum
         <InsightView
           key={`${work}-progress`}
           work={work}
+          chapter={qualitySeq}
           onJumpChapter={onJumpChapter}
           onNavigateToObject={onNavigateToObject}
           focus="progress"

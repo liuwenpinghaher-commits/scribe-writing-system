@@ -1,680 +1,19 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
-import { Activity, FileText, Bookmark, ShieldAlert, Target, CheckCircle2, EyeOff, Pencil, Flame, Trophy, TrendingUp, ArrowRight, AlertTriangle, X } from 'lucide-react'
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts'
+import { useEffect, useRef, useState } from 'react'
+import { Activity, FileText, Bookmark, ShieldAlert, AlertTriangle } from 'lucide-react'
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { api } from '../api'
 import { chapterLabel } from '../chapterLabel.js'
 import { showToast } from '../ui/Toast'
-import { useSelection } from '../selectionContext'
 import { scrollBehavior } from '../lib/utils'
-import { seedChiefCodexWrite } from '../lib/chiefSeed.js'
-import { safeWordGoal, wordGoalPct } from '../lib/wordGoal.js'
+import { safeWordGoal } from '../lib/wordGoal.js'
 import { liveTouchesTable } from '../lib/liveRefresh.js'
+import { Metric, ErrorState } from './insight/InsightBits.jsx'
+import { WeakChapterList } from './insight/WeakChapterList.jsx'
+import { OpenPromiseStrip, PromiseLedger, usePromiseLedger } from './insight/PromiseLedger.jsx'
+import { ProgressPanel, GoalDialog } from './insight/ProgressPanel.jsx'
+import { DiscourseBreathPanel } from './insight/DiscourseBreathPanel.jsx'
 
-// ── 通用 Metric(轻量,无重框套娃) ──────────────────────────────────────────
-function Metric({ icon: Icon, label, value, sub, tone = 'brand' }) {
-  const c = { brand: 'text-brand', fore: 'text-fore', danger: 'text-danger', ok: 'text-ok' }[tone]
-  return (
-    <div className="py-2 pr-2">
-      <div className="flex items-center gap-1.5 text-faint text-meta uppercase tracking-wider mb-1"><Icon size={13} />{label}</div>
-      <div className={`text-2xl font-semibold tnum ${c}`}>{value}</div>
-      {sub && <div className="text-meta text-faint mt-0.5">{sub}</div>}
-    </div>
-  )
-}
-
-function ErrorState({ message, onRetry }) {
-  return (
-    <div role="alert" className="rounded-md border border-danger/30 bg-danger/5 px-4 py-3 text-f13 text-danger">
-      <div>{message}</div>
-      {onRetry && (
-        <button onClick={onRetry} className="mt-2 inline-flex rounded-md border border-danger/30 px-2.5 py-1 text-f12 hover:bg-danger/10 transition-colors cursor-pointer">
-          重试
-        </button>
-      )}
-    </div>
-  )
-}
-
-// ── 伏笔相关 ────────────────────────────────────────────────────────────────
-
-// setup→payoff 连线(已回收专用) + clue 中途标记点
-function PromiseSpanBar({ setupChapter, payoffChapter, maxChapter, clues = [] }) {
-  if (setupChapter == null || payoffChapter == null || maxChapter == null || maxChapter <= 0) return null
-  const total = Math.max(maxChapter, payoffChapter)
-  const setupPct = Math.max(0, Math.min(100, (setupChapter / total) * 100))
-  const payoffPct = Math.max(0, Math.min(100, (payoffChapter / total) * 100))
-  const widthPct = Math.max(1, payoffPct - setupPct)
-  return (
-    <div className="relative h-2 mt-1.5 mb-0.5 rounded-full bg-soft overflow-hidden">
-      <div
-        className="absolute top-0 h-full rounded-full bg-ok/60"
-        style={{ left: `${setupPct}%`, width: `${widthPct}%` }}
-      />
-      <div className="absolute top-0 h-full w-[3px] rounded-full bg-faint" style={{ left: `${setupPct}%` }} />
-      <div className="absolute top-0 h-full w-[3px] rounded-full bg-ok" style={{ left: `calc(${payoffPct}% - 3px)` }} />
-      {/* 草蛇灰线:中途线索小标记 */}
-      {clues.map((cl, i) => {
-        const clPct = Math.max(0, Math.min(100, (cl.chapter / total) * 100))
-        return (
-          <div
-            key={i}
-            title={`第${cl.chapter}章: ${cl.note}`}
-            className="absolute top-0 h-full w-[3px] rounded-full bg-fore/70 cursor-help"
-            style={{ left: `calc(${clPct}% - 1px)` }}
-          />
-        )
-      })}
-    </div>
-  )
-}
-
-// 未回收伏笔的 open 跨度条(带 clue 标记)
-function PromiseOpenBar({ setupChapter, maxChapter, clues = [] }) {
-  if (setupChapter == null || maxChapter == null || maxChapter <= 0) return null
-  const total = maxChapter
-  const setupPct = Math.max(0, Math.min(100, (setupChapter / total) * 100))
-  const widthPct = Math.max(1, 100 - setupPct)
-  return (
-    <div className="relative h-1.5 mt-1.5 mb-0.5 rounded-full bg-soft overflow-hidden">
-      <div
-        className="absolute top-0 h-full rounded-full bg-fore/30"
-        style={{ left: `${setupPct}%`, width: `${widthPct}%` }}
-      />
-      <div className="absolute top-0 h-full w-[3px] rounded-full bg-fore" style={{ left: `${setupPct}%` }} />
-      {clues.map((cl, i) => {
-        const clPct = Math.max(0, Math.min(100, (cl.chapter / total) * 100))
-        return (
-          <div
-            key={i}
-            title={`第${cl.chapter}章: ${cl.note}`}
-            className="absolute top-0 h-full w-[3px] rounded-full bg-fore/80 cursor-help"
-            style={{ left: `calc(${clPct}% - 1px)` }}
-          />
-        )
-      })}
-    </div>
-  )
-}
-
-function PromiseCard({ p, maxChapter, onJumpChapter }) {
-  const overdue = p.overdue
-  const clues = p.clues || []
-  // 伏笔决策/线索一律主编种子,禁止 advancePromise/markHerring/addPromiseClue 作者直写。
-  const seedPromise = (hint) => seedChiefCodexWrite('promises', p, hint)
-
-  // 块三:点卡片(含卡内跳章按钮,冒泡)= 选中该伏笔 → 发通用 focus(主编聚焦)。
-  const { setFocus, suppressNextMirror } = useSelection()
-  const focusMe = () => setFocus({
-    type: 'promise', id: p.id, label: p.text || '',
-    payload: { setup_chapter: p.setup_chapter, payoff_chapter: p.payoff_chapter, status: p.status, overdue: !!p.overdue },
-    origin: 'insight',
-  })
-  const jump = (ch, missing) => {
-    if (missing || ch == null || !onJumpChapter) return
-    suppressNextMirror()
-    onJumpChapter(ch)
-  }
-
-  return (
-    <div onClick={focusMe} title="聚焦此伏笔" data-testid="insight-promise-card"
-      className={`rounded-lg p-2.5 text-f12 cursor-pointer transition-colors ${overdue ? 'bg-danger/5 hover:bg-danger/10' : 'hover:bg-soft/50'}`}>
-      <div className="flex items-start gap-1.5">
-        <span className={`mt-[3px] w-1.5 h-1.5 rounded-full shrink-0 ${overdue ? 'bg-danger' : p.status === 'closed' ? 'bg-ok' : 'bg-faint'}`} />
-        <span className="text-ink flex-1 leading-snug">{p.text || '(无描述)'}</span>
-        {overdue && <span className="text-danger text-meta font-medium shrink-0">超期</span>}
-      </div>
-      {p.status === 'closed' && p.payoff_chapter != null && (
-        <PromiseSpanBar setupChapter={p.setup_chapter} payoffChapter={p.payoff_chapter} maxChapter={maxChapter} clues={clues} />
-      )}
-      {p.status !== 'closed' && p.setup_chapter != null && (
-        <PromiseOpenBar setupChapter={p.setup_chapter} maxChapter={maxChapter} clues={clues} />
-      )}
-      <div className="text-faint text-meta mt-1 pl-3 flex flex-wrap gap-x-2">
-        {p.setup_chapter != null && (
-          p.setup_missing ? (
-            <span className="text-danger" data-testid="insight-setup-missing">埋:第{p.setup_chapter}章 · 原章已删</span>
-          ) : (
-            <button type="button" className="hover:text-brand cursor-pointer underline-offset-2 hover:underline transition-colors"
-              onClick={(e) => { e.stopPropagation(); jump(p.setup_chapter, false) }}>
-              埋:第{p.setup_chapter}章
-            </button>
-          )
-        )}
-        {p.payoff_chapter != null && (
-          <>
-            <ArrowRight size={10} className="self-center text-faint" />
-            <button type="button" className="text-ok hover:text-ok/70 cursor-pointer underline-offset-2 hover:underline transition-colors"
-              onClick={(e) => { e.stopPropagation(); jump(p.payoff_chapter) }}>
-              收:第{p.payoff_chapter}章{p.span != null ? ` · 跨${p.span}章` : ''}
-            </button>
-          </>
-        )}
-        {p.payoff_chapter == null && p.chapters_open != null && <span>开口{p.chapters_open}章</span>}
-      </div>
-      {clues.length > 0 && (
-        <div className="pl-3 mt-1.5 space-y-0.5">
-          {clues.map((cl, i) => (
-            <div key={i} className="flex items-start gap-1 text-meta text-faint">
-              <button type="button" className="hover:text-brand underline-offset-2 hover:underline shrink-0 cursor-pointer"
-                onClick={(e) => { e.stopPropagation(); jump(cl.chapter) }} title={`跳到第${cl.chapter}章`}>
-                ▲第{cl.chapter}章
-              </button>
-              <span className="flex-1 leading-snug">{cl.note}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="pl-3 mt-1.5 flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-        <button type="button"
-          onClick={() => seedPromise('请为此伏笔添加/维护草蛇灰线线索,提交写入提案。')}
-          className="text-meta text-faint hover:text-fore transition-colors cursor-pointer">
-          让主编维护线索
-        </button>
-        {p.status !== 'closed' && p.kind !== 'red_herring' && (
-          <>
-            <button type="button"
-              onClick={() => seedPromise('请回收/兑现此伏笔并提交写入提案(含 payoff 章)。')}
-              className="text-meta px-2 py-0.5 rounded border border-ok/40 text-ok hover:bg-ok/10 transition-colors cursor-pointer">
-              让主编回收
-            </button>
-            <button type="button"
-              onClick={() => seedPromise('请将此伏笔标为障眼法(弃置),提交写入提案。')}
-              className="text-meta px-2 py-0.5 rounded border border-line text-faint hover:bg-soft hover:text-ink transition-colors cursor-pointer">
-              让主编标障眼法
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function LedgerColumn({ icon: Icon, label, tone, rows, maxChapter, onJumpChapter, onRefresh }) {
-  const c = { fore: 'text-fore', ok: 'text-ok', faint: 'text-faint' }[tone]
-  return (
-    <div className="min-w-0">
-      <div className={`flex items-center gap-1.5 text-meta font-semibold uppercase tracking-wider mb-3 ${c}`}>
-        <Icon size={14} />{label} <span className="text-faint font-normal normal-case tracking-normal">({rows.length})</span>
-      </div>
-      <div className="space-y-2">
-        {rows.length === 0 ? <div className="text-faint text-f12">—</div>
-          : rows.map((p) => (
-            <PromiseCard
-              key={p.id} p={p}
-              maxChapter={maxChapter}
-              onJumpChapter={onJumpChapter}
-              onRefresh={onRefresh}
-            />
-          ))}
-      </div>
-    </div>
-  )
-}
-
-function PromiseLedger({ onJumpChapter }) {
-  const [led, setLed] = useState(null)
-  const [ledErr, setLedErr] = useState(null)
-  const [ledKey, setLedKey] = useState(0)
-  const refresh = () => setLedKey((k) => k + 1)
-  useEffect(() => {
-    api.promisesLedger().then((r) => { setLed(r); setLedErr(null) })
-      .catch((e) => { setLed(null); setLedErr(e?.body?.detail || e?.message || '伏笔台账加载失败') })
-  }, [ledKey])
-  useEffect(() => {
-    const onLive = (e) => {
-      if (liveTouchesTable(e?.detail, ['promise', 'foreshadow', 'chapter', 'daily_progress'])) {
-        setLedKey((k) => k + 1)
-      }
-    }
-    window.addEventListener('s3-live', onLive)
-    return () => window.removeEventListener('s3-live', onLive)
-  }, [])
-  if (ledErr) return (
-    <div className="mb-6 pb-5 border-b border-line/60">
-      <ErrorState message={ledErr || '伏笔台账加载失败'} onRetry={refresh} />
-    </div>
-  )
-  if (!led) return null
-  const a = led.audit || {}
-  const pws = (a.payoff_without_setup || []).length + (a.closed_without_setup || []).length
-  const balanced = a.balanced
-  return (
-    <div className="mb-6 pb-5 border-b border-line/60">
-      <div className="flex items-center flex-wrap gap-2 mb-3">
-        <div className="flex items-center gap-2"><Bookmark size={16} className="text-fore" /><h2 className="type-section text-ink">伏笔台账</h2></div>
-        <span className="text-meta text-faint">阈值 {led.threshold} 章 · 现在第 {led.max_chapter} 章</span>
-        <div className="ml-auto flex items-center gap-2 text-meta">
-          <span className={`inline-flex items-center gap-1 ${balanced ? 'text-ok' : 'text-danger'}`}>{balanced ? '✓ 已平衡' : <><AlertTriangle size={11} />未平衡</>}</span>
-          <span className="text-faint">超期 {a.overdue_count ?? 0} · 闭无开 {pws} · 契诃夫 {a.never_paid ?? 0} 把枪没响</span>
-        </div>
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <LedgerColumn icon={Target} label="已埋未收" tone="fore" rows={led.open || []}
-          maxChapter={led.max_chapter} onJumpChapter={onJumpChapter} onRefresh={refresh} />
-        <LedgerColumn icon={CheckCircle2} label="已回收" tone="ok" rows={led.closed || []}
-          maxChapter={led.max_chapter} onJumpChapter={onJumpChapter} onRefresh={refresh} />
-        <LedgerColumn icon={EyeOff} label="障眼法" tone="faint" rows={led.red_herring || []}
-          maxChapter={led.max_chapter} onJumpChapter={onJumpChapter} onRefresh={refresh} />
-      </div>
-      {pws > 0 && (
-        <div className="mt-3 text-meta text-danger">
-          <AlertTriangle size={11} className="inline align-[-1px] mr-0.5" />闭无开(回收早于埋设,疑似凭空 payoff):
-          {[...(a.payoff_without_setup || []), ...(a.closed_without_setup || [])]
-            .map((x) => `「${x.text}」(埋${x.setup_chapter ?? '?'}→收${x.payoff_chapter})`).join('、')}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── 编辑目标 Modal ───────────────────────────────────────────────────────────
-function GoalDialog({ open, intent, onClose, onSaved }) {
-  const [totalGoal, setTotalGoal] = useState('')
-  const [dailyGoal, setDailyGoal] = useState('')
-  const [saving, setSaving] = useState(false)
-  const inputRef = useRef(null)
-
-  useEffect(() => {
-    if (open) {
-      setTotalGoal(intent?.total_word_goal ?? '')
-      setDailyGoal(intent?.daily_word_goal ?? '')
-      setTimeout(() => inputRef.current?.focus(), 50)
-    }
-  }, [open, intent])
-
-  if (!open) return null
-
-  const save = async () => {
-    setSaving(true)
-    try {
-      // 仅工程配额字段;勿 spread 全 intent(会夹带叙事北极星走 REST)
-      const body = {}
-      if (totalGoal !== '' && totalGoal !== null) body.total_word_goal = Number(totalGoal)
-      if (dailyGoal !== '' && dailyGoal !== null) body.daily_word_goal = Number(dailyGoal)
-      await api.putIntentGoals(body)
-      onSaved()
-      onClose()
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="bg-surface rounded-lg p-6 w-80 shadow-[var(--shadow-pop)] ring-1 ring-line/50" onClick={(e) => e.stopPropagation()}>
-        <div className="type-section text-ink mb-4">编辑写作目标</div>
-        <div className="space-y-3">
-          <div>
-            <label className="text-meta text-faint uppercase tracking-wider block mb-1">整稿目标(字)</label>
-            <input ref={inputRef} type="number" min={0} value={totalGoal} onChange={(e) => setTotalGoal(e.target.value)}
-              placeholder="例: 100000"
-              className="w-full h-9 rounded-lg border border-line bg-canvas px-3 text-f14 text-ink outline-none focus:border-brand" />
-          </div>
-          <div>
-            <label className="text-meta text-faint uppercase tracking-wider block mb-1">每日目标(字,可空)</label>
-            <input type="number" min={0} value={dailyGoal} onChange={(e) => setDailyGoal(e.target.value)}
-              placeholder="例: 2000(可不填)"
-              className="w-full h-9 rounded-lg border border-line bg-canvas px-3 text-f14 text-ink outline-none focus:border-brand" />
-          </div>
-        </div>
-        <div className="flex gap-2 mt-5 justify-end">
-          <button onClick={onClose} className="px-4 py-1.5 rounded-lg text-f13 text-faint hover:bg-soft transition-colors">取消</button>
-          <button onClick={save} disabled={saving}
-            className="px-4 py-1.5 rounded-lg text-f13 bg-brand text-brandfg hover:opacity-90 transition-opacity disabled:opacity-50">
-            {saving ? '保存中…' : '保存'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── 码字进度面板 ─────────────────────────────────────────────────────────────
-function ProgressPanel({ onGoalEdit }) {
-  const [prog, setProg] = useState(null)
-  const [err, setErr] = useState(null)
-  const [win, setWin] = useState('all')  // 趋势窗口: '30' | '90' | 'all'
-  const [retryKey, setRetryKey] = useState(0)
-
-  useEffect(() => {
-    let alive = true
-    setProg(null)
-    setErr(null)
-    api.progress(win)
-      .then((r) => { if (alive) { setProg(r); setErr(null) } })
-      .catch((e) => { if (alive) { setProg(null); setErr(e?.body?.detail || e?.message || '进度数据加载失败') } })
-    return () => { alive = false }
-  }, [win, retryKey])
-
-  useEffect(() => {
-    const onLive = (e) => {
-      if (liveTouchesTable(e?.detail, ['chapter', 'daily_progress', 'intent'])) {
-        setRetryKey((k) => k + 1)
-      }
-    }
-    window.addEventListener('s3-live', onLive)
-    return () => window.removeEventListener('s3-live', onLive)
-  }, [])
-
-  const tooltipStyle = { background: 'var(--color-surface)', border: '1px solid var(--color-line)', borderRadius: 8, fontSize: 12, color: 'var(--color-ink)' }
-
-  if (err) return (
-    <div className="mb-6 pb-5 border-b border-line/60">
-      <ErrorState message="进度数据加载失败" onRetry={() => setRetryKey((k) => k + 1)} />
-    </div>
-  )
-
-  if (!prog) return (
-    <div className="mb-6 pb-5 border-b border-line/60">
-      <div className="text-f12 text-faint">进度数据加载中…</div>
-    </div>
-  )
-
-  const totalGoal = safeWordGoal(prog.total_word_goal)
-  const dailyGoal = prog.daily_word_goal ?? null
-  const totalWords = prog.total_words ?? 0
-  const todayWords = prog.today_words ?? 0
-  const totalPct = wordGoalPct(totalWords, totalGoal)
-  const dailyPct = dailyGoal ? Math.min(120, Math.round((todayWords / dailyGoal) * 100)) : null
-  const dailyMet = dailyGoal ? todayWords >= dailyGoal : null
-
-  // 整稿进度条颜色:语义 token(跟明暗主题)
-  const totalBarColor = totalPct >= 100 ? 'var(--color-fore)' : totalPct >= 50 ? 'var(--color-ok)' : 'var(--color-brand)'
-  const dailyBarColor = dailyMet ? 'var(--color-ok)' : 'var(--color-brand)'
-
-  const daily = prog.daily || []
-  const weekdayHist = prog.weekday_histogram || []
-  const bestWeekday = prog.best_weekday || null
-
-  // 窗口标签
-  const WIN_OPTS = [{ v: '30', label: '近30天' }, { v: '90', label: '近90天' }, { v: 'all', label: '全程' }]
-
-  return (
-    <div className="mb-6 pb-5 border-b border-line/60">
-      {/* 标题行 + 趋势窗口切换 */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <TrendingUp size={15} className="text-brand" />
-          <span className="text-meta font-semibold uppercase tracking-wider text-faint">码字进度（工程配额）</span>
-          {/* 窗口切换按钮组 */}
-          <div className="flex gap-0.5 ml-2 bg-soft rounded-lg p-0.5">
-            {WIN_OPTS.map(({ v, label }) => (
-              <button key={v} onClick={() => setWin(v)}
-                className={`px-2 py-0.5 rounded text-meta transition-colors ${win === v ? 'bg-surface text-ink font-medium' : 'text-faint hover:text-ink'}`}>
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <button onClick={onGoalEdit}
-          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-meta text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer">
-          <Pencil size={11} />编辑目标
-        </button>
-      </div>
-
-      {/* 荣誉位:今日 + streak */}
-      <div className="grid grid-cols-3 gap-3 mb-4">
-        <div className="rounded-lg bg-soft/40 p-3 text-center">
-          <div className="text-meta text-faint mb-0.5">今日码字</div>
-          <div className={`type-section tnum ${dailyMet ? 'text-ok' : 'text-ink'}`}>
-            +{todayWords.toLocaleString()}
-          </div>
-          {dailyGoal && (
-            <div className={`text-meta mt-0.5 ${dailyMet ? 'text-ok' : 'text-faint'}`}>
-              {dailyMet ? '✓ 今日达标' : `目标 ${dailyGoal.toLocaleString()}`}
-            </div>
-          )}
-        </div>
-        <div className="rounded-lg bg-soft/40 p-3 text-center">
-          <div className="flex items-center justify-center gap-1 text-meta text-faint mb-0.5">
-            <Flame size={11} />当前连胜
-          </div>
-          <div className="type-section tnum text-fore">{prog.current_streak}</div>
-          <div className="text-meta text-faint mt-0.5">天</div>
-        </div>
-        <div className="rounded-lg bg-soft/40 p-3 text-center">
-          <div className="flex items-center justify-center gap-1 text-meta text-faint mb-0.5">
-            <Trophy size={11} />最长连胜
-          </div>
-          <div className="type-section tnum text-fore">{prog.longest_streak}</div>
-          <div className="text-meta text-faint mt-0.5">天</div>
-        </div>
-      </div>
-
-      {/* 整稿进度条 */}
-      <div className="mb-4">
-        <div className="flex items-center justify-between mb-1.5 text-f12">
-          <span className="text-faint">码字配额</span>
-          <span className="tnum text-ink font-medium">{totalWords.toLocaleString()} / {totalGoal.toLocaleString()} 字 · {totalPct}%</span>
-        </div>
-        <div className="h-2 rounded-full bg-soft overflow-hidden">
-          <div className="h-full rounded-full transition-all" style={{ width: Math.min(100, totalPct) + '%', background: totalBarColor }} />
-        </div>
-        {totalPct >= 100 && <div className="text-meta text-fore mt-1">整稿目标达成！</div>}
-      </div>
-
-      {/* 每日目标进度条(设了才显示) */}
-      {dailyGoal && (
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-1.5 text-f12">
-            <span className="text-faint">今日进度</span>
-            <span className={`tnum font-medium ${dailyMet ? 'text-ok' : 'text-ink'}`}>
-              {todayWords.toLocaleString()} / {dailyGoal.toLocaleString()} 字 · {dailyPct}%
-            </span>
-          </div>
-          <div className="h-2 rounded-full bg-soft overflow-hidden">
-            <div className="h-full rounded-full transition-all" style={{ width: Math.min(100, dailyPct) + '%', background: dailyBarColor }} />
-          </div>
-        </div>
-      )}
-
-      {/* 图表:每日字数 + 累计曲线(带理想线) */}
-      {daily.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-2">
-          <div>
-            <div className="text-meta text-faint mb-2">每日字数</div>
-            <ResponsiveContainer width="100%" height={140}>
-              <BarChart data={daily} margin={{ left: -20, right: 4, top: 2 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" />
-                <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--color-faint)' }}
-                  tickFormatter={(d) => d.slice(5)} />
-                <YAxis tick={{ fontSize: 9, fill: 'var(--color-faint)' }} allowDecimals={false} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [v.toLocaleString() + ' 字', '当日']} />
-                {dailyGoal && <ReferenceLine y={dailyGoal} stroke="var(--color-ok)" strokeDasharray="3 3" strokeWidth={1} />}
-                <Bar dataKey="words" name="字数" radius={[3, 3, 0, 0]} fill="var(--color-brand)" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-meta text-faint">累计推进</span>
-              {/* 图例说明 */}
-              <span className="flex items-center gap-1 text-meta text-faint">
-                <span style={{ display:'inline-block', width:16, height:2, background:'var(--color-brand)', verticalAlign:'middle' }} />实际
-              </span>
-              {daily.some(d => d.ideal_cumulative != null) && (
-                <span className="flex items-center gap-1 text-meta text-faint">
-                  <span style={{ display:'inline-block', width:16, height:2, background:'var(--color-fore)', borderTop:'2px dashed var(--color-fore)', verticalAlign:'middle' }} />理想
-                </span>
-              )}
-            </div>
-            <ResponsiveContainer width="100%" height={140}>
-              <AreaChart data={daily} margin={{ left: -20, right: 4, top: 2 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" />
-                <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--color-faint)' }}
-                  tickFormatter={(d) => d.slice(5)} />
-                <YAxis tick={{ fontSize: 9, fill: 'var(--color-faint)' }} />
-                <Tooltip contentStyle={tooltipStyle}
-                  formatter={(v, name) => [v != null ? v.toLocaleString() + ' 字' : '-', name === 'ideal_cumulative' ? '理想' : '累计']} />
-                {totalGoal && <ReferenceLine y={totalGoal} stroke="var(--color-fore)" strokeDasharray="4 4" strokeWidth={1} />}
-                <Area type="monotone" dataKey="cumulative" name="累计" stroke="var(--color-brand)"
-                  fill="var(--color-brand)" fillOpacity={0.15} strokeWidth={2} />
-                {/* 理想匀速线:虚线,叠加实际曲线上 */}
-                {daily.some(d => d.ideal_cumulative != null) && (
-                  <Area type="monotone" dataKey="ideal_cumulative" name="理想"
-                    stroke="var(--color-fore)" strokeWidth={1.5} strokeDasharray="5 4"
-                    fill="none" dot={false} activeDot={false} />
-                )}
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-
-      {/* 最高产星期几 + weekday 柱状图 */}
-      {weekdayHist.length > 0 && weekdayHist.some(d => d.avg_words > 0) && (
-        <div className="mt-4">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-meta text-faint">最高产星期几</span>
-            {bestWeekday && (
-              <span className="text-meta text-brand font-medium">{bestWeekday}最高产</span>
-            )}
-          </div>
-          <ResponsiveContainer width="100%" height={90}>
-            <BarChart data={weekdayHist} margin={{ left: -20, right: 4, top: 2, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 9, fill: 'var(--color-faint)' }} />
-              <YAxis tick={{ fontSize: 9, fill: 'var(--color-faint)' }} allowDecimals={false} />
-              <Tooltip contentStyle={tooltipStyle}
-                formatter={(v, _name, props) => [v.toLocaleString() + ' 字', `平均 (${props.payload.count}天)`]} />
-              <Bar dataKey="avg_words" name="平均字数" radius={[3, 3, 0, 0]}
-                fill="var(--color-brand)"
-                label={false} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {/* GitHub 风码字热力图 */}
-      <WordHeatmap heatmap={prog.heatmap || []} dailyGoal={dailyGoal} />
-    </div>
-  )
-}
-
-// ── GitHub 风码字热力图 ──────────────────────────────────────────────────────
-// 近 ~91 天(13 周),每格一天,按列(周)× 行(星期几)排列
-// 5 档色阶:0 / <0.5× / <1× / ≥1× / >1.2× 每日目标(无目标按 >0 / >500 / >1000 分档)
-function WordHeatmap({ heatmap, dailyGoal }) {
-  // 把 heatmap 数组转 Map<date, words>
-  const wordMap = {}
-  for (const { date, words } of heatmap) {
-    wordMap[date] = words ?? 0
-  }
-
-  // 生成近 91 天(13 周 × 7 天)的日历格
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const WEEKS = 13
-  const DAYS = WEEKS * 7
-  // 从最早那个周日开始(让今天落在最后一列最后一格)
-  const todayDow = today.getDay() // 0=周日
-  // 往回数到最近的周日(或今天本身)
-  const startDay = new Date(today)
-  startDay.setDate(today.getDate() - (DAYS - 1))
-
-  // 生成 [cols][rows] 结构:col=周索引(0..12),row=星期几(0=周日..6=周六)
-  const cols = Array.from({ length: WEEKS }, (_, wi) =>
-    Array.from({ length: 7 }, (_, di) => {
-      const d = new Date(startDay)
-      d.setDate(startDay.getDate() + wi * 7 + di)
-      const dateStr = d.toISOString().slice(0, 10)
-      const words = wordMap[dateStr] ?? null // null=未来/无数据
-      const isFuture = d > today
-      return { dateStr, words, isFuture, dow: di }
-    })
-  )
-
-  // 色阶:用 ok 主色的 opacity 档,跟主题,避免硬编码绿
-  const cellColor = (words, isFuture) => {
-    if (isFuture || words === null) return 'var(--color-soft)'
-    if (words <= 0) return 'var(--color-soft)'
-    if (dailyGoal) {
-      if (words >= dailyGoal * 1.2) return 'color-mix(in srgb, var(--color-ok) 92%, transparent)'
-      if (words >= dailyGoal) return 'color-mix(in srgb, var(--color-ok) 72%, transparent)'
-      if (words >= dailyGoal * 0.5) return 'color-mix(in srgb, var(--color-ok) 42%, transparent)'
-      return 'color-mix(in srgb, var(--color-ok) 22%, transparent)'
-    }
-    if (words >= 2000) return 'color-mix(in srgb, var(--color-ok) 92%, transparent)'
-    if (words >= 1000) return 'color-mix(in srgb, var(--color-ok) 72%, transparent)'
-    if (words >= 300) return 'color-mix(in srgb, var(--color-ok) 42%, transparent)'
-    return 'color-mix(in srgb, var(--color-ok) 22%, transparent)'
-  }
-
-  // 热力图文本摘要:颜色深浅之外给读屏/键盘用户等价信息(活跃天数 + 最高单日)
-  const activeDays = heatmap.filter((h) => (h.words ?? 0) > 0).length
-  const bestDay = heatmap.reduce((b, h) => ((h.words ?? 0) > (b?.words ?? 0) ? h : b), null)
-
-  const DOW_LABELS = ['日', '', '二', '', '四', '', '六']
-  // 月份标签:每列取该列第一天(周日)的月,遇到月首才显示
-  const monthLabels = cols.map((col) => {
-    const d = new Date(col[0].dateStr)
-    // 若该周内有月份切换,显示月名
-    const firstDate = d.getDate()
-    if (firstDate <= 7) return d.toLocaleDateString('zh-CN', { month: 'short' })
-    return ''
-  })
-
-  return (
-    <div className="mt-4">
-      <div className="flex items-center justify-between mb-2">
-        <div className="text-meta text-faint">
-          码字热力图 · 近 {WEEKS} 周
-          <span className="ml-2">近 {WEEKS} 周有 {activeDays} 天码字{bestDay ? `,最高单日 ${(bestDay.words ?? 0).toLocaleString()} 字` : ''}</span>
-        </div>
-        <div className="flex items-center gap-1.5 text-meta text-faint">
-          <span>少</span>
-          {['var(--color-soft)',
-            'color-mix(in srgb, var(--color-ok) 22%, transparent)',
-            'color-mix(in srgb, var(--color-ok) 42%, transparent)',
-            'color-mix(in srgb, var(--color-ok) 72%, transparent)',
-            'color-mix(in srgb, var(--color-ok) 92%, transparent)',
-          ].map((c, i) => (
-            <div key={i} className="w-3 h-3 rounded-sm" style={{ background: c }} />
-          ))}
-          <span>多</span>
-        </div>
-      </div>
-      <div className="overflow-x-auto">
-        <div style={{ display: 'grid', gridTemplateColumns: `16px repeat(${WEEKS}, 12px)`, gap: '2px', alignItems: 'start' }}>
-          {/* 月份标签行 */}
-          <div />
-          {monthLabels.map((label, wi) => (
-            <div key={wi} style={{ fontSize: 9, color: 'var(--color-faint)', lineHeight: '12px', textAlign: 'center' }}>
-              {label}
-            </div>
-          ))}
-          {/* 7 行(星期几) */}
-          {[0, 1, 2, 3, 4, 5, 6].map((dow) => (
-            <Fragment key={dow}>
-              <div style={{ fontSize: 9, color: 'var(--color-faint)', lineHeight: '12px', textAlign: 'right', paddingRight: 2 }}>
-                {DOW_LABELS[dow]}
-              </div>
-              {cols.map((col, wi) => {
-                const cell = col[dow]
-                const bg = cellColor(cell.words, cell.isFuture)
-                const tip = cell.isFuture ? '' : `${cell.dateStr}: ${(cell.words ?? 0).toLocaleString()} 字`
-                return (
-                  <div
-                    key={`${wi}-${dow}`}
-                    title={tip}
-                    style={{
-                      width: 12, height: 12,
-                      borderRadius: 2,
-                      background: bg,
-                    }}
-                  />
-                )
-              })}
-            </Fragment>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── 主视图 ───────────────────────────────────────────────────────────────────
-export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) {
+export function InsightView({ work, onJumpChapter, focus, onNavigateToObject, chapter = null }) {
   const [q, setQ] = useState(null)
   const [qErr, setQErr] = useState(null)
   const [intent, setIntent] = useState(null)
@@ -683,6 +22,7 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
   const [qualityKey, setQualityKey] = useState(0)
   const [qualityRefreshing, setQualityRefreshing] = useState(false)
   const progressRef = useRef(null)
+  const { led, ledErr, refresh: refreshLedger } = usePromiseLedger()
 
   useEffect(() => {
     let alive = true
@@ -704,7 +44,6 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
     return () => window.removeEventListener('s3-live', onLive)
   }, [])
 
-  // 「进度」入口:数据就绪后滚动并聚焦码字进度面板
   useEffect(() => {
     if (focus === 'progress' && (q || qErr)) {
       const t = setTimeout(() => progressRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' }), 80)
@@ -716,7 +55,6 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
 
   const chs = q?.chapters || []
   const cacheStale = (q?.cache_stale_chapters || []).length > 0
-  const weak = cacheStale ? [] : [...chs].filter((c) => c.qc_issues > 0 || c.causal > 0).sort((a, b) => (b.qc_issues + b.causal) - (a.qc_issues + a.causal))
   const lastSeq = chs.length ? Number(chs[chs.length - 1].seq) || 1 : 1
   const refreshQuality = async () => {
     setQualityRefreshing(true)
@@ -732,6 +70,7 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
   }
   const tooltipStyle = { background: 'var(--color-surface)', border: '1px solid var(--color-line)', borderRadius: 8, fontSize: 12, color: 'var(--color-ink)' }
   const totalGoal = safeWordGoal(intent?.total_word_goal)
+  const weakPreview = [...chs].filter((c) => (c.qc_issues || 0) + (c.causal || 0) > 0)
 
   return (
     <div className="h-full overflow-y-auto bg-canvas">
@@ -753,15 +92,33 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
           </section>
         )}
 
-        {/* 读屏/键盘等价路径:图表与热力图靠颜色传达的关键数据,这里给一份纯文本摘要(与图表同源数据数组) */}
         <section role="region" aria-label="洞察数据摘要" className="mb-6 pb-4 border-b border-line/60">
           <div className="text-f12 font-semibold text-ink mb-2">数据摘要</div>
           <div className="text-f13 text-faint leading-relaxed">
             {qErr
               ? '质量汇总暂时读不到；下面的码字和伏笔台账仍可用。质检数字不是总纲里的「写到/立到」。'
-              : `全书 ${chs.length} 章,共 ${q.total_words?.toLocaleString() || 0} 字(码字目标 ${totalGoal.toLocaleString()} 字，不是总纲进度)。伏笔未回收 ${q.foreshadow?.open ?? 0} 条、已回收 ${q.foreshadow?.closed ?? 0} 条、超期 ${q.foreshadow?.overdue ?? 0} 条。${cacheStale ? '质量缓存待刷新，暂不展示问题合计与弱章结论。' : `质检问题合计 ${chs.reduce((s, c) => s + c.qc_issues + c.causal, 0)} 项;其中 ${weak.length} 章问题较多需优先关注${weak.length > 0 ? `:${weak.slice(0, 3).map((c) => chapterLabel(c.seq, c.title)).join('、')}${weak.length > 3 ? ' 等' : ''}` : ''}。`}`}
+              : `全书 ${chs.length} 章,共 ${q.total_words?.toLocaleString() || 0} 字(码字目标 ${totalGoal.toLocaleString()} 字，不是总纲进度)。伏笔未回收 ${q.foreshadow?.open ?? 0} 条、已回收 ${q.foreshadow?.closed ?? 0} 条、超期 ${q.foreshadow?.overdue ?? 0} 条。${cacheStale ? '质量缓存待刷新，暂不展示问题合计与弱章结论。' : `质检问题合计 ${chs.reduce((s, c) => s + (c.qc_issues || 0) + (c.causal || 0), 0)} 项;其中 ${weakPreview.length} 章问题较多需优先关注${weakPreview.length > 0 ? `:${weakPreview.slice(0, 3).map((c) => chapterLabel(c.seq, c.title)).join('、')}${weakPreview.length > 3 ? ' 等' : ''}` : ''}。`}`}
           </div>
         </section>
+
+        <WeakChapterList
+          chapters={chs}
+          qErr={qErr}
+          cacheStale={cacheStale}
+          currentChapter={chapter}
+          onNavigateToObject={onNavigateToObject}
+        />
+        <OpenPromiseStrip led={led} ledErr={ledErr} onJumpChapter={onJumpChapter} />
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+          <Metric icon={FileText} label="规模" value={qErr ? '—' : (q.total_words?.toLocaleString() || 0)}
+            sub={qErr ? '质量汇总失败' : `${chs.length} 章 · 码字目标 ${totalGoal.toLocaleString()} 字`} />
+          <Metric icon={Bookmark} label="伏笔" value={qErr ? '—' : (q.foreshadow?.open ?? 0)} sub={qErr ? '见下方台账' : `未回收 · 已收 ${q.foreshadow?.closed ?? 0}`} tone="fore" />
+          <Metric icon={ShieldAlert} label="伏笔超期" value={qErr ? '—' : (q.foreshadow?.overdue ?? 0)} sub="埋下 >3 章未回收" tone={!qErr && q.foreshadow?.overdue ? 'danger' : 'ok'} />
+          <Metric icon={Activity} label="质检问题" value={qErr ? '—' : (cacheStale ? '待刷新' : chs.reduce((s, c) => s + (c.qc_issues || 0) + (c.causal || 0), 0))} sub={qErr ? '未计入验收' : (cacheStale ? '缓存已过期' : '确定性 QC + 因果')} tone={cacheStale ? 'fore' : 'danger'} />
+        </div>
+
+        <PromiseLedger led={led} ledErr={ledErr} onJumpChapter={onJumpChapter} onRetry={refreshLedger} />
 
         <GoalDialog
           open={goalOpen}
@@ -777,18 +134,6 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
           <ProgressPanel key={progressKey} onGoalEdit={() => setGoalOpen(true)} />
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          <Metric icon={FileText} label="规模" value={qErr ? '—' : (q.total_words?.toLocaleString() || 0)}
-            sub={qErr ? '质量汇总失败' : `${chs.length} 章 · 码字目标 ${totalGoal.toLocaleString()} 字`} />
-          <Metric icon={Bookmark} label="伏笔" value={qErr ? '—' : (q.foreshadow?.open ?? 0)} sub={qErr ? '见下方台账' : `未回收 · 已收 ${q.foreshadow?.closed ?? 0}`} tone="fore" />
-          <Metric icon={ShieldAlert} label="伏笔超期" value={qErr ? '—' : (q.foreshadow?.overdue ?? 0)} sub="埋下 >3 章未回收" tone={!qErr && q.foreshadow?.overdue ? 'danger' : 'ok'} />
-          <Metric icon={Activity} label="质检问题" value={qErr ? '—' : (cacheStale ? '待刷新' : chs.reduce((s, c) => s + c.qc_issues + c.causal, 0))} sub={qErr ? '未计入验收' : (cacheStale ? '缓存已过期' : '确定性 QC + 因果')} tone={cacheStale ? 'fore' : 'danger'} />
-        </div>
-
-        <div className="mb-5">
-          <PromiseLedger onJumpChapter={onJumpChapter} />
-        </div>
-
         {qErr && (
           <div className="mb-5">
             <ErrorState message="质量汇总加载失败" onRetry={() => setQualityKey((k) => k + 1)} />
@@ -796,157 +141,37 @@ export function InsightView({ work, onJumpChapter, focus, onNavigateToObject }) 
         )}
 
         {!qErr && (
-        <div className="mb-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div>
-            <div className="text-meta font-semibold uppercase tracking-wider text-faint mb-3">各章字数</div>
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={chs} margin={{ left: -18, right: 8, top: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" />
-                <XAxis dataKey="seq" tick={{ fontSize: 11, fill: 'var(--color-faint)' }} />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--color-faint)' }} />
-                <Tooltip contentStyle={tooltipStyle} />
-                <Area type="monotone" dataKey="word_count" name="字数" stroke="var(--color-brand)" fill="var(--color-brand)" fillOpacity={0.15} strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
+          <div className="mb-5 grid grid-cols-1 lg:grid-cols-2 gap-6" data-testid="insight-charts">
+            <div>
+              <div className="text-meta font-semibold uppercase tracking-wider text-faint mb-3">各章字数</div>
+              <ResponsiveContainer width="100%" height={200}>
+                <AreaChart data={chs} margin={{ left: -18, right: 8, top: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" />
+                  <XAxis dataKey="seq" tick={{ fontSize: 11, fill: 'var(--color-faint)' }} />
+                  <YAxis tick={{ fontSize: 11, fill: 'var(--color-faint)' }} />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Area type="monotone" dataKey="word_count" name="字数" stroke="var(--color-brand)" fill="var(--color-brand)" fillOpacity={0.15} strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            <div>
+              <div className="text-meta font-semibold uppercase tracking-wider text-faint mb-3">各章质检问题(QC + 因果)</div>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={chs} margin={{ left: -18, right: 8, top: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" />
+                  <XAxis dataKey="seq" tick={{ fontSize: 11, fill: 'var(--color-faint)' }} />
+                  <YAxis tick={{ fontSize: 11, fill: 'var(--color-faint)' }} allowDecimals={false} />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Bar dataKey="qc_issues" name="确定性QC" stackId="a" fill="var(--color-danger)" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="causal" name="因果违规" stackId="a" fill="var(--color-fore)" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-          <div>
-            <div className="text-meta font-semibold uppercase tracking-wider text-faint mb-3">各章质检问题(QC + 因果)</div>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={chs} margin={{ left: -18, right: 8, top: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" />
-                <XAxis dataKey="seq" tick={{ fontSize: 11, fill: 'var(--color-faint)' }} />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--color-faint)' }} allowDecimals={false} />
-                <Tooltip contentStyle={tooltipStyle} />
-                <Bar dataKey="qc_issues" name="确定性QC" stackId="a" fill="var(--color-danger)" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="causal" name="因果违规" stackId="a" fill="var(--color-fore)" radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
         )}
 
-        {!qErr && (
-        <div className="mb-2">
-          <div className="text-meta font-semibold uppercase tracking-wider text-faint mb-2">弱章诊断(问题最多的章)</div>
-          {cacheStale ? <div className="text-f13 text-fore">请先刷新质量缓存，再查看弱章诊断。</div>
-            : weak.length === 0 ? <div className="text-f13 text-ok">✓ 各章质检干净</div>
-            : weak.slice(0, 8).map((c) => {
-              const title = chapterLabel(c.seq, c.title)
-              return (
-                <button
-                  key={c.seq}
-                  type="button"
-                  onClick={() => onNavigateToObject?.({
-                    type: 'weak_chapter',
-                    id: `quality:${c.seq}`,
-                    chapter: c.seq,
-                    title: `${title} · 弱章诊断`,
-                    reason: `该章有 ${c.qc_issues || 0} 个 QC 问题、${c.causal || 0} 个因果问题。`,
-                    target_node: { id: `ch:${c.seq}`, type: 'chapter', ref: c.seq, label: title },
-                  })}
-                  className="flex w-full items-center gap-2 py-1.5 border-b border-line/50 last:border-0 text-left text-f13 hover:bg-soft/60"
-                >
-                  <span className="text-ink flex-1 truncate">{title}</span>
-                  {c.qc_issues > 0 && <span className="text-danger text-f12">QC {c.qc_issues}</span>}
-                  {c.causal > 0 && <span className="text-fore text-f12">因果 {c.causal}</span>}
-                </button>
-              )
-            })}
-        </div>
-        )}
-
-        {/* Week-2 D5：正文呼吸 · 与章 soft 同源 API，无二套检测 */}
-        <DiscourseBreathPanel work={work} onJumpChapter={onJumpChapter} defaultSeq={lastSeq} />
-
+        <DiscourseBreathPanel work={work} onJumpChapter={onJumpChapter} chapter={chapter} lastSeq={lastSeq} />
       </div>
-    </div>
-  )
-}
-
-/** D5：Insight 最小话语呼吸面板 — 只调 POST /soft/discourse，禁止本地 find_* */
-function DiscourseBreathPanel({ work, onJumpChapter, defaultSeq = 1 }) {
-  const [seq, setSeq] = useState(defaultSeq)
-  useEffect(() => { setSeq(defaultSeq) }, [defaultSeq])
-  const [data, setData] = useState(null)
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-
-  const load = async () => {
-    setBusy(true)
-    setErr('')
-    try {
-      let r
-      if (typeof api.discourseSoft === 'function') {
-        r = await api.discourseSoft({ seq: Number(seq) }, work)
-      } else {
-        r = await api.post('/soft/discourse', { seq: Number(seq) }, work)
-      }
-      setData(r)
-    } catch (e) {
-      setErr(e?.message || '加载失败')
-      setData(null)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div
-      className="mt-8 pt-6 border-t border-line/60"
-      data-testid="insight-discourse-breath"
-    >
-      <div className="flex items-center gap-2 mb-2 flex-wrap">
-        <span className="text-f13 font-medium text-ink">正文呼吸（参考）</span>
-        <span className="text-meta text-faint">与章信息 · 话语/呼吸卡同源 · 不是打分</span>
-      </div>
-      <p className="text-f12 text-faint mb-2">
-        详细改写提示请在打开对应章后使用 soft 卡「话语/呼吸」。此处只读摘要。
-      </p>
-      <div className="flex flex-wrap items-center gap-2 mb-2">
-        <label className="text-f12 text-faint">
-          章号
-          <input
-            type="number"
-            min={1}
-            className="ml-1 w-16 rounded border border-line bg-canvas px-1.5 py-0.5 text-f13 text-ink"
-            value={seq}
-            onChange={(e) => setSeq(Number(e.target.value) || 1)}
-            data-testid="insight-discourse-seq"
-          />
-        </label>
-        <button
-          type="button"
-          className="h-7 px-2 rounded-md border border-line text-f12 text-ink hover:bg-soft cursor-pointer"
-          disabled={busy}
-          onClick={load}
-          data-testid="insight-discourse-run"
-        >
-          {busy ? '…' : '查看'}
-        </button>
-        <button
-          type="button"
-          className="h-7 px-2 rounded-md text-f12 text-brand hover:underline cursor-pointer"
-          onClick={() => onJumpChapter?.(Number(seq))}
-        >
-          打开该章
-        </button>
-      </div>
-      {err && <div className="text-f12 text-danger mb-1">{err}</div>}
-      {data && (
-        <div className="text-f12 text-ink space-y-1 rounded-md border border-line/50 bg-soft/20 px-3 py-2">
-          <div className="text-faint">
-            状态 {data.status || '—'}
-            {data.breath?.tight ? ' · 呼吸偏紧' : ''}
-            {data.breath?.telling_count != null ? ` · 贴标 ${data.breath.telling_count}` : ''}
-          </div>
-          {(data.breath?.tips || []).slice(0, 3).map((t, i) => (
-            <div key={i}>· {t.product_label || t.family}：{t.tip || ''}</div>
-          ))}
-          {(data.findings || []).slice(0, 3).map((f, i) => (
-            <div key={`f${i}`} className="text-warn">· {f.message || f.type}</div>
-          ))}
-        </div>
-      )}
     </div>
   )
 }

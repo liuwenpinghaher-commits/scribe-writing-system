@@ -58,7 +58,7 @@ describe('InsightView 错误态', () => {
     render(<InsightView />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/质量汇总加载失败/)
-    expect(screen.getByText(/今日码字/)).toBeTruthy()
+    expect(await screen.findByText(/今日码字/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /重试/ }))
 
     await waitFor(() => expect(apiMock.quality).toHaveBeenCalledTimes(2))
@@ -80,6 +80,14 @@ describe('InsightView 错误态', () => {
     expect(await screen.findByText(/今日码字/)).toBeTruthy()
   })
 
+  it('空书不说质检干净', async () => {
+    apiMock.quality.mockResolvedValue({ total_words: 0, chapters: [], foreshadow: { open: 0, closed: 0, overdue: 0 } })
+    render(<InsightView />)
+    expect(await screen.findByText('还没有章')).toBeTruthy()
+    expect(screen.queryByText('✓ 各章质检干净')).toBeNull()
+    expect(screen.getByTestId('insight-charts')).toBeTruthy()
+  })
+
   it('已删埋章不可跳', async () => {
     const onJump = vi.fn()
     apiMock.quality.mockResolvedValue(qualityPayload)
@@ -90,8 +98,9 @@ describe('InsightView 错误态', () => {
       audit: {},
     })
     render(<InsightView onJumpChapter={onJump} />)
-    expect(await screen.findByTestId('insight-setup-missing')).toBeTruthy()
-    fireEvent.click(screen.getByTestId('insight-setup-missing'))
+    const missing = await screen.findAllByTestId('insight-setup-missing')
+    expect(missing.length).toBeGreaterThan(0)
+    fireEvent.click(missing[0])
     expect(onJump).not.toHaveBeenCalled()
   })
 })

@@ -184,6 +184,24 @@ describe('横切视图真实组件对象回流', () => {
       title: '第4章 · 井底夜审 · 弱章诊断',
       target_node: { id: 'ch:4', type: 'chapter', ref: 4, label: '第4章 · 井底夜审' },
     }))
+    expect(screen.getByTestId('insight-next-stroke')).toBeTruthy()
+    expect(screen.getByTestId('insight-charts')).toBeTruthy()
+  })
+
+  it('传入 chapter 时弱章钉当前章且呼吸默认该章', async () => {
+    apiMock.quality.mockResolvedValue({
+      total_words: 3000,
+      chapters: [
+        { seq: 3, title: '灯罩', word_count: 1200, qc_issues: 1, causal: 0 },
+        { seq: 5, title: '尾', word_count: 1800, qc_issues: 9, causal: 0 },
+      ],
+      foreshadow: { open: 0, closed: 0, overdue: 0 },
+    })
+    render(<InsightView chapter={3} onNavigateToObject={vi.fn()} />)
+    expect(await screen.findByText('当前章')).toBeTruthy()
+    expect(screen.getByTestId('insight-discourse-seq')).toHaveValue(3)
+    const buttons = screen.getAllByRole('button', { name: /第3章 · 灯罩|第5章 · 尾/ })
+    expect(buttons[0].textContent).toMatch(/灯罩/)
   })
 
   it('图谱节点详情的打开设定发出设定库对象 target', async () => {
