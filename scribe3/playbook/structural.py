@@ -568,12 +568,34 @@ def _need_quote(node: Any, play_text: str, field: str, *, required: bool) -> dic
     return None
 
 
+def nest_choice_sides(contract: dict[str, Any]) -> dict[str, Any]:
+    """把抄到 fields.side_a/side_b 的两难收回 choice 里。戏已立住，不许因外层键毙。"""
+    rec = contract if isinstance(contract, dict) else {}
+    fields = rec.get("fields") if isinstance(rec.get("fields"), dict) else {}
+    choice = fields.get("choice") if isinstance(fields.get("choice"), dict) else {}
+    if not isinstance(choice, dict):
+        choice = {}
+        fields["choice"] = choice
+    for side in ("side_a", "side_b"):
+        inner = choice.get(side)
+        outer = fields.get(side)
+        empty = inner in (None, "", {}) or (
+            isinstance(inner, dict) and not str(inner.get("quote") or "").strip()
+        )
+        if empty and isinstance(outer, dict) and str(outer.get("quote") or "").strip():
+            choice[side] = outer
+            fields.pop(side, None)
+    rec["fields"] = fields
+    return rec
+
+
 def check_contract_struct(
     contract: dict[str, Any],
     play_text: str,
     *,
     available_lines: list[Any] | None = None,
 ) -> dict[str, Any]:
+    nest_choice_sides(contract)
     fields = contract.get("fields") if isinstance(contract.get("fields"), dict) else {}
     choice = fields.get("choice") if isinstance(fields.get("choice"), dict) else {}
     for name in CORE_FIELDS:

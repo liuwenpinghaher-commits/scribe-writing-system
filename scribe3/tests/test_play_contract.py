@@ -218,6 +218,19 @@ def test_good_contract_passes():
     assert check_contract_struct(_sample_contract(PLAY), PLAY)["ok"] is True
 
 
+def test_contract_nests_outer_sides_instead_of_killing_play():
+    """戏已立住。side 抄到 fields 外层不当 quote_missing。"""
+    c = _sample_contract(PLAY)
+    c["fields"]["side_a"] = c["fields"]["choice"].pop("side_a")
+    c["fields"]["side_b"] = c["fields"]["choice"].pop("side_b")
+    hit = check_contract_struct(c, PLAY)
+    assert hit["ok"] is True, hit
+    choice = c["fields"]["choice"]
+    assert choice["side_a"]["quote"] == "交出去，娘就有一线生机"
+    assert choice["side_b"]["quote"] == "自己按回去，赌的是这条命"
+    assert "side_a" not in c["fields"] or c["fields"].get("side_a") in (None, {}, "")
+
+
 def _duty_ctx(**extra):
     ctx = {
         "seq": 1,
