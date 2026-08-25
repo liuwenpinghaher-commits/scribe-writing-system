@@ -35,7 +35,7 @@ def _ok_state(seq: int = 2) -> dict:
 
 
 def test_playbook_version_is_3():
-    assert PLAYBOOK_VERSION == "playbook.3.2.24"
+    assert PLAYBOOK_VERSION == "playbook.3.2.25"
     assert "playbook.3" in VERSIONED_RUBRICS
     assert "playbook.3.1" in VERSIONED_RUBRICS
     assert "playbook.3.2" in VERSIONED_RUBRICS
@@ -63,6 +63,7 @@ def test_playbook_version_is_3():
     assert "playbook.3.2.22" in VERSIONED_RUBRICS
     assert "playbook.3.2.23" in VERSIONED_RUBRICS
     assert "playbook.3.2.24" in VERSIONED_RUBRICS
+    assert "playbook.3.2.25" in VERSIONED_RUBRICS
     assert SCHEMA_NAME == "chapter_state.v1"
     assert "chapter_state" in TABLES
 

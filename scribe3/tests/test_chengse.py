@@ -28,7 +28,7 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.24"
+    assert PLAYBOOK_VERSION == "playbook.3.2.25"
     d = duty_generate({"seq": 1})
     assert "【对照·真源】" in d
     assert "【成色·验戏不验词表】" not in d
@@ -1096,6 +1096,172 @@ def test_duty_feast_blocks_announce_without_table():
         ok, available_cast=["沈槐"], prev_hook_quote=hook,
         prev_stay=stay, prev_heat=heat, prev_kind="开坛", prev_intruder="杏花",
     )["ok"] is True
+
+
+def test_duty_jail_blocks_judge_without_rope():
+    """坐牢验结构：进城找活、官差收了改口、救人的人进绳。不要清官断案、不要点名黑白。"""
+    from scribe3.playbook.context import make_duty
+    from scribe3.playbook.structural import check_duty_struct
+
+    hook = "桶在柜边全屋看得见。"
+    stay = "沈槐还坐在酒桌下首，灯还欠着"
+    heat = "棉帘一掀，屋里酒气更浓"
+    judge = make_duty(
+        seq=8, who=["沈槐"], available_cast=["沈槐"],
+        day="镇上还在找活路", said="把灯认回去",
+        needed="柜上油账还按着他，灯还欠着",
+        heat="官差改口叫良民",
+        stay="救人的人进了绳，灯还欠着",
+        owed="沈槐还坐在酒桌下首，灯还欠着",
+        must_happen="官差收了小包改口，救人的人被捆走",
+        kind="坐牢", intruder="官差收了小包",
+        bill="救人的人进绳", bill_holder="官差", bill_place="镇上",
+    )
+    judge["must_happen"] = "清官断案，黑白分明"
+    judge["bite_from_prev"] = hook
+    hit = check_duty_struct(
+        judge, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="酒宴", prev_intruder="老庚提空桶闯进来",
+    )
+    assert hit["ok"] is False
+    assert hit["code"] == "duty_jail_judge"
+
+    no_city = make_duty(
+        seq=8, who=["沈槐"], available_cast=["沈槐"],
+        day="井台上还在排队打水", said="把灯认回去",
+        needed="柜上油账还按着他，灯还欠着",
+        heat="官差改口叫良民",
+        stay="救人的人进了绳，灯还欠着",
+        owed="沈槐还坐在酒桌下首，灯还欠着",
+        must_happen="官差收了小包改口，救人的人被捆走",
+        kind="坐牢", intruder="官差收了小包",
+        bill="救人的人进绳", bill_holder="官差", bill_place="镇上",
+    )
+    no_city["bite_from_prev"] = hook
+    hit2 = check_duty_struct(
+        no_city, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="酒宴", prev_intruder="老庚提空桶闯进来",
+    )
+    assert hit2["ok"] is False
+    assert hit2["code"] == "duty_jail_city"
+
+    self_rope = make_duty(
+        seq=8, who=["沈槐"], available_cast=["沈槐"],
+        day="镇上还在找活路", said="把灯认回去",
+        needed="柜上油账还按着他，灯还欠着",
+        heat="官差改口叫良民",
+        stay="沈槐进了绳，灯还欠着",
+        owed="沈槐还坐在酒桌下首，灯还欠着",
+        must_happen="官差收了小包改口，把沈槐捆走",
+        kind="坐牢", intruder="官差收了小包",
+        bill="沈槐进绳", bill_holder="官差", bill_place="镇上",
+    )
+    self_rope["bite_from_prev"] = hook
+    hit_self = check_duty_struct(
+        self_rope, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="酒宴", prev_intruder="老庚提空桶闯进来",
+    )
+    assert hit_self["ok"] is False
+    assert hit_self["code"] == "duty_jail_rope"
+
+    no_rope = make_duty(
+        seq=8, who=["沈槐"], available_cast=["沈槐"],
+        day="镇上还在找活路", said="把灯认回去",
+        needed="柜上油账还按着他，灯还欠着",
+        heat="官差改口叫良民",
+        stay="灯还欠着，酒还坐着",
+        owed="沈槐还坐在酒桌下首，灯还欠着",
+        must_happen="官差收了小包改口",
+        kind="坐牢", intruder="官差收了小包",
+        bill="面子", bill_holder="官差", bill_place="镇上",
+    )
+    no_rope["bite_from_prev"] = hook
+    hit3 = check_duty_struct(
+        no_rope, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="酒宴", prev_intruder="老庚提空桶闯进来",
+    )
+    assert hit3["ok"] is False
+    assert hit3["code"] == "duty_jail_rope"
+
+    ok = make_duty(
+        seq=8, who=["沈槐"], available_cast=["沈槐"],
+        day="镇上还在找活路", said="把灯认回去",
+        needed="柜上油账还按着他，灯还欠着",
+        heat="官差改口叫良民，救人的杏花被按住",
+        stay="救人的人进了绳，灯还欠着",
+        owed="沈槐还坐在酒桌下首，灯还欠着",
+        must_happen="官差收了小包改口，救人的人被捆走",
+        kind="坐牢", intruder="官差收了小包",
+        bill="救人的人进绳", bill_holder="官差", bill_place="镇上",
+    )
+    ok["bite_from_prev"] = hook
+    assert check_duty_struct(
+        ok, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="酒宴", prev_intruder="老庚提空桶闯进来",
+    )["ok"] is True
+
+
+def test_gen_duty_nails_savior_into_rope():
+    """模型把藏东西的人写进绳时，生成层把救人进绳钉回去。"""
+    from scribe3.playbook.layers import _nail_jail_duty, gen_duty
+
+    raw = {
+        "kind": "坐牢",
+        "day": "镇上还在找活路",
+        "must_happen": "官差收了小包改口，把沈槐捆走",
+        "stay": "沈槐进了绳，灯还欠着",
+        "heat": "官差改口叫良民",
+        "bill": "沈槐进绳",
+        "who": ["沈槐", "杏花"],
+        "available_cast": ["沈槐", "杏花", "差"],
+    }
+    nailed = _nail_jail_duty(raw, {"available_cast": ["沈槐", "杏花", "差"]})
+    assert "救人" in str(nailed.get("must_happen") or "")
+    assert "杏花" in str(nailed.get("must_happen") or "")
+    assert "把沈槐" not in str(nailed.get("must_happen") or "")
+    assert "救人" in str(nailed.get("stay") or "")
+    assert "差" in (nailed.get("who") or [])
+
+    def llm(prompt, **kw):
+        return (
+            '{"day":"镇上还在找活路","said":"把账清了","needed":"灯还欠着",'
+            '"mask":"他装成来报账","crack":"东西一交，官差改口","real":"救人的人进绳",'
+            '"eye":"沈槐","dist":"near","cut":"绳勒上腕子",'
+            '"one_line":"官差受贿","keep":"救人的杏花被捆走才倒过来",'
+            '"heat":"官差改口叫良民","stay":"沈槐进了绳",'
+            '"owed":"灯还欠着","kind":"坐牢","intruder":"差收了小包",'
+            '"bill_holder":"差","bill_place":"镇上",'
+            '"must_happen":"官差收了小包改口，把沈槐捆走",'
+            '"bill":"沈槐进绳","who":["沈槐"],"forbidden_reveal":["油从哪来"]}'
+        )
+
+    out = gen_duty({"seq": 8, "available_cast": ["沈槐", "杏花", "差"], "chapter_duty": "救人的人进了绳"}, llm)
+    assert out["kind"] == "坐牢"
+    assert "救人" in out["must_happen"]
+    assert "救人" in out["stay"]
+
+
+def test_draft_copy_does_not_kill_lived_expansion():
+    """场面已立住的扩写不得因跟戏 24% 重复被毙。整段搬戏才拦。"""
+    play = (
+        "沈槐进门先笑，说昨晚酒多，手慢没提桶，今天过来搭把手。"
+        "差进来把桶提起来。杏花说油是昨晚喜酒上老庚提来的。"
+        "差收起油纸包，把杏花手腕绕上去。"
+    )
+    lived = (
+        "沈槐推门进来。他先笑，说昨晚酒多手慢，桶没提，今天过来搭把手。"
+        "「差来了。」外头有人喊。"
+        "差进来，棉帽压到眉毛。他把桶提起来，往沈槐面前一递。"
+        "杏花说：「油是昨晚喜酒上，老庚提来的。」"
+        "差收起油纸包，从后腰掏出细麻绳，把杏花手腕绕上去。"
+        "沈槐站在柜台前，兜里空手，没往外掏。灯还在外头。"
+    ) * 6
+    hit = check_draft_struct(lived, play_text=play)
+    assert hit.get("code") != "draft_copy_play", hit
+    dump = play * 40 + "他又看了一眼裂口。" * 8
+    bad = check_draft_struct(dump, play_text=play * 40)
+    assert bad["ok"] is False
+    assert bad["code"] == "draft_copy_play"
 
 
 def test_draft_len_does_not_kill_lived_scene():

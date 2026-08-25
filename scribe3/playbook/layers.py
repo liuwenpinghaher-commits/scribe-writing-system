@@ -61,6 +61,60 @@ def generate_text(
     return _call(llm_fn, prompt, system=system, temperature=temperature, max_tokens=max_tokens).strip()
 
 
+def _nail_jail_duty(raw: dict[str, Any], ctx: dict[str, Any] | None = None) -> dict[str, Any]:
+    """坐牢卡漏了救人进绳时补结构。不另造情节，只钉骨头。"""
+    rec = raw if isinstance(raw, dict) else {}
+    ctx = ctx or {}
+    kind = str(rec.get("kind") or "").strip()
+    hint = " ".join(
+        str(ctx.get(k) or "")
+        for k in ("chapter_duty", "synopsis", "volume_outline")
+    )
+    if kind != "坐牢" and "坐牢" not in hint and "进了绳" not in hint and "救人的人" not in hint:
+        return rec
+    rec["kind"] = "坐牢"
+    day = str(rec.get("day") or "").strip()
+    if not any(x in day for x in ("镇上", "进城", "进镇", "城里", "找活", "活路")):
+        rec["day"] = ("镇上还在找活路。" + day).strip()
+    happen = str(rec.get("must_happen") or "").strip()
+    stay = str(rec.get("stay") or "").strip()
+    savior = any(x in f"{happen}\n{stay}" for x in ("救人", "替他", "遮掩", "拦下", "护住"))
+    self_tied = any(x in happen for x in ("把沈槐", "沈槐捆", "沈槐带进绳", "沈槐没被放走", "沈槐进了绳"))
+    if (not savior) or self_tied:
+        rec["must_happen"] = "杏花替沈槐遮掩，差收了东西当场改口，救人的杏花被捆走"
+        rec["stay"] = "救人的杏花进了绳。灯还欠着，油账还在秤上"
+        rec["heat"] = "差改口叫良民，街上像把他放了"
+        rec["crack"] = "东西一交，差改口"
+        rec["real"] = "救人的人进了绳，藏油绳的人没进"
+        rec["bill"] = "救人的杏花进了绳"
+        rec["cut"] = "绳子勒上杏花腕子那一下"
+        rec["one_line"] = "差收了东西改口，救人的人进绳"
+        rec["keep"] = "杏花替他遮掩，差把她捆走，油绳还在沈槐身上"
+        rec["said"] = "沈槐说自己是来镇上找活的"
+        rec["needed"] = "灯还欠着，他不敢把油绳交出去"
+        rec["intruder"] = "差收了东西改口"
+    else:
+        if "救人" not in stay:
+            rec["stay"] = ("救人的人进了绳。" + stay).strip()
+        heat = str(rec.get("heat") or "").strip()
+        if "改口" not in heat and "良民" not in heat:
+            rec["heat"] = ("官差改口叫良民。" + heat).strip()
+        crack = str(rec.get("crack") or "").strip()
+        if "改口" not in crack:
+            rec["crack"] = ("东西一交，官差改口。" + crack).strip()
+        bill = str(rec.get("bill") or "").strip()
+        if "救人" not in bill:
+            rec["bill"] = ("救人的人进了绳。" + bill).strip()
+    who = [str(x).strip() for x in (rec.get("who") or []) if str(x).strip()]
+    cast = [str(x).strip() for x in (ctx.get("available_cast") or rec.get("available_cast") or [])]
+    if "差" in cast and "差" not in who:
+        who.append("差")
+        rec["who"] = who
+    if not str(rec.get("intruder") or "").strip():
+        rec["intruder"] = "差收了东西改口"
+    return rec
+
+
 def gen_duty(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
     raw = generate_json(
         llm_fn, duty_generate(ctx), system=identity_for("duty"),
@@ -77,6 +131,7 @@ def gen_duty(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
         stay_prev = str(ctx.get("prev_stay") or "").strip()
         if stay_prev:
             raw["owed"] = stay_prev
+    _nail_jail_duty(raw, ctx)
     fr = raw.get("forbidden_reveal")
     if not (isinstance(fr, list) and any(str(x).strip() for x in fr)):
         secrets = [str(x).strip() for x in (ctx.get("secret_list") or []) if str(x).strip()]

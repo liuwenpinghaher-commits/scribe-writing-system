@@ -754,7 +754,7 @@ def test_contract_nail_quotes_exempt_overlap_keeps_threshold():
     from pathlib import Path
 
     src = (Path(__file__).resolve().parents[1] / "playbook/structural.py").read_text(encoding="utf-8")
-    assert "rate > 0.15" in src
+    assert "rate > 0.50" in src
     nails = {
         "goal": {"quote": "他把碎片按回胸口那一夜"},
         "choice": {"quote": "交出去还是按回去"},

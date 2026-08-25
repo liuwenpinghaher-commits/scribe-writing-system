@@ -27,6 +27,7 @@
 - duty.bill_move：账换持有人或换地；换气换丢人不过
 - duty.altar：kind=开坛 必须看见交差钱把人按住；热闹当社戏信了；井/灯/墓还在；高人下山伏魔不过
 - duty.feast：kind=酒宴 必须酒还不散、面子按桌、有人闯进来、嘴上贺而账还欠着。不要字面「那一桌」
+- duty.jail：kind=坐牢 必须先立进城/镇上找活路；官差收了东西改口；救人的人进了绳。清官断案、点名黑白不过。不要字面「六百两」
 """
 from __future__ import annotations
 
@@ -57,6 +58,7 @@ _OPENER_ANNOUNCE = re.compile(
 _DAY_LIVED = re.compile(
     r"还在|还没|正在|尚未|仍有|排队|过秤|喝酒|喜酒|守夜|赶路|散不|过年|过节|井台|柜上|日子"
     r"|往家|回家|土路|巷口|窄巷|开坛|改运|交差|酬劳"
+    r"|进城|进镇|镇上|城里|找活|活路|官差|绳"
 )
 # 对照.md 三：办事不剖心。
 _APPRAISAL_TELL = re.compile(
@@ -78,6 +80,7 @@ _SIGH_CUT = re.compile(
 _CUT_SENSED = re.compile(
     r"一声|一响|响了|闷响|碎了|开了|停住|磕|砸|摔|撞|落地|堕地"
     r"|啪|嚓|喀喇|尖鸣|穿|门开|钉子|杯子|酒盅|碰杯"
+    r"|捆|勒|绳|塞嘴|押走"
 )
 # 因文.md：一行本事说不完；删了那一截场会塌。
 _ONE_LINE_OK = re.compile(r"一行就够|本事说完|过场即可|说明书")
@@ -101,6 +104,13 @@ _FEAST_FACE = re.compile(r"面子|桌上|敬酒|端杯|按在桌|酒盅|酒桌|�
 _FEAST_IN = re.compile(r"进来|坐进|闯|掀帘|掀棉|推门|带进|进了|进供")
 _FEAST_CONGRATS = re.compile(r"贺|敬|道喜|喝完|来贺")
 _FEAST_UNPAID = re.compile(r"欠|灯|账|回不去|当不成|坐不住")
+# 章法坐牢 / 冤狱批注：进城找活路；官差收了东西改口；救人的人进绳。不要清官断案、不要点名黑白、不要字面六百两。
+_JAIL_JUDGE = re.compile(r"清官断案|清官明断|明察私访|大义凛然|黑白")
+_JAIL_CITY = re.compile(r"进城|进镇|镇上|城里|城门|找活|活路|找活路|找工")
+_JAIL_BRIBE = re.compile(r"收了|接了|递上|递了|小包|包裹|收银|银子|收东西")
+_JAIL_FLIP = re.compile(r"改口|眉花|良民|改叫|笑着说")
+_JAIL_ROPE = re.compile(r"进牢|进绳|捆走|捆了|绳子|破布|塞嘴|押走|拿到大牢")
+_JAIL_SAVE = re.compile(r"救人|替他|替人|遮掩|拦下|护住|替杏")
 _SHAME_SWAP = re.compile(r"换气换丢人|换气|换丢人|丢人换人|换个人丢人")
 _CLAIM_MOVE = re.compile(r"转走|交到别人|换地|账走了|还清了")
 CORE_FIELDS = ("goal", "choice", "decision", "hook")
@@ -421,6 +431,38 @@ def check_duty_feast(duty: dict[str, Any]) -> dict[str, Any]:
     return _ok()
 
 
+def check_duty_jail(duty: dict[str, Any]) -> dict[str, Any]:
+    """坐牢：进城/镇上找活路；官差收了东西改口；救人的人进绳。清官断案、点名黑白不过。"""
+    kind = str((duty or {}).get("kind") or "").strip()
+    if kind != "坐牢":
+        return _ok()
+    day = str((duty or {}).get("day") or "").strip()
+    happen = str((duty or {}).get("must_happen") or "").strip()
+    said = str((duty or {}).get("said") or "").strip()
+    heat = str((duty or {}).get("heat") or "").strip()
+    stay = str((duty or {}).get("stay") or "").strip()
+    owed = str((duty or {}).get("owed") or "").strip()
+    bill = str((duty or {}).get("bill") or "").strip()
+    crack = str((duty or {}).get("crack") or "").strip()
+    who = str((duty or {}).get("intruder") or "").strip()
+    blob = f"{day}\n{happen}\n{said}\n{heat}\n{stay}\n{owed}\n{bill}\n{crack}\n{who}"
+    if _JAIL_JUDGE.search(blob):
+        return _fail("duty_jail_judge", "不要学成清官断案。不要点名黑白。看见银子到了谁进绳", "kind")
+    if not _JAIL_CITY.search(day):
+        return _fail("duty_jail_city", "坐牢必须先立进城/镇上找活路。不要先宣布断案", "day")
+    flip_blob = f"{happen}\n{heat}\n{crack}\n{said}"
+    if not _JAIL_BRIBE.search(flip_blob):
+        return _fail("duty_jail_bribe", "坐牢必须看见官差收了东西。银子把日子倒过来，不是讲清了理", "must_happen")
+    if not _JAIL_FLIP.search(flip_blob):
+        return _fail("duty_jail_flip", "坐牢必须看见官差改口。银子到了，场上谁的日子倒过来", "crack")
+    rope_blob = f"{happen}\n{stay}\n{owed}\n{heat}"
+    if not _JAIL_ROPE.search(rope_blob):
+        return _fail("duty_jail_rope", "坐牢读完救人的人进了绳。不要把黑白两个字当写好", "stay")
+    if not _JAIL_SAVE.search(f"{happen}\n{stay}\n{heat}\n{said}\n{who}"):
+        return _fail("duty_jail_rope", "坐牢必须看见救人的人进绳。藏东西的人进绳不算", "stay")
+    return _ok()
+
+
 def check_duty_flip(duty: dict[str, Any]) -> dict[str, Any]:
     """热闹不算翻。热闹像翻了、处境还停在原处，不过。"""
     heat = str((duty or {}).get("heat") or "").strip()
@@ -565,6 +607,9 @@ def check_duty_struct(
     feast_hit = check_duty_feast(duty)
     if not feast_hit.get("ok"):
         return feast_hit
+    jail_hit = check_duty_jail(duty)
+    if not jail_hit.get("ok"):
+        return jail_hit
     fr = duty.get("forbidden_reveal")
     if not isinstance(fr, list) or not [x for x in fr if str(x).strip()]:
         return _fail("duty_forbid_empty", "forbidden_reveal 不能空", "forbidden_reveal")
@@ -1043,8 +1088,9 @@ def check_draft_struct(
         return meta
     if (play_text or "").strip():
         rate = draft_play_overlap(text, play_text, exempt_quotes=exempt_quotes)
-        if rate > 0.15:
-            return _fail("draft_copy_play", f"糙稿与戏重复率 {rate:.1%} 超过 15%")
+        # 字数不作完成的同一条：场面已立住的扩写不得因跟戏重复被毙。整段搬戏才拦。
+        if rate > 0.50:
+            return _fail("draft_copy_play", f"糙稿几乎整段搬了戏（重复率 {rate:.1%}）")
     dens = _metaphor_fail(text, code="draft_metaphor", exempt_quotes=exempt_quotes)
     if dens:
         return dens
