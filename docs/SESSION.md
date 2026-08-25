@@ -71,6 +71,13 @@
 
 ## 当前状态
 
+### 技法标尺（2026-08-25）
+
+合同：左轨「技法标尺」= 参考作品 / 质量审阅 / 质量合同。不是仪表盘、不是文学总分。`craft_ruler.py` 只是情绪曲线 advisory。
+**已改：** 创建评价不再手填合同 ID，绑定本书 `quality-contract:{work}` 已批准修订；没有批准合同则禁用创建。合同页已批准标尺加载失败要响。栏2 标题与空态改成「技法标尺」。
+**测：** QualityReview + QualityContractEditor + 入口/弱章跳转 31 passed。
+**已合入，待 frontend 热更。** 未改评价算法、指纹生成、十维权重。
+
 ### 素材库 P3（2026-08-25）
 
 整洁：拆 `Materials.jsx`（665→16 行 barrel；form/new/detail/list 独立）。`sessionClip.js` 只留剪藏/引用，`@` 目录进 `atCatalog.js`。`relates` 用 `166_material_relates.surql` 锁成 material→material SCHEMAFULL。删几乎无调用的 `emotion_target_from_materials`。作者直管 `/materials` 合同未改。

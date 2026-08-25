@@ -21,7 +21,7 @@ const chapterNode = (seq, title = '') => ({ id: `ch:${seq}`, type: 'chapter', re
 function ReferencesDirectory({ onSelectItem }) {
   return (
     <div className={DIR_SHELL} data-testid="references-directory">
-      <DirectoryHeader title="参考作品" />
+        <DirectoryHeader title="技法标尺" />
       <div className="flex-1 min-h-0 overflow-auto px-2 py-2 space-y-0.5">
         <DirectoryRow
           title="参考作品工作台"

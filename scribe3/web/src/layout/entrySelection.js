@@ -135,7 +135,7 @@ export function emptyDetailCopy(entryKey) {
     case 'review':
       return { title: '校验', hint: '确定性命中台账；日常请看正文护栏与全量体检。' }
     case 'references':
-      return { title: '参考作品', hint: '在左侧打开参考作品工作台。' }
+      return { title: '技法标尺', hint: '在左侧打开参考作品、质量审阅或质量合同。' }
     default:
       return { title: '详情', hint: '从左侧目录选择条目查看详情。' }
   }

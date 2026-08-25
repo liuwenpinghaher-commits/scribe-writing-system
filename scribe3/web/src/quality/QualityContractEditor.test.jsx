@@ -6,6 +6,7 @@ const apiMock = vi.hoisted(() => ({
   qualityContract: vi.fn(),
   qualityCreateContract: vi.fn(),
   qualityApproveContract: vi.fn(),
+  approvedReferenceFingerprints: vi.fn(),
 }))
 
 vi.mock('../api', () => ({ api: apiMock }))
@@ -16,6 +17,7 @@ describe('QualityContractEditor', () => {
     apiMock.qualityContract.mockResolvedValue({ found: false })
     apiMock.qualityCreateContract.mockResolvedValue({ approved: false })
     apiMock.qualityApproveContract.mockResolvedValue({ approved: true })
+    apiMock.approvedReferenceFingerprints.mockResolvedValue([])
   })
 
   it('暴露完整合同字段并以 append-only 草案保存', async () => {
@@ -49,5 +51,12 @@ describe('QualityContractEditor', () => {
     await waitFor(() => expect(apiMock.qualityCreateContract).toHaveBeenCalled())
     fireEvent.click(screen.getByRole('button', { name: '批准本修订' }))
     await waitFor(() => expect(apiMock.qualityApproveContract).toHaveBeenCalled())
+  })
+
+  it('已批准标尺加载失败时显示错误，不装成没有标尺', async () => {
+    apiMock.approvedReferenceFingerprints.mockRejectedValue(new Error('fp down'))
+    render(<QualityContractEditor work="demo" />)
+    expect((await screen.findByRole('alert')).textContent).toMatch(/标尺|指纹/)
+    expect(screen.queryByText(/暂无已批准指纹/)).toBeNull()
   })
 })

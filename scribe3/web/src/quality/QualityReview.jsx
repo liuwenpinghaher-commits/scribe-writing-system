@@ -162,8 +162,9 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
   const [submittingDimension, setSubmittingDimension] = useState(null)
   const [submitErrors, setSubmitErrors] = useState({})
   const [chapterInput, setChapterInput] = useState(seq == null ? '' : String(seq))
-  const [contractId, setContractId] = useState('')
-  const [contractRevision, setContractRevision] = useState(1)
+  const defaultContractId = `quality-contract:${work}`
+  const [boundContract, setBoundContract] = useState(null) // { contract_id, revision } | null
+  const [contractLoad, setContractLoad] = useState('loading') // loading | ready | error
   const [selectedFingerprintIds, setSelectedFingerprintIds] = useState([])
   const [approvedFingerprints, setApprovedFingerprints] = useState([])
   const [creating, setCreating] = useState(false)
@@ -181,6 +182,32 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
       .catch(() => { if (live) setApprovedFingerprints([]) })
     return () => { live = false }
   }, [work])
+
+  useEffect(() => {
+    let live = true
+    setContractLoad('loading')
+    setBoundContract(null)
+    api.qualityContract(defaultContractId, 1, work, true)
+      .then((row) => {
+        if (!live) return
+        if (row?.found === false || !row?.approved) {
+          setBoundContract(null)
+          setContractLoad('ready')
+          return
+        }
+        setBoundContract({
+          contract_id: row.contract_id || defaultContractId,
+          revision: Number(row.revision) || 1,
+        })
+        setContractLoad('ready')
+      })
+      .catch(() => {
+        if (!live) return
+        setBoundContract(null)
+        setContractLoad('error')
+      })
+    return () => { live = false }
+  }, [work, defaultContractId])
 
   const activeSeq = Number.isInteger(Number(chapterInput)) && Number(chapterInput) > 0
     ? Number(chapterInput) : null
@@ -266,7 +293,7 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
   }
 
   const createEvaluation = async () => {
-    if (activeSeq == null || !contractId.trim() || creating) return
+    if (activeSeq == null || !boundContract?.contract_id || creating) return
     evaluationEpoch.current += 1
     setCreating(true)
     setCreateError('')
@@ -275,8 +302,8 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
       const created = await api.qualityCreateSnapshot({
         work,
         seq: activeSeq,
-        contract_id: contractId.trim(),
-        contract_revision: Number(contractRevision) || 1,
+        contract_id: boundContract.contract_id,
+        contract_revision: Number(boundContract.revision) || 1,
         reference_fingerprint_ids,
       })
       const next = { chapter: activeSeq, ...created }
@@ -329,16 +356,23 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
             onChange={(e) => setChapterInput(e.target.value)}
             className="mt-1 h-8 w-full rounded border border-line bg-canvas px-2 text-f13 text-ink outline-none focus:border-brand" />
         </label>
-        <label className="text-meta text-faint">质量合同 ID
-          <input aria-label="质量合同 ID" value={contractId}
-            onChange={(e) => setContractId(e.target.value)} placeholder="先在“质量合同”保存并批准"
-            className="mt-1 h-8 w-full rounded border border-line bg-canvas px-2 text-f13 text-ink outline-none focus:border-brand" />
-        </label>
-        <label className="text-meta text-faint">合同修订
-          <input aria-label="合同修订" type="number" min="1" value={contractRevision}
-            onChange={(e) => setContractRevision(e.target.value)}
-            className="mt-1 h-8 w-full rounded border border-line bg-canvas px-2 text-f13 text-ink outline-none focus:border-brand" />
-        </label>
+        <div className="text-meta text-faint">
+          质量合同
+          {contractLoad === 'loading' && <div className="mt-1 text-faint">正在读取本书合同…</div>}
+          {contractLoad === 'error' && (
+            <div role="alert" className="mt-1 text-danger">质量合同加载失败</div>
+          )}
+          {contractLoad === 'ready' && boundContract && (
+            <div className="mt-1 text-ink" data-testid="quality-bound-contract">
+              {boundContract.contract_id} · 修订 {boundContract.revision} · 已批准
+            </div>
+          )}
+          {contractLoad === 'ready' && !boundContract && (
+            <div className="mt-1 text-faint" data-testid="quality-no-approved-contract">
+              本书还没有已批准的质量合同。请先在左侧打开「质量合同」保存并批准。
+            </div>
+          )}
+        </div>
         <div className="sm:col-span-2 space-y-1.5">
           <div className="text-meta text-faint">已批准技法标尺（从库选择，非手填 ID）</div>
           {approvedFingerprints.length === 0 && (
@@ -375,7 +409,7 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <Btn size="sm" onClick={createEvaluation} disabled={activeSeq == null || !contractId.trim() || creating}>
+        <Btn size="sm" onClick={createEvaluation} disabled={activeSeq == null || !boundContract?.contract_id || creating}>
           {creating ? '创建评价中…' : '创建章节评价'}
         </Btn>
         {activeSeq == null && <span className="text-meta text-faint">先选择章节，再创建快照。</span>}
@@ -417,7 +451,7 @@ export function QualityReview({ work, seq, onLocateEvidence }) {
           <div className="text-f13 text-danger">质量作业失败</div>
           <div className="text-meta text-faint">{evaluation?.error_message || '请检查合同与冻结内容后新建评价。'}</div>
         </Card>}
-        {!hasEvaluation && !isRunning && !isRetryableFailure && !isPermanentFailure && <Empty>{activeSeq == null ? '先选择章节，再创建快照并启动评价。' : '暂无质量评价。填写合同后即可创建章节评价。'}</Empty>}
+        {!hasEvaluation && !isRunning && !isRetryableFailure && !isPermanentFailure && <Empty>{activeSeq == null ? '先选择章节，再创建快照并启动评价。' : '暂无质量评价。批准本合同并勾选标尺后即可创建。'}</Empty>}
         {hasEvaluation && <div className="space-y-3">
           {dims.map((dim) => (
             <DimensionRow

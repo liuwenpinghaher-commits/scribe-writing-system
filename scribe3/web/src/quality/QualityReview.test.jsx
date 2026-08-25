@@ -8,6 +8,7 @@ const apiMock = vi.hoisted(() => ({
   qualityCreateSnapshot: vi.fn(),
   qualityRetryJob: vi.fn(),
   approvedReferenceFingerprints: vi.fn(),
+  qualityContract: vi.fn(),
 }))
 
 vi.mock('../api', () => ({ api: apiMock }))
@@ -51,6 +52,12 @@ describe('QualityReview 十维三轴审阅', () => {
         full_book_fingerprint: '克制', transferable_mechanisms_preview: ['视角'],
       },
     ])
+    apiMock.qualityContract.mockResolvedValue({
+      found: true,
+      contract_id: 'quality-contract:demo',
+      revision: 1,
+      approved: true,
+    })
   })
 
   it('渲染全部十个维度标签', async () => {
@@ -159,18 +166,26 @@ describe('QualityReview 十维三轴审阅', () => {
     apiMock.qualityEvaluation.mockResolvedValue({ chapter: 7, status: 'empty' })
     render(<QualityReview work="demo" seq={7} />)
     await screen.findByText(/暂无质量评价/)
-    fireEvent.change(screen.getByRole('textbox', { name: '质量合同 ID' }), {
-      target: { value: 'contract-demo' },
-    })
+    expect(screen.queryByRole('textbox', { name: '质量合同 ID' })).toBeNull()
+    expect((await screen.findByTestId('quality-bound-contract')).textContent).toMatch(/quality-contract:demo/)
     // 主路径：从标尺库勾选，而非手填 ID
     fireEvent.click(await screen.findByRole('checkbox', { name: /选择标尺 标尺A/ }))
     fireEvent.click(screen.getByRole('checkbox', { name: /选择标尺 标尺B/ }))
     fireEvent.click(screen.getByRole('button', { name: '创建章节评价' }))
     await waitFor(() => expect(apiMock.qualityCreateSnapshot).toHaveBeenCalledWith({
-      work: 'demo', seq: 7, contract_id: 'contract-demo', contract_revision: 1,
+      work: 'demo', seq: 7, contract_id: 'quality-contract:demo', contract_revision: 1,
       reference_fingerprint_ids: ['fp-a', 'fp-b'],
     }))
     await screen.findByText('连贯性与因果')
+  })
+
+  it('没有已批准合同时不能创建评价，并说去质量合同', async () => {
+    apiMock.qualityEvaluation.mockResolvedValue({ chapter: 7, status: 'empty' })
+    apiMock.qualityContract.mockResolvedValue({ found: false })
+    render(<QualityReview work="demo" seq={7} />)
+    expect((await screen.findByTestId('quality-no-approved-contract')).textContent).toMatch(/质量合同/)
+    expect(screen.getByRole('button', { name: '创建章节评价' }).disabled).toBe(true)
+    expect(screen.queryByRole('textbox', { name: '质量合同 ID' })).toBeNull()
   })
 
   it('创建评价未带回十维时直接进入旋转态，不闪空列表', async () => {
@@ -180,9 +195,7 @@ describe('QualityReview 十维三轴审阅', () => {
     })
     render(<QualityReview work="demo" seq={7} />)
     await screen.findByText(/暂无质量评价/)
-    fireEvent.change(screen.getByRole('textbox', { name: '质量合同 ID' }), {
-      target: { value: 'contract-demo' },
-    })
+    await screen.findByTestId('quality-bound-contract')
     fireEvent.click(screen.getByRole('button', { name: '创建章节评价' }))
     expect(await screen.findByTestId('quality-job-running')).toBeTruthy()
     expect(screen.queryByText('连贯性与因果')).toBeNull()
@@ -198,9 +211,7 @@ describe('QualityReview 十维三轴审阅', () => {
       chapter: 7, job_id: 'job-new', status: 'queued',
     })
     render(<QualityReview work="demo" seq={7} />)
-    fireEvent.change(screen.getByRole('textbox', { name: '质量合同 ID' }), {
-      target: { value: 'contract-demo' },
-    })
+    await screen.findByTestId('quality-bound-contract')
     fireEvent.click(screen.getByRole('button', { name: '创建章节评价' }))
     await waitFor(() => expect(apiMock.qualityCreateSnapshot).toHaveBeenCalled())
     resolveInitialLoad({
@@ -223,9 +234,7 @@ describe('QualityReview 十维三轴审阅', () => {
     ))
     render(<QualityReview work="demo" seq={7} />)
     await screen.findByText('连贯性与因果')
-    fireEvent.change(screen.getByRole('textbox', { name: '质量合同 ID' }), {
-      target: { value: 'contract-demo' },
-    })
+    await screen.findByTestId('quality-bound-contract')
     fireEvent.click(screen.getByRole('button', { name: '创建章节评价' }))
     expect((await screen.findByRole('alert')).textContent).toContain('质量合同未获作者批准')
   })

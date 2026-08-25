@@ -92,6 +92,7 @@ export function QualityContractEditor({ work }) {
   const [error, setError] = useState('')
   const [approved, setApproved] = useState(false)
   const [yardsticks, setYardsticks] = useState([])
+  const [yardstickErr, setYardstickErr] = useState('')
   const [pickId, setPickId] = useState('')
   const [pickDim, setPickDim] = useState('language_voice')
   const patch = (key, value) => setForm((previous) => ({ ...previous, [key]: value }))
@@ -108,8 +109,12 @@ export function QualityContractEditor({ work }) {
       })
       .catch((err) => { if (live) { setStatus('ready'); if (err?.status !== 404) setError('读取质量合同失败，请检查连接后重试。') } })
     api.approvedReferenceFingerprints(work)
-      .then((rows) => { if (live) setYardsticks(Array.isArray(rows) ? rows : []) })
-      .catch(() => { if (live) setYardsticks([]) })
+      .then((rows) => { if (live) { setYardsticks(Array.isArray(rows) ? rows : []); setYardstickErr('') } })
+      .catch((err) => {
+        if (!live) return
+        setYardsticks([])
+        setYardstickErr(err?.body?.detail || err?.message || '已批准标尺加载失败')
+      })
     return () => { live = false }
   }, [work])
 
@@ -194,7 +199,8 @@ export function QualityContractEditor({ work }) {
           </label>
           <div className="flex items-end"><Btn size="sm" variant="soft" onClick={addTargetFromYardstick} disabled={!pickId}>加入参考目标</Btn></div>
         </div>
-        {yardsticks.length === 0 && <div className="text-meta text-faint">暂无已批准指纹。请先在技法标尺模块批准一部参考。</div>}
+        {yardstickErr && <div role="alert" className="text-meta text-danger">已批准标尺加载失败：{yardstickErr}</div>}
+        {!yardstickErr && yardsticks.length === 0 && <div className="text-meta text-faint">暂无已批准指纹。请先在技法标尺模块批准一部参考。</div>}
       </div>
       <LinesField label="参考目标（JSON 数组）" path="contract.reference_targets" value={form.referenceTargets} onChange={(value) => patch('referenceTargets', value)} placeholder='[{"reference_work_id":"…","dimension":"language_voice","mode":"inspired","intensity":0.5,"mechanism":"…","difference_requirement":"…"}]' /><div className="flex flex-wrap gap-3">{['scene', 'chapter', 'volume', 'book'].map((item) => <label key={item} className="inline-flex items-center gap-1 text-f13 text-ink"><input type="checkbox" checked={form.milestones.includes(item)} onChange={() => patch('milestones', form.milestones.includes(item) ? form.milestones.filter((value) => value !== item) : [...form.milestones, item])} data-field-path={`contract.evaluation_milestones.${item}`} />{item}</label>)}</div><div className="grid sm:grid-cols-3 gap-3"><TextField label="阻断预算" path="contract.attention_budget.blocking" type="number" value={form.attention.blocking} onChange={(value) => patchNested('attention', 'blocking', value)} /><TextField label="主要问题预算" path="contract.attention_budget.major" type="number" value={form.attention.major} onChange={(value) => patchNested('attention', 'major', value)} /><TextField label="普通问题预算" path="contract.attention_budget.ordinary" type="number" value={form.attention.ordinary} onChange={(value) => patchNested('attention', 'ordinary', value)} /></div><LinesField label="完成标准" path="contract.completion_criteria" value={form.completionCriteria} onChange={(value) => patch('completionCriteria', value)} /></Card>
     <div className="flex items-center gap-2 pb-8"><Btn onClick={save} disabled={status === 'saving'}>{status === 'saving' ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}保存合同草案</Btn><Btn variant="bordered" onClick={approve} disabled={status === 'saving' || approved}>{approved ? <><CheckCircle2 size={14} />已批准</> : '批准本修订'}</Btn></div>
