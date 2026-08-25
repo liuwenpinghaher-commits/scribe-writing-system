@@ -19,14 +19,15 @@ export function chiefSendHint(kind) {
   return ''
 }
 
-/** kind: no_work | no_thread | awaiting | continued | fresh | empty_ask | null */
-export function chiefEmptyKind({ work, msgs, pending, threadMode, threadId, threadMeta } = {}) {
+/** kind: no_work | no_thread | awaiting | continued | fresh | empty_ask | write_ask | null */
+export function chiefEmptyKind({ work, msgs, pending, threadMode, threadId, threadMeta, surface } = {}) {
   if (!work) return 'no_work'
   if (threadMode && !threadId) return 'no_thread'
   if (Array.isArray(msgs) && msgs.length > 0) return null
   if (pending) return 'awaiting'
   if (threadMode && threadMeta?.parent_thread_id) return 'continued'
   if (threadMode && threadMeta && !threadMeta.parent_thread_id) return 'fresh'
+  if (surface === 'write') return 'write_ask'
   return 'empty_ask'
 }
 
@@ -45,6 +46,9 @@ export function chiefEmptyCopy(kind) {
   }
   if (kind === 'fresh') {
     return { title: '空会话可以问', body: '不带对话历史。设定和伏笔还在。' }
+  }
+  if (kind === 'write_ask') {
+    return { title: '空会话可以问', body: '提思路让主编写或改本章。改写以草稿卡出现在中间，你接受或弃用。' }
   }
   return { title: '空会话可以问', body: '就当前打开的这本书问。主编会自己翻书。' }
 }

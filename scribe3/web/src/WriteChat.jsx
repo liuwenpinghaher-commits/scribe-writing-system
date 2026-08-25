@@ -23,7 +23,7 @@ import { useContextSnapshot } from './context/ContextSnapshotContext'
 import { MaterialAtPicker } from './ui/MaterialAtPicker.jsx'
 import { useMaterialAt } from './lib/useMaterialAt.js'
 import { Btn } from './ui.jsx'
-import { pendingApprovalOf } from './lib/chiefReadable.js'
+import { chiefEmptyCopy, chiefEmptyKind, pendingApprovalOf } from './lib/chiefReadable.js'
 import { ChiefStatusStrip } from './views/chief/ChiefStatusStrip.jsx'
 
 // Task 13 I-1:章内写作槽发起的 approval 型 run 也要绑发起时上下文,让重校验对它生效
@@ -467,6 +467,15 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
     })
   }
 
+  const pending = pendingApprovalOf(msgs)
+  const emptyKind = chiefEmptyKind({
+    work: api.getWork?.() || '',
+    msgs,
+    pending,
+    surface: 'write',
+  })
+  const emptyCopy = chiefEmptyCopy(emptyKind || 'write_ask')
+
   return (
     <div
       data-testid="chief-write-chat"
@@ -484,8 +493,11 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
       {/* 消息列表 */}
       <div data-testid="chief-chat-messages" className="flex-1 min-h-0 overflow-y-auto px-3 py-2 bg-canvas/50">
         {msgs.length === 0 ? (
-          <div className="pt-1 space-y-2">
-            <div className="rounded-md bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">提思路,主编帮你写/改本章手稿。改写以草稿卡出现在中间,你接受/弃用。</div>
+          <div className="pt-1 space-y-2" data-testid="chief-empty">
+            <div className="rounded-md bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">
+              <div className="text-ink">{emptyCopy.title}</div>
+              <div className="mt-0.5">{emptyCopy.body}</div>
+            </div>
             <div className="space-y-1.5">
               {SUGGESTS.map((s) => (
                 <button key={s} onClick={() => send(s)} className="w-full text-left rounded-md bg-surface hover:bg-soft px-3 py-2 text-f12 text-ink transition-colors cursor-pointer shadow-[var(--shadow-panel)]">{s}</button>
@@ -534,7 +546,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
       <ChiefStatusStrip
         label={chapter != null ? `第 ${chapter} 章${phase ? ` · ${phase}` : ''}` : '未选中'}
         input={input}
-        pending={!!pendingApprovalOf(msgs)}
+        pending={!!pending}
         onJumpPending={() => document.querySelector('[data-testid="chief-pending-card"], [data-testid="run-approve"]')?.scrollIntoView({ block: 'nearest' })}
       />
       {/* 输入区 */}

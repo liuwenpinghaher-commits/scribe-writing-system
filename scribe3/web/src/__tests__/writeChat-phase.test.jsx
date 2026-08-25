@@ -59,7 +59,7 @@ describe('WriteChat phase', () => {
     expect(api.runWrite.mock.calls[0][0]).toContain('请登记伏笔')
     expect(api.runWrite.mock.calls[0][1]).toMatchObject({
       chapter: 4,
-      phase: 'final',
+      phase: '',
       focalizer: '崔判',
     })
   })
@@ -204,6 +204,9 @@ describe('WriteChat phase', () => {
     render(<WriteChat chapter={4} focalizer="崔判" phase="final" />)
     expect(screen.getByTestId('chief-status-strip')).toBeTruthy()
     expect(screen.getByTestId('chief-status-label').textContent).toMatch(/第 4 章/)
+    expect(screen.getByTestId('chief-empty')).toBeTruthy()
+    expect(screen.getByText('空会话可以问')).toBeTruthy()
+    expect(screen.getByText(/草稿卡/)).toBeTruthy()
     expect(screen.queryByText(/一切有账/)).toBeNull()
   })
 

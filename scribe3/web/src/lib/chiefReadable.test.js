@@ -33,6 +33,10 @@ describe('chiefEmptyKind', () => {
     expect(chiefEmptyCopy('awaiting').title).toMatch(/批/)
     expect(chiefEmptyCopy('empty_ask').body).not.toMatch(/一切有账/)
     expect(chiefEmptyCopy('fresh').title).not.toMatch(/一切有账/)
+    expect(chiefEmptyKind({ work: 'demo', msgs: [], surface: 'write' })).toBe('write_ask')
+    expect(chiefEmptyCopy('write_ask').title).toMatch(/空会话可以问/)
+    expect(chiefEmptyCopy('write_ask').body).toMatch(/草稿卡/)
+    expect(chiefEmptyCopy('write_ask').body).not.toMatch(/一切有账/)
   })
 })
 
