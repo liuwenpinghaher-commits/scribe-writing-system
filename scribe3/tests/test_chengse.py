@@ -28,12 +28,18 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.8"
+    assert PLAYBOOK_VERSION == "playbook.3.2.9"
     d = duty_generate({"seq": 1})
     assert "【成色·验戏不验词表】" in d
     assert "先立还在过的日子" in d
+    assert "立九件事" in d
+    assert "mask" in d and "crack" in d and "real" in d
     p = play_generate({"seq": 1, "duty": {}})
     assert "假破真" in p
+    assert "假破真是这章的骨头" in p
+    assert "两难是这章的心脏" not in p
+    from scribe3.playbook.prompts import identity_for
+    assert "两难落在哪个动作" not in identity_for("play")
     dr = draft_generate({})
     assert "切在能听见看见" in dr
     f = final_generate({})
@@ -199,6 +205,87 @@ def test_duty_work_blocks_appraisal_and_same_want():
     hit2 = check_duty_struct(tell, available_cast=["沈槐"])
     assert hit2["ok"] is False
     assert hit2["code"] == "duty_work_appraisal"
+
+
+def test_duty_mask_blocks_dump_and_same_sentence():
+    from scribe3.playbook.context import make_duty
+    from scribe3.playbook.structural import check_duty_struct
+
+    dump = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        mask="真相是灯油不是自家的",
+        crack="空盏",
+        real="不是自家油",
+        must_happen="沈槐把空盏摘下来",
+    )
+    hit = check_duty_struct(dump, available_cast=["沈槐"])
+    assert hit["ok"] is False
+    assert hit["code"] == "duty_mask_dump"
+
+    empty = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        must_happen="沈槐把空盏摘下来",
+    )
+    empty["mask"] = ""
+    miss = check_duty_struct(empty, available_cast=["沈槐"])
+    assert miss["ok"] is False
+    assert miss["code"] == "duty_mask_empty"
+
+    same = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        mask="井台认油",
+        crack="井台认油",
+        real="井台认油",
+        must_happen="沈槐把空盏摘下来",
+    )
+    hit2 = check_duty_struct(same, available_cast=["沈槐"])
+    assert hit2["ok"] is False
+    assert hit2["code"] == "duty_mask_no_turn"
+
+    leaked = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        mask="井台认油不是自家油",
+        crack="空盏",
+        real="不是自家油",
+        must_happen="沈槐把空盏摘下来",
+    )
+    hit3 = check_duty_struct(leaked, available_cast=["沈槐"])
+    assert hit3["ok"] is False
+    assert hit3["code"] == "duty_mask_dump"
+
+    good = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="井台上还在排队打水",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        mask="井台认油",
+        crack="空盏",
+        real="不是自家油",
+        must_happen="沈槐把空盏摘下来",
+    )
+    assert check_duty_struct(good, available_cast=["沈槐"])["ok"] is True
 
 
 def test_source_has_no_classical_teaching_path():

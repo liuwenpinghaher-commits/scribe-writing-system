@@ -16,6 +16,7 @@
 - chengse_filter：叙述层古白话套话 / 铜炉专名 / 空概括收尾（关旗不拦）
 - duty.day：必须先立还在过的日子；开篇报身份/扔钩子/先宣布法会不过
 - duty.work：嘴上要的和真正缺的必须打架；鉴定式人设/杯子余温/剖心不过
+- duty.mask：假破真；先反面再破功；上来掏底牌不过
 """
 from __future__ import annotations
 
@@ -50,6 +51,8 @@ _DAY_LIVED = re.compile(
 _APPRAISAL_TELL = re.compile(
     r"鉴定式|杯子余温|维特|剖心|人设是|性格是|他是一个|她是一个"
 )
+# 对照.md 二：假破真。上来掏底牌不过。
+_DUMP_TRUTH = re.compile(r"掏底牌|真相是|原来是|其实是|底牌就是|先把真意")
 CLOCK_SPANS = frozenset({"scene", "day", "days"})
 CORE_FIELDS = ("goal", "choice", "decision", "hook")
 FIVE_LAYERS = ("perceived", "known", "believed", "acted", "blind")
@@ -94,6 +97,29 @@ def check_duty_work(duty: dict[str, Any]) -> dict[str, Any]:
         return _fail("duty_needed_empty", "needed 不能空：真正缺的那一件", "needed")
     if re.sub(r"\s+", "", said) == re.sub(r"\s+", "", needed):
         return _fail("duty_work_no_fight", "嘴上要的和真正缺的不能同一句。要打架", "needed")
+    return _ok()
+
+
+def check_duty_mask(duty: dict[str, Any]) -> dict[str, Any]:
+    """假破真：先给反面，再破功。上来掏底牌不过。"""
+    mask = str((duty or {}).get("mask") or "").strip()
+    crack = str((duty or {}).get("crack") or "").strip()
+    real = str((duty or {}).get("real") or "").strip()
+    happen = str((duty or {}).get("must_happen") or "").strip()
+    blob = f"{mask}\n{crack}\n{real}\n{happen}"
+    if _DUMP_TRUTH.search(blob):
+        return _fail("duty_mask_dump", "要落真意，先给反面再破功。不要上来就掏底牌", "mask")
+    if not mask:
+        return _fail("duty_mask_empty", "mask 不能空：先给的反面", "mask")
+    if not crack:
+        return _fail("duty_crack_empty", "crack 不能空：破功的那一下", "crack")
+    if not real:
+        return _fail("duty_real_empty", "real 不能空：破完才落的真意", "real")
+    compact = [re.sub(r"\s+", "", x) for x in (mask, crack, real)]
+    if len(set(compact)) < 3:
+        return _fail("duty_mask_no_turn", "假、破、真不能同一句。先反面，再破功", "crack")
+    if compact[2] and compact[2] in compact[0]:
+        return _fail("duty_mask_dump", "反面里已经把真意说穿了。先给假的，再破", "mask")
     return _ok()
 
 
@@ -165,6 +191,9 @@ def check_duty_struct(
     work_hit = check_duty_work(duty)
     if not work_hit.get("ok"):
         return work_hit
+    mask_hit = check_duty_mask(duty)
+    if not mask_hit.get("ok"):
+        return mask_hit
     fr = duty.get("forbidden_reveal")
     if not isinstance(fr, list) or not [x for x in fr if str(x).strip()]:
         return _fail("duty_forbid_empty", "forbidden_reveal 不能空", "forbidden_reveal")
