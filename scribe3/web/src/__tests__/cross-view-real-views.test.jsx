@@ -240,4 +240,43 @@ describe('横切视图真实组件对象回流', () => {
       chapter: 2,
     }))
   })
+
+  it('列表点选留在时间线并开抽屉，轴仍在', async () => {
+    const onNavigateToObject = vi.fn()
+    apiMock.timeline.mockResolvedValue(timelinePayload)
+
+    render(<TimelineView onNavigateToObject={onNavigateToObject} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '井底夜审' }))
+
+    expect(onNavigateToObject).not.toHaveBeenCalled()
+    expect(screen.getByTestId('timeline-view')).toBeTruthy()
+    expect(screen.getByTestId('timeline-canvas')).toBeTruthy()
+    expect(screen.getByTestId('timeline-detail')).toBeTruthy()
+    expect(screen.getByTestId('timeline-next-stroke')).toBeTruthy()
+  })
+
+  it('传入 chapter 时首屏围着该章，不是书末 50 章', async () => {
+    apiMock.timeline.mockResolvedValue({ max_chapter: 80, items: [] })
+    render(<TimelineView chapter={3} onNavigateToObject={vi.fn()} />)
+    await waitFor(() => expect(apiMock.timeline).toHaveBeenCalled())
+    expect(apiMock.timeline).toHaveBeenCalledWith(1, 8, 'story', 800)
+    expect(apiMock.timeline.mock.calls.some((args) => args[0] === 1 && args[1] === 1)).toBe(false)
+  })
+
+  it('全书无条目时说还没有事件', async () => {
+    apiMock.timeline.mockResolvedValue({ max_chapter: 0, items: [] })
+    render(<TimelineView onNavigateToObject={vi.fn()} />)
+    expect(await screen.findByText('还没有事件')).toBeTruthy()
+    expect(screen.getByTestId('timeline-canvas')).toBeTruthy()
+  })
+
+  it('有条目但画不出时说这窗里是空的', async () => {
+    apiMock.timeline.mockResolvedValue({
+      max_chapter: 5,
+      items: [{ id: 'pay-1', kind: 'promise_payoff', chapter: 5, label: '已收' }],
+    })
+    render(<TimelineView onNavigateToObject={vi.fn()} />)
+    expect(await screen.findByText('这窗里是空的')).toBeTruthy()
+  })
 })

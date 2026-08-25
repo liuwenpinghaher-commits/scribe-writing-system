@@ -112,7 +112,7 @@ function renderDetail({ sel, work, workTitle, onSelectNode, onTreeChanged, onJum
         />
       )
     }
-    if (k === 'timeline') return <TimelineView key={work} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} />
+    if (k === 'timeline') return <TimelineView key={work} chapter={qualitySeq} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} />
     if (k === 'overview' || k === 'synopsis') {
       return <SynopsisView key={work} workTitle={workTitle} onJumpChapter={onJumpChapter} onOpenView={openView} onSelectNode={onSelectNode} onNavigateToObject={onNavigateToObject} />
     }

@@ -17,7 +17,7 @@ vi.mock('../views/AtlasView', () => ({ AtlasView: () => <div data-testid="view-a
 vi.mock('../views/InsightView', () => ({ InsightView: () => <div data-testid="view-insight" /> }))
 vi.mock('../views/OverviewView', () => ({ OverviewView: () => <div data-testid="view-overview" /> }))
 vi.mock('../views/SynopsisView', () => ({ SynopsisView: () => <div data-testid="view-synopsis" /> }))
-vi.mock('../views/TimelineView', () => ({ TimelineView: () => <div data-testid="view-timeline" /> }))
+vi.mock('../views/TimelineView', () => ({ TimelineView: ({ chapter }) => <div data-testid="view-timeline" data-chapter={chapter ?? ''} /> }))
 vi.mock('../views/JourneyView', () => ({ JourneyView: () => <div data-testid="view-journey" /> }))
 vi.mock('../ContainerOutline', () => ({ ContainerOutline: () => <div data-testid="container-outline" /> }))
 
@@ -60,6 +60,11 @@ describe('DetailPane 路由', () => {
     )
     expect(screen.getByTestId('view-synopsis')).toBeTruthy()
     expect(screen.queryByText(/选择目录条目/)).toBeNull()
+  })
+
+  it('时间线吃到当前写作章', async () => {
+    render(<DetailPane sel={{ mode: 'view', viewKey: 'timeline' }} qualitySeq={3} />)
+    expect((await screen.findByTestId('view-timeline')).getAttribute('data-chapter')).toBe('3')
   })
 
   it('旧规划/故事线入口进旅程，不进仪表盘', async () => {

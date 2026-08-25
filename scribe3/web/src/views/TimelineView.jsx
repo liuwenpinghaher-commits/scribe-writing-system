@@ -27,16 +27,20 @@ import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { Timeline } from 'vis-timeline/esnext'
 import { DataSet } from 'vis-data/esnext'
 import 'vis-timeline/styles/vis-timeline-graph2d.css'
-import { Clock, RefreshCw, X, CornerDownRight, AlertTriangle, List } from 'lucide-react'
+import { Clock, RefreshCw, AlertTriangle } from 'lucide-react'
 import { api } from '../api'
 import { relColor, relLabel } from '../lib/relColors'
 import { hasNarrativeData } from '../lib/timelineAxis'
 import { causalArcsFromItems, jumpWindowForChapter, relatedVisIds, withHighlightClass } from '../lib/timelineCraft'
+import { bootWindowForChapter, catOfKind, timelineEmptyCopy, timelineEmptyKind } from '../lib/timelineReadable.js'
 import { prefersReducedMotion } from '../lib/utils'
 import { useSelection } from '../selectionContext'
 import { liveTouchesTable } from '../lib/liveRefresh.js'
-import { showToast } from '../ui/Toast.jsx'
-import { withFeedback } from '../lib/withFeedback.js'
+import { TimelineEventList } from './timeline/TimelineEventList.jsx'
+import { TimelineDetailPanel } from './timeline/TimelineDetailPanel.jsx'
+import {
+  palette, evColor, arcColor, PROMISE_COLOR, PROMISE_HERRING, stripRole, esc,
+} from './timeline/timelineTokens.js'
 
 // ── 章号 ⇄ 合成时间 ─────────────────────────────────────────────────────────
 // 第 N 章 → 2000-01-01 起第 (N-1) 天。一天一章,vis 缩放/堆叠按天粒度天然贴合。
@@ -95,43 +99,6 @@ function mergeTimelinePayload(prev, next) {
     items,
   }
 }
-
-// ── 配色(对齐产品 token 家族:brand / irony / secret / fore / ok / danger / faint) ──
-// vis-timeline 要可序列化的色值;运行时从 CSS 变量读,缺省回落到 light 真源。
-function tok(name, fallback) {
-  if (typeof window === 'undefined') return fallback
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-  return v || fallback
-}
-const palette = () => ({
-  brand: tok('--color-brand', '#2f6b5d'),
-  irony: tok('--color-irony', '#4f76a3'),
-  secret: tok('--color-secret', '#9c5f86'),
-  fore: tok('--color-fore', '#c2683a'),
-  ok: tok('--color-ok', '#2f6b4f'),
-  danger: tok('--color-danger', '#9d3838'),
-  faint: tok('--color-faint', '#65706a'),
-})
-const EVENT_TYPE_COLOR = () => {
-  const p = palette()
-  return {
-    炼器: p.secret, 战斗: p.danger, 拜师: p.irony,
-    对话: p.ok, 决策: p.fore, 失去: p.secret, 获得: p.ok,
-  }
-}
-const evColor = (t) => EVENT_TYPE_COLOR()[t] || palette().faint
-const ARC_COLORS = () => {
-  const p = palette()
-  return { ability: p.secret, relation: p.irony, personality: p.secret, composite: p.fore }
-}
-const arcColor = (ct) => ARC_COLORS()[ct] || palette().faint
-const PROMISE_COLOR = () => palette().fore
-const PROMISE_HERRING = () => palette().faint
-
-const stripRole = (id) => (id || '').replace(/^role:/, '')
-const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => (
-  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
-))
 
 // 固定 group id(kind 模式 / char 模式的伏笔道)
 const G_EVENT = '__event__'
@@ -357,226 +324,8 @@ function visItemFocus(it) {
   }
 }
 
-function timelineTarget(raw, cat) {
-  const ch = raw?._jump ?? raw?.story_chapter ?? raw?.chapter
-  if (cat === 'promise') {
-    const id = raw?.id ? (String(raw.id).startsWith('promise:') ? raw.id : `promise:${raw.id}`) : ''
-    return {
-      id,
-      type: 'promise',
-      label: raw?.label || '伏笔',
-      chapter: ch,
-      ref: 'open',
-    }
-  }
-  if (cat === 'relation') {
-    return {
-      id: raw?.id || '',
-      type: 'relation',
-      label: raw?.label || raw?.refs?.relation || '关系',
-      chapter: ch,
-    }
-  }
-  if (cat === 'faction') {
-    return {
-      id: raw?.id || '',
-      type: 'faction',
-      label: raw?.refs?.faction || raw?.label || '势力',
-      chapter: ch,
-    }
-  }
-  return {
-    id: raw?.id || '',
-    type: 'event',
-    label: raw?.label || raw?.event_type || '事件',
-    chapter: ch,
-  }
-}
-
-// ── 详情面板 ────────────────────────────────────────────────────────────────
-function Field({ k, v }) {
-  if (v == null || v === '' || (Array.isArray(v) && !v.length)) return null
-  const val = Array.isArray(v) ? v.map(stripRole).join('、') : String(v)
-  return (
-    <div className="flex gap-2 text-f12 leading-relaxed">
-      <span className="shrink-0 w-16 text-faint">{k}</span>
-      <span className="text-ink break-words min-w-0">{val}</span>
-    </div>
-  )
-}
-
-function CausalRootEditor({ eventId, initial }) {
-  const [v, setV] = useState(initial || '')
-  const [busy, setBusy] = useState(false)
-  if (!eventId) return null
-  return (
-    <div className="mt-2">
-      <div className="text-meta text-faint mb-1">因果根（为什么发生）</div>
-      <textarea className="w-full text-f12 border border-line rounded-md px-2 py-1 bg-canvas" rows={2}
-        value={v} onChange={(e) => setV(e.target.value)} />
-      <button type="button" disabled={busy}
-        className="mt-1 text-f12 px-2 py-1 rounded border border-line hover:bg-soft cursor-pointer"
-        onClick={async () => {
-          setBusy(true)
-          try {
-            await api.patchEventCausalRoot(eventId, v)
-            showToast('因果根已保存', { tone: 'ok' })
-          } catch (e) {
-            showToast('保存失败: ' + (e?.body?.detail || e?.message || '未知错误'), { tone: 'danger' })
-          } finally { setBusy(false) }
-        }}>保存因果根</button>
-    </div>
-  )
-}
-
-function PromiseActions({ raw, defaultChapter, onDone }) {
-  const [payoff, setPayoff] = useState(String(defaultChapter || raw?.chapter || ''))
-  const [busy, setBusy] = useState(false)
-  const pid = String(raw?.id || '').replace(/^promise:/, '')
-  const st = raw?.refs?.status
-  const closed = !!(raw?._payoff || st === 'closed' || st === 'abandoned')
-  if (!pid || closed) return null
-  const run = async (fn, ok) => {
-    setBusy(true)
-    try {
-      await withFeedback(fn(), { ok, fail: '没做成' })
-      onDone?.()
-    } finally { setBusy(false) }
-  }
-  return (
-    <div className="mt-2 space-y-1.5" data-testid="timeline-promise-actions">
-      <div className="flex items-center gap-1">
-        <input
-          type="number"
-          min={1}
-          className="w-16 h-7 px-1.5 text-f12 border border-line rounded-md bg-canvas"
-          value={payoff}
-          onChange={(e) => setPayoff(e.target.value)}
-          aria-label="兑现章号"
-        />
-        <button type="button" disabled={busy}
-          className="h-7 px-2 rounded-md text-f12 bg-brand/15 text-brand cursor-pointer disabled:opacity-40"
-          onClick={() => run(() => api.advancePromise(pid, Number(payoff) || Number(raw.chapter) || 1), '已兑现')}>
-          兑现
-        </button>
-      </div>
-      <div className="flex gap-1">
-        <button type="button" disabled={busy}
-          className="h-7 px-2 rounded-md text-f12 border border-line cursor-pointer disabled:opacity-40"
-          onClick={() => run(() => api.abandonPromise(pid), '已弃置')}>
-          弃置
-        </button>
-        <button type="button" disabled={busy}
-          className="h-7 px-2 rounded-md text-f12 border border-line cursor-pointer disabled:opacity-40"
-          onClick={() => run(() => api.markHerring(pid), '已标障眼法')}>
-          标障眼法
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function DetailPanel({ raw, cat, onJump, onNavigate, onClose, onChanged, defaultChapter }) {
-  if (!raw) return null
-  const r = raw.refs || {}
-  const sc = raw.story_chapter ?? raw.chapter
-  const np = raw.narrative_position
-  let title = '', headColor = palette().faint, body = null
-
-  if (cat === 'event') {
-    title = raw.label || raw.event_type; headColor = evColor(raw.event_type)
-    body = (
-      <>
-        <Field k="类型" v={raw.event_type} />
-        <Field k="故事章" v={sc} />
-        {np != null && np !== sc && <Field k="叙事位" v={np} />}
-        <Field k="主体" v={r.subj} />
-        <Field k="客体" v={r.obj} />
-        <Field k="见证" v={r.witness} />
-        <Field k="目标" v={raw.goal} />
-        <Field k="地点" v={r.location} />
-        <Field k="效果" v={r.effects} />
-        <Field k="因果前驱" v={(r.causal_in || []).map((c) => (typeof c === 'string' ? c : `${c.id}${c.chapter != null ? '(ch' + c.chapter + ')' : ''}`))} />
-        <CausalRootEditor eventId={raw.id || r.id} initial={raw.causal_root_reason || r.causal_root_reason || ''} />
-      </>
-    )
-  } else if (cat === 'arc') {
-    title = raw.label || '弧光'; headColor = arcColor(r.change_type)
-    body = (
-      <>
-        <Field k="章号" v={raw.chapter} />
-        <Field k="质变类型" v={r.change_type} />
-        <Field k="弧光阶段" v={r.arc_phase} />
-        <Field k="角色" v={r.character ? stripRole(r.character) : null} />
-        <Field k="影响声音" v={r.affects_voice ? '是' : null} />
-        <Field k="摘要" v={raw.label} />
-      </>
-    )
-  } else if (cat === 'promise') {
-    title = raw.label || '伏笔'; headColor = r.promise_kind === 'red_herring' ? PROMISE_HERRING() : PROMISE_COLOR()
-    const payoff = raw._payoff
-    body = (
-      <>
-        <Field k="文本" v={raw.label} />
-        <Field k="埋设章" v={raw.chapter} />
-        <Field k="收束章" v={payoff?.chapter ?? r.payoff_chapter} />
-        <Field k="状态" v={r.status} />
-        <Field k="种类" v={r.promise_kind === 'red_herring' ? '障眼法' : r.promise_kind} />
-        {r.overdue && !payoff && <Field k="提示" v="超期未收" />}
-        <PromiseActions raw={raw} defaultChapter={defaultChapter} onDone={onChanged} />
-      </>
-    )
-  } else if (cat === 'faction') {
-    title = raw.label || r.faction || '势力'; headColor = palette().irony
-    body = (
-      <>
-        <Field k="势力" v={r.faction} />
-        <Field k="章号" v={raw.chapter} />
-        <Field k="大事" v={r.event || raw.label} />
-      </>
-    )
-  } else if (cat === 'relation') {
-    title = relLabel(r.relation || raw.label); headColor = relColor(r.relation || raw.label)
-    const end = raw._end
-    body = (
-      <>
-        <Field k="关系" v={relLabel(r.relation || raw.label)} />
-        <Field k="源" v={r.src ? stripRole(r.src) : null} />
-        <Field k="目标" v={r.dst ? stripRole(r.dst) : null} />
-        <Field k="建立章" v={raw.chapter} />
-        <Field k="失效章" v={end?.chapter ?? r.until_chapter} />
-        <Field k="备注" v={r.note} />
-      </>
-    )
-  }
-
-  return (
-    <div className="w-64 shrink-0 border-l border-line bg-surface flex flex-col">
-      <div className="flex items-center gap-2 px-3 h-10 border-b border-line">
-        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: headColor }} />
-        <span className="text-f13 font-semibold text-ink truncate flex-1" title={title}>{title}</span>
-        <button onClick={onClose} className="shrink-0 text-faint hover:text-ink cursor-pointer" title="关闭">
-          <X size={14} />
-        </button>
-      </div>
-      <div className="flex-1 min-h-0 overflow-auto px-3 py-3 flex flex-col gap-1.5">{body}</div>
-      <div className="shrink-0 border-t border-line p-2">
-        <button
-          onClick={() => {
-            if (onNavigate) onNavigate(timelineTarget(raw, cat))
-            else onJump?.(raw._jump ?? raw.chapter)
-          }}
-          className="w-full h-8 rounded-lg bg-brand text-brandfg text-f12 font-medium cursor-pointer hover:opacity-85 flex items-center justify-center gap-1.5"
-        >
-          <CornerDownRight size={13} /> 跳到第{raw._jump ?? raw.chapter}章
-        </button>
-      </div>
-    </div>
-  )
-}
-
 // ── 主组件 ────────────────────────────────────────────────────────────────────
-export function TimelineView({ onJumpChapter, onNavigateToObject }) {
+export function TimelineView({ onJumpChapter, onNavigateToObject, chapter = null }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -629,41 +378,40 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
   }, [axis])
 
   /**
-   * 首屏：探测 max_chapter → 只拉「有内容的末窗」约 50 章。
-   * 若 max 被脏章号污染，退回前 50 章（有真实 items 的区间）。
+   * 首屏：有当前写作章则拉 N-5…N+5；否则探测 max 后拉末窗。
+   * 脏 max 仍退回前 80 章。
    */
   const load = useCallback(async (ax = axis) => {
     setLoading(true)
     setError(null)
     loadedRangesRef.current = []
     try {
-      // 探测：只取 ch 1..1 也能拿到 max_chapter（items 可能很少）
+      const around = bootWindowForChapter(chapter)
+      if (around) {
+        const boot = await api.timeline(around.from, around.to, ax, 800)
+        markRangeLoaded(boot.from ?? around.from, boot.to ?? around.to)
+        setData(boot)
+        return
+      }
       const probe = await api.timeline(1, 1, ax, 50)
-      let maxDecl = Number(probe.max_chapter) || 1
-      // 脏 max：再探前 80 章，用 items 推断真实末章
+      const maxDecl = Number(probe.max_chapter) || 1
       let boot
       if (maxDecl > MAX_CH_SANE) {
         boot = await api.timeline(1, 80, ax, 800)
         markRangeLoaded(1, 80)
         const im = itemsChapterMax(boot.items)
-        if (im > 0) {
-          // 再补真实末窗（若 im 已在 1..80 内则 boot 已够）
-          if (im > 80) {
-            const lo = Math.max(1, im - CH_WINDOW + 1)
-            const tail = await api.timeline(lo, im, ax, 800)
-            markRangeLoaded(lo, im)
-            boot = mergeTimelinePayload(boot, tail)
-          }
-          setData(boot)
-        } else {
-          setData(boot)
+        if (im > 80) {
+          const lo = Math.max(1, im - CH_WINDOW + 1)
+          const tail = await api.timeline(lo, im, ax, 800)
+          markRangeLoaded(lo, im)
+          boot = mergeTimelinePayload(boot, tail)
         }
+        setData(boot)
       } else {
         const hi = Math.max(1, maxDecl)
         const lo = Math.max(1, hi - CH_WINDOW + 1)
         boot = await api.timeline(lo, hi, ax, 800)
         markRangeLoaded(lo, hi)
-        // 合并 probe 的 max_chapter
         setData({ ...boot, max_chapter: maxDecl })
       }
     } catch (e) {
@@ -671,9 +419,9 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
     } finally {
       setLoading(false)
     }
-  }, [axis])
+  }, [axis, chapter])
 
-  useEffect(() => { load() }, [])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load() }, [load])
 
   useEffect(() => {
     const onLive = (e) => {
@@ -773,15 +521,17 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
 
   const hasContent = items.length > 0 && groups.length > 0
 
-  // 键盘/读屏等价路径:与 vis 画布同一份 data.items 的命名列表(WebGL 时间线不可聚焦时的可达替代)。
-  // 选列表项 = 与画布 select→详情面板跳转相同的 onNavigateToObject(timelineTarget)。
   const listItems = useMemo(() => {
     const its = data?.items || []
-    const catOf = (k) => k === 'event' ? 'event' : k === 'arc' ? 'arc'
-      : k === 'promise_setup' ? 'promise' : k === 'relation_start' ? 'relation'
-        : k === 'faction_event' ? 'faction' : null
-    return its.map((it) => ({ raw: it, cat: catOf(it.kind) })).filter((x) => x.cat)
+    return its.map((it) => ({ raw: it, cat: catOfKind(it.kind) })).filter((x) => x.cat)
   }, [data])
+
+  const pickFromList = useCallback((raw, cat) => {
+    const row = { raw, cat, id: raw?.id }
+    setSelected(row)
+    setFocus(visItemFocus({ _raw: raw, _cat: cat, id: raw?.id }))
+    applyRelatedHighlight(row)
+  }, [setFocus, applyRelatedHighlight])
 
   // #74:仅当确有「叙事位 ≠ 故事章」的事件时,「叙事顺序」轴才有意义(否则两轴投影一致=空操作)。
   // 判定与 axis 无关(每事件恒带 story_chapter/narrative_position),默认 story 轴加载即可判。
@@ -1080,50 +830,40 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
 
       {/* ── 主体：min-h-0 保证 flex 子项可滚动；左列表与画布各自 overflow ── */}
       <div className="flex-1 min-h-0 flex overflow-hidden">
-        {listItems.length > 0 && (
-          <div role="region" aria-label="时间线事件列表"
-            className="w-56 shrink-0 border-r border-line bg-surface min-h-0 overflow-y-auto overscroll-contain hidden md:block">
-            <div className="sticky top-0 z-[1] bg-surface/95 backdrop-blur px-3 py-2 border-b border-line flex items-center gap-1.5 text-meta font-medium text-faint">
-              <List size={12} />事件列表 · {listItems.length}
-            </div>
-            <ul className="py-1">
-              {listItems.map(({ raw, cat }) => {
-                const ch = raw.story_chapter ?? raw.chapter
-                const label = raw.label || raw.event_type || relLabel(raw.refs?.relation) || raw.id
-                return (
-                  <li key={`${cat}:${raw.id}`}>
-                    <button type="button" onClick={() => onNavigateToObject?.(timelineTarget(raw, cat))}
-                      className="w-full text-left px-3 py-1.5 text-f12 text-ink hover:bg-soft/60 flex items-center gap-1.5 transition-colors">
-                      {ch != null && <span className="shrink-0 text-meta text-faint tnum">第{ch}章</span>}
-                      <span className="truncate">{label}</span>
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
-        )}
+        <TimelineEventList
+          items={listItems}
+          selectedId={selected?.raw?.id}
+          onPick={pickFromList}
+        />
         <div className="flex-1 min-w-0 min-h-0 flex flex-col relative overflow-hidden">
-          {error && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center p-4 pointer-events-none">
-              <div className="text-f13 text-red-500 bg-red-50 rounded-lg px-3 py-2 border border-red-200 pointer-events-auto">{error}</div>
-            </div>
-          )}
-          {!error && loading && !data && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center text-f12 text-faint gap-2">
-              <RefreshCw size={14} className="animate-spin" />加载时间线…
-            </div>
-          )}
-          {!error && data && !hasContent && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center text-f13 text-faint">
-              <div className="text-center">
-                <Clock size={32} className="mx-auto mb-2 opacity-30" />
-                <div>暂无时间线数据</div>
-                <div className="text-meta mt-1 opacity-60">先在写作台录入章节事件</div>
+          {(() => {
+            const kind = timelineEmptyKind({ data, hasContent, error, loading })
+            if (!kind || kind === 'loading' && data) return null
+            const copy = timelineEmptyCopy(kind === 'loading' ? 'loading' : kind)
+            if (kind === 'error') {
+              return (
+                <div className="absolute inset-0 z-10 flex items-center justify-center p-4 pointer-events-none">
+                  <div className="text-f13 text-red-500 bg-red-50 rounded-lg px-3 py-2 border border-red-200 pointer-events-auto">{error}</div>
+                </div>
+              )
+            }
+            if (kind === 'loading') {
+              return (
+                <div className="absolute inset-0 z-10 flex items-center justify-center text-f12 text-faint gap-2">
+                  <RefreshCw size={14} className="animate-spin" />{copy.title}
+                </div>
+              )
+            }
+            return (
+              <div className="absolute inset-0 z-10 flex items-center justify-center text-f13 text-faint pointer-events-none">
+                <div className="text-center px-6" data-testid="timeline-empty">
+                  <Clock size={32} className="mx-auto mb-2 opacity-30" />
+                  <div className="text-ink">{copy.title}</div>
+                  <div className="text-meta mt-1 opacity-60">{copy.body}</div>
+                </div>
               </div>
-            </div>
-          )}
-          {/* 用 flex-1 真实占高，勿 absolute+height:100%（父高 0 时画布整片空白） */}
+            )
+          })()}
           <div
             ref={containerRef}
             className="tl-vis flex-1 min-h-0 w-full"
@@ -1132,9 +872,8 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
           />
         </div>
 
-        {/* 详情面板 */}
         {selected && (
-          <DetailPanel
+          <TimelineDetailPanel
             raw={selected.raw}
             cat={selected.cat}
             onJump={jumpKeepFocus}
