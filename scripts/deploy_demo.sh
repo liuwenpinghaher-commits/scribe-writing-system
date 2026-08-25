@@ -117,6 +117,12 @@ mode_hot() {
     exit 1
   fi
   cp "$DUIZHAO_SRC" "$TMP/docs/worlds/乱世铜炉-拆文/对照.md"
+  ZHANGFA_SRC="$ROOT/docs/worlds/乱世铜炉-拆文/章法.md"
+  if [[ ! -s "$ZHANGFA_SRC" ]]; then
+    echo "缺章法.md 真源: $ZHANGFA_SRC" >&2
+    exit 1
+  fi
+  cp "$ZHANGFA_SRC" "$TMP/docs/worlds/乱世铜炉-拆文/章法.md"
   echo "==> compileall"
   python3 -m compileall -q -f "$TMP/scribe3" || {
     echo "compileall 失败，禁止上铜炉" >&2
@@ -138,6 +144,7 @@ docker cp "\$APP_DIR/scribe3" "\$CONTAINER:/app/"
 # 对照.md 在 /app/docs/；只拷 scribe3/ 生成审判会 DuizhaoMissing
 docker exec "\$CONTAINER" mkdir -p /app/docs/worlds/乱世铜炉-拆文
 docker cp "\$APP_DIR/docs/worlds/乱世铜炉-拆文/对照.md" "\$CONTAINER:/app/docs/worlds/乱世铜炉-拆文/对照.md"
+docker cp "\$APP_DIR/docs/worlds/乱世铜炉-拆文/章法.md" "\$CONTAINER:/app/docs/worlds/乱世铜炉-拆文/章法.md"
 docker restart "\$CONTAINER"
 rm -f /tmp/scribe3-hot.tgz
 echo restarted

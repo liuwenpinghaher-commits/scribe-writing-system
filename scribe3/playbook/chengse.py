@@ -1,7 +1,7 @@
 """铜炉成色：词表过滤 + 对照.md 真源。
 
 旗 SCRIBE3_CHENGSE_CRAFT 默认开。关 = 过滤停，不回古白话教学。
-对照.md 是生成/审判真源，不跟旗走。找不到文件 = 失败，不许用复述顶上。
+对照.md + 章法.md 是生成/审判真源，不跟旗走。找不到文件 = 失败，不许用复述顶上。
 """
 from __future__ import annotations
 
@@ -14,6 +14,9 @@ from typing import Any
 FLAG = "SCRIBE3_CHENGSE_CRAFT"
 DUIZHAO_PATH = (
     Path(__file__).resolve().parents[2] / "docs" / "worlds" / "乱世铜炉-拆文" / "对照.md"
+)
+ZHANGFA_PATH = (
+    Path(__file__).resolve().parents[2] / "docs" / "worlds" / "乱世铜炉-拆文" / "章法.md"
 )
 
 # 写协议曾逼模型堆的套话。对白里角色可以偶尔说；叙述层不行。
@@ -70,22 +73,51 @@ def load_duizhao() -> str:
     return body
 
 
+class ZhangfaMissing(RuntimeError):
+    """章法.md 读不到。酒宴/开坛骨头不许用复述顶上。"""
+
+
+def _zhangfa_path() -> Path:
+    override = (os.environ.get("SCRIBE3_ZHANGFA_PATH") or "").strip()
+    return Path(override) if override else ZHANGFA_PATH
+
+
+@lru_cache(maxsize=1)
+def load_zhangfa() -> str:
+    path = _zhangfa_path()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ZhangfaMissing(f"章法.md 读不到：{path}") from exc
+    body = text.strip()
+    if not body:
+        raise ZhangfaMissing(f"章法.md 是空的：{path}")
+    if "面子把人按在桌上" not in body or "银子是交差钱" not in body:
+        raise ZhangfaMissing(f"章法.md 不像真源：{path}")
+    return body
+
+
 def duizhao_generate_block() -> str:
-    """生成真源：对照.md 原文。不跟成色旗走。"""
+    """生成真源：对照.md + 章法.md 原文。不跟成色旗走。"""
     return (
         "【对照·真源】\n"
         "按这份对照写。对照和代码冲突，改代码。不要另造一套成色理论。\n"
         f"{load_duizhao()}\n"
+        "【章法·真源】\n"
+        "下一本照着开的几套局。酒宴先立还散不掉的酒；开坛银子是交差钱。换自己的名。\n"
+        f"{load_zhangfa()}\n"
     )
 
 
 def duizhao_judge_block() -> str:
-    """审判真源：对照.md 原文。不跟成色旗走。"""
+    """审判真源：对照.md + 章法.md 原文。不跟成色旗走。"""
     return (
         "【对照·真源·审判】\n"
         "按这份对照原文判。产物对不上对照 → verdict=fail。"
         "每条先引产物原句作证据，再给 yes/no。不要用旁路成色词表顶上。\n"
         f"{load_duizhao()}\n"
+        "【章法·真源·审判】\n"
+        f"{load_zhangfa()}\n"
     )
 
 PROTOCOL_STYLE = (

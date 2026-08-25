@@ -1124,6 +1124,10 @@ def test_duizhao_is_generate_ssot_not_paraphrase():
     assert load_duizhao() == raw.strip()
     d = duty_generate({"seq": 1})
     assert raw.strip() in d
+    from scribe3.playbook.chengse import load_zhangfa
+    load_zhangfa.cache_clear()
+    assert "面子把人按在桌上" in d
+    assert load_zhangfa() in d
     assert "CRAFT_GENERATE" not in (Path := __import__("pathlib").Path)(
         __file__
     ).resolve().parents[1].joinpath("playbook", "chengse.py").read_text(encoding="utf-8")
