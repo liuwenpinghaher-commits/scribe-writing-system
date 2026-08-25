@@ -28,7 +28,7 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.23"
+    assert PLAYBOOK_VERSION == "playbook.3.2.24"
     d = duty_generate({"seq": 1})
     assert "【对照·真源】" in d
     assert "【成色·验戏不验词表】" not in d
@@ -1034,7 +1034,7 @@ def test_duty_altar_blocks_hero_and_empty_fee():
 
 
 def test_duty_feast_blocks_announce_without_table():
-    """酒宴必须酒还不散、面子按在桌上、不该看见的那一桌、读完当不成贺客。"""
+    """酒宴验结构：酒还不散、面子按桌、有人闯进来、嘴上贺而账还欠。不要字面「那一桌」。"""
     from scribe3.playbook.context import make_duty
     from scribe3.playbook.structural import check_duty_struct
 
@@ -1059,16 +1059,36 @@ def test_duty_feast_blocks_announce_without_table():
     assert hit["ok"] is False
     assert hit["code"] == "duty_feast_day"
 
-    ok = make_duty(
+    no_in = make_duty(
         seq=7, who=["沈槐"], available_cast=["沈槐"],
         day="供销社柜后喜酒还没散，面子把人按在桌上",
         said="再敬一杯",
         needed="柜上油账还按着他，灯还欠着",
-        heat="不该看见的那一桌坐进来，堂屋像空了",
-        stay="沈槐当不成贺客，这场酒还坐不住；灯还欠着",
+        heat="满屋都像还醉着",
+        stay="灯还欠着，酒还坐着",
         owed="柜上账还在杏花秤上，灯还欠着",
-        must_happen="沈槐被面子按在桌上敬酒，看见另一桌",
-        kind="酒宴", intruder="不该看见的那一桌",
+        must_happen="沈槐被面子按在桌上敬酒",
+        kind="酒宴", intruder="杏花",
+        bill="面子把他按在桌上", bill_holder="杏花", bill_place="柜上",
+    )
+    no_in["bite_from_prev"] = hook
+    hit2 = check_duty_struct(
+        no_in, available_cast=["沈槐"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="开坛", prev_intruder="杏花",
+    )
+    assert hit2["ok"] is False
+    assert hit2["code"] == "duty_feast_in"
+
+    ok = make_duty(
+        seq=7, who=["沈槐"], available_cast=["沈槐"],
+        day="供销社柜后喜酒还没散，面子把人按在桌上",
+        said="来贺一声，喝完就走",
+        needed="柜上油账还按着他，灯还欠着",
+        heat="棉帘一掀，屋里酒气更浓",
+        stay="沈槐还坐在酒桌下首，灯还欠着",
+        owed="柜上账还在杏花秤上，灯还欠着",
+        must_happen="杏花掀棉帘进来，沈槐被按着敬酒",
+        kind="酒宴", intruder="杏花掀棉帘进来",
         bill="面子把他按在桌上", bill_holder="杏花", bill_place="柜上",
     )
     ok["bite_from_prev"] = hook
