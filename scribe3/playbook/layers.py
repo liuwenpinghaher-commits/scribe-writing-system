@@ -270,6 +270,179 @@ def _nail_xin_duty(raw: dict[str, Any], ctx: dict[str, Any] | None = None) -> di
     return rec
 
 
+def _nail_men_duty(raw: dict[str, Any], ctx: dict[str, Any] | None = None) -> dict[str, Any]:
+    """天下第一门写成开门就骑龙时，钉回铁律压场再抢场。"""
+    rec = raw if isinstance(raw, dict) else {}
+    ctx = ctx or {}
+    kind = str(rec.get("kind") or "").strip()
+    hint = " ".join(
+        str(ctx.get(k) or "")
+        for k in ("chapter_duty", "synopsis", "volume_outline")
+    )
+    blob = " ".join(
+        str(rec.get(k) or "")
+        for k in ("day", "must_happen", "stay", "one_line", "keep", "heat", "said")
+    )
+    if kind != "天下第一门" and "天下第一门" not in hint and "铁律" not in hint and "收成罪" not in hint:
+        return rec
+    rec["kind"] = "天下第一门"
+    from scribe3.playbook.structural import (
+        _MEN_LAW, _MEN_PROPER, _MEN_STAR, _MEN_STEAL,
+    )
+    live = f"{rec.get('day') or ''}\n{rec.get('must_happen') or ''}\n{rec.get('said') or ''}"
+    happen_keep = f"{rec.get('must_happen') or ''}\n{rec.get('keep') or ''}\n{rec.get('said') or ''}\n{rec.get('heat') or ''}"
+    if (
+        _MEN_STAR.search(blob)
+        or _MEN_PROPER.search(blob)
+        or not _MEN_LAW.search(live)
+        or not _MEN_STEAL.search(happen_keep)
+    ):
+        rec["day"] = "酒还没散，铁律把这桌收成罪"
+        rec["must_happen"] = "铁律先把酒收成罪，救星到了客人扔下捕快，场不围官差"
+        rec["stay"] = "官差还在，酒还没散。灯还欠着"
+        rec["heat"] = "客人扔下捕快，像酒被抢走了"
+        rec["said"] = "接受朝廷命令"
+        rec["needed"] = "酒还没散，灯还欠着"
+        rec["intruder"] = "救星把场抢走"
+        rec["cut"] = "扔下捕快那一涌"
+        rec["one_line"] = "官差压场救星来"
+        rec["keep"] = "铁律、扔下捕快，删了只剩扰宴"
+        rec["bill"] = "这桌酒被收成罪"
+        rec["owed"] = str(ctx.get("prev_stay") or rec.get("owed") or "灯还欠着").strip()
+    for key in ("day", "must_happen", "stay", "heat", "said", "needed", "keep", "one_line", "bill"):
+        val = str(rec.get(key) or "")
+        for old, new in (("赵东升", "那人"), ("蜀山", "救星"), ("凌飞", "救星"), ("奇案司", "官差"), ("鲁大人", "官差")):
+            if old in val:
+                rec[key] = val.replace(old, new)
+                val = rec[key]
+    if not str(rec.get("intruder") or "").strip():
+        rec["intruder"] = "救星把场抢走"
+    who = [str(x).strip() for x in (rec.get("who") or []) if str(x).strip()]
+    cast = [str(x).strip() for x in (ctx.get("available_cast") or rec.get("available_cast") or [])]
+    for name in ("差", "救星", "杏花"):
+        if name in cast and name not in who:
+            who.append(name)
+    if who:
+        rec["who"] = who
+    return rec
+
+
+def _nail_soul_duty(raw: dict[str, Any], ctx: dict[str, Any] | None = None) -> dict[str, Any]:
+    """塑魂写成一醒就完整时，钉回破坛、先叫从前的人。"""
+    rec = raw if isinstance(raw, dict) else {}
+    ctx = ctx or {}
+    kind = str(rec.get("kind") or "").strip()
+    hint = " ".join(
+        str(ctx.get(k) or "")
+        for k in ("chapter_duty", "synopsis", "volume_outline")
+    )
+    blob = " ".join(
+        str(rec.get(k) or "")
+        for k in ("day", "must_happen", "stay", "one_line", "keep", "heat", "said")
+    )
+    if kind != "塑魂" and "塑魂" not in hint and "破坛" not in hint and "先叫" not in hint and "皮影" not in hint:
+        return rec
+    rec["kind"] = "塑魂"
+    from scribe3.playbook.structural import (
+        _SOUL_ASK, _SOUL_BREAK, _SOUL_CALL, _SOUL_PROPER, _SOUL_TRICK,
+    )
+    live = f"{rec.get('day') or ''}\n{rec.get('must_happen') or ''}\n{rec.get('said') or ''}"
+    happen_keep = f"{rec.get('must_happen') or ''}\n{rec.get('keep') or ''}\n{rec.get('said') or ''}\n{rec.get('stay') or ''}"
+    if (
+        _SOUL_TRICK.search(blob)
+        or _SOUL_PROPER.search(blob)
+        or not _SOUL_BREAK.search(live)
+        or not _SOUL_ASK.search(happen_keep)
+        or not _SOUL_CALL.search(happen_keep)
+    ):
+        rec["day"] = "破坛那一夜，屋顶先没了"
+        rec["must_happen"] = "破坛屋顶没了，孩子问要爹还是皮影，醒了先叫从前的人"
+        rec["stay"] = "人没有完整回来。账转到孩子。灯还欠着"
+        rec["heat"] = "屋顶先没了，像人回来了"
+        rec["said"] = "要爹还是皮影"
+        rec["needed"] = "魂还没回来，人没有完整回来"
+        rec["intruder"] = "孩子开口要皮影"
+        rec["cut"] = "屋顶没了那一声"
+        rec["one_line"] = "酒买下坛人醒了"
+        rec["keep"] = "破坛、皮影、先叫，删了只剩复活过场"
+        rec["bill"] = "账转到孩子"
+        rec["owed"] = str(ctx.get("prev_stay") or rec.get("owed") or "灯还欠着").strip()
+    for key in ("day", "must_happen", "stay", "heat", "said", "needed", "keep", "one_line", "bill"):
+        val = str(rec.get(key) or "")
+        for old, new in (("秦苏", "从前的人"), ("萱儿", "从前的人")):
+            if old in val:
+                rec[key] = val.replace(old, new)
+                val = rec[key]
+    if not str(rec.get("intruder") or "").strip():
+        rec["intruder"] = "孩子开口要皮影"
+    who = [str(x).strip() for x in (rec.get("who") or []) if str(x).strip()]
+    cast = [str(x).strip() for x in (ctx.get("available_cast") or rec.get("available_cast") or [])]
+    for name in ("孩子", "姑姑"):
+        if name in cast and name not in who:
+            who.append(name)
+    if who:
+        rec["who"] = who
+    return rec
+
+
+def _nail_bie_duty(raw: dict[str, Any], ctx: dict[str, Any] | None = None) -> dict[str, Any]:
+    """别亦难写成误伤劝停时，钉回认杀机不认亲。"""
+    rec = raw if isinstance(raw, dict) else {}
+    ctx = ctx or {}
+    kind = str(rec.get("kind") or "").strip()
+    hint = " ".join(
+        str(ctx.get(k) or "")
+        for k in ("chapter_duty", "synopsis", "volume_outline")
+    )
+    blob = " ".join(
+        str(rec.get(k) or "")
+        for k in ("day", "must_happen", "stay", "one_line", "keep", "heat", "said")
+    )
+    if kind != "别亦难" and "别亦难" not in hint and "不认亲" not in hint and "认杀机" not in hint and "布包" not in hint:
+        return rec
+    rec["kind"] = "别亦难"
+    from scribe3.playbook.structural import (
+        _BIE_FALL, _BIE_KILL, _BIE_PROPER, _BIE_THROW, _BIE_TRICK,
+    )
+    live = f"{rec.get('day') or ''}\n{rec.get('must_happen') or ''}\n{rec.get('said') or ''}"
+    happen_keep = f"{rec.get('must_happen') or ''}\n{rec.get('keep') or ''}\n{rec.get('said') or ''}\n{rec.get('stay') or ''}\n{rec.get('intruder') or ''}"
+    if (
+        _BIE_TRICK.search(blob)
+        or _BIE_PROPER.search(blob)
+        or not _BIE_KILL.search(live)
+        or not _BIE_THROW.search(happen_keep)
+        or not _BIE_FALL.search(happen_keep)
+    ):
+        rec["day"] = "钉认杀机不认亲的那一截"
+        rec["must_happen"] = "钉认杀机不认亲，孩子自己把布包扔下，人躺在泥里架才停"
+        rec["stay"] = "钉还在。人不认亲。灯还欠着"
+        rec["heat"] = "人躺在泥里，像架停了"
+        rec["said"] = "认杀机不认亲"
+        rec["needed"] = "钉还在，架不是劝停的"
+        rec["intruder"] = "孩子自己扔布包"
+        rec["cut"] = "布包扔在泥里那一下"
+        rec["one_line"] = "孩子怀里的钉打人"
+        rec["keep"] = "自己扔、泥里那一躺，删了只剩误伤"
+        rec["bill"] = "无辜的人倒下了"
+        rec["owed"] = str(ctx.get("prev_stay") or rec.get("owed") or "灯还欠着").strip()
+    for key in ("day", "must_happen", "stay", "heat", "said", "needed", "keep", "one_line", "bill"):
+        val = str(rec.get(key) or "")
+        for old, new in (("单嫣", "姑姑"), ("炭儿", "孩子"), ("青龙", "钉")):
+            if old in val:
+                rec[key] = val.replace(old, new)
+                val = rec[key]
+    if not str(rec.get("intruder") or "").strip():
+        rec["intruder"] = "孩子自己扔布包"
+    who = [str(x).strip() for x in (rec.get("who") or []) if str(x).strip()]
+    cast = [str(x).strip() for x in (ctx.get("available_cast") or rec.get("available_cast") or [])]
+    for name in ("孩子", "姑姑"):
+        if name in cast and name not in who:
+            who.append(name)
+    if who:
+        rec["who"] = who
+    return rec
+
+
 def gen_duty(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
     raw = generate_json(
         llm_fn, duty_generate(ctx), system=identity_for("duty"),
@@ -290,6 +463,9 @@ def gen_duty(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
     _nail_skip_year_duty(raw, ctx)
     _nail_choice_duty(raw, ctx)
     _nail_xin_duty(raw, ctx)
+    _nail_men_duty(raw, ctx)
+    _nail_soul_duty(raw, ctx)
+    _nail_bie_duty(raw, ctx)
     fr = raw.get("forbidden_reveal")
     if not (isinstance(fr, list) and any(str(x).strip() for x in fr)):
         secrets = [str(x).strip() for x in (ctx.get("secret_list") or []) if str(x).strip()]

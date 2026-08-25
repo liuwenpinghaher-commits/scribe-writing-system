@@ -28,7 +28,7 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.28"
+    assert PLAYBOOK_VERSION == "playbook.3.2.29"
     d = duty_generate({"seq": 1})
     assert "【对照·真源】" in d
     assert "【成色·验戏不验词表】" not in d
@@ -1642,6 +1642,417 @@ def test_gen_duty_nails_xin_off_trick():
     assert out["kind"] == "心藏腹"
     assert "自保" in out["must_happen"] or "自保" in out["said"]
     assert "小孩要心眼" not in out["must_happen"]
+
+
+def test_duty_men_blocks_star_and_proper():
+    """天下第一门验结构：铁律压场再抢场。开门就骑龙 / 铜炉专名不过。"""
+    from scribe3.playbook.context import make_duty
+    from scribe3.playbook.structural import check_duty_struct
+
+    hook = "灯还斜着，杏花还在绳边，追杀还在。"
+    stay = "誓是假放过，追杀还在。灯还欠着"
+    heat = "嘴里放过了，像日子翻了"
+    star = make_duty(
+        seq=12, who=["沈槐", "差"], available_cast=["沈槐", "杏花", "差", "救星"],
+        day="酒还没散，铁律把这桌收成罪",
+        said="接受朝廷命令",
+        needed="酒还没散，灯还欠着",
+        heat="客人扔下捕快，像酒被抢走了",
+        stay="官差还在，酒还没散。灯还欠着",
+        owed="誓是假放过，追杀还在。灯还欠着",
+        must_happen="开门就骑龙",
+        kind="天下第一门", intruder="救星把场抢走",
+        bill="这桌酒被收成罪", bill_holder="差", bill_place="酒桌",
+        cut="扔下捕快那一涌",
+        one_line="官差压场救星来",
+        keep="铁律、扔下捕快，删了只剩扰宴",
+    )
+    star["bite_from_prev"] = hook
+    hit = check_duty_struct(
+        star, available_cast=["沈槐", "杏花", "差", "救星"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="心藏腹", prev_intruder="自己人开口要符",
+    )
+    assert hit["ok"] is False
+    assert hit["code"] == "duty_men_star"
+
+    proper = make_duty(
+        seq=12, who=["沈槐", "差"], available_cast=["沈槐", "杏花", "差", "救星"],
+        day="酒还没散，铁律把这桌收成罪",
+        said="接受朝廷命令",
+        needed="酒还没散，灯还欠着",
+        heat="客人扔下捕快，像酒被抢走了",
+        stay="官差还在，酒还没散。灯还欠着",
+        owed="誓是假放过，追杀还在。灯还欠着",
+        must_happen="铁律先把酒收成罪，赵东升扔下捕快",
+        kind="天下第一门", intruder="救星把场抢走",
+        bill="这桌酒被收成罪", bill_holder="差", bill_place="酒桌",
+        cut="扔下捕快那一涌",
+        one_line="官差压场救星来",
+        keep="铁律、扔下捕快，删了只剩扰宴",
+    )
+    proper["bite_from_prev"] = hook
+    hit2 = check_duty_struct(
+        proper, available_cast=["沈槐", "杏花", "差", "救星"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="心藏腹", prev_intruder="自己人开口要符",
+    )
+    assert hit2["ok"] is False
+    assert hit2["code"] == "duty_men_name"
+
+    no_law = make_duty(
+        seq=12, who=["沈槐", "差"], available_cast=["沈槐", "杏花", "差", "救星"],
+        day="酒还没散，官差还在桌上",
+        said="把人带走",
+        needed="酒还没散，灯还欠着",
+        heat="客人扔下捕快，像酒被抢走了",
+        stay="官差还在，酒还没散。灯还欠着",
+        owed="誓是假放过，追杀还在。灯还欠着",
+        must_happen="客人扔下捕快，场不围官差",
+        kind="天下第一门", intruder="救星把场抢走",
+        bill="这桌酒被收成罪", bill_holder="差", bill_place="酒桌",
+        cut="扔下捕快那一涌",
+        one_line="官差压场救星来",
+        keep="铁律、扔下捕快，删了只剩扰宴",
+    )
+    no_law["bite_from_prev"] = hook
+    hit3 = check_duty_struct(
+        no_law, available_cast=["沈槐", "杏花", "差", "救星"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="心藏腹", prev_intruder="自己人开口要符",
+    )
+    assert hit3["ok"] is False
+    assert hit3["code"] == "duty_men_law"
+
+    ok = make_duty(
+        seq=12, who=["沈槐", "杏花", "差", "救星"], available_cast=["沈槐", "杏花", "差", "救星"],
+        day="酒还没散，铁律把这桌收成罪",
+        said="接受朝廷命令",
+        needed="酒还没散，灯还欠着",
+        heat="客人扔下捕快，像酒被抢走了",
+        stay="官差还在，酒还没散。灯还欠着",
+        owed="誓是假放过，追杀还在。灯还欠着",
+        must_happen="铁律先把酒收成罪，救星到了客人扔下捕快，场不围官差",
+        kind="天下第一门", intruder="救星把场抢走",
+        bill="这桌酒被收成罪", bill_holder="差", bill_place="酒桌",
+        cut="扔下捕快那一涌",
+        one_line="官差压场救星来",
+        keep="铁律、扔下捕快，删了只剩扰宴",
+    )
+    ok["bite_from_prev"] = hook
+    assert check_duty_struct(
+        ok, available_cast=["沈槐", "杏花", "差", "救星"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="心藏腹", prev_intruder="自己人开口要符",
+    )["ok"] is True
+
+
+def test_gen_duty_nails_men_off_star():
+    """模型写成开门就骑龙时，生成层钉回铁律压场再抢场。"""
+    from scribe3.playbook.layers import _nail_men_duty, gen_duty
+
+    raw = {
+        "kind": "天下第一门",
+        "day": "酒桌上",
+        "must_happen": "开门就骑龙",
+        "stay": "人走了",
+        "heat": "热闹完了",
+        "who": ["沈槐"],
+    }
+    nailed = _nail_men_duty(raw, {"chapter_duty": "铁律压场再抢场", "available_cast": ["沈槐", "杏花", "差", "救星"]})
+    assert nailed["kind"] == "天下第一门"
+    assert "铁律" in nailed["day"] or "铁律" in nailed["must_happen"]
+    assert "扔下" in nailed["must_happen"]
+    assert "赵东升" not in str(nailed)
+    assert "开门就骑龙" not in nailed["must_happen"]
+
+    def llm(prompt, **kw):
+        return (
+            '{"day":"酒桌上","said":"带走","needed":"灯还欠着",'
+            '"mask":"官差只是扰宴","crack":"救星到了","real":"场被抢走",'
+            '"eye":"沈槐","dist":"near","cut":"扔下那一涌",'
+            '"one_line":"开门就骑龙","keep":"救星出场",'
+            '"heat":"热闹完了","stay":"人走了",'
+            '"owed":"灯还欠着","kind":"天下第一门","intruder":"救星",'
+            '"bill_holder":"差","bill_place":"酒桌",'
+            '"must_happen":"开门就骑龙",'
+            '"bill":"扰宴","who":["沈槐"],"forbidden_reveal":["油从哪来"]}'
+        )
+
+    out = gen_duty({"seq": 12, "available_cast": ["沈槐", "杏花", "差", "救星"], "chapter_duty": "铁律"}, llm)
+    assert out["kind"] == "天下第一门"
+    assert "铁律" in out["must_happen"] or "铁律" in out["day"]
+    assert "开门就骑龙" not in out["must_happen"]
+
+
+def test_duty_soul_blocks_revive_and_proper():
+    """塑魂验结构：醒了先叫从前的人。一醒就完整 / 铜炉专名不过。"""
+    from scribe3.playbook.context import make_duty
+    from scribe3.playbook.structural import check_duty_struct
+
+    hook = "官差还在，酒还没散。灯还欠着"
+    stay = "官差还在，酒还没散。灯还欠着"
+    heat = "客人扔下捕快，像酒被抢走了"
+    revive = make_duty(
+        seq=13, who=["沈槐", "孩子"], available_cast=["沈槐", "孩子", "姑姑"],
+        day="破坛那一夜，屋顶先没了",
+        said="要爹还是皮影",
+        needed="魂还没回来，人没有完整回来",
+        heat="屋顶先没了，像人回来了",
+        stay="人没有完整回来。账转到孩子。灯还欠着",
+        owed="官差还在，酒还没散。灯还欠着",
+        must_happen="一醒就完整",
+        kind="塑魂", intruder="孩子开口要皮影",
+        bill="账转到孩子", bill_holder="孩子", bill_place="破坛边",
+        cut="屋顶没了那一声",
+        one_line="酒买下坛人醒了",
+        keep="破坛、皮影、先叫，删了只剩复活过场",
+    )
+    revive["bite_from_prev"] = hook
+    hit = check_duty_struct(
+        revive, available_cast=["沈槐", "孩子", "姑姑"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="天下第一门", prev_intruder="救星把场抢走",
+    )
+    assert hit["ok"] is False
+    assert hit["code"] == "duty_soul_revive"
+
+    proper = make_duty(
+        seq=13, who=["沈槐", "孩子"], available_cast=["沈槐", "孩子", "姑姑"],
+        day="破坛那一夜，屋顶先没了",
+        said="要爹还是皮影",
+        needed="魂还没回来，人没有完整回来",
+        heat="屋顶先没了，像人回来了",
+        stay="人没有完整回来。账转到孩子。灯还欠着",
+        owed="官差还在，酒还没散。灯还欠着",
+        must_happen="破坛屋顶没了，醒了先叫萱儿",
+        kind="塑魂", intruder="孩子开口要皮影",
+        bill="账转到孩子", bill_holder="孩子", bill_place="破坛边",
+        cut="屋顶没了那一声",
+        one_line="酒买下坛人醒了",
+        keep="破坛、皮影、先叫，删了只剩复活过场",
+    )
+    proper["bite_from_prev"] = hook
+    hit2 = check_duty_struct(
+        proper, available_cast=["沈槐", "孩子", "姑姑"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="天下第一门", prev_intruder="救星把场抢走",
+    )
+    assert hit2["ok"] is False
+    assert hit2["code"] == "duty_soul_name"
+
+    no_break = make_duty(
+        seq=13, who=["沈槐", "孩子"], available_cast=["沈槐", "孩子", "姑姑"],
+        day="井台上还在排队打水",
+        said="要爹还是皮影",
+        needed="魂还没回来，人没有完整回来",
+        heat="屋顶先没了，像人回来了",
+        stay="人没有完整回来。账转到孩子。灯还欠着",
+        owed="官差还在，酒还没散。灯还欠着",
+        must_happen="孩子问要爹还是皮影，醒了先叫从前的人",
+        kind="塑魂", intruder="孩子开口要皮影",
+        bill="账转到孩子", bill_holder="孩子", bill_place="破坛边",
+        cut="屋顶没了那一声",
+        one_line="酒买下坛人醒了",
+        keep="破坛、皮影、先叫，删了只剩复活过场",
+    )
+    no_break["bite_from_prev"] = hook
+    hit3 = check_duty_struct(
+        no_break, available_cast=["沈槐", "孩子", "姑姑"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="天下第一门", prev_intruder="救星把场抢走",
+    )
+    assert hit3["ok"] is False
+    assert hit3["code"] == "duty_soul_break"
+
+    ok = make_duty(
+        seq=13, who=["沈槐", "孩子", "姑姑"], available_cast=["沈槐", "孩子", "姑姑"],
+        day="破坛那一夜，屋顶先没了",
+        said="要爹还是皮影",
+        needed="魂还没回来，人没有完整回来",
+        heat="屋顶先没了，像人回来了",
+        stay="人没有完整回来。账转到孩子。灯还欠着",
+        owed="官差还在，酒还没散。灯还欠着",
+        must_happen="破坛屋顶没了，孩子问要爹还是皮影，醒了先叫从前的人",
+        kind="塑魂", intruder="孩子开口要皮影",
+        bill="账转到孩子", bill_holder="孩子", bill_place="破坛边",
+        cut="屋顶没了那一声",
+        one_line="酒买下坛人醒了",
+        keep="破坛、皮影、先叫，删了只剩复活过场",
+    )
+    ok["bite_from_prev"] = hook
+    assert check_duty_struct(
+        ok, available_cast=["沈槐", "孩子", "姑姑"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="天下第一门", prev_intruder="救星把场抢走",
+    )["ok"] is True
+
+
+def test_gen_duty_nails_soul_off_revive():
+    """模型写成一醒就完整时，生成层钉回破坛、先叫从前的人。"""
+    from scribe3.playbook.layers import _nail_soul_duty, gen_duty
+
+    raw = {
+        "kind": "塑魂",
+        "day": "夜里",
+        "must_happen": "一醒就完整",
+        "stay": "人回来了",
+        "heat": "成了",
+        "who": ["沈槐"],
+    }
+    nailed = _nail_soul_duty(raw, {"chapter_duty": "醒了先叫从前的人", "available_cast": ["沈槐", "孩子", "姑姑"]})
+    assert nailed["kind"] == "塑魂"
+    assert "破坛" in nailed["day"] or "破坛" in nailed["must_happen"]
+    assert "先叫" in nailed["must_happen"]
+    assert "萱儿" not in str(nailed)
+    assert "一醒就完整" not in nailed["must_happen"]
+
+    def llm(prompt, **kw):
+        return (
+            '{"day":"夜里","said":"醒来","needed":"灯还欠着",'
+            '"mask":"坛还在","crack":"人醒了","real":"复活成功",'
+            '"eye":"沈槐","dist":"near","cut":"屋顶那一声",'
+            '"one_line":"一醒就完整","keep":"复活成功",'
+            '"heat":"成了","stay":"人回来了",'
+            '"owed":"灯还欠着","kind":"塑魂","intruder":"孩子",'
+            '"bill_holder":"孩子","bill_place":"坛边",'
+            '"must_happen":"一醒就完整",'
+            '"bill":"醒来","who":["沈槐"],"forbidden_reveal":["油从哪来"]}'
+        )
+
+    out = gen_duty({"seq": 13, "available_cast": ["沈槐", "孩子", "姑姑"], "chapter_duty": "破坛"}, llm)
+    assert out["kind"] == "塑魂"
+    assert "先叫" in out["must_happen"]
+    assert "一醒就完整" not in out["must_happen"]
+
+
+def test_duty_bie_blocks_accident_and_proper():
+    """别亦难验结构：钉认杀机不认亲。误伤劝停 / 铜炉专名不过。"""
+    from scribe3.playbook.context import make_duty
+    from scribe3.playbook.structural import check_duty_struct
+
+    hook = "人没有完整回来。账转到孩子。灯还欠着"
+    stay = "人没有完整回来。账转到孩子。灯还欠着"
+    heat = "屋顶先没了，像人回来了"
+    accident = make_duty(
+        seq=14, who=["沈槐", "孩子"], available_cast=["沈槐", "孩子", "姑姑"],
+        day="钉认杀机不认亲的那一截",
+        said="认杀机不认亲",
+        needed="钉还在，架不是商量停的",
+        heat="人躺在泥里，像架停了",
+        stay="钉还在。人不认亲。灯还欠着",
+        owed="人没有完整回来。账转到孩子。灯还欠着",
+        must_happen="误伤",
+        kind="别亦难", intruder="孩子自己扔布包",
+        bill="无辜的人倒下了", bill_holder="孩子", bill_place="泥里",
+        cut="布包扔在泥里那一下",
+        one_line="孩子怀里的钉打人",
+        keep="自己扔、泥里那一躺，删了只剩法宝",
+    )
+    accident["bite_from_prev"] = hook
+    hit = check_duty_struct(
+        accident, available_cast=["沈槐", "孩子", "姑姑"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="塑魂", prev_intruder="孩子开口要皮影",
+    )
+    assert hit["ok"] is False
+    assert hit["code"] == "duty_bie_accident"
+
+    proper = make_duty(
+        seq=14, who=["沈槐", "孩子"], available_cast=["沈槐", "孩子", "姑姑"],
+        day="钉认杀机不认亲的那一截",
+        said="认杀机不认亲",
+        needed="钉还在，架不是商量停的",
+        heat="人躺在泥里，像架停了",
+        stay="钉还在。人不认亲。灯还欠着",
+        owed="人没有完整回来。账转到孩子。灯还欠着",
+        must_happen="钉认杀机不认亲，孩子自己把布包扔下打单嫣",
+        kind="别亦难", intruder="孩子自己扔布包",
+        bill="无辜的人倒下了", bill_holder="孩子", bill_place="泥里",
+        cut="布包扔在泥里那一下",
+        one_line="孩子怀里的钉打人",
+        keep="自己扔、泥里那一躺，删了只剩法宝",
+    )
+    proper["bite_from_prev"] = hook
+    hit2 = check_duty_struct(
+        proper, available_cast=["沈槐", "孩子", "姑姑"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="塑魂", prev_intruder="孩子开口要皮影",
+    )
+    assert hit2["ok"] is False
+    assert hit2["code"] == "duty_bie_name"
+
+    no_kill = make_duty(
+        seq=14, who=["沈槐", "孩子"], available_cast=["沈槐", "孩子", "姑姑"],
+        day="井台上还在排队打水",
+        said="把钉扔掉",
+        needed="钉还在，架不是商量停的",
+        heat="人躺在泥里，像架停了",
+        stay="钉还在。人不认亲。灯还欠着",
+        owed="人没有完整回来。账转到孩子。灯还欠着",
+        must_happen="孩子自己把布包扔下，人躺在泥里架才停",
+        kind="别亦难", intruder="孩子自己扔布包",
+        bill="无辜的人倒下了", bill_holder="孩子", bill_place="泥里",
+        cut="布包扔在泥里那一下",
+        one_line="孩子怀里的钉打人",
+        keep="自己扔、泥里那一躺，删了只剩法宝",
+    )
+    no_kill["bite_from_prev"] = hook
+    hit3 = check_duty_struct(
+        no_kill, available_cast=["沈槐", "孩子", "姑姑"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="塑魂", prev_intruder="孩子开口要皮影",
+    )
+    assert hit3["ok"] is False
+    assert hit3["code"] == "duty_bie_kill"
+
+    ok = make_duty(
+        seq=14, who=["沈槐", "孩子", "姑姑"], available_cast=["沈槐", "孩子", "姑姑"],
+        day="钉认杀机不认亲的那一截",
+        said="认杀机不认亲",
+        needed="钉还在，架不是商量停的",
+        heat="人躺在泥里，像架停了",
+        stay="钉还在。人不认亲。灯还欠着",
+        owed="人没有完整回来。账转到孩子。灯还欠着",
+        must_happen="钉认杀机不认亲，孩子自己把布包扔下，人躺在泥里架才停",
+        kind="别亦难", intruder="孩子自己扔布包",
+        bill="无辜的人倒下了", bill_holder="孩子", bill_place="泥里",
+        cut="布包扔在泥里那一下",
+        one_line="孩子怀里的钉打人",
+        keep="自己扔、泥里那一躺，删了只剩法宝",
+    )
+    ok["bite_from_prev"] = hook
+    assert check_duty_struct(
+        ok, available_cast=["沈槐", "孩子", "姑姑"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="塑魂", prev_intruder="孩子开口要皮影",
+    )["ok"] is True
+
+
+def test_gen_duty_nails_bie_off_accident():
+    """模型写成误伤劝停时，生成层钉回认杀机不认亲。"""
+    from scribe3.playbook.layers import _nail_bie_duty, gen_duty
+
+    raw = {
+        "kind": "别亦难",
+        "day": "街上",
+        "must_happen": "误伤",
+        "stay": "架停了",
+        "heat": "打完了",
+        "who": ["沈槐"],
+    }
+    nailed = _nail_bie_duty(raw, {"chapter_duty": "钉认杀机不认亲", "available_cast": ["沈槐", "孩子", "姑姑"]})
+    assert nailed["kind"] == "别亦难"
+    assert "不认亲" in nailed["day"] or "不认亲" in nailed["must_happen"]
+    assert "布包" in nailed["must_happen"] or "自己" in nailed["must_happen"]
+    assert "单嫣" not in str(nailed)
+    assert "误伤" not in nailed["must_happen"]
+
+    def llm(prompt, **kw):
+        return (
+            '{"day":"街上","said":"停手","needed":"灯还欠着",'
+            '"mask":"只是误伤","crack":"人倒下","real":"架停了",'
+            '"eye":"沈槐","dist":"near","cut":"布包那一下",'
+            '"one_line":"误伤","keep":"有话好好说",'
+            '"heat":"打完了","stay":"架停了",'
+            '"owed":"灯还欠着","kind":"别亦难","intruder":"孩子",'
+            '"bill_holder":"孩子","bill_place":"泥里",'
+            '"must_happen":"误伤",'
+            '"bill":"倒下","who":["沈槐"],"forbidden_reveal":["油从哪来"]}'
+        )
+
+    out = gen_duty({"seq": 14, "available_cast": ["沈槐", "孩子", "姑姑"], "chapter_duty": "不认亲"}, llm)
+    assert out["kind"] == "别亦难"
+    assert "不认亲" in out["must_happen"] or "不认亲" in out["day"]
+    assert "误伤" not in out["must_happen"]
 
 
 def test_draft_copy_does_not_kill_lived_expansion():

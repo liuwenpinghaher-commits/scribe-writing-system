@@ -31,6 +31,9 @@
 - duty.skip_year：kind=跳年 必须写成街上还在过的一天；补日历 / N年后说明书不过。不要字面六年、不要铜炉歌名
 - duty.choice_name：kind=选择 必须还能跑、自己掉头、自己人把命名交出去；遇袭丢魂 / 当场打死不过。不要铜炉专名
 - duty.xin：kind=心藏腹 必须锋藏进肚子、放过钉成可破的誓；小孩要心眼 / 铜炉专名不过
+- duty.men：kind=天下第一门 必须铁律压场再抢场；开门就骑龙 / 铜炉专名不过
+- duty.soul：kind=塑魂 必须醒了先叫从前的人；一醒就完整 / 铜炉专名不过
+- duty.bie：kind=别亦难 必须钉认杀机不认亲；误伤劝停 / 铜炉专名不过
 """
 from __future__ import annotations
 
@@ -65,6 +68,8 @@ _DAY_LIVED = re.compile(
     r"|街上|茶馆|店还|开张|早上|行人|还在过|还在唱|还在讲|还在走"
     r"|还能跑|还能走|掉头|交名|报名"
     r"|装疼|还疼|藏锋|自保|交符|誓"
+    r"|铁律|朝廷|收成罪|官差还在|酒还没散"
+    r"|破坛|屋顶|皮影|先叫|不认亲|布包|泥里|认杀机"
 )
 # 对照.md 三：办事不剖心。
 _APPRAISAL_TELL = re.compile(
@@ -90,6 +95,7 @@ _CUT_SENSED = re.compile(
     r"|枯腐|枯了|铜子|帘"
     r"|报名|交名|掉头|封"
     r"|掠鬓|乱画|装疼"
+    r"|扔下|屋顶|阵法|先叫|布包|泥里|倒下"
 )
 # 因文.md：一行本事说不完；删了那一截场会塌。
 _ONE_LINE_OK = re.compile(r"一行就够|本事说完|过场即可|说明书")
@@ -98,7 +104,7 @@ _HEAT_AS_FLIP = re.compile(r"热闹就是翻|场面就算翻|热闹当翻|场面
 _HEAT_ONLY = re.compile(r"热闹|场面过了|社戏完了|筵席散了|鼓掌过了")
 _STAY_WORLD = re.compile(r"还|没|仍|停|在|日子|墓|路|安危|欠|信")
 CLOCK_SPANS = frozenset({"scene", "day", "days"})
-DAY_KINDS = frozenset({"酒宴", "赶路", "开坛", "坐牢", "跳年", "选择", "心藏腹", "同场"})
+DAY_KINDS = frozenset({"酒宴", "赶路", "开坛", "坐牢", "跳年", "选择", "心藏腹", "天下第一门", "塑魂", "别亦难", "同场"})
 _KIND_CHAPTER = re.compile(r"换节号|下一节|第[一二三四五六七八九十0-9]+章")
 _KIND_WELL_QUEUE = re.compile(r"井台|排队|队尾|横担")
 SAME_KIND_RUN_MAX = 2
@@ -136,6 +142,26 @@ _XIN_PROPER = re.compile(r"胡炭|白娴|小胡兄弟|逆沉慑斗阵|三五千�
 _XIN_HIDE = re.compile(r"藏进肚子|藏锋|装疼|还疼|乱画")
 _XIN_OATH = re.compile(r"除非自保|自保|可破的誓|誓留")
 _XIN_KEEP = re.compile(r"追杀还在|放过|符交|交符|还欠")
+# 因文·天下第一门：铁律压场再抢场。开门就骑龙 / 救星出场不过。不要铜炉专名。
+_MEN_STAR = re.compile(r"开门就骑龙|救星出场|骑龙来了")
+_MEN_PROPER = re.compile(r"赵东升|蜀山|凌飞|奇案司|鲁大人")
+_MEN_LAW = re.compile(r"铁律|朝廷命令|收成罪|谋反")
+_MEN_STEAL = re.compile(r"扔下|顾不上|场不围")
+_MEN_KEEP = re.compile(r"官差还在|酒还没散|灯还欠")
+# 因文·塑魂：醒了先叫从前的人。一醒就完整 / 复活成功不过。不要铜炉专名。
+_SOUL_TRICK = re.compile(r"复活成功|一醒就完整")
+_SOUL_PROPER = re.compile(r"秦苏|萱儿")
+_SOUL_BREAK = re.compile(r"破坛|屋顶没了|阵法完了")
+_SOUL_ASK = re.compile(r"皮影|要爹")
+_SOUL_CALL = re.compile(r"先叫|数名字|空洞的眼")
+_SOUL_KEEP = re.compile(r"人没有完整回来|账转到孩子|魂还没回来")
+# 因文·别亦难钉：认杀机不认亲。误伤 / 有话好好说 / 劝停不过。不要铜炉专名。
+_BIE_TRICK = re.compile(r"误伤|有话好好说|劝停|劝开")
+_BIE_PROPER = re.compile(r"单嫣|炭儿|青龙")
+_BIE_KILL = re.compile(r"认杀机不认亲|不认亲")
+_BIE_THROW = re.compile(r"自己扔|布包")
+_BIE_FALL = re.compile(r"泥里|倒下|面上无光")
+_BIE_KEEP = re.compile(r"钉还在|人不认亲")
 _JAIL_CITY = re.compile(r"进城|进镇|镇上|城里|城门|找活|活路|找活路|找工")
 _JAIL_BRIBE = re.compile(r"收了|接了|递上|递了|小包|包裹|收银|银子|收东西")
 _JAIL_FLIP = re.compile(r"改口|眉花|良民|改叫|笑着说")
@@ -354,9 +380,9 @@ def check_duty_kind(
     if _KIND_CHAPTER.search(kind) or _KIND_CHAPTER.search(day):
         return _fail("duty_kind_chapter", "只换节号不算换日子。要写进的是哪一种还在过的日子", "kind")
     if not kind:
-        return _fail("duty_kind_empty", "kind 不能空：这场进的是酒宴/赶路/开坛/坐牢/跳年/选择/心藏腹/同场哪一种", "kind")
+        return _fail("duty_kind_empty", "kind 不能空：这场进的是酒宴/赶路/开坛/坐牢/跳年/选择/心藏腹/天下第一门/塑魂/别亦难/同场哪一种", "kind")
     if kind not in DAY_KINDS:
-        return _fail("duty_kind_unknown", "kind 只能是酒宴、赶路、开坛、坐牢、跳年、选择、心藏腹、同场", "kind")
+        return _fail("duty_kind_unknown", "kind 只能是酒宴、赶路、开坛、坐牢、跳年、选择、心藏腹、天下第一门、塑魂、别亦难、同场", "kind")
     seq = int((duty or {}).get("seq") or 0)
     if seq > 1 and kind == "同场":
         try:
@@ -551,6 +577,94 @@ def check_duty_choice(duty: dict[str, Any]) -> dict[str, Any]:
     return _ok()
 
 
+def check_duty_men(duty: dict[str, Any]) -> dict[str, Any]:
+    """天下第一门：铁律压场再抢场。开门就骑龙不过。"""
+    kind = str((duty or {}).get("kind") or "").strip()
+    if kind != "天下第一门":
+        return _ok()
+    day = str((duty or {}).get("day") or "").strip()
+    happen = str((duty or {}).get("must_happen") or "").strip()
+    said = str((duty or {}).get("said") or "").strip()
+    heat = str((duty or {}).get("heat") or "").strip()
+    stay = str((duty or {}).get("stay") or "").strip()
+    owed = str((duty or {}).get("owed") or "").strip()
+    keep = str((duty or {}).get("keep") or "").strip()
+    who = str((duty or {}).get("intruder") or "").strip()
+    blob = f"{day}\n{happen}\n{said}\n{heat}\n{stay}\n{owed}\n{who}"
+    if _MEN_PROPER.search(blob):
+        return _fail("duty_men_name", "不要铜炉专名。官差进场可以不换地，换自己的名", "kind")
+    if _MEN_STAR.search(blob):
+        return _fail("duty_men_star", "不要开门就骑龙。先让这桌酒被收成罪，再让救星把场抢走", "must_happen")
+    live = f"{day}\n{happen}\n{said}"
+    if not _MEN_LAW.search(live):
+        return _fail("duty_men_law", "天下第一门必须先看见铁律把酒收成罪。删掉铁律只剩官差扰宴", "day")
+    if not _MEN_STEAL.search(f"{happen}\n{keep}\n{said}\n{heat}"):
+        return _fail("duty_men_steal", "天下第一门必须看见救星把场抢走。删掉扔下捕快只剩骑龙热闹", "must_happen")
+    if not _MEN_KEEP.search(f"{stay}\n{owed}\n{keep}\n{happen}"):
+        return _fail("duty_men_keep", "天下第一门读完官差还在。场不围他们，酒还没散", "stay")
+    return _ok()
+
+
+def check_duty_soul(duty: dict[str, Any]) -> dict[str, Any]:
+    """塑魂：醒了先叫从前的人。一醒就完整不过。"""
+    kind = str((duty or {}).get("kind") or "").strip()
+    if kind != "塑魂":
+        return _ok()
+    day = str((duty or {}).get("day") or "").strip()
+    happen = str((duty or {}).get("must_happen") or "").strip()
+    said = str((duty or {}).get("said") or "").strip()
+    heat = str((duty or {}).get("heat") or "").strip()
+    stay = str((duty or {}).get("stay") or "").strip()
+    owed = str((duty or {}).get("owed") or "").strip()
+    keep = str((duty or {}).get("keep") or "").strip()
+    who = str((duty or {}).get("intruder") or "").strip()
+    blob = f"{day}\n{happen}\n{said}\n{heat}\n{stay}\n{owed}\n{who}"
+    if _SOUL_PROPER.search(blob):
+        return _fail("duty_soul_name", "不要铜炉专名。醒了先叫谁，换自己的名", "kind")
+    if _SOUL_TRICK.search(blob):
+        return _fail("duty_soul_revive", "不要写成一醒就完整。破坛不是失败过场，醒了先叫从前的人", "must_happen")
+    live = f"{day}\n{happen}\n{said}"
+    if not _SOUL_BREAK.search(live):
+        return _fail("duty_soul_break", "塑魂必须看见破坛。酒把关口推半寸，屋顶先没了", "day")
+    if not _SOUL_ASK.search(f"{happen}\n{keep}\n{said}\n{who}"):
+        return _fail("duty_soul_ask", "塑魂必须看见孩子那一问。魂还没回来，账已经转到下一辈", "must_happen")
+    if not _SOUL_CALL.search(f"{happen}\n{keep}\n{said}\n{stay}"):
+        return _fail("duty_soul_call", "塑魂必须看见醒了先叫从前的人。删掉数名字，读者会当人完整回来了", "must_happen")
+    if not _SOUL_KEEP.search(f"{stay}\n{owed}\n{keep}\n{happen}"):
+        return _fail("duty_soul_keep", "塑魂读完人没有完整回来。账可以转到孩子手里", "stay")
+    return _ok()
+
+
+def check_duty_bie(duty: dict[str, Any]) -> dict[str, Any]:
+    """别亦难：钉认杀机不认亲。误伤劝停不过。"""
+    kind = str((duty or {}).get("kind") or "").strip()
+    if kind != "别亦难":
+        return _ok()
+    day = str((duty or {}).get("day") or "").strip()
+    happen = str((duty or {}).get("must_happen") or "").strip()
+    said = str((duty or {}).get("said") or "").strip()
+    heat = str((duty or {}).get("heat") or "").strip()
+    stay = str((duty or {}).get("stay") or "").strip()
+    owed = str((duty or {}).get("owed") or "").strip()
+    keep = str((duty or {}).get("keep") or "").strip()
+    who = str((duty or {}).get("intruder") or "").strip()
+    blob = f"{day}\n{happen}\n{said}\n{heat}\n{stay}\n{owed}\n{who}"
+    if _BIE_PROPER.search(blob):
+        return _fail("duty_bie_name", "不要铜炉专名。克邪的东西可以不认亲，换自己的名", "kind")
+    if _BIE_TRICK.search(blob):
+        return _fail("duty_bie_accident", "不要写成误伤或有话好好说。钉认杀机不认亲，孩子自己扔", "must_happen")
+    live = f"{day}\n{happen}\n{said}"
+    if not _BIE_KILL.search(live):
+        return _fail("duty_bie_kill", "别亦难必须看见钉认杀机不认亲。删掉这一截只剩法宝误伤", "day")
+    if not _BIE_THROW.search(f"{happen}\n{keep}\n{said}\n{who}"):
+        return _fail("duty_bie_throw", "别亦难必须看见孩子自己扔布包。删掉自己扔只剩法宝误伤", "must_happen")
+    if not _BIE_FALL.search(f"{happen}\n{keep}\n{said}\n{stay}"):
+        return _fail("duty_bie_fall", "别亦难必须看见无辜的人倒下。删掉泥里那一躺，架像助开的", "must_happen")
+    if not _BIE_KEEP.search(f"{stay}\n{owed}\n{keep}\n{happen}"):
+        return _fail("duty_bie_keep", "别亦难读完钉还在。人不认亲", "stay")
+    return _ok()
+
+
 def check_duty_xin(duty: dict[str, Any]) -> dict[str, Any]:
     """心藏腹：锋藏进肚子；放过钉成可破的誓。小孩要心眼不过。"""
     kind = str((duty or {}).get("kind") or "").strip()
@@ -736,6 +850,15 @@ def check_duty_struct(
     xin_hit = check_duty_xin(duty)
     if not xin_hit.get("ok"):
         return xin_hit
+    men_hit = check_duty_men(duty)
+    if not men_hit.get("ok"):
+        return men_hit
+    soul_hit = check_duty_soul(duty)
+    if not soul_hit.get("ok"):
+        return soul_hit
+    bie_hit = check_duty_bie(duty)
+    if not bie_hit.get("ok"):
+        return bie_hit
     fr = duty.get("forbidden_reveal")
     if not isinstance(fr, list) or not [x for x in fr if str(x).strip()]:
         return _fail("duty_forbid_empty", "forbidden_reveal 不能空", "forbidden_reveal")
