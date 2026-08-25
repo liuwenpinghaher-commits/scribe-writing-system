@@ -91,6 +91,15 @@ def test_no_legacy_type_is_double_colon_in_surql():
     assert not bad, f"legacy type::is:: in executable surql: {bad[:20]}"
 
 
+def test_166_relates_is_material_relation():
+    """素材联想边 relates 必须 SCHEMAFULL 锁成 material→material，禁止隐式表。"""
+    text = (MIGRATIONS / "166_material_relates.surql").read_text(encoding="utf-8")
+    assert "DEFINE TABLE OVERWRITE relates TYPE RELATION" in text
+    assert "FROM material TO material" in text
+    assert "SCHEMAFULL" in text
+    assert "type::thing" not in text
+
+
 def test_prod_compose_pins_surreal_3_2():
     """生产 compose 必须钉死 3.2.x，禁止 latest / 2.1。"""
     root = SCRIBE3.parents[0]

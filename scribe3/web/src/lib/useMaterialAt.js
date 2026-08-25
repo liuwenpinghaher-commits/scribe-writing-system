@@ -8,7 +8,7 @@ import {
   detectAtQuery,
   filterAtCatalog,
   insertAtMention,
-} from './sessionClip.js'
+} from './atCatalog.js'
 import { nextAtActiveIndex, normalizeMaterialRows } from '../ui/MaterialAtPicker.jsx'
 
 function maxChapterFromTree(manuscriptRoot) {

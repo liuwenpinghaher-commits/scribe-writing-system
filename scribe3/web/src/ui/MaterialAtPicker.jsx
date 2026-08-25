@@ -1,4 +1,4 @@
-import { AT_DOMAIN_LABEL } from '../lib/sessionClip.js'
+import { AT_DOMAIN_LABEL } from '../lib/atCatalog.js'
 
 const MATERIAL_KIND_LABEL = {
   research: '研究', reference: '参考', snippet: '片段',

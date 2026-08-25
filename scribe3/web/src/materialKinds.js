@@ -8,3 +8,5 @@ export const MATERIAL_KINDS = [
   { key: 'note', label: '笔记' },
   { key: 'emotion_module', label: '情绪卡' },
 ]
+
+export const KIND_LABEL = Object.fromEntries(MATERIAL_KINDS.map((k) => [k.key, k.label]))

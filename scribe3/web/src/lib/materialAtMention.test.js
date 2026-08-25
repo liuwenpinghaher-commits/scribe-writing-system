@@ -13,7 +13,7 @@ import {
   materialsToAtItems,
   timelineToAtItems,
   viewsToAtItems,
-} from './sessionClip.js'
+} from './atCatalog.js'
 import { nextAtActiveIndex } from '../ui/MaterialAtPicker.jsx'
 
 describe('detectAtQuery', () => {

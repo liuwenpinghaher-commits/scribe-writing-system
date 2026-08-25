@@ -113,29 +113,3 @@ def render_material_block(cands: list[dict], budget_chars: int = 800) -> str:
         lines.append(line)
         used += len(line)
     return "".join(lines)
-
-
-def emotion_target_from_materials(materials: list[dict], target_emotion: str) -> list[dict]:
-    """从 emotion_module 素材中按目标情绪筛选(body/summary JSON 或纯文本子串)。
-
-    返回匹配的素材行(保留 material 字段),供 brief/context 调用。
-    """
-    if not (target_emotion or "").strip():
-        return []
-    te = target_emotion.strip()
-    hits = []
-    for m in materials or []:
-        if (m or {}).get("kind") != "emotion_module":
-            continue
-        raw = m.get("summary") or m.get("body") or m.get("content") or ""
-        emotion = ""
-        try:
-            card = json.loads(raw) if isinstance(raw, str) and raw.strip().startswith("{") else None
-            if isinstance(card, dict):
-                emotion = str(card.get("emotion") or "")
-        except (TypeError, ValueError):
-            card = None
-        blob = f"{emotion} {m.get('title') or ''} {raw}"
-        if te in blob or (emotion and (te in emotion or emotion in te)):
-            hits.append(m)
-    return hits

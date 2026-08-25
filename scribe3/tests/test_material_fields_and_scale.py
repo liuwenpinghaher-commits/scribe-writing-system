@@ -223,18 +223,6 @@ def test_material_recall_degraded_out(store, monkeypatch):
     assert any(d.get("source") == "semantic" for d in degraded), degraded
 
 
-def test_emotion_module_target_helper():
-    from scribe3.material_recall import emotion_target_from_materials
-    import json
-    mats = [
-        {"kind": "emotion_module", "title": "憋屈卡",
-         "body": json.dumps({"id": "EM-1", "emotion": "憋屈", "trigger": "被诬"}, ensure_ascii=False)},
-        {"kind": "note", "title": "普通", "body": "x"},
-    ]
-    hits = emotion_target_from_materials(mats, "憋屈")
-    assert len(hits) == 1 and hits[0]["title"] == "憋屈卡"
-
-
 def test_parse_url_markdown_not_raw_html(monkeypatch):
     from scribe3.material_import import parse_url_to_markdown
 
