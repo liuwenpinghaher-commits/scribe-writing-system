@@ -16,7 +16,7 @@ def smoke_imports() -> list[tuple[str, bool, str]]:
 
     try:
         from scribe3.playbook.quote import PLAYBOOK_VERSION
-        add("playbook_version", PLAYBOOK_VERSION == "playbook.3.2.13", PLAYBOOK_VERSION)
+        add("playbook_version", PLAYBOOK_VERSION == "playbook.3.2.14", PLAYBOOK_VERSION)
     except Exception as e:
         add("playbook_version", False, type(e).__name__)
 

@@ -28,40 +28,32 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.13"
+    assert PLAYBOOK_VERSION == "playbook.3.2.14"
     d = duty_generate({"seq": 1})
-    assert "【成色·验戏不验词表】" in d
-    assert "先立还在过的日子" in d
+    assert "【对照·真源】" in d
+    assert "【成色·验戏不验词表】" not in d
+    assert "把眼睛交给当场那个人" in d
+    assert "不要上来就掏底牌" in d
+    assert "北宋，雍熙三年" in d
     assert "立十三件事" in d
-    assert "mask" in d and "crack" in d and "real" in d
-    assert "eye" in d and "dist" in d
-    assert "cut" in d
-    assert "one_line" in d and "keep" in d
-    assert "heat" in d and "stay" in d
     p = play_generate({"seq": 1, "duty": {}})
-    assert "假破真" in p
-    assert "假破真是这章的骨头" in p
-    assert "两难是这章的心脏" not in p
-    assert "眼睛交给当场那个人" in p
-    assert "切在能听见看见的那一下" in p
-    assert "一行本事说不完" in p
-    assert "热闹不算翻" in p
+    assert "【对照·真源】" in p
+    assert "热闹像翻了，墓还在" in p
     from scribe3.playbook.prompts import identity_for
     assert "两难落在哪个动作" not in identity_for("play")
-    assert "眼睛交给谁" in identity_for("play")
-    assert "切在哪一下" in identity_for("play")
-    assert "删了会塌的那一截" in identity_for("play")
     dr = draft_generate({})
-    assert "切在能听见看见" in dr
+    assert "【对照·真源】" in dr
     f = final_generate({})
-    assert "端的" in f and "岂料" in f
+    assert "【对照·真源】" in f
     assert "多用'端的、岂料" not in f
     assert "古白话语体" not in f
     j = duty_judge({})
-    assert "C1." in j and "C7." in j
+    assert "【对照·真源·审判】" in j
+    assert "C1." not in j
     assert "八问" in j
     assert "十二问" in play_judge({})
-    assert "验戏，不验词表" in final_judge({})
+    assert "【对照·真源·审判】" in final_judge({})
+    assert "验戏，不验词表" not in final_judge({})
 
 
 def test_write_protocol_drops_classical_when_on():
@@ -71,6 +63,8 @@ def test_write_protocol_drops_classical_when_on():
     assert "讨论" in proto and "动稿" in proto
     assert "多用'端的、岂料" not in proto
     assert "成色（验戏，不验词表）" in proto
+    assert "【对照·真源】" in proto
+    assert "把眼睛交给当场那个人" in proto
     assert "先立还在过的日子" in proto
 
 
@@ -652,6 +646,22 @@ def test_duty_flip_blocks_heat_as_turn():
         must_happen="沈槐把空盏摘下来",
     )
     assert check_duty_struct(good, available_cast=["沈槐"])["ok"] is True
+
+
+def test_duizhao_is_generate_ssot_not_paraphrase():
+    from scribe3.playbook.chengse import DUIZHAO_PATH, DuizhaoMissing, load_duizhao
+
+    load_duizhao.cache_clear()
+    raw = DUIZHAO_PATH.read_text(encoding="utf-8")
+    assert load_duizhao() == raw.strip()
+    d = duty_generate({"seq": 1})
+    assert raw.strip() in d
+    assert "CRAFT_GENERATE" not in (Path := __import__("pathlib").Path)(
+        __file__
+    ).resolve().parents[1].joinpath("playbook", "chengse.py").read_text(encoding="utf-8")
+
+    missing = DuizhaoMissing("x")
+    assert isinstance(missing, RuntimeError)
 
 
 def test_source_has_no_classical_teaching_path():

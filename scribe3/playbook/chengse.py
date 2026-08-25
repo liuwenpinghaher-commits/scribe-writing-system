@@ -1,14 +1,19 @@
-"""铜炉成色：日子/办事/假破真/远近/切。验戏，不验词表。
+"""铜炉成色：词表过滤 + 对照.md 真源。
 
-旗 SCRIBE3_CHENGSE_CRAFT 默认开。关 = 过滤与成色块停，不回古白话教学。
-不过关不冒充成色：这里只挡反着教的套话/专名/空概括。日子翻没翻仍按尺子对照。
+旗 SCRIBE3_CHENGSE_CRAFT 默认开。关 = 过滤停，不回古白话教学。
+对照.md 是生成/审判真源，不跟旗走。找不到文件 = 失败，不许用复述顶上。
 """
 from __future__ import annotations
 
+from functools import lru_cache
+from pathlib import Path
 import re
 from typing import Any
 
 FLAG = "SCRIBE3_CHENGSE_CRAFT"
+DUIZHAO_PATH = (
+    Path(__file__).resolve().parents[2] / "docs" / "worlds" / "乱世铜炉-拆文" / "对照.md"
+)
 
 # 写协议曾逼模型堆的套话。对白里角色可以偶尔说；叙述层不行。
 _CLASSICAL = re.compile(r"端的是|怎禁得|却原来|岂料|端的")
@@ -38,33 +43,43 @@ _EMPTY_TAIL = re.compile(
     r"(他决定了|她决定了|他付出了代价|她付出了代价|夜色深了|叹了口气)[。！？…]*$"
 )
 
-CRAFT_GENERATE = (
-    "【成色·验戏不验词表】\n"
-    "1. 日子：先立还在过的日子，奇事从日子里来。开篇报身份、扔钩子、先宣布法会 = 废稿。"
-    "热闹像翻了、处境没翻 = 废稿。\n"
-    "2. 办事：看见谁办了哪一件、日子怎么变。嘴上要的和真正缺的打架。"
-    "鉴定式人设、杯子余温、维特剖心 = 废稿。\n"
-    "3. 假破真：要落一个真意，先给反面，再破功。上来掏底牌 = 废稿。\n"
-    "4. 远近：共情就把眼睛交给当场那个人。旁观才站外头报年号。"
-    "人还在办事时铺戒律、报年号 = 上课，不要。\n"
-    "5. 因文：一行本事说不完。删了那一截场会塌的那一下必须写上。\n"
-    "6. 切：热过再冷，切在能听见看见的那一下。不切在一段叹气上。\n"
-    "7. 不要半文不白套话（端的、岂料一类），不要铜炉专名情节，不要网文开篇格子。\n"
-    "概括只能写成「他决定了/他付出了代价/夜色深了」= 废稿。\n"
-)
+class DuizhaoMissing(RuntimeError):
+    """对照.md 读不到。生成/审判不许用复述顶上。"""
 
-CRAFT_JUDGE = (
-    "成色（验戏，不验词表。每条先引产物原句作证据，再给 yes/no。"
-    "任一条 no → verdict=fail。答案 q 用 C1–C7）：\n"
-    "C1. 日子：先立还在过的日子了吗？奇事是从日子里来的吗？热闹像翻了、处境没翻 → no。\n"
-    "C2. 办事：能指出谁办了哪一件、日子怎么变吗？嘴上要的和真正缺的有没有打架？"
-    "鉴定式人设/剖心 → no。\n"
-    "C3. 假破真：先给了反面再破功吗？上来掏底牌 → no。\n"
-    "C4. 远近：共情处眼睛交给当场那个人了吗？人还在办事时报年号/上课 → no。\n"
-    "C5. 因文：有没有一截删了场会塌？整场能一行本事说完 → no。\n"
-    "C6. 切：热过再冷，切在能听见看见的那一下了吗？切在叹气/夜色深了 → no。\n"
-    "C7. 有没有半文不白套话、铜炉专名、网文开篇格子？有 → no。\n"
-)
+
+@lru_cache(maxsize=1)
+def load_duizhao() -> str:
+    """读对照.md 原文。空或没有 = 失败。"""
+    path = DUIZHAO_PATH
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise DuizhaoMissing(f"对照.md 读不到：{path}") from exc
+    body = text.strip()
+    if not body:
+        raise DuizhaoMissing(f"对照.md 是空的：{path}")
+    if "把眼睛交给当场那个人" not in body or "不要上来就掏底牌" not in body:
+        raise DuizhaoMissing(f"对照.md 不像真源：{path}")
+    return body
+
+
+def duizhao_generate_block() -> str:
+    """生成真源：对照.md 原文。不跟成色旗走。"""
+    return (
+        "【对照·真源】\n"
+        "按这份对照写。对照和代码冲突，改代码。不要另造一套成色理论。\n"
+        f"{load_duizhao()}\n"
+    )
+
+
+def duizhao_judge_block() -> str:
+    """审判真源：对照.md 原文。不跟成色旗走。"""
+    return (
+        "【对照·真源·审判】\n"
+        "按这份对照原文判。产物对不上对照 → verdict=fail。"
+        "每条先引产物原句作证据，再给 yes/no。不要用旁路成色词表顶上。\n"
+        f"{load_duizhao()}\n"
+    )
 
 PROTOCOL_STYLE = (
     "\n\n## 文风基准:成色（验戏，不验词表）\n"
@@ -88,23 +103,21 @@ def chengse_enabled() -> bool:
 
 
 def craft_generate_block() -> str:
-    if not chengse_enabled():
-        return ""
-    return CRAFT_GENERATE
+    """生成块 = 对照.md。旗关也不撤真源。"""
+    return duizhao_generate_block()
 
 
 def craft_judge_block() -> str:
-    if not chengse_enabled():
-        return ""
-    return CRAFT_JUDGE
+    """审判块 = 对照.md。旗关也不撤真源。"""
+    return duizhao_judge_block()
 
 
 def protocol_style_block(*, exemplar: str = "") -> str:
-    """写协议文风段。开旗用成色；关旗不注入文风段，也不回古白话教学。"""
+    """写协议文风段。开旗注入对照原文；关旗不注入文风段，也不回古白话教学。"""
     del exemplar  # 范例曾教「岂料」，签名保留以免旧调用打爆
     if not chengse_enabled():
         return ""
-    return PROTOCOL_STYLE
+    return PROTOCOL_STYLE + "\n" + duizhao_generate_block()
 
 
 def _ok() -> dict[str, Any]:
