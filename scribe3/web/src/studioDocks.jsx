@@ -239,7 +239,9 @@ function InboxPanel({ seq, onCount }) {
     return <AsyncState state="error" title="收件箱拉取失败" onRetry={() => pullRef.current?.()}
       message="这不代表没有事项(可能后端/网络异常)。" />
   }
-  if (!data.items.length) return <Empty>没有等你的事项——主编在岗,一切有账。</Empty>
+  if (!data.items.length) {
+    return <div data-testid="inbox-empty"><Empty>这页没有等你的事项。没查到的别处不算干净。</Empty></div>
+  }
   const KIND_LABEL = { needs_human: '需人裁决', promotable_lesson: '升格候选', pulse_decision: '章内决策',
     pilot_outline: '大纲待放行', pilot_delivered: '交付待终选', pilot_parked: '驾驶停靠',
     idea_setting: '想法 · 动设定', idea_revise: '想法 · 改旧章', idea_unclear: '想法 · 待澄清',

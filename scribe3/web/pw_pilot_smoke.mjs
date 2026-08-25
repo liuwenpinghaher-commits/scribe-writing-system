@@ -35,7 +35,7 @@ try {
   check('收件箱 tab 存在', !!(await inboxBtn.count()))
   if (await inboxBtn.count()) {
     await inboxBtn.click(); await sleep(800)
-    check('收件箱条目渲染', await p.evaluate(() => /决策收件箱|没有等你的事项/.test(document.body.innerText)))
+    check('收件箱条目渲染', await p.evaluate(() => /决策收件箱|这页没有等你的事项|没有等你的事项/.test(document.body.innerText)))
   }
   await p.evaluate(() => window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })))
   await sleep(500)

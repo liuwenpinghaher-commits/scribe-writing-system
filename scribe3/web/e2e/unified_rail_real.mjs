@@ -58,7 +58,7 @@ async function capabilityEvidence(page, name) {
     return (await title.textContent())?.trim() || 'Pilot · 主编驾驶'
   }
   if (name === '收件箱 · 等你决策') {
-    const state = rightContent.getByText(/加载收件箱|收件箱拉取失败|没有等你的事项|决策收件箱/).first()
+    const state = rightContent.getByText(/加载收件箱|收件箱拉取失败|这页没有等你的事项|没有等你的事项|决策收件箱/).first()
     await state.waitFor({ state: 'visible' })
     return (await state.textContent())?.trim() || '收件箱状态已渲染'
   }
