@@ -76,6 +76,7 @@
 整洁：拆 `Materials.jsx`（665→16 行 barrel；form/new/detail/list 独立）。`sessionClip.js` 只留剪藏/引用，`@` 目录进 `atCatalog.js`。`relates` 用 `166_material_relates.surql` 锁成 material→material SCHEMAFULL。删几乎无调用的 `emotion_target_from_materials`。作者直管 `/materials` 合同未改。
 **测：** 前端焦点 42 passed；迁移护栏 10 passed。
 **已合入并热更：** `e80edbf0`。hot `HEALTH_OK` + v634 27/27。frontend `FRONTEND_DEPLOY_OK`，首页 `index-BBh1o_zc.js`。宿主机与 nginx `index.html` 哈希一致。nginx unlink busy 非致命。强制刷新后再开素材库。旧口径「P3 不拆 Materials.jsx」作废。
+**现网 166：** 注册表 3 本书均已标记 `166_material_relates`；`relates` 为 material→material SCHEMAFULL。《腕账》热更后首次开库才补上，已补。审计清单 P0–P3 闭合。手建 `/materials` 近重、写路径排除 `emotion_module` 仍按合同不改。
 
 ### 素材库 P2（2026-08-25）
 
