@@ -310,9 +310,75 @@ def _is_selection_candidate_version(ver: dict) -> bool:
     return label.startswith("选择环候选·") or label.startswith("选择环候选")
 
 
+_PLAYBOOK_PILOT_PHASES = frozenset({
+    "duty", "design", "chapter_design", "outline", "plan", "beats",
+    "deduce", "draft", "final",
+})
+# 设定写厚不是写章。misc_helpers 里没有 _assemble_write_instructions；
+# 走写章组装 = NameError，现网 s3_generate_codex 会把写网关拉倒。
+_CODEX_PILOT_PHASES = frozenset({
+    "character", "faction", "item", "term", "world_rule", "motif",
+    "voice", "voice_profile", "codex-batch", "codex", "batch",
+})
+
+
+def _pilot_uses_official_complete(phase: str | None) -> bool:
+    stg = (phase or "").strip().lower()
+    if stg in _PLAYBOOK_PILOT_PHASES or stg in _CODEX_PILOT_PHASES:
+        return True
+    return not callable(globals().get("_assemble_write_instructions"))
+
+
+def _pilot_official_complete(
+    ask: str, system: str | None, max_tokens: int | None, outcome_binding, stg: str,
+) -> str:
+    from scribe3.stage_generate import planning_system_prompt
+    ins = (system or "").strip() or planning_system_prompt()
+    from scribe3.deepseek_client import DeepSeekResponseError
+    from scribe3.llm import default_model, hermes_complete_result
+    text = ""
+    used_model = default_model()
+    last_err: Exception | None = None
+    last_usage = None
+    for _attempt in range(3):
+        try:
+            result = hermes_complete_result(
+                ask, system=ins, model=used_model, max_tokens=max_tokens,
+                thinking="disabled",
+            )
+            text = (result.content if result is not None else "") or ""
+            used_model = getattr(result, "model", None) or used_model
+            last_usage = getattr(result, "usage", None)
+            if str(text).strip():
+                break
+        except DeepSeekResponseError as exc:
+            last_err = exc
+            text = ""
+            continue
+    if not str(text).strip():
+        if last_err is not None:
+            raise last_err
+        raise RuntimeError("规划补全为空")
+    try:
+        outcome_binding.persist({
+            "status": "completed",
+            "response_id": None,
+            "usage": last_usage,
+            "provider": {
+                "provider": "official_complete",
+                "phase": stg,
+                "model": used_model,
+            },
+            "model": used_model,
+        })
+    except Exception:
+        pass
+    return text
+
+
 def _pilot_llm_gen(st, work: str, seq: int, phase: str, ask: str, focalizer: str = "",
                    max_tokens: int | None = 1600, system: str | None = None) -> str:
-    """pilot 生成通道。章设计只给一张纸；正文仍走组装链。"""
+    """pilot 生成通道。戏约/设定写厚走官方补全；只有写章组装已绑定才走散点链。"""
     from contextlib import nullcontext
 
     from scribe3.pipeline_trace_hooks import write_chain_guard
@@ -323,52 +389,8 @@ def _pilot_llm_gen(st, work: str, seq: int, phase: str, ask: str, focalizer: str
     ctx = nullcontext() if nested else write_chain_guard(st, outcome_binding.manifest_trace)
     with ctx:
         stg = (phase or "").strip().lower()
-        if stg in (
-            "duty", "design", "chapter_design", "outline", "plan", "beats",
-            "deduce", "draft", "final",
-        ):
-            from scribe3.stage_generate import planning_system_prompt
-            ins = (system or "").strip() or planning_system_prompt()
-            from scribe3.deepseek_client import DeepSeekResponseError
-            from scribe3.llm import default_model, hermes_complete_result
-            text = ""
-            used_model = default_model()
-            last_err: Exception | None = None
-            last_usage = None
-            for _attempt in range(3):
-                try:
-                    result = hermes_complete_result(
-                        ask, system=ins, model=used_model, max_tokens=max_tokens,
-                        thinking="disabled",
-                    )
-                    text = (result.content if result is not None else "") or ""
-                    used_model = getattr(result, "model", None) or used_model
-                    last_usage = getattr(result, "usage", None)
-                    if str(text).strip():
-                        break
-                except DeepSeekResponseError as exc:
-                    last_err = exc
-                    text = ""
-                    continue
-            if not str(text).strip():
-                if last_err is not None:
-                    raise last_err
-                raise RuntimeError("规划补全为空")
-            try:
-                outcome_binding.persist({
-                    "status": "completed",
-                    "response_id": None,
-                    "usage": last_usage,
-                    "provider": {
-                        "provider": "official_complete",
-                        "phase": stg,
-                        "model": used_model,
-                    },
-                    "model": used_model,
-                })
-            except Exception:
-                pass
-            return text
+        if _pilot_uses_official_complete(stg):
+            return _pilot_official_complete(ask, system, max_tokens, outcome_binding, stg)
         ins = _assemble_write_instructions(
             st, chapter=seq, focalizer=focalizer, phase=phase,
             with_tools=False, seed_words=[], short_mode=False, work=work,

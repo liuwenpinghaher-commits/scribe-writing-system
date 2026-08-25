@@ -117,3 +117,36 @@ def test_final_last_mile_hits_empty_summary():
     hit = check_final_last_mile(prose)
     assert hit["ok"] is False
     assert hit["code"] == "chengse_empty_summary"
+
+
+def test_pilot_codex_kind_uses_official_complete(monkeypatch):
+    """设定写厚不得走 _assemble_write_instructions（misc_helpers 未绑定该名）。"""
+    from scribe3.api.services import misc_helpers as mh
+
+    assert mh._pilot_uses_official_complete("character") is True
+    assert mh._pilot_uses_official_complete("codex-batch") is True
+    called = {}
+
+    class _R:
+        content = "厚卡"
+        model = "x"
+        usage = {"total_tokens": 1}
+
+    def fake_complete(ask, **kwargs):
+        called["ask"] = ask
+        called["system"] = kwargs.get("system")
+        return _R()
+
+    monkeypatch.setattr("scribe3.llm.hermes_complete_result", fake_complete)
+    monkeypatch.setattr("scribe3.llm.default_model", lambda: "x")
+
+    class St:
+        def _query(self, *a, **k):
+            return []
+
+        def _execute_write(self, *a, **k):
+            return None
+
+    out = mh._pilot_llm_gen(St(), "book_x", 1, "character", "写厚沈槐", max_tokens=200)
+    assert out == "厚卡"
+    assert called["ask"] == "写厚沈槐"
