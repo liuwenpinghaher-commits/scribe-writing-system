@@ -76,8 +76,8 @@
 输入框上方状态条写现在谈什么、只讨论/会改库、种子来自哪页；空会话不再假绿。审批和分流不改。
 **讨论栏：** `56a07761`。空会话「空会话可以问」。
 **写作槽：** `WriteChat` 复用 `ChiefStatusStrip`；空态走 `chiefEmptyCopy(write_ask)`。写库 run 故意 `phase=''`，测试已跟生产。相关 vitest 29 passed。
-**现网已验：** frontend `FRONTEND_DEPLOY_OK`，首页 `index-CvJwfhxh.js`。腕账第 3 章点「正文」出现 `chief-write-chat`：空态「空会话可以问 / 提思路让主编写或改本章」；状态条「第 3 章 · final」；时间线种子「来自时间线 / 这句只讨论」；写库句「这句会改库，要你批」。强制刷新后再看。nginx unlink busy 非致命。
-未做：收件箱空态仍写「一切有账」；种子来源不标总纲。
+**现网已验：** frontend `FRONTEND_DEPLOY_OK`，首页 `index-DvkkHGt-.js`。腕账第 3 章「正文」写作槽过；空书《手术室》点「让主编写入」发出 `【总纲】` 种子，状态条「来自总纲 / 这句会改库，要你批」。强制刷新后再看。nginx unlink busy 非致命。
+未做：收件箱空态仍写「一切有账」。
 
 ### 仪表盘先可读再助写（2026-08-25）
 

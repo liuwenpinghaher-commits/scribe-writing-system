@@ -26,6 +26,7 @@ describe('chiefSeed helpers', () => {
     const tabs = []
     window.addEventListener('s3-right-tab', (e) => tabs.push(e.detail))
     const t = seedBookPortraitIntent()
+    expect(t).toMatch(/^【总纲】/)
     expect(t).toMatch(/s3_set_intent/)
     expect(t).toMatch(/s3_get_intent/)
     expect(tabs).toEqual(['chief'])

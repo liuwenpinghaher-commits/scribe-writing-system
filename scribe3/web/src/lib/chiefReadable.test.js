@@ -6,6 +6,7 @@ import {
   chiefEmptyCopy,
   pendingApprovalOf,
   seedOrigin,
+  seedOriginLabel,
 } from './chiefReadable.js'
 import { shouldUseHermesRun } from './hermesRunIntent.js'
 
@@ -57,6 +58,8 @@ describe('seedOrigin', () => {
     expect(seedOrigin('【时间线】围绕第3章')).toBe('timeline')
     expect(seedOrigin('【仪表盘】针对第3章')).toBe('insight')
     expect(seedOrigin('【图谱·信息差】截至第3章')).toBe('atlas')
+    expect(seedOrigin('【总纲】请登记/更新这本书是什么')).toBe('synopsis')
+    expect(seedOriginLabel('synopsis')).toBe('来自总纲')
     expect(seedOrigin('普通问一句')).toBe(null)
   })
 })

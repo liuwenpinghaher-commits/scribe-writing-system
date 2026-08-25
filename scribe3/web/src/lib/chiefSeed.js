@@ -383,7 +383,7 @@ export function seedChiefDeleteVolume(volumeId, title = '') {
 /** 总纲「这本书」：登记意图。必须同时派 s3-right-tab=chief。 */
 export function seedBookPortraitIntent() {
   return focusChiefWithSeed([
-    '请登记/更新这本书是什么（需我审批）：',
+    '【总纲】请登记/更新这本书是什么（需我审批）：',
     '一句话：……',
     '读者读完该留下：……',
     '情感怎么走：……',

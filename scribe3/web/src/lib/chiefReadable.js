@@ -71,6 +71,7 @@ export function seedOrigin(text) {
   if (value.includes('【时间线】')) return 'timeline'
   if (value.includes('【仪表盘】')) return 'insight'
   if (value.includes('【图谱')) return 'atlas'
+  if (value.includes('【总纲】')) return 'synopsis'
   return null
 }
 
@@ -78,5 +79,6 @@ export function seedOriginLabel(origin) {
   if (origin === 'timeline') return '来自时间线'
   if (origin === 'insight') return '来自仪表盘'
   if (origin === 'atlas') return '来自图谱'
+  if (origin === 'synopsis') return '来自总纲'
   return ''
 }
