@@ -92,8 +92,8 @@
 ### 拆文倒逼翻主（2026-08-25）
 
 现行过夜 / 循环 SSOT：[`docs/plans/2026-08-25-tonglu-force-rebuild-loop.md`](./plans/2026-08-25-tonglu-force-rebuild-loop.md)（`tonglu-force-rebuild`）。旧 [`2026-08-24-tonglu-chengse-loop.md`](./plans/2026-08-24-tonglu-chengse-loop.md) **已结案，禁止续跑**。
-能力 0–7 代码已落。对照.md 已接进生成/审判真源。热更把对照.md 打进容器。playbook.3.2.16：上场 stay 这场必须还在过。回退 = revert。
-样例书 **`book_46cff31a`《井台灯》**：第1章是 3.2.6 过夜遗留，不算七闸证据。第2章《灯还在横担上》是场A。loop 可停改成三场链，场B/C 未写。不开 10 万。未删《腕账》。可停：否。
+能力 0–7 代码已落。对照.md 已接进生成/审判真源。playbook.3.2.16：上场 stay 这场必须还在过。`prose_len` 只拦没立住一场。回退 = revert。
+样例书 **`book_46cff31a`《井台灯》**：第1章不算。第2章是场A。第3章《队还没散》定稿 730 是场B（还欠着：队尾、油罐、灯没人认）。场C 未写。不开 10 万。未删《腕账》。可停：否。
 
 ### 时间线列表+抽屉（2026-08-25）
 
