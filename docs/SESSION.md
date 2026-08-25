@@ -66,7 +66,7 @@
 ### 弱章跳转回弹（2026-08-24）
 
 现网点弱章先到技法标尺质量审阅，随后弹回总纲。根因：`quality_review` 不在上下文 `FocusType` 白名单，`focusForNode` 把它记成 `view`；快照一确认，投影就把栏3当横切视图，再叠门厅空选就回总纲。换书时 `hallTick` 若因回调换身份再 bump，也会冲门厅。
-**已改：** 后端/前端白名单加 `quality_review`；旧 `view:quality:N` 快照投影回质量审阅；换书门厅只 bump 一次。相关 vitest + `test_context_models` 绿。本轮提交后走 hot + frontend 热更。
+**已改并热更：** 后端/前端白名单加 `quality_review`；旧 `view:quality:N` 快照投影回质量审阅；换书门厅只 bump 一次。`a7447770`。hot `HEALTH_OK` + v634 26/26；frontend `FRONTEND_DEPLOY_OK`，首页 `index-BYdTmhBE.js`。强制刷新后再点弱章。
 
 ### 仪表盘审计修复（2026-08-24）
 
@@ -86,7 +86,7 @@
 
 ### 本机同步（2026-08-24）
 
-- 本机 `main` 已与 origin 对齐。demo 前端 00:15 那次热更仍在线（`index-ChHoFq1Q.js` / `SynopsisView-CKa2YuOj.js`，`index.html` Last-Modified 2026-08-24 16:15 UTC）。本轮再跑 `./scripts/deploy_demo.sh frontend` 仍因远端 alpine `npm ci` 解包 ENOENT 失败；宿主机无 `node_modules` 残留。验证以已部署 demo 为准。
+- 本机 `main` 已含弱章回弹修复并推 origin。demo 已 hot+frontend（`index-BYdTmhBE.js`）。frontend 打包去掉 AppleDouble；hot 解包后清 `._*` 并 `chmod a+rX`，否则 `docker cp` 会 unexpected EOF。
 - 部署机 SSH：`ssh scribe3-demo`（`82.157.130.140`，密钥 `~/.ssh/id_tencent_lh`，绑 `en0` 绕开 VPN）。直连不绑网卡会卡在 banner。
 - 「同步云端」= 代码 + SSH，不是把云端书库导回本机。
 

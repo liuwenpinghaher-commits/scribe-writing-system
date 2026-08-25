@@ -125,6 +125,9 @@ APP_DIR='$APP_DIR'
 CONTAINER='$CONTAINER'
 sudo mkdir -p "\$APP_DIR"
 sudo tar -xzf /tmp/scribe3-hot.tgz -C "\$APP_DIR"
+sudo find "\$APP_DIR/scribe3" -name '._*' -delete
+# docker cp 以当前用户打 tar，sudo 解包后必须可读
+sudo chmod -R a+rX "\$APP_DIR/scribe3"
 docker cp "\$APP_DIR/scribe3" "\$CONTAINER:/app/"
 docker restart "\$CONTAINER"
 rm -f /tmp/scribe3-hot.tgz
@@ -165,14 +168,17 @@ set -euo pipefail
 APP_DIR='$APP_DIR'
 FRONTEND='$FRONTEND'
 sudo tar -xzf /tmp/web-src.tgz -C "\$APP_DIR"
+sudo find "\$APP_DIR/scribe3/web" -name '._*' -delete
+sudo chmod -R a+rX "\$APP_DIR/scribe3/web"
 # 构建（完整 devDeps，vite 在 devDependencies）
 # 构建后立刻删 node_modules，避免宿主机常驻 ~400MB+
-docker run --rm \
+  docker run --rm \
   -v "\$APP_DIR/scribe3/web:/app" \
   -w /app \
   -e NODE_OPTIONS=--max-old-space-size=1536 \
   node:20-alpine \
   sh -c "rm -rf node_modules && npm ci && npm run build && rm -rf node_modules"
+sudo chmod -R a+rX "\$APP_DIR/scribe3/web/dist"
 # 叠加拷贝：不删除旧 assets（旧 index 缓存仍能拉到旧 chunk）
 docker cp "\$APP_DIR/scribe3/web/dist/." "\$FRONTEND:/usr/share/nginx/html/"
 # 更新 nginx：assets 404 + index no-cache
