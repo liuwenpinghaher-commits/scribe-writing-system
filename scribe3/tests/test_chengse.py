@@ -180,6 +180,18 @@ def test_duty_day_blocks_identity_announce():
     ok_open = check_opener_announce("井台上还在排队。沈槐把空盏摘下来。")
     assert ok_open["ok"] is True
 
+    road_day = make_duty(
+        seq=1,
+        who=["沈槐"],
+        available_cast=["沈槐"],
+        day="天黑后的土路上，沈槐提着空桶往家走",
+        said="认自家攒的油",
+        needed="灯盏是空的",
+        must_happen="沈槐把空桶提过巷口",
+        kind="赶路",
+    )
+    assert check_duty_struct(road_day, available_cast=["沈槐"])["ok"] is True
+
 
 def test_duty_work_blocks_appraisal_and_same_want():
     from scribe3.playbook.context import make_duty
