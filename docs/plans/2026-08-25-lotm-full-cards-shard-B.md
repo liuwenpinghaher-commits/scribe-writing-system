@@ -22,8 +22,8 @@
 | status | **BLOCKED** |
 | last_card | （尚未） |
 | blocked_at | 2026-08-25T15:02Z |
-| last_checked | 2026-08-25T15:10Z |
-| blocked_reason | 缺原文 `docs/worlds/诡秘之主-全文.md`（按合同 → BLOCKED）。同环境亦缺：`2026-08-25-lotm-full-cards-loop.md`、`docs/worlds/诡秘之主-拆文/`（含 PROMPTS、章卡/89.md、索引）。本会话不编造章卡、不灌 Surreal、不改 A/C/D/主 loop/SESSION。已 `.gitignore` 全文路径；订阅 repo PR + 定时复检，资产到位即从 `next_seq=546` 开写。 |
+| last_checked | 2026-08-25T15:12Z |
+| blocked_reason | 缺原文 `docs/worlds/诡秘之主-全文.md`（按合同 → BLOCKED）。同环境亦缺：`2026-08-25-lotm-full-cards-loop.md`、`docs/worlds/诡秘之主-拆文/`（含 PROMPTS、章卡/89.md、索引）。本会话不编造章卡、不灌 Surreal、不改 A/C/D/主 loop/SESSION。已 `.gitignore` 全文路径；无 demo SSH 密钥；R2 未启用；Drive/Gmail 空。订阅 repo PR + 15min 定时复检，资产到位即从 `next_seq=546` 开写。 |
 
 ## 一夜 goal（本会话只贴这段）
 
