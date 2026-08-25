@@ -43,12 +43,9 @@
 
 ## 解阻清单（人侧 / 协调侧）
 
-云端 B/C 与本机不同：gitignore 全文**不会**随 git 进 VM；脚手架必须先 push 到 remote。
+云端 B/C：gitignore 全文**不会**随 git 进 VM。
 
-1. **脚手架（可 commit）** push 到 `main` 或任一支，B 会 fetch：
-   - `docs/plans/2026-08-25-lotm-full-cards-loop.md`
-   - `docs/worlds/诡秘之主-拆文/PROMPTS.md`（第1轮厚卡）
-   - `docs/worlds/诡秘之主-拆文/章卡/89.md`（密度样板）
-   - `docs/worlds/诡秘之主-拆文/00-index.md`（或 loop 指定的切章索引，须含 546–826 行号）
-2. **全文（勿 commit）** 放入**本云端工作区**路径 `docs/worlds/诡秘之主-全文.md`（UTF-8）。途径：本机 scp/rsync 进 agent VM、或 follow-up 提供可拉的内网/已授权 URL（禁止公开盗版源）。`.gitignore` 已列此路径。
-3. 资产齐后本会话自动把 `status` 改回 `running`，从 `next_seq=546` 一轮一张；不必重开（若已杀再开亦可）。
+1. **已在本分支提供（可 merge）：** `docs/plans/2026-08-25-lotm-full-cards-loop.md`、`docs/worlds/诡秘之主-拆文/PROMPTS.md`、`章卡/README.md`。
+2. **仍缺 · 切章索引（可 commit）：** 有全文后跑 PROMPTS 第0轮 → `00-index.md`（须含 546–826 行号）。密度样板 `章卡/89.md` 由较早号段落盘前，密度对齐铜炉 `章卡/89.md`。
+3. **仍缺 · 全文（勿 commit）：** 放入本云端工作区 `docs/worlds/诡秘之主-全文.md`（scp/rsync/已授权 URL；禁止公开盗版源）。
+4. 全文+索引齐后本会话改 `running`，从 `next_seq=546` 一轮一张。
