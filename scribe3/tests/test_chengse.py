@@ -38,6 +38,8 @@ def test_version_and_prompts_carry_craft():
     assert "切在能听见看见" in dr
     f = final_generate({})
     assert "端的" in f and "岂料" in f
+    assert "多用'端的、岂料" not in f
+    assert "古白话语体" not in f
     j = duty_judge({})
     assert "C1." in j and "C7." in j
     assert "八问" in j
@@ -55,12 +57,22 @@ def test_write_protocol_drops_classical_when_on():
     assert "先立还在过的日子" in proto
 
 
-def test_write_protocol_legacy_when_off():
+def test_write_protocol_never_teaches_classical():
+    """关旗不回古白话教学；主路径也不教词表。"""
+    _on()
+    proto_on = _write_protocol_block()
+    assert "多用'端的、岂料" not in proto_on
+    assert "古白话语体" not in proto_on
+    assert "志怪笔记体" not in proto_on
+    assert "花脚毛驴" not in proto_on
     _off()
     try:
         proto = _write_protocol_block()
-        assert "多用'端的、岂料" in proto
+        assert "多用'端的、岂料" not in proto
+        assert "古白话语体" not in proto
+        assert "志怪笔记体" not in proto
         assert "成色（验戏，不验词表）" not in proto
+        assert "⟦PROPOSAL" in proto
     finally:
         _on()
 
@@ -117,6 +129,23 @@ def test_final_last_mile_hits_empty_summary():
     hit = check_final_last_mile(prose)
     assert hit["ok"] is False
     assert hit["code"] == "chengse_empty_summary"
+
+
+def test_source_has_no_classical_teaching_path():
+    """教学路径必须从源码消失，不能只靠关旗绕开。"""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    blobs = [
+        (root / "playbook" / "chengse.py").read_text(encoding="utf-8"),
+        (root / "api" / "services" / "write_assemble_blocks.py").read_text(encoding="utf-8"),
+        (root / "api" / "app_impl.py").read_text(encoding="utf-8"),
+    ]
+    joined = "\n".join(blobs)
+    assert "PROTOCOL_STYLE_LEGACY" not in joined
+    assert "_LUANSHI_EXEMPLAR" not in joined
+    assert "多用'端的、岂料" not in joined
+    assert "古白话语体" not in joined
 
 
 def test_pilot_codex_kind_uses_official_complete(monkeypatch):

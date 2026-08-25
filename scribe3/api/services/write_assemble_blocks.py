@@ -750,12 +750,7 @@ def _editor_identity_block() -> str:
 
 
 def _write_protocol_block() -> str:
-    """写作硬协议(讨论 vs 动稿)+ 文风基准。成色旗开则拆古白话贴铜炉。"""
-    try:
-        exemplar = _LUANSHI_EXEMPLAR  # type: ignore[name-defined]
-    except NameError:
-        from scribe3.api import app_impl as _core
-        exemplar = getattr(_core, "_LUANSHI_EXEMPLAR", "……")
+    """写作硬协议(讨论 vs 动稿)+ 文风基准。从不教古白话词表。"""
     from scribe3.playbook.chengse import protocol_style_block
     return (
         "\n\n你是这部小说的主编,以**作者视角**帮作者写/改这本书的手稿——作者在写一本书,"
@@ -774,7 +769,7 @@ def _write_protocol_block() -> str:
         "- 若作者给了某角色的「演绎草稿」(那角色这一场的限知体验)作为素材,把它**织进**书的叙事。\n"
         "- 尊重已确立设定/伏笔/北极星意图。默认作者视角(可全知);仅当作者明确指定本章跟某焦点者的"
         "限知走时,叙事才贴该视角、不写他不知道的私密。"
-        + protocol_style_block(exemplar=exemplar)
+        + protocol_style_block()
     )
 
 

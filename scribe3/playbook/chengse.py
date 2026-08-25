@@ -1,6 +1,6 @@
 """铜炉成色：日子/办事/假破真/远近/切。验戏，不验词表。
 
-旗 SCRIBE3_CHENGSE_CRAFT 默认开。关 = 写协议回古白话、本模块块与过滤停。
+旗 SCRIBE3_CHENGSE_CRAFT 默认开。关 = 过滤与成色块停，不回古白话教学。
 不过关不冒充成色：这里只挡反着教的套话/专名/空概括。日子翻没翻仍按尺子对照。
 """
 from __future__ import annotations
@@ -77,16 +77,6 @@ PROTOCOL_STYLE = (
     "世界要活，靠还在过的日子和当场办事，不靠古白话词表，不靠范例照抄。"
 )
 
-PROTOCOL_STYLE_LEGACY = (
-    "\n\n## 文风基准:贴《乱世铜炉》(志怪笔记体)——两条硬要求\n"
-    "1. **古白话语体**:句子要带旧白话的筋骨与风物实词,少用现代抽象/翻译腔。"
-    "多用'端的、岂料、怎禁得、却原来、一径、约莫'这类词;"
-    "状物用具体名物(花脚毛驴、青骡子、喜糕、水酒)而非笼统形容。"
-    "**禁**'像散了一地的骨头''张牙舞爪'这类用力过猛的现代文学比喻——冷笔、素描,信物自身说话。\n"
-    "2. **世界密度(乱世铜炉的命门)**:每章须织入与主线无关、却让世界活起来的市井风物侧笔——"
-    "婚丧社戏的张罗、乡邻帮衬、打更人讨水酒、行当忌讳、节庆吃食。别一上来直奔情节;让村镇先有烟火气,"
-    "妖异方有依附。"
-)
 
 
 def chengse_enabled() -> bool:
@@ -110,17 +100,11 @@ def craft_judge_block() -> str:
 
 
 def protocol_style_block(*, exemplar: str = "") -> str:
-    """写协议文风段。开旗用成色；关旗回古白话（可带旧范例）。"""
-    if chengse_enabled():
-        return PROTOCOL_STYLE
-    extra = ""
-    if exemplar:
-        extra = (
-            "范例语感(仅供体感,勿照抄字句):\n"
-            f"  「{exemplar}」\n"
-            "  ——注意它如何用一整段写婚宴的杀猪宰羊、姑嫂蒸糕、打更人讨酒,世界先活,事件才落地。"
-        )
-    return PROTOCOL_STYLE_LEGACY + extra
+    """写协议文风段。开旗用成色；关旗不注入文风段，也不回古白话教学。"""
+    del exemplar  # 范例曾教「岂料」，签名保留以免旧调用打爆
+    if not chengse_enabled():
+        return ""
+    return PROTOCOL_STYLE
 
 
 def _ok() -> dict[str, Any]:

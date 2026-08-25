@@ -334,7 +334,7 @@ REGISTRY: tuple[Setting, ...] = (
             "默认关=仅 advisory。"),
     Setting("SCRIBE3_CHENGSE_CRAFT", "flags", "bool", True, "hot",
             "成色（日子/办事/假破真）",
-            "开=拆古白话贴铜炉，成色块进生成/审判，过滤套话/专名/空概括。关=回旧文案。", danger=True),
+            "开=成色块进生成/审判，过滤套话/专名/空概括。关=过滤与成色块停，不回古白话教学。", danger=True),
     Setting("SCRIBE3_VOLUME_INTRO_COMPACT", "flags", "bool", True, "hot",
             "卷纲与大纲重叠折叠",
             "已含 title/goal 时压成卷钩。"),

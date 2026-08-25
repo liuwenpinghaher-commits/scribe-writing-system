@@ -320,7 +320,7 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     Flag(
         "SCRIBE3_CHENGSE_CRAFT",
         "1",
-        "成色：拆古白话贴铜炉；日子/办事/假破真进生成与审判；关=回旧文案",
+        "成色：日子/办事/假破真进生成与审判；关=过滤/成色块停，不回古白话教学",
         "playbook",
         "caution",
     ),

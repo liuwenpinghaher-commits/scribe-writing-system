@@ -1451,11 +1451,12 @@ def test_craft_block_injected_into_instructions(store):
     b = build_craft_block()
     assert b and "写作引擎" in b, "build_craft_block 默认应含「写作引擎」"
     # 种入题材规则后:应含题材层标题(使用 schema 允许的 kind)
-    store.add_craft_rule("artifact_craft", "古白话:多用端的/岂料/怎禁得", "乱世铜炉用词基准")
+    store.add_craft_rule("artifact_craft", "先立还在过的日子，奇事从日子里来", "日子规则夹具")
     rules = store.list_craft_rules()
     b2 = build_craft_block(rules)
     assert "题材规则" in b2 or "本书题材规则" in b2, "有规则时应含题材层标题"
-    assert "古白话" in b2, "craft_rule pattern 应出现在 block"
+    assert "还在过的日子" in b2, "craft_rule pattern 应出现在 block"
+    assert "多用端的" not in b2
 
 
 # ===== P3-f: CharIn 补 personality_tags / aliases =====

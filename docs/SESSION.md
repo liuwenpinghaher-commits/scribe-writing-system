@@ -50,6 +50,14 @@
 自动循环直到 MATRIX 全员诚实五维=5 或已登记天花板。不要问下一个。
 ```
 
+### 拆文倒逼翻主（短入口）
+
+```
+执行 docs/plans/2026-08-25-tonglu-force-rebuild-loop.md
+短名 tonglu-force-rebuild。先读 AGENTS.md 与 docs/SESSION.md。
+一轮一能力。禁止续跑 chengse-overnight。禁止 10 万单独开跑。
+```
+
 ### 故事招式库 · 命名绕法卡片（短入口）
 
 ```
@@ -63,11 +71,11 @@
 
 ## 当前状态
 
-### 成色过夜续跑（2026-08-25）
+### 拆文倒逼翻主（2026-08-25）
 
-中断任务 = Oz run `01a034aa-cb3b-79f9-8b44-25f8f1f1faaa`（`tonglu-chengse-overnight`，用户取消）。SSOT：[`docs/plans/2026-08-24-tonglu-chengse-loop.md`](./plans/2026-08-24-tonglu-chengse-loop.md)。
-现网已是 playbook.3.2.6 + `SCRIBE3_CHENGSE_CRAFT=on`。设定写厚 NameError 已修并热更（`8fb67521`）。
-样例书 **`book_46cff31a`《井台灯》** 已建。第 1 章《井台上还在排队》定稿 2261 字，成色尺子过，低于循环写的 3–8 千。未删《腕账》。可停：否。
+现行过夜 / 循环 SSOT：[`docs/plans/2026-08-25-tonglu-force-rebuild-loop.md`](./plans/2026-08-25-tonglu-force-rebuild-loop.md)（`tonglu-force-rebuild`）。旧 [`2026-08-24-tonglu-chengse-loop.md`](./plans/2026-08-24-tonglu-chengse-loop.md) **已结案，禁止续跑**。
+能力 0（反着教必死）：写协议无论旗开关都不教「端的/岂料」。关 `SCRIBE3_CHENGSE_CRAFT` = 过滤与成色块停，不回古白话。回退 = revert，不是关旗。
+样例书 **`book_46cff31a`《井台灯》** 可继作证据，本切片不写下一场、不开 10 万。未删《腕账》。可停：否。
 
 ### 时间线列表+抽屉（2026-08-25）
 
