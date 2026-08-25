@@ -155,6 +155,64 @@ def _nail_skip_year_duty(raw: dict[str, Any], ctx: dict[str, Any] | None = None)
     return rec
 
 
+def _nail_choice_duty(raw: dict[str, Any], ctx: dict[str, Any] | None = None) -> dict[str, Any]:
+    """选择卡写成遇袭丢魂 / 当场打死时，钉回还能跑、掉头、自己人交名。"""
+    rec = raw if isinstance(raw, dict) else {}
+    ctx = ctx or {}
+    kind = str(rec.get("kind") or "").strip()
+    hint = " ".join(
+        str(ctx.get(k) or "")
+        for k in ("chapter_duty", "synopsis", "volume_outline")
+    )
+    blob = " ".join(
+        str(rec.get(k) or "")
+        for k in ("day", "must_happen", "stay", "one_line", "keep", "heat", "said")
+    )
+    if kind != "选择" and "选择" not in hint and "交名" not in hint and "还能跑" not in hint and "掉头" not in hint:
+        return rec
+    rec["kind"] = "选择"
+    from scribe3.playbook.structural import (
+        _CHOICE_AMBUSH, _CHOICE_NAME, _CHOICE_PROPER, _CHOICE_RUN, _CHOICE_TURN,
+    )
+    live = f"{rec.get('day') or ''}\n{rec.get('must_happen') or ''}\n{rec.get('said') or ''}"
+    happen_keep = f"{rec.get('must_happen') or ''}\n{rec.get('keep') or ''}\n{rec.get('said') or ''}\n{rec.get('intruder') or ''}"
+    if (
+        _CHOICE_AMBUSH.search(blob)
+        or _CHOICE_PROPER.search(blob)
+        or not _CHOICE_RUN.search(live)
+        or not _CHOICE_TURN.search(happen_keep)
+        or not _CHOICE_NAME.search(happen_keep)
+    ):
+        rec["day"] = "还能跑的那一截路上"
+        rec["must_happen"] = "他本可跑，听见自己人开口就掉头，自己人抢先把命名交出去"
+        rec["stay"] = "人不等于放了。名交出去了，灯还欠着"
+        rec["heat"] = "求情像把人护住了"
+        rec["said"] = "求情比空口强"
+        rec["needed"] = "他还想跑，名已经从自己人嘴里出来"
+        rec["intruder"] = "自己人抢先报名"
+        rec["cut"] = "自己人报名那一声"
+        rec["one_line"] = "他救人去见人"
+        rec["keep"] = "还能跑、自己掉头、自己人交名，删了只剩过场"
+        rec["bill"] = "人交出去了"
+        rec["owed"] = str(ctx.get("prev_stay") or rec.get("owed") or "灯还欠着").strip()
+    for key in ("day", "must_happen", "stay", "heat", "said", "needed", "keep", "one_line", "bill"):
+        val = str(rec.get(key) or "")
+        for old, new in (("圣手小青龙", "那个名"), ("胡不为", "他"), ("秦苏", "自己人")):
+            if old in val:
+                rec[key] = val.replace(old, new)
+                val = rec[key]
+    if not str(rec.get("intruder") or "").strip():
+        rec["intruder"] = "自己人抢先报名"
+    who = [str(x).strip() for x in (rec.get("who") or []) if str(x).strip()]
+    cast = [str(x).strip() for x in (ctx.get("available_cast") or rec.get("available_cast") or [])]
+    for name in ("杏花", "师傅"):
+        if name in cast and name not in who:
+            who.append(name)
+    if who:
+        rec["who"] = who
+    return rec
+
+
 def gen_duty(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
     raw = generate_json(
         llm_fn, duty_generate(ctx), system=identity_for("duty"),
@@ -173,6 +231,7 @@ def gen_duty(ctx: dict, llm_fn: Callable) -> dict[str, Any]:
             raw["owed"] = stay_prev
     _nail_jail_duty(raw, ctx)
     _nail_skip_year_duty(raw, ctx)
+    _nail_choice_duty(raw, ctx)
     fr = raw.get("forbidden_reveal")
     if not (isinstance(fr, list) and any(str(x).strip() for x in fr)):
         secrets = [str(x).strip() for x in (ctx.get("secret_list") or []) if str(x).strip()]

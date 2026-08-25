@@ -28,7 +28,7 @@ def _off() -> None:
 
 def test_version_and_prompts_carry_craft():
     _on()
-    assert PLAYBOOK_VERSION == "playbook.3.2.26"
+    assert PLAYBOOK_VERSION == "playbook.3.2.27"
     d = duty_generate({"seq": 1})
     assert "【对照·真源】" in d
     assert "【成色·验戏不验词表】" not in d
@@ -1367,6 +1367,144 @@ def test_gen_duty_nails_skip_year_off_calendar():
     assert out["kind"] == "跳年"
     assert "六年" not in out["day"]
     assert "街上" in out["day"] or "开张" in out["day"]
+
+
+def test_duty_choice_blocks_ambush_and_proper():
+    """选择验结构：还能跑、掉头、自己人交名。遇袭丢魂 / 铜炉专名不过。"""
+    from scribe3.playbook.context import make_duty
+    from scribe3.playbook.structural import check_duty_struct
+
+    hook = "绳上的杏花远远朝这边抬了一次眼，什么也没喊，又低下去了"
+    stay = "灯还欠着，救人的人还在绳上，街上这一天还没过完"
+    heat = "茶馆把旧年当茶讲，像年已经翻了"
+    ambush = make_duty(
+        seq=10, who=["沈槐"], available_cast=["沈槐", "杏花", "师傅"],
+        day="还能跑的那一截路上",
+        said="求情比空口强",
+        needed="他还想跑，名已经从自己人嘴里出来",
+        heat="求情像把人护住了",
+        stay="人不等于放了。名交出去了，灯还欠着",
+        owed="灯还欠着，救人的人还在绳上",
+        must_happen="遇袭丢魂",
+        kind="选择", intruder="自己人抢先报名",
+        bill="人交出去了", bill_holder="师傅", bill_place="路上",
+        cut="自己人报名那一声",
+        one_line="他救人去见人",
+        keep="还能跑、自己掉头、自己人交名，删了只剩过场",
+    )
+    ambush["bite_from_prev"] = hook
+    hit = check_duty_struct(
+        ambush, available_cast=["沈槐", "杏花", "师傅"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="跳年", prev_intruder="行人要改歌",
+    )
+    assert hit["ok"] is False
+    assert hit["code"] == "duty_choice_ambush"
+
+    proper = make_duty(
+        seq=10, who=["沈槐"], available_cast=["沈槐", "杏花", "师傅"],
+        day="还能跑的那一截路上",
+        said="求情比空口强",
+        needed="他还想跑，名已经从自己人嘴里出来",
+        heat="求情像把人护住了",
+        stay="人不等于放了。名交出去了，灯还欠着",
+        owed="灯还欠着，救人的人还在绳上",
+        must_happen="他掉头，自己人报出圣手小青龙",
+        kind="选择", intruder="自己人抢先报名",
+        bill="人交出去了", bill_holder="师傅", bill_place="路上",
+        cut="自己人报名那一声",
+        one_line="他救人去见人",
+        keep="还能跑、自己掉头、自己人交名，删了只剩过场",
+    )
+    proper["bite_from_prev"] = hook
+    hit2 = check_duty_struct(
+        proper, available_cast=["沈槐", "杏花", "师傅"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="跳年", prev_intruder="行人要改歌",
+    )
+    assert hit2["ok"] is False
+    assert hit2["code"] == "duty_choice_name"
+
+    no_run = make_duty(
+        seq=10, who=["沈槐"], available_cast=["沈槐", "杏花", "师傅"],
+        day="井台上还在排队打水",
+        said="求情比空口强",
+        needed="他还想跑，名已经从自己人嘴里出来",
+        heat="求情像把人护住了",
+        stay="人不等于放了。名交出去了，灯还欠着",
+        owed="灯还欠着，救人的人还在绳上",
+        must_happen="他掉头，自己人抢先报名",
+        kind="选择", intruder="自己人抢先报名",
+        bill="人交出去了", bill_holder="师傅", bill_place="路上",
+        cut="自己人报名那一声",
+        one_line="他救人去见人",
+        keep="还能跑、自己掉头、自己人交名，删了只剩过场",
+    )
+    no_run["bite_from_prev"] = hook
+    hit3 = check_duty_struct(
+        no_run, available_cast=["沈槐", "杏花", "师傅"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="跳年", prev_intruder="行人要改歌",
+    )
+    assert hit3["ok"] is False
+    assert hit3["code"] == "duty_choice_run"
+
+    ok = make_duty(
+        seq=10, who=["沈槐", "杏花", "师傅"], available_cast=["沈槐", "杏花", "师傅"],
+        day="还能跑的那一截路上",
+        said="求情比空口强",
+        needed="他还想跑，名已经从自己人嘴里出来",
+        heat="求情像把人护住了",
+        stay="人不等于放了。名交出去了，灯还欠着",
+        owed="灯还欠着，救人的人还在绳上",
+        must_happen="他本可跑，听见自己人开口就掉头，自己人抢先把命名交出去",
+        kind="选择", intruder="自己人抢先报名",
+        bill="人交出去了", bill_holder="师傅", bill_place="路上",
+        cut="自己人报名那一声",
+        one_line="他救人去见人",
+        keep="还能跑、自己掉头、自己人交名，删了只剩过场",
+    )
+    ok["bite_from_prev"] = hook
+    assert check_duty_struct(
+        ok, available_cast=["沈槐", "杏花", "师傅"], prev_hook_quote=hook,
+        prev_stay=stay, prev_heat=heat, prev_kind="跳年", prev_intruder="行人要改歌",
+    )["ok"] is True
+
+
+def test_gen_duty_nails_choice_off_ambush():
+    """模型写成遇袭丢魂时，生成层钉回还能跑、掉头、交名。"""
+    from scribe3.playbook.layers import _nail_choice_duty, gen_duty
+
+    raw = {
+        "kind": "选择",
+        "day": "路上",
+        "must_happen": "遇袭丢魂",
+        "stay": "人死了",
+        "heat": "打完了",
+        "who": ["沈槐"],
+    }
+    nailed = _nail_choice_duty(raw, {"chapter_duty": "还能跑，自己掉头交名", "available_cast": ["沈槐", "杏花", "师傅"]})
+    assert nailed["kind"] == "选择"
+    assert "还能跑" in nailed["day"] or "本可跑" in nailed["must_happen"]
+    assert "掉头" in nailed["must_happen"]
+    assert "交" in nailed["must_happen"]
+    assert "圣手小青龙" not in str(nailed)
+    assert "遇袭丢魂" not in nailed["must_happen"]
+
+    def llm(prompt, **kw):
+        return (
+            '{"day":"路上","said":"求情","needed":"灯还欠着",'
+            '"mask":"他还能走","crack":"自己人开口","real":"名交出去了",'
+            '"eye":"沈槐","dist":"near","cut":"报名那一声",'
+            '"one_line":"遇袭丢魂","keep":"中暗器",'
+            '"heat":"打完了","stay":"人死了",'
+            '"owed":"灯还欠着","kind":"选择","intruder":"师傅",'
+            '"bill_holder":"师傅","bill_place":"路上",'
+            '"must_happen":"遇袭丢魂",'
+            '"bill":"丢魂","who":["沈槐"],"forbidden_reveal":["油从哪来"]}'
+        )
+
+    out = gen_duty({"seq": 10, "available_cast": ["沈槐", "杏花", "师傅"], "chapter_duty": "自己人交名"}, llm)
+    assert out["kind"] == "选择"
+    assert "掉头" in out["must_happen"]
+    assert "遇袭丢魂" not in out["must_happen"]
 
 
 def test_draft_copy_does_not_kill_lived_expansion():
