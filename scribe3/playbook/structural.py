@@ -77,7 +77,7 @@ _SIGH_CUT = re.compile(
 )
 _CUT_SENSED = re.compile(
     r"一声|一响|响了|闷响|碎了|开了|停住|磕|砸|摔|撞|落地|堕地"
-    r"|啪|嚓|喀喇|尖鸣|穿|门开|钉子|杯子"
+    r"|啪|嚓|喀喇|尖鸣|穿|门开|钉子|杯子|酒盅|碰杯"
 )
 # 因文.md：一行本事说不完；删了那一截场会塌。
 _ONE_LINE_OK = re.compile(r"一行就够|本事说完|过场即可|说明书")
@@ -409,7 +409,7 @@ def check_duty_feast(duty: dict[str, Any]) -> dict[str, Any]:
         return _fail("duty_feast_face", "酒宴要看见面子把人按在桌上", "day")
     if not _FEAST_TABLE.search(f"{happen}\n{heat}\n{stay}\n{owed}"):
         return _fail("duty_feast_table", "酒宴要让不该看见的那一桌坐进来", "must_happen")
-    if not _FEAST_GUEST.search(stay):
+    if not _FEAST_GUEST.search(f"{stay}\n{owed}\n{str((duty or {}).get('bill') or '')}"):
         return _fail("duty_feast_guest", "酒宴读完有人当不成贺客，或这场酒还坐不住", "stay")
     return _ok()
 
