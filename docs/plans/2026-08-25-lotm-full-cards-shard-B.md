@@ -22,7 +22,7 @@
 | status | **BLOCKED** |
 | last_card | （尚未） |
 | blocked_at | 2026-08-25T15:02Z |
-| last_checked | 2026-08-25T15:25Z |
+| last_checked | 2026-08-25T15:30Z |
 | blocked_reason | 缺原文 `docs/worlds/诡秘之主-全文.md` 与切章索引 `00-index.md`（按合同缺全文 → BLOCKED）。本分支已补可提交脚手架：`lotm-full-cards-loop.md`、`诡秘之主-拆文/PROMPTS.md`（第1轮厚卡）、`章卡/README.md`。密度暂对齐铜炉 `章卡/89.md`。不编造章卡、不外网扒书。全文+索引到位后 `status=running` 从 546 开写。 |
 
 ## 一夜 goal（本会话只贴这段）
