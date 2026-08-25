@@ -74,7 +74,8 @@
 ### 素材库 P2（2026-08-25）
 
 不改合同。插入按钮写「填入后才记引用」。去掉恒空的「历史主编记录」。健康度失败要响。空库探测 `materials_exist` 只探一条。简单视图列表走 SQL `LIMIT/START`。情绪卡标签不再装成笔记。`@` 有查询时把 `q` 交给服务端，素材请求失败不装空目录。`/objects/material` 删/归档走作者直管闸外。
-**测：** 前端 46 passed；后端 P2 焦点 12 passed。未合入、未热更。
+**测：** 前端 46 passed；后端 P2 焦点 12 passed。
+**已合入并热更：** `29b62a65`。hot `HEALTH_OK` + v634 27/27。frontend `FRONTEND_DEPLOY_OK`，首页 `index-CgbrcZ3v.js`。宿主机与 nginx `index.html` 哈希一致。nginx unlink busy 非致命。强制刷新后再验素材库来源筛、插入按钮、健康度。
 **未做：** 近重仍只 warning；健康度计数仍全表；记忆网络全图截 200；P3 拆 `Materials.jsx`。
 
 ### 素材库 P0+P1（2026-08-25）
