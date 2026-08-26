@@ -101,6 +101,7 @@ def build_extract_prompt(*, seq: int, title: str, source: str, fewshot: str | No
 {source}
 
 {shot}按下面 21 个二级标题写一张卡。每段只问一件事。没有就写没有或正文未写到。
+「打开书」必须写清：谁的夜或白日；发生哪一件事；读完地、人、日子变成什么样；这一节是谁的眼睛在看，还是说书的人站在外头评。不要只写情节摘要。
 书证每条必须是原文短句，行号用本节里能搜到的句子，写成 L数字。不要网站广告。
 专名原样记下。学结构，不要把这本故事搬进下一本。
 
@@ -110,17 +111,25 @@ def build_extract_prompt(*, seq: int, title: str, source: str, fewshot: str | No
 
 
 def pick_dev_fewshot(exclude: int) -> str | None:
+    """Dev only. Prefer a complete 打开书 skeleton, not the shortest early card."""
     holdout = _holdout_set()
     meta = {c["seq"]: c for c in _chapters()["chapters"]}
+    fallback = None
     for seq in range(214):
         if seq == exclude or seq in holdout:
             continue
         if meta[seq].get("r1_skip_reason"):
             continue
         path = GOLD_DIR / f"{seq}.md"
-        if path.exists():
-            return path.read_text(encoding="utf-8")[:6000]
-    return None
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        if fallback is None:
+            fallback = text
+        ob = parse_card(text).get("打开书", "")
+        if "读完" in ob and len(ob) >= 400:
+            return text[:8000]
+    return None if fallback is None else fallback[:8000]
 
 
 def extract_card(seq: int, *, complete_fn, use_fewshot: bool = True, source: str | None = None) -> str:

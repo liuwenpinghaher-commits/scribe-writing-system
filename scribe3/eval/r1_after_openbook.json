@@ -1,0 +1,972 @@
+{
+  "label": "after_openbook",
+  "holdout_sha256": "fb460682bfcff4f2345699068cf818893094e733b987f1c19a91c267dfda4649",
+  "n": 33,
+  "mean": 0.5636,
+  "fields": {
+    "这场戏有没有翻": 0.9697,
+    "留给下一节的日子": 0.5758,
+    "这一节回不去的事": 0.4848,
+    "热怎么变冷": 0.4242,
+    "打开书": 0.3636
+  },
+  "rows": [
+    {
+      "hits": 3,
+      "n": 5,
+      "score": 0.6,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.25
+        },
+        "这一节回不去的事": {
+          "ok": false,
+          "sim": 0.0
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.0
+        },
+        "打开书": {
+          "ok": true,
+          "sim": 0.2557
+        }
+      },
+      "seq": 8
+    },
+    {
+      "hits": 3,
+      "n": 5,
+      "score": 0.6,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.2679
+        },
+        "这一节回不去的事": {
+          "ok": false,
+          "sim": 0.184
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.1774
+        },
+        "打开书": {
+          "ok": true,
+          "sim": 0.3205
+        }
+      },
+      "seq": 11
+    },
+    {
+      "hits": 3,
+      "n": 5,
+      "score": 0.6,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": false,
+          "sim": 0.1702
+        },
+        "这一节回不去的事": {
+          "ok": false,
+          "sim": 0.1736
+        },
+        "热怎么变冷": {
+          "ok": true,
+          "sim": 0.2761
+        },
+        "打开书": {
+          "ok": true,
+          "sim": 0.2944
+        }
+      },
+      "seq": 14
+    },
+    {
+      "hits": 4,
+      "n": 5,
+      "score": 0.8,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.2946
+        },
+        "这一节回不去的事": {
+          "ok": true,
+          "sim": 0.2662
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.159
+        },
+        "打开书": {
+          "ok": true,
+          "sim": 0.3495
+        }
+      },
+      "seq": 18
+    },
+    {
+      "hits": 3,
+      "n": 5,
+      "score": 0.6,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.2619
+        },
+        "这一节回不去的事": {
+          "ok": true,
+          "sim": 0.2528
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.1749
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.1823
+        }
+      },
+      "seq": 23
+    },
+    {
+      "hits": 2,
+      "n": 5,
+      "score": 0.4,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": false,
+          "sim": 0.1721
+        },
+        "这一节回不去的事": {
+          "ok": true,
+          "sim": 0.3446
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.1915
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.2151
+        }
+      },
+      "seq": 27
+    },
+    {
+      "hits": 2,
+      "n": 5,
+      "score": 0.4,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": false,
+          "sim": 0.2345
+        },
+        "这一节回不去的事": {
+          "ok": false,
+          "sim": 0.226
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.2201
+        },
+        "打开书": {
+          "ok": true,
+          "sim": 0.2727
+        }
+      },
+      "seq": 29
+    },
+    {
+      "hits": 1,
+      "n": 5,
+      "score": 0.2,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": false,
+          "sim": 0.1316
+        },
+        "这一节回不去的事": {
+          "ok": false,
+          "sim": 0.24
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.2154
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.1935
+        }
+      },
+      "seq": 30
+    },
+    {
+      "hits": 1,
+      "n": 5,
+      "score": 0.2,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": false,
+          "sim": 0.0
+        },
+        "这一节回不去的事": {
+          "ok": false,
+          "sim": 0.0
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.0
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.2252
+        }
+      },
+      "seq": 31
+    },
+    {
+      "hits": 3,
+      "n": 5,
+      "score": 0.6,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.4
+        },
+        "这一节回不去的事": {
+          "ok": true,
+          "sim": 0.26
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.2088
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.1938
+        }
+      },
+      "seq": 32
+    },
+    {
+      "hits": 4,
+      "n": 5,
+      "score": 0.8,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.3881
+        },
+        "这一节回不去的事": {
+          "ok": true,
+          "sim": 0.2706
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.0
+        },
+        "打开书": {
+          "ok": true,
+          "sim": 0.2761
+        }
+      },
+      "seq": 36
+    },
+    {
+      "hits": 3,
+      "n": 5,
+      "score": 0.6,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.2958
+        },
+        "这一节回不去的事": {
+          "ok": false,
+          "sim": 0.1553
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.2204
+        },
+        "打开书": {
+          "ok": true,
+          "sim": 0.3161
+        }
+      },
+      "seq": 39
+    },
+    {
+      "hits": 3,
+      "n": 5,
+      "score": 0.6,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": false,
+          "sim": 0.2477
+        },
+        "这一节回不去的事": {
+          "ok": false,
+          "sim": 0.1716
+        },
+        "热怎么变冷": {
+          "ok": true,
+          "sim": 0.2876
+        },
+        "打开书": {
+          "ok": true,
+          "sim": 0.3036
+        }
+      },
+      "seq": 44
+    },
+    {
+      "hits": 2,
+      "n": 5,
+      "score": 0.4,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.2966
+        },
+        "这一节回不去的事": {
+          "ok": false,
+          "sim": 0.1744
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.2049
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.2421
+        }
+      },
+      "seq": 52
+    },
+    {
+      "hits": 3,
+      "n": 5,
+      "score": 0.6,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.2783
+        },
+        "这一节回不去的事": {
+          "ok": true,
+          "sim": 0.2815
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.2
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.2253
+        }
+      },
+      "seq": 54
+    },
+    {
+      "hits": 1,
+      "n": 5,
+      "score": 0.2,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": false,
+          "sim": 0.2333
+        },
+        "这一节回不去的事": {
+          "ok": false,
+          "sim": 0.2397
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.2316
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.2248
+        }
+      },
+      "seq": 59
+    },
+    {
+      "hits": 4,
+      "n": 5,
+      "score": 0.8,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.3108
+        },
+        "这一节回不去的事": {
+          "ok": true,
+          "sim": 0.3333
+        },
+        "热怎么变冷": {
+          "ok": true,
+          "sim": 0.3
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.1855
+        }
+      },
+      "seq": 61
+    },
+    {
+      "hits": 2,
+      "n": 5,
+      "score": 0.4,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": false,
+          "pred": null,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.392
+        },
+        "这一节回不去的事": {
+          "ok": true,
+          "sim": 0.26
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.1869
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.1929
+        }
+      },
+      "seq": 65
+    },
+    {
+      "hits": 4,
+      "n": 5,
+      "score": 0.8,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": false,
+          "sim": 0.2414
+        },
+        "这一节回不去的事": {
+          "ok": true,
+          "sim": 0.2909
+        },
+        "热怎么变冷": {
+          "ok": true,
+          "sim": 0.3056
+        },
+        "打开书": {
+          "ok": true,
+          "sim": 0.3123
+        }
+      },
+      "seq": 69
+    },
+    {
+      "hits": 4,
+      "n": 5,
+      "score": 0.8,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.3303
+        },
+        "这一节回不去的事": {
+          "ok": true,
+          "sim": 0.313
+        },
+        "热怎么变冷": {
+          "ok": true,
+          "sim": 0.3136
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.2306
+        }
+      },
+      "seq": 79
+    },
+    {
+      "hits": 4,
+      "n": 5,
+      "score": 0.8,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.2917
+        },
+        "这一节回不去的事": {
+          "ok": true,
+          "sim": 0.2632
+        },
+        "热怎么变冷": {
+          "ok": true,
+          "sim": 0.3289
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.2119
+        }
+      },
+      "seq": 117
+    },
+    {
+      "hits": 2,
+      "n": 5,
+      "score": 0.4,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": false,
+          "sim": 0.1981
+        },
+        "这一节回不去的事": {
+          "ok": false,
+          "sim": 0.2444
+        },
+        "热怎么变冷": {
+          "ok": true,
+          "sim": 0.3561
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.2333
+        }
+      },
+      "seq": 121
+    },
+    {
+      "hits": 4,
+      "n": 5,
+      "score": 0.8,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.4167
+        },
+        "这一节回不去的事": {
+          "ok": false,
+          "sim": 0.2464
+        },
+        "热怎么变冷": {
+          "ok": true,
+          "sim": 0.264
+        },
+        "打开书": {
+          "ok": true,
+          "sim": 0.3043
+        }
+      },
+      "seq": 124
+    },
+    {
+      "hits": 4,
+      "n": 5,
+      "score": 0.8,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.3774
+        },
+        "这一节回不去的事": {
+          "ok": true,
+          "sim": 0.2653
+        },
+        "热怎么变冷": {
+          "ok": true,
+          "sim": 0.3537
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.2313
+        }
+      },
+      "seq": 127
+    },
+    {
+      "hits": 2,
+      "n": 5,
+      "score": 0.4,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": false,
+          "sim": 0.1901
+        },
+        "这一节回不去的事": {
+          "ok": false,
+          "sim": 0.2222
+        },
+        "热怎么变冷": {
+          "ok": true,
+          "sim": 0.2774
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.1729
+        }
+      },
+      "seq": 130
+    },
+    {
+      "hits": 3,
+      "n": 5,
+      "score": 0.6,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": false,
+          "sim": 0.2419
+        },
+        "这一节回不去的事": {
+          "ok": true,
+          "sim": 0.3284
+        },
+        "热怎么变冷": {
+          "ok": true,
+          "sim": 0.2529
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.2297
+        }
+      },
+      "seq": 135
+    },
+    {
+      "hits": 2,
+      "n": 5,
+      "score": 0.4,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.3047
+        },
+        "这一节回不去的事": {
+          "ok": false,
+          "sim": 0.1875
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.1707
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.2218
+        }
+      },
+      "seq": 136
+    },
+    {
+      "hits": 4,
+      "n": 5,
+      "score": 0.8,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.339
+        },
+        "这一节回不去的事": {
+          "ok": true,
+          "sim": 0.3086
+        },
+        "热怎么变冷": {
+          "ok": true,
+          "sim": 0.3254
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.2319
+        }
+      },
+      "seq": 137
+    },
+    {
+      "hits": 1,
+      "n": 5,
+      "score": 0.2,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": false,
+          "sim": 0.0
+        },
+        "这一节回不去的事": {
+          "ok": false,
+          "sim": 0.0
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.0387
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.2354
+        }
+      },
+      "seq": 138
+    },
+    {
+      "hits": 5,
+      "n": 5,
+      "score": 1.0,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.2857
+        },
+        "这一节回不去的事": {
+          "ok": true,
+          "sim": 0.2955
+        },
+        "热怎么变冷": {
+          "ok": true,
+          "sim": 0.3006
+        },
+        "打开书": {
+          "ok": true,
+          "sim": 0.2748
+        }
+      },
+      "seq": 145
+    },
+    {
+      "hits": 2,
+      "n": 5,
+      "score": 0.4,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": false,
+          "sim": 0.156
+        },
+        "这一节回不去的事": {
+          "ok": false,
+          "sim": 0.1908
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.2259
+        },
+        "打开书": {
+          "ok": true,
+          "sim": 0.2741
+        }
+      },
+      "seq": 148
+    },
+    {
+      "hits": 2,
+      "n": 5,
+      "score": 0.4,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": false,
+          "sim": 0.209
+        },
+        "这一节回不去的事": {
+          "ok": false,
+          "sim": 0.1748
+        },
+        "热怎么变冷": {
+          "ok": true,
+          "sim": 0.2978
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.2297
+        }
+      },
+      "seq": 153
+    },
+    {
+      "hits": 3,
+      "n": 5,
+      "score": 0.6,
+      "fields": {
+        "这场戏有没有翻": {
+          "ok": true,
+          "pred": true,
+          "gold": true
+        },
+        "留给下一节的日子": {
+          "ok": true,
+          "sim": 0.2734
+        },
+        "这一节回不去的事": {
+          "ok": true,
+          "sim": 0.3206
+        },
+        "热怎么变冷": {
+          "ok": false,
+          "sim": 0.2211
+        },
+        "打开书": {
+          "ok": false,
+          "sim": 0.2154
+        }
+      },
+      "seq": 154
+    }
+  ]
+}

@@ -30,19 +30,25 @@ def unwrap_md(text: str) -> str:
 def live_complete(prompt: str) -> str:
     import time
 
-    from scribe3.deepseek_client import DeepSeekError
+    from scribe3.deepseek_client import DeepSeekError, DeepSeekHTTPError
     from scribe3.llm import hermes_complete
 
     last: Exception | None = None
-    for attempt in range(3):
+    for attempt in range(8):
         try:
             return unwrap_md(
                 hermes_complete(prompt, max_tokens=12288, temperature=0.2, timeout=600)
             )
         except DeepSeekError as e:
             last = e
-            print(f"R1_LLM_RETRY attempt={attempt + 1} {type(e).__name__}: {e}", flush=True)
-            time.sleep(2)
+            wait = 2.0
+            if isinstance(e, DeepSeekHTTPError) and e.status_code == 429:
+                wait = min(180.0, 15.0 * (2 ** attempt))
+            print(
+                f"R1_LLM_RETRY attempt={attempt + 1} {type(e).__name__}: {e} sleep={wait}",
+                flush=True,
+            )
+            time.sleep(wait)
     raise last if last else RuntimeError("live_complete failed")
 
 
