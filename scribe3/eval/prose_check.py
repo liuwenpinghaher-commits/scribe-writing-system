@@ -1,6 +1,16 @@
-"""Mechanical style checks. Report only. Zero LLM.
+"""Distribution monitor for sample scenes. Read-only. Zero LLM.
 
-v4: interval gates from source stats. Prompt must not mention these names.
+**This is not a gate.** Four rounds showed that any threshold the model can see
+turns into a template: a ≤1 simile line produced zero similes, a ≥30% redundancy
+line produced shredded four-word turns, a ≥15% long-turn line produced
+info-dumping monologues, and the phatic whitelist below still literally contains
+「你吃了没」— the very line three samples shared when the author called them
+identical. Surface statistics cannot steer token-by-token sampling; they only
+tell you how far a draft sits from the two reference books.
+
+So: no pass/fail in the report, no thresholds in the prompt, no wiring into the
+生成 path. The author is the only verdict. `check_prose` keeps boolean fields
+for regression pins only.
 """
 from __future__ import annotations
 
@@ -61,12 +71,41 @@ _PHATIC = re.compile(
     r"你吃了|吃了没|你忙|几家|身体|多大了|下班|辛苦)"
 )
 
-SIMILE_MIN, SIMILE_MAX = 0.4, 1.5  # 铜炉 0.80 / 诡秘 1.07（同一正则重算）
+SIMILE_MIN, SIMILE_MAX = 0.4, 1.5  # 铜炉 0.83 / 诡秘 1.07（同一正则重算）
 SD_MIN = 12.0
 MAX_LEN_MIN = 60
 PHATIC_MIN = 0.12
 LONG_TURN = 30  # 触发「不接话茬」判定的台词长度
 IGNORE_GAP = 40  # 长台词后至少这么多字的叙述才算没人接
+
+# 两本参照的实测分布，用本文件同一套函数算出，供对照，不作阈值。
+REF: dict[str, dict[str, float]] = {
+    "乱世铜炉": {
+        "simile_per_k": 0.83,
+        "sd": 41.7,
+        "max_len": 1729,
+        "phatic_ratio": 0.203,
+        "ignored_per_k": 109.8,
+        "half_ratio": 0.078,
+    },
+    "诡秘之主": {
+        "simile_per_k": 1.07,
+        "sd": 41.9,
+        "max_len": 1545,
+        "phatic_ratio": 0.131,
+        "ignored_per_k": 48.9,
+        "half_ratio": 0.063,
+    },
+}
+
+_METRIC_LABELS: tuple[tuple[str, str, str], ...] = (
+    ("simile_per_k", "明喻 /千字", "{:.2f}"),
+    ("sd", "对白句长标准差", "{:.1f}"),
+    ("max_len", "最长一句", "{:.0f}"),
+    ("phatic_ratio", "无信息回合", "{:.0%}"),
+    ("ignored_per_k", "不接话茬 /千回合", "{:.0f}"),
+    ("half_ratio", "话说一半", "{:.0%}"),
+)
 
 
 def extract_prose(md: str) -> str:
@@ -288,6 +327,21 @@ def check_prose(md: str, premise: dict | None = None) -> dict:
         "n_ok": sum(1 for c in checks if c["ok"]),
         "checks": checks,
         "dialogue": {k: d[k] for k in ("n", "sd", "long_ratio", "max_len")},
+        "metrics": {
+            "simile_per_k": simile_per_k,
+            "sd": d["sd"],
+            "max_len": float(d["max_len"]),
+            "phatic_ratio": phatic_ratio,
+            "ignored_per_k": (ignored / d["n"] * 1000) if d["n"] else 0.0,
+            "half_ratio": (half / d["n"]) if d["n"] else 0.0,
+        },
+        "facts": {
+            "母题黑名单命中": "、".join(motif_hits) or "无",
+            "卡片例句原样出现": detail_c,
+            "角色执念复现": detail_t,
+            "物件复现": detail_p,
+            "职业词命中": detail_j,
+        },
     }
 
 
@@ -346,13 +400,33 @@ def check_corpus(texts: list[str]) -> dict:
 
 
 def format_report(report: dict) -> str:
-    n = report.get("n_ok", 0) + report.get("n_red", 0)
-    lines = ["## prose_check", ""]
-    for c in report["checks"]:
-        mark = "红" if not c["ok"] else "过"
-        lines.append(f"- {c['name']} · {mark} · {c['detail']}")
-    lines.append("")
-    lines.append(f"合计 {report['n_ok']}/{n} 过，{report['n_red']} 红。只报告，不改稿。全绿不作停机。")
+    """对照表，无判定。
+
+    刻意不输出「过/红」与总分：只要报告里有及格线，人就会去追全绿，
+    监控迟早又变回门禁——前四轮都是这么塌的。
+    """
+    m = report.get("metrics") or {}
+    a, b = REF["乱世铜炉"], REF["诡秘之主"]
+    lines = [
+        "## 分布对照（只读监控 · 不作判据 · 不进提示）",
+        "",
+        "| 项 | 本稿 | 乱世铜炉 | 诡秘之主 |",
+        "|---|---|---|---|",
+    ]
+    for key, label, fmt in _METRIC_LABELS:
+        if key not in m:
+            continue
+        lines.append(
+            f"| {label} | {fmt.format(m[key])} | {fmt.format(a[key])} | {fmt.format(b[key])} |"
+        )
+    facts = report.get("facts") or {}
+    if facts:
+        lines += ["", "事实项（陈述，不是评分）：", ""]
+        lines += [f"- {k}：{v}" for k, v in facts.items()]
+    lines += [
+        "",
+        "数值本身不是好坏，离参照近也不等于写得好。作者判断是唯一裁决。",
+    ]
     return "\n".join(lines)
 
 

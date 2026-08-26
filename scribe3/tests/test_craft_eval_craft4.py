@@ -1,7 +1,13 @@
-"""craft4: voice cards, interval gates, prompt/check isolation."""
+"""craft4: voice cards, interval gates, prompt/check isolation.
+
+v5 additions: the gate is demoted to a read-only monitor, and author verdicts
+are recorded as preference pairs instead of encoded as thresholds.
+"""
 from __future__ import annotations
 
 from pathlib import Path
+
+import pytest
 
 from scribe3.eval.premises import load_premises, validate_premise
 from scribe3.eval.prose_check import CHECK_KEYWORDS, check_corpus, check_file, check_prose
@@ -97,3 +103,80 @@ def test_prompt_does_not_contain_check_keywords():
     assert rows[0]["cast"][0]["name"] in p
     assert rows[0]["cast"][0]["jargon"][0] in p
     assert "信息不对称" in p or rows[0]["info_gap"]["knows"] in p
+
+
+# ---- v5：闸降级为监控 + 偏好数据 ----
+
+def test_monitor_report_has_no_pass_fail():
+    """报告里只要有及格线，人就会去追全绿，监控迟早又变回门禁。"""
+    from scribe3.eval.prose_check import format_report
+
+    md = format_report(check_file(SAMPLES / "V4-3b-乡土-人写.md"))
+    for banned in ("· 过 ·", "· 红 ·", "合计", "线≥", "区间"):
+        assert banned not in md, banned
+    assert "乱世铜炉" in md and "诡秘之主" in md
+    assert "作者判断是唯一裁决" in md
+
+
+def test_reference_distribution_covers_every_reported_metric():
+    from scribe3.eval.prose_check import REF, _METRIC_LABELS
+
+    m = check_file(SAMPLES / "V4-3b-乡土-人写.md")["metrics"]
+    for key, _label, _fmt in _METRIC_LABELS:
+        assert key in m, key
+        for book in REF:
+            assert key in REF[book], (book, key)
+
+
+def test_prefs_reject_vague_notes_and_self_pairs(tmp_path):
+    from scribe3.eval.prefs import Pref, append_pref, load_prefs
+
+    f = tmp_path / "prefs.jsonl"
+    good = Pref(
+        id="pref-0001",
+        round="v5",
+        premise_id="p01",
+        genre="乡土",
+        chosen="a.md",
+        rejected="b.md",
+        notes=["老金是公务员标本，不是活人"],
+    )
+    append_pref(good, f, check_files=False)
+    assert len(load_prefs(f)) == 1
+
+    with pytest.raises(ValueError):
+        append_pref(good, f, check_files=False)  # duplicate id
+    for bad in (
+        {"notes": ["一般"]},
+        {"notes": []},
+        {"chosen": "b.md"},
+    ):
+        row = {**good.__dict__, "id": "pref-0002", **bad}
+        with pytest.raises(ValueError):
+            append_pref(row, f, check_files=False)
+
+
+def test_dialogue_demo_grew_to_cover_confrontation_and_group_scenes():
+    md = DEMO.read_text(encoding="utf-8")
+    assert md.count("## ") >= 9
+    assert "决裂" in md and "黑蛇" in md
+    assert "点评" not in md and "评：" not in md
+
+
+def test_monitor_numbers_never_leak_into_prompt():
+    """监控可以写进交付文件给人看，但不许回流到生成侧。"""
+    import inspect
+
+    from scribe3.eval import prose_check as pc
+    from scribe3.eval.sample_scene import build_prompt_v4
+
+    rows = load_premises()
+    p = build_prompt_v4(rows[0], demo_md=DEMO.read_text(encoding="utf-8"))
+    for word in ("分布对照", "监控", "/千字", "标准差", "参照", "占比"):
+        assert word not in p, word
+    for book in pc.REF:
+        for v in pc.REF[book].values():
+            assert f"{v}" not in p, (book, v)
+    # 提示只由处境与示范决定，拿不到任何检查结果
+    sig = inspect.signature(build_prompt_v4)
+    assert set(sig.parameters) == {"premise", "demo_md"}

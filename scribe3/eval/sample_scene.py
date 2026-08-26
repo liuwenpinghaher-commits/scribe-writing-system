@@ -247,6 +247,77 @@ def write_sample(
     return dest
 
 
+def write_candidate(
+    dest: Path,
+    *,
+    premise: dict,
+    prose: str,
+    title: str,
+    provider: str,
+    monitor_md: str = "",
+) -> Path:
+    """候选稿。没有自评段——上一轮的自评只是在复述检查项。"""
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        f"""# {title or dest.stem}
+
+> **候选稿，等作者挑。** 不作任何闸的证据，不进 Surreal，不上现网。
+> 下面的分布对照是只读监控，不是评分；离参照近不等于写得好。
+
+- 题材：{premise['genre']}
+- 抽签：{premise['id']}
+- 通道：{provider}
+
+## 正文
+
+{prose.strip()}
+
+{monitor_md.strip()}
+""",
+        encoding="utf-8",
+    )
+    return dest
+
+
+def generate_candidates(
+    *,
+    premise: dict,
+    complete_fn,
+    demo_md: str,
+    n: int = 3,
+    out_dir: Path | None = None,
+    round_tag: str = "v5",
+    provider: str = "coding",
+) -> list[dict]:
+    """同一处境写 n 篇，交作者挑一篇。
+
+    拒绝采样比规则约束有效得多：模型在自己的分布里采样，人来挑，
+    挑出来的那篇连同落选的一篇存成偏好对（见 `scribe3.eval.prefs`）。
+    每篇独立调用，互不看见彼此，避免第二篇往第一篇上靠。
+    """
+    from scribe3.eval.prose_check import check_prose, format_report
+
+    out_dir = Path(out_dir) if out_dir else SAMPLES / round_tag
+    prompt = build_prompt_v4(premise, demo_md=demo_md)
+    out: list[dict] = []
+    for i in range(1, n + 1):
+        parsed = parse_sample(complete_fn(prompt))
+        assert_no_banned(parsed["prose"])
+        md_stub = f"## 正文\n\n{parsed['prose']}"
+        report = check_prose(md_stub, premise)
+        dest = write_candidate(
+            out_dir / f"{round_tag}-{premise['id']}-c{i}.md",
+            premise=premise,
+            prose=parsed["prose"],
+            title=parsed["title"],
+            provider=provider,
+            monitor_md=format_report(report),
+        )
+        out.append({"path": str(dest), "title": parsed["title"], "metrics": report["metrics"]})
+    return out
+
+
 def generate_sample(
     *,
     genre: str,
