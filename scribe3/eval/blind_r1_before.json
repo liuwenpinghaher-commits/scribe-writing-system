@@ -1,0 +1,1404 @@
+{
+  "label": "r1_before",
+  "holdout_sha256": "fb460682bfcff4f2345699068cf818893094e733b987f1c19a91c267dfda4649",
+  "n": 41,
+  "mechanical_mean": 0.439,
+  "blind_mean": 0.8098,
+  "agree_rate": 0.4927,
+  "rows": [
+    {
+      "seq": 8,
+      "mechanical_score": 0.4,
+      "blind_score": 1.0,
+      "agree_n": 2,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 11,
+      "mechanical_score": 0.4,
+      "blind_score": 1.0,
+      "agree_n": 2,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        }
+      }
+    },
+    {
+      "seq": 14,
+      "mechanical_score": 0.6,
+      "blind_score": 1.0,
+      "agree_n": 3,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        }
+      }
+    },
+    {
+      "seq": 18,
+      "mechanical_score": 0.4,
+      "blind_score": 0.6,
+      "agree_n": 4,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        }
+      }
+    },
+    {
+      "seq": 23,
+      "mechanical_score": 0.4,
+      "blind_score": 1.0,
+      "agree_n": 2,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 27,
+      "mechanical_score": 0.2,
+      "blind_score": 1.0,
+      "agree_n": 1,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 29,
+      "mechanical_score": 0.4,
+      "blind_score": 0.8,
+      "agree_n": 3,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        }
+      }
+    },
+    {
+      "seq": 30,
+      "mechanical_score": 0.2,
+      "blind_score": 0.8,
+      "agree_n": 2,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 31,
+      "mechanical_score": 0.2,
+      "blind_score": 0.8,
+      "agree_n": 2,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 32,
+      "mechanical_score": 0.4,
+      "blind_score": 0.8,
+      "agree_n": 3,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 36,
+      "mechanical_score": 0.2,
+      "blind_score": 0.4,
+      "agree_n": 2,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "留给下一节的日子": {
+          "blind": false,
+          "mechanical": true,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        }
+      }
+    },
+    {
+      "seq": 39,
+      "mechanical_score": 0.6,
+      "blind_score": 0.4,
+      "agree_n": 4,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": false,
+          "mechanical": true,
+          "agree": false
+        },
+        "打开书": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        }
+      }
+    },
+    {
+      "seq": 44,
+      "mechanical_score": 0.4,
+      "blind_score": 0.2,
+      "agree_n": 4,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": false,
+          "mechanical": true,
+          "agree": false
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "打开书": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        }
+      }
+    },
+    {
+      "seq": 52,
+      "mechanical_score": 0.4,
+      "blind_score": 1.0,
+      "agree_n": 2,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 54,
+      "mechanical_score": 0.4,
+      "blind_score": 1.0,
+      "agree_n": 2,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 59,
+      "mechanical_score": 0.8,
+      "blind_score": 0.8,
+      "agree_n": 3,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": false,
+          "mechanical": true,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 61,
+      "mechanical_score": 0.8,
+      "blind_score": 1.0,
+      "agree_n": 4,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 65,
+      "mechanical_score": 0.6,
+      "blind_score": 0.6,
+      "agree_n": 1,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": false,
+          "mechanical": true,
+          "agree": false
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": false,
+          "mechanical": true,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 69,
+      "mechanical_score": 0.4,
+      "blind_score": 1.0,
+      "agree_n": 2,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 79,
+      "mechanical_score": 0.6,
+      "blind_score": 1.0,
+      "agree_n": 3,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 117,
+      "mechanical_score": 0.8,
+      "blind_score": 1.0,
+      "agree_n": 4,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 121,
+      "mechanical_score": 0.4,
+      "blind_score": 1.0,
+      "agree_n": 2,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 124,
+      "mechanical_score": 0.6,
+      "blind_score": 1.0,
+      "agree_n": 3,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 127,
+      "mechanical_score": 0.8,
+      "blind_score": 1.0,
+      "agree_n": 4,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 130,
+      "mechanical_score": 0.4,
+      "blind_score": 1.0,
+      "agree_n": 2,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 135,
+      "mechanical_score": 0.2,
+      "blind_score": 0.6,
+      "agree_n": 3,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 136,
+      "mechanical_score": 0.4,
+      "blind_score": 0.4,
+      "agree_n": 3,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": false,
+          "mechanical": true,
+          "agree": false
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 137,
+      "mechanical_score": 0.8,
+      "blind_score": 1.0,
+      "agree_n": 4,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 138,
+      "mechanical_score": 0.2,
+      "blind_score": 0.8,
+      "agree_n": 0,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": false,
+          "mechanical": true,
+          "agree": false
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 145,
+      "mechanical_score": 0.6,
+      "blind_score": 0.4,
+      "agree_n": 0,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "留给下一节的日子": {
+          "blind": false,
+          "mechanical": true,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": false,
+          "mechanical": true,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": false,
+          "mechanical": true,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 148,
+      "mechanical_score": 0.2,
+      "blind_score": 1.0,
+      "agree_n": 1,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 153,
+      "mechanical_score": 0.4,
+      "blind_score": 1.0,
+      "agree_n": 2,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 154,
+      "mechanical_score": 0.2,
+      "blind_score": 1.0,
+      "agree_n": 1,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 156,
+      "mechanical_score": 0.4,
+      "blind_score": 1.0,
+      "agree_n": 2,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 160,
+      "mechanical_score": 0.6,
+      "blind_score": 0.6,
+      "agree_n": 3,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": false,
+          "mechanical": true,
+          "agree": false
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 162,
+      "mechanical_score": 0.6,
+      "blind_score": 1.0,
+      "agree_n": 3,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 167,
+      "mechanical_score": 0.4,
+      "blind_score": 1.0,
+      "agree_n": 2,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 175,
+      "mechanical_score": 0.4,
+      "blind_score": 0.8,
+      "agree_n": 1,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": false,
+          "mechanical": true,
+          "agree": false
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 194,
+      "mechanical_score": 0.4,
+      "blind_score": 1.0,
+      "agree_n": 2,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "热怎么变冷": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    },
+    {
+      "seq": 209,
+      "mechanical_score": 0.2,
+      "blind_score": 0.2,
+      "agree_n": 5,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": true,
+          "mechanical": true,
+          "agree": true
+        },
+        "留给下一节的日子": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "打开书": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        }
+      }
+    },
+    {
+      "seq": 210,
+      "mechanical_score": 0.2,
+      "blind_score": 0.2,
+      "agree_n": 3,
+      "judged_n": 5,
+      "fields": {
+        "这场戏有没有翻": {
+          "blind": false,
+          "mechanical": true,
+          "agree": false
+        },
+        "留给下一节的日子": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "这一节回不去的事": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "热怎么变冷": {
+          "blind": false,
+          "mechanical": false,
+          "agree": true
+        },
+        "打开书": {
+          "blind": true,
+          "mechanical": false,
+          "agree": false
+        }
+      }
+    }
+  ]
+}

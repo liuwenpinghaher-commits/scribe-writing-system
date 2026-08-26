@@ -123,13 +123,13 @@ def pick_dev_fewshot(exclude: int) -> str | None:
     return None
 
 
-def extract_card(seq: int, *, complete_fn, use_fewshot: bool = True) -> str:
+def extract_card(seq: int, *, complete_fn, use_fewshot: bool = True, source: str | None = None) -> str:
     meta = chapter_meta(seq)
     title = meta["title"]
-    if meta.get("span_empty") or meta.get("r1_skip_reason") == "empty_shell":
+    if source is None and (meta.get("span_empty") or meta.get("r1_skip_reason") == "empty_shell"):
         return empty_shell_card(seq, title)
-    source = load_source_slice(seq)
+    body = load_source_slice(seq) if source is None else source
     fewshot = pick_dev_fewshot(seq) if use_fewshot else None
     # Never feed holdout gold into the prompt: pick_dev_fewshot already skips.
-    prompt = build_extract_prompt(seq=seq, title=title, source=source, fewshot=fewshot)
+    prompt = build_extract_prompt(seq=seq, title=title, source=body, fewshot=fewshot)
     return complete_fn(prompt)

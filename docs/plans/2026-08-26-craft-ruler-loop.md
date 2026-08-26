@@ -176,43 +176,112 @@ P1 出口：R1/R2 在留出集上有数，天花板/地板/停机线三个数字
 
 ---
 
-## 过夜 goal 正文（复制即跑）
+## 九小时诊断（2026-08-26）
+
+墙钟 ≈ R1 3.7h（随后整批崩溃）+ R2 已 5.5h+，合计约 9h。不是卡住，是评测管线设计把 before 跑成了通宵作业。
+
+| 问题 | 证据 | 后果 |
+|---|---|---|
+| R2 只判「翻了」却拆满 21 段卡 | `run_r2` → `extract_card`（21 标题）→ 只 `judge_turn` 一段 | 每条负样本一次长文生成；123 次 × ~6 分钟 |
+| 单线程 | `for seq × kind` 无 `--jobs` | 剩 ~63 次负样本再要 6h；末尾第 210 节 19706 字 ×3 |
+| V4 默认思考 + 截断空正文再放大额度 | `truncated empty; retry max_tokens 24576 -> 32768`；`live_complete` timeout=600、max_tokens=12288 | 长章可能打两次，单次上限 10 分钟 |
+| 「无效补全结构」整批退出 | R1 跑 3.7h 后 `DeepSeekResponseError` 退出，当时缺 209/210 | 加过重试+跳过才续上；R2 第 18 节 cut 也触发过 |
+| 12 分钟 tick 只汇报进度 | 50+ tick 都是「还在跑」 | 没人改吞吐，只在空等 |
+| 分已经够下结论 | cut/pump/lecture 全 0；外推满分也 ≈0.24（地板 0.25） | 再跑 6h 不会改变「R2 未到 0.775」 |
+
+**Ruling：** 未完成的 R2 before 仍要收齐才能冻结（n=164），但禁止再单线程空等。先加并行（同一 `extract_card`，不改提示词），再收齐。禁止中途改成「只问翻了」——那会把已跑的 80 条和剩下的混成两把尺。after 轮也必须仍走 21 段拆卡，否则铁律三。加速只许：`--jobs`、resume、单条失败跳过。
+
+**已执行（2026-08-26 10:59）：** 12 分钟 tick 循环已停（本 loop 改为单次 goal 交付）。`scribe3/eval/pool.py` + `run_r1/run_r2 --jobs` 已落地，`jobs=1` 与串行等价、resume 不重打（`test_craft_eval_jobs.py`，9 passed）。单线程 R2 已停在 n=82，改用 `--jobs 6` resume 续跑，25 秒推进 8 条。
+
+---
+
+## goal 正文（单次交付 · 2026-08-26）
+
+**这是 goal，不是 loop。** 不要挂 12 分钟 tick，不要人工轮询，不要每隔一会儿汇报「还在跑」。一次开工做到 COMPLETE / PARTIAL / BLOCKED / FAIL_LOUD 为止。前面所有短版作废。
 
 ```
 执行 docs/plans/2026-08-26-craft-ruler-loop.md
-短名 craft-eval。先读 AGENTS.md 与 docs/SESSION.md。
+短名 craft-eval。先读 AGENTS.md、docs/SESSION.md、本计划「九小时诊断」与阶段正文。
 
-主干：先让系统会拆，再让系统会写。P1 不写小说。
-顺序锁死 P0→P1→P2→P3→P4→P5，不得跳阶段。
+交付形态：单次 goal。不挂定时循环、不设 tick、不问「要继续吗」、不问选择题。
+做完一件立刻做下一件，直到写出 COMPLETE / PARTIAL / BLOCKED / FAIL_LOUD 之一。
+简体中文。等长任务时不要空转轮询：起并行、跑测试、写落盘，或等进程结束事件。
 
-三条铁律：
-1 尺子先于闸——没跑出 before 分不许加任何生成侧约束。
-2 分不涨即 revert——R1/R2/R3 任一降或全平，回退本轮，换路子。同能力三轮不涨 = FAIL_LOUD。
-3 尺子冻结后不许为刷分而动——改尺子单独开轮且重跑历史全部分。
+背景：现网空书是 P0 故意 purge，系统仍在线（https://tonglu.qing.blue）。P1 不写小说。
+顺序锁死 P0→P1→P2→P3→P4→P5。禁止续跑 2026-08-25-tonglu-force-rebuild-loop.md。
+验证=已部署 demo。禁止本机 Surreal、全量 pytest、npm ci。
 
-每轮：校验留出集 hash → 跑 before 分 → 指到文件说清现在为什么做不到 → 改一件 →
-跑 after 分 + 过拟合探针 → 涨则 commit+台账，不涨则 revert+台账 → 更新进度表。
+铁律：
+1 没 before 分不加任何生成侧约束（闸/钉/提示词/kind）。
+2 分不涨即 revert；同能力三轮不涨 = FAIL_LOUD，停下写清楚。
+3 尺子冻结后不许为刷分而动（评分器/阈值/留出集/负样本规则）。
+留出 hash 必须是 fb460682bfcff4f2345699068cf818893094e733b987f1c19a91c267dfda4649；开工与每次记分前 verify_holdout_hash()。
 
-停机看留出集上的 R1/R2/R3 三分 + 闸内无专名 lint + 关掉钉不掉分 + 探针跨题材成立。
-不看字数、QC、十维、现网点验绿。
+已完成，不要重做：
+- P0.1–P0.3 清场+母本+holdout 冻结；P1.1–P1.4 extract / score_r1 / negatives / score_r2 / run_r1 / run_r2。
+- R1 before 冻结：r1_before.json n=41 mean=0.439（打开书 0.0976 / 回不去 0.2927 / 热怎么变冷 0.3415 最矮；翻了 0.9024）。
+- scribe3/eval/pool.py + run_r1/run_r2 --jobs 已落地，test_craft_eval_jobs.py 绿（jobs=1 等价串行；resume 不重打）。
+- R2 before 正在以 --jobs 6 resume 续跑（此前单线程 9 小时只到 n=82，已停）。
+不要重跑 R1 before，不要覆盖 r1_before.json / preds/r1_before/。
 
-禁止：为过闸写书、改尺子刷分、调阈值当改进、留出章进 few-shot、把钉过的卡当模型能力。
-禁止续跑 2026-08-25-tonglu-force-rebuild-loop.md。
+任务（按序，做完一项才下一项）：
+
+1. 收齐 R2 before。等 scribe3/eval/r2_before.json 的 n==164。
+   若进程已死：scribe3/.venv/bin/python -m scribe3.eval.run_r2 --label before --jobs 6（resume）。
+   禁止第二份并发 run_r2、禁止 --no-resume、禁止删已落盘 preds。
+   单条失败重试≤3 后跳过并记 R2_MISSING，最后补跑那几条，不要当完成。末尾 seq 210 约 19706 字，最慢。
+   预期 score≈0.24–0.25，clean≈0.95，cut=pump=lecture=0。这是 before，不是事故。
+   记 n/score/by_kind 进本计划进度表与 docs/SESSION.md。
+
+2. P1.5 冻结尺子。stop = floor + (ceiling − floor) × 0.7。
+   R1：ceiling 1.0 / floor 0.0 / stop 0.70。R2：ceiling 1.0 / floor 0.25 / stop 0.775。
+   落盘 scribe3/eval/stop.json，打 tag craft-eval-ruler-v1。
+   冻结物 = 评分器代码 + holdout 章号 + negatives.py + stop.json。
+   第三方模型盲评：对已有系统卡跑一轮对照机械分并落盘。人抽查 10%：只落抽样清单，不空等作者，不当阻塞。
+   冻结 ≠ 过线（R1 0.439 < 0.70）。
+
+3. 仍在 P1：把 R1 拉到 ≥0.70，再把 R2 拉到 ≥0.775。一轮一事，每轮都有 before/after。
+   只动 extract_card.py / 其提示词 / few-shot 抽法。few-shot 只从 171 章开发集抽。
+   留出章的 gold 与顶层透镜禁止进入任何提示。
+   R1 先打「打开书」，再「回不去」，再「热怎么变冷」。R2 主病 = 三类负样本仍被判成翻了。
+   after 用新 label（如 r1_after_openbook），禁止覆盖 *_before.json；after 也走 21 段拆卡 + --jobs。
+   不要改 score_r1 / score_r2 / negatives 的规则来刷分。
+   涨则 commit（只含本轮）+ 台账 docs/plans/2026-08-22-round8-ledger.md（谁让改 / 为何最优 / 旧路差哪 / 怎么退）；不涨则 revert + 台账。
+
+4. R1 与 R2 都过线之后才继续：
+   P0.4 四条流程债（改戏后重跑 deduce→draft；mask/keep 纳入专名扫描；戏层扫 _SOUL_PROPER/_BIE_PROPER；duty.mask 残留「萱儿」）
+   → P2 退役硬编码闸（先加 scribe3/tests/test_gate_no_proper_nouns.py 再删；DAY_KINDS 六个铜炉情节名；craft_ruler.py 的 IDEAL_EMOTION_CURVE+DTW；每条改写成题材中立结构谓词，铜炉那场降为 few-shot；每退役一条跑留出集）
+   → P3 闸从卡搬到正文（由 P1 尺子判，不由正则判；旧场 K/L/M 变不过是对的，不许放水）
+   → P4 才允许新建测试书（书先冻结再开工；题材轮盘 ≥8 随机取 2 不许挑；过拟合探针失效即本轮作废；禁止 overlay 已删的井台灯/腕账/手术室）
+   → P5 先补拆文顶层 54 节空洞（187–195 连续九节缺席），禁止给 214 节写因文、禁止重拆 214、禁止把情节灌进 Surreal。
+
+收尾（必须写一段）：
+- 全部满足则 COMPLETE：留出上 R1/R2/R3 均 ≥ stop；test_gate_no_proper_nouns 绿；关掉全部 _nail_*_duty 后三分不降；过拟合探针 8 题材任取 2 成立；holdout hash 未变。
+- 否则 PARTIAL：写完成 x/y、每项 done/partial/not_done + 证据文件，并写明下一件。禁止「基本完成」「98%」这类话。
+- 真阻塞才 BLOCKED：缺 DEEPSEEK_API_KEY、母本不在 gitignored 路径、hash 变了。人抽查不是阻塞。
+- 同能力三轮不涨 = FAIL_LOUD。
+不作停机条件：字数、QC、十维、场判「人看着像过了」、现网点验绿。
+
+卫生：不提交 docs/worlds/诡秘*、lotm 计划、乱世铜炉-全文.md、scribe3/eval/preds/、artifacts/、密钥、本地 DB。
+不要把 scribe3/craft_ruler.py 当本 loop 的尺子。commit 只含本轮路径；可 push 当前分支；禁止 force-push main。
+键 DEEPSEEK_API_KEY，默认模型 deepseek-v4-pro-0813。
+禁止：为过闸写书、改尺子刷分、调阈值当改进、留出章进 few-shot、把钉过的卡当模型能力、通读全文、古白话当成色、先注水凑字数。
 ```
 
 ---
 
 ## 进度
 
-- 阶段：P0 齐；P1.1 拆卡产出链路已接线（尚未跑留出集 R1）
+- 交付形态：**单次 goal**（12 分钟 tick 循环 2026-08-26 10:59 已停）
+- 阶段：P0 齐；P1.1–P1.5 齐（尺子已冻结，冻结 ≠ 过线）；下一步 = 仍在 P1 拉 R1「打开书」
+- R1 / R2 / R3：R1 before = **0.439**（n=41）。R2 before = **0.2256**（n=164，hits=37；clean 0.9024 / cut=pump=lecture=0）。R3 无数据
 - 留出集：已落盘 `scribe3/eval/holdout.json` seed=20260826 n=43
-- 留出 hash：`fb460682bfcff4f2345699068cf818893094e733b987f1c19a91c267dfda4649`
+- 留出 hash：`fb460682bfcff4f2345699068cf818893094e733b987f1c19a91c267dfda4649`（开工与记分前已 `verify_holdout_hash()`）
 - 母本行号：现存 30812 行母本已拷到 gitignored `docs/worlds/乱世铜炉-全文.md`；214 节章界在 `scribe3/eval/chapters.json`；20/20 书证句子可搜到
-- R1 / R2 / R3：无数据（评分器未开）
-- 天花板 / 地板 / 停机线：未测
+- 天花板 / 地板 / 停机线：R1 1.0 / 0.0 / **0.70**；R2 1.0 / 0.25 / **0.775**。已落盘 `scribe3/eval/stop.json`，tag `craft-eval-ruler-v1`
 - 现网书：已空（active=[] archived=[]）
 - 阻塞：无
-- 本轮证据：demo purge 后空库；`pytest scribe3/tests/test_craft_eval_p0.py scribe3/tests/test_craft_eval_extract.py -q` → 10 passed
+- 本轮证据：`r1_before.json` n=41 mean=0.439；`r2_before.json` n=164 score=0.2256；`blind_r1_before.json` n=41 mech=0.439 blind=0.8098 agree=0.4927；`human_spotcheck.json` seqs=14/148/160/194（pending_author，非阻塞）
 
 ### P0.1 · 现网清书（本轮）
 
@@ -233,3 +302,39 @@ P0.4 四条流程债（戏层扫专名等）是生成侧约束，铁律一：P1 
 现系统为什么做不到：没有「给一节原文 → 21 段卡」的入口，章卡全是人工/旧会话写下的。
 
 已做：`extract_card.py` 切原文、禁读留出 gold、few-shot 只从 dev 抽、空壳直接出合格空卡。尚未对留出集调用模型，所以还没有 R1。回退 = revert 本能力 commit。
+
+### P1.2 · R1 评分器（本轮）
+
+现系统为什么做不到：拆卡没有对照金卡的机械分，没法谈 before / 停机线。
+
+已做：`score_r1.py` 比对五硬字段（翻没翻、留给下一节、回不去的事、热怎么变冷、打开书）。评分器可读留出 gold（答案），`extract_card` 仍禁读。dev 金卡对金卡 = 1.0；空壳对第 1 节 = 0.0；留出可评 41 章。第三方模型盲评和人抽查 10% 还没开——等有系统卡再比。回退 = revert 本能力 commit。
+
+### P1.2b · 留出 before 开跑（本轮）
+
+现系统为什么做不到：评分器在，但留出章还没有系统卡。
+
+已做：`run_r1.py` 只给原文拆卡、禁读该章 gold、可 resume、每章落盘。留出 41 章跑完，R1 before = **0.439**。回退 = 删 `preds/` + revert 本 commit。
+
+### P1.3 · 负样本三类（本轮）
+
+现系统为什么做不到：没有机械负样本，R2 无从打。
+
+已做：`negatives.py`。削=删翻段书证；灌=删回不去/账那一截、留热闹；说明书=把翻段书证换成「他终于释怀了。」禁止手挑、禁止模型改写。测在开发集第 1 节。回退 = revert 本 commit。
+
+### P1.4 · R2 评分器（本轮）
+
+现系统为什么做不到：会造负样本，但没有「判翻了没有」的分。
+
+已做：`score_r2.py`。gold 为翻了的章：原文应判翻，削/灌/说明书应判没翻。开发集第 1 节预言机天花板 1.0、全说翻了地板 0.25。`run_r2.py` 已开跑留出 R2 before（clean 复用 R1 卡）。回退 = revert 本 commit。
+
+### P1.4b · 收齐 R2 before（本轮）
+
+现系统为什么做不到：单线程 9 小时停在 n=82；每条负样本仍走 21 段拆卡。
+
+已做：禁止第二份 `run_r2`、禁止 `--no-resume`。进程已死后 `python -m scribe3.eval.run_r2 --label before --jobs 6` resume。n=164 / 164，无 `R2_MISSING`。score=**0.2256**（略低于外推 0.24–0.25，因 clean 4 条未判出翻了）。cut/pump/lecture 全 0 是 before，不是事故。回退 = 不覆盖 `r2_before.json`。
+
+### P1.5 · 冻结尺子（本轮）
+
+现系统为什么要冻：没有写死的停机线，后面能力轮会顺手改阈值。
+
+已做：`stop.json` 公式 `floor+(ceiling-floor)*0.7`。R1 stop=0.70，R2 stop=0.775。冻结物 = `score_r1.py` + `score_r2.py` + `negatives.py` + `holdout.json` + `stop.json`。第三方盲评对已有系统卡：`blind_r1_before.json` 机械均分 0.439 / 盲评 0.8098 / 一致率 0.4927（盲评更松，**不改机械尺**）。人抽查 10% 清单 `human_spotcheck.json`（14/148/160/194），不空等作者。冻结 ≠ 过线。回退 = 删 tag + revert 本 commit。

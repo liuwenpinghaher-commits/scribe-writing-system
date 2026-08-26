@@ -52,11 +52,12 @@
 
 ### 拆文倒逼翻主（短入口）
 
-已结案。后继：
+已结案。后继 goal 真源：计划文「goal 正文（单次交付 · 2026-08-26）」整段。单次 goal，不要再挂 tick 循环。
 
 ```
 执行 docs/plans/2026-08-26-craft-ruler-loop.md
 短名 craft-eval。先读 AGENTS.md 与 docs/SESSION.md。
+复制该文件「goal 正文（单次交付 · 2026-08-26）」整段即跑。
 ```
 
 ### 故事招式库 · 命名绕法卡片（短入口）
@@ -121,7 +122,12 @@
 
 现行循环 SSOT：[`docs/plans/2026-08-26-craft-ruler-loop.md`](./plans/2026-08-26-craft-ruler-loop.md)（`craft-eval`）。先拆后写。P1 不写小说。
 **P0 齐：** 留出冻结 hash `fb460682…da4649`。母本 30812 行 gitignored。现网三本书已 purge（手术室 / 井台灯 / 腕账），`/works` 空。
-**下一件：** P1.2 R1 评分器。拆卡产出已接线（`scribe3/eval/extract_card.py`），尚未对留出集打分。P0.4 生成侧债仍等 before 分。
+**P1.1–P1.5：** 拆卡 / R1 / 负样本 / R2 / 停机线已接线并冻结。tag `craft-eval-ruler-v1`。`stop.json`：R1 0.70 / R2 0.775。冻结 ≠ 过线。
+**R1 before（冻结）：** 留出 41 章均分 **0.439**（打开书 0.0976 / 回不去 0.2927 / 热怎么变冷 0.3415 最矮；翻了 0.9024）。
+**R2 before（齐）：** n=164 score=**0.2256**（clean 0.9024 / cut=pump=lecture=0）。`--jobs 6` resume，无 `R2_MISSING`。这是 before，不是事故。
+**盲评：** `blind_r1_before.json` 机械 0.439 / 盲评 0.8098 / 一致率 0.4927。人抽查清单 `human_spotcheck.json` seqs 14/148/160/194，不空等作者。
+**并行：** 12 分钟 tick 已停，单次 goal。`pool.py` + `--jobs`（`test_craft_eval_jobs.py` 绿）。
+**goal：** 下一件 = 仍在 P1，只动 `extract_card` 先打「打开书」。未进 P2。
 
 ### 时间线列表+抽屉（2026-08-25）
 

@@ -6,6 +6,15 @@
 - `chapters.json`：214 节在现存母本上的行界。`r1_skip_reason` 非空的节不进 R1。
 - `citation_spotcheck.json`：20 条拆文书证能否在母本搜到（行号已整体偏移，只认句子）。
 - `extract_card.py`：给一节原文出 21 段卡。禁止读留出章 gold。few-shot 只从 dev 抽。
+- `score_r1.py`：五硬字段机械分。评分器可读留出 gold。
+- `run_r1.py`：对留出可评章拆卡并打分。均分在 `r1_before.json`。
+- `negatives.py`：三类机械负样本（削 / 灌 / 说明书）。禁止手挑、禁止用模型改写。
+- `score_r2.py`：gold 为翻了的章：原文应判翻，三类负样本应判没翻。
+- `run_r2.py`：`python -m scribe3.eval.run_r2 --label before`。clean 复用 `preds/r1_before/`。`--jobs` 并行，resume 默认开。
+- `pool.py`：有序线程池。`jobs=1` 与串行等价。
+- `stop.json`：**冻结**。R1 stop=0.70，R2 stop=0.775。冻结 ≠ 过线。tag `craft-eval-ruler-v1`。
+- `blind_r1.py`：对已有系统卡做第三方盲评，对照机械 R1，不重拆。
+- `human_spotcheck.json`：人抽查 10% 清单（seed=20260826）。不空等作者。
 - `card_schema.py`：21 个段题。
 
 母本因版权不入库（见根 `.gitignore`）。本机没有全文时，先把 txt 拷到该路径再跑脚本。

@@ -1,0 +1,1163 @@
+{
+  "label": "before",
+  "holdout_sha256": "fb460682bfcff4f2345699068cf818893094e733b987f1c19a91c267dfda4649",
+  "n": 164,
+  "hits": 37,
+  "score": 0.2256,
+  "by_kind": {
+    "clean": 0.9024,
+    "cut": 0.0,
+    "pump": 0.0,
+    "lecture": 0.0
+  },
+  "rows": [
+    {
+      "seq": 8,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 8,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 8,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 8,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 11,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 11,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 11,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 11,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 14,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 14,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 14,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 14,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 18,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 18,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 18,
+      "kind": "pump",
+      "pred": true,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 18,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 23,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 23,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 23,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 23,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 27,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 27,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 27,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 27,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 29,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 29,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 29,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 29,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 30,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 30,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 30,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 30,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 31,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 31,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 31,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 31,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 32,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 32,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 32,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 32,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 36,
+      "kind": "clean",
+      "pred": null,
+      "expected": true,
+      "ok": false
+    },
+    {
+      "seq": 36,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 36,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 36,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 39,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 39,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 39,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 39,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 44,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 44,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 44,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 44,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 52,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 52,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 52,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 52,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 54,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 54,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 54,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 54,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 59,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 59,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 59,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 59,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 61,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 61,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 61,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 61,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 65,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 65,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 65,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 65,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 69,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 69,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 69,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 69,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 79,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 79,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 79,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 79,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 117,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 117,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 117,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 117,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 121,
+      "kind": "clean",
+      "pred": false,
+      "expected": true,
+      "ok": false
+    },
+    {
+      "seq": 121,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 121,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 121,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 124,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 124,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 124,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 124,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 127,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 127,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 127,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 127,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 130,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 130,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 130,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 130,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 135,
+      "kind": "clean",
+      "pred": null,
+      "expected": true,
+      "ok": false
+    },
+    {
+      "seq": 135,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 135,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 135,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 136,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 136,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 136,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 136,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 137,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 137,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 137,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 137,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 138,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 138,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 138,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 138,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 145,
+      "kind": "clean",
+      "pred": null,
+      "expected": true,
+      "ok": false
+    },
+    {
+      "seq": 145,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 145,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 145,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 148,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 148,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 148,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 148,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 153,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 153,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 153,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 153,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 154,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 154,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 154,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 154,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 156,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 156,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 156,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 156,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 160,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 160,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 160,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 160,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 162,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 162,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 162,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 162,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 167,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 167,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 167,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 167,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 175,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 175,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 175,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 175,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 194,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 194,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 194,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 194,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 209,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 209,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 209,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 209,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 210,
+      "kind": "clean",
+      "pred": true,
+      "expected": true,
+      "ok": true
+    },
+    {
+      "seq": 210,
+      "kind": "cut",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 210,
+      "kind": "pump",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    },
+    {
+      "seq": 210,
+      "kind": "lecture",
+      "pred": null,
+      "expected": false,
+      "ok": false
+    }
+  ]
+}

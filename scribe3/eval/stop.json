@@ -1,0 +1,52 @@
+{
+  "formula": "floor + (ceiling - floor) * 0.7",
+  "holdout_sha256": "fb460682bfcff4f2345699068cf818893094e733b987f1c19a91c267dfda4649",
+  "tag": "craft-eval-ruler-v1",
+  "frozen": true,
+  "note": "冻结 ≠ 过线。R1 before 0.439 < 0.70；R2 before 0.2256 < 0.775。改尺子必须单独开一轮并重跑历史分。",
+  "artifacts": [
+    "score_r1.py",
+    "score_r2.py",
+    "negatives.py",
+    "holdout.json",
+    "holdout.sha256",
+    "stop.json"
+  ],
+  "r1": {
+    "ceiling": 1.0,
+    "floor": 0.0,
+    "stop": 0.7,
+    "before": 0.439,
+    "n": 41,
+    "label": "r1_before.json",
+    "fields": {
+      "这场戏有没有翻": 0.9024,
+      "留给下一节的日子": 0.561,
+      "这一节回不去的事": 0.2927,
+      "热怎么变冷": 0.3415,
+      "打开书": 0.0976
+    }
+  },
+  "r2": {
+    "ceiling": 1.0,
+    "floor": 0.25,
+    "stop": 0.775,
+    "before": 0.2256,
+    "n": 164,
+    "hits": 37,
+    "label": "r2_before.json",
+    "by_kind": {
+      "clean": 0.9024,
+      "cut": 0.0,
+      "pump": 0.0,
+      "lecture": 0.0
+    }
+  },
+  "r3": {
+    "ceiling": null,
+    "floor": null,
+    "stop": null,
+    "before": null,
+    "note": "P1 不写小说，R3 未测"
+  }
+}
