@@ -52,12 +52,12 @@
 
 ### 拆文倒逼翻主（短入口）
 
-已结案。后继 goal 真源：计划文「goal 正文（单次交付 · 2026-08-26）」整段。单次 goal，不要再挂 tick 循环。
+已结案。**现行 SSOT 换成 v2 两本参照**：[`2026-08-26-craft-two-books.md`](./plans/2026-08-26-craft-two-books.md)（短名 `craft2`）。旧文 `2026-08-26-craft-ruler-loop.md` 的诊断/留出集/评分器/三铁律仍有效，但**执行顺序以 v2 为准**。
 
 ```
-执行 docs/plans/2026-08-26-craft-ruler-loop.md
-短名 craft-eval。先读 AGENTS.md 与 docs/SESSION.md。
-复制该文件「goal 正文（单次交付 · 2026-08-26）」整段即跑。
+执行 docs/plans/2026-08-26-craft-two-books.md
+短名 craft2。先读 AGENTS.md 与 docs/SESSION.md。
+复制该文件「Warp 执行入口」整段即跑。单次 goal，不挂 tick。
 ```
 
 ### 故事招式库 · 命名绕法卡片（短入口）
@@ -72,6 +72,10 @@
 ---
 
 ## 当前状态
+
+### 默认模型切 DeepSeek V4 Flash（2026-08-26）
+
+作者授意全部换成 Flash。代码默认 `llm.model` / `DEFAULT_MODEL` = **`deepseek-v4-flash-0731`**。本机 Hermes 五写作网关 `default:` 同此。TokenPlan 别名 `deepseek-v4-flash` 同钥 **HTTP 403**；快照 `deepseek-v4-flash-0731` 同钥可通。供应商仍 `qwen`，口仍 TokenPlan。兜底 kimi/MiniMax 未动。**demo 未部署，不宣称现网已切。** 运行中 Hermes 需重启才吃新 default。
 
 ### 技法标尺（2026-08-25）
 
@@ -118,7 +122,27 @@
 
 旧过夜 SSOT [`docs/plans/2026-08-25-tonglu-force-rebuild-loop.md`](./plans/2026-08-25-tonglu-force-rebuild-loop.md) **禁止续跑**。能力 0–21 与《井台灯》场A–M 作为旧证据留档，不复用为过闸书。后继：`craft-eval`。
 
-### craft-eval · 会拆才会写（2026-08-26）
+### craft3 · 母题坍缩修正（2026-08-26 现行）
+
+SSOT：[`docs/plans/2026-08-26-craft-v3.md`](./plans/2026-08-26-craft-v3.md)。在 Warp 上按单次 goal 执行。
+**为什么换**：craft2 的 A 样章《夜班差三百》被作者判不合格——「和已删掉的旧样本一个味道，又是对账」。
+**查明的机制**：铜炉 214 张卡里 135 张含「账」（**63%**），诡秘 1394 张里只有 197 张（**14%**）。「账」是铜炉的**题材母题**，不是写法通则。而 `structural.py` 把 `bill_holder` 设成必填（`duty_holder_empty`），逼系统写任何题材都先造一笔账。样章已绕开闸仍然对账 → **病根在语料母题未分层，不在闸**。
+**被推翻的假设**：不是「会拆就会写」。**尺子本身会变成模板**。新原则：拆解产物只能当写完后的**检查表**，不能当写之前的**填空提纲**。
+**改了**：A 母题分层（纯脚本零 LLM，「账」须落进单本母题档 + 建黑名单）→ B 反转生成顺序（处境由 `premises.json` 外部随机给，必须是事件不是流程；提示里不给 21 段清单）→ C `prose_check.py` 文风机械闸（明喻密度/对话冗余/答非所问/开篇事件/结尾总结句/母题黑名单，先拿旧样章验证应六项全红）→ D 一次三篇不同题材交作者读 → E 才回到拉分。
+**没改**：三条铁律、留出集 hash、已冻尺子 `stop.json`、诡秘探针、快速集。
+**新增红线**：母题黑名单命中 = 本篇作废重写，不许辩解「这题材天然要算账」。
+**token**：A/C 零调用，B+D ≤6 次，前四步总预算 ≤ 旧方案已耗量的 2%。
+**现状**：A–D 全部未开工。样章 1 篇不合格。R1 0.5463 / R2 0.2256，均未过线。
+
+### craft2 · 两本参照（2026-08-26，已被 v3 取代执行顺序）
+
+SSOT：[`docs/plans/2026-08-26-craft-two-books.md`](./plans/2026-08-26-craft-two-books.md)。在 Warp 上按单次 goal 执行。
+**为什么换**：旧路烧了约 300+ 次长调用（粗估 500–600 万 tonglu token），作者至今没读到系统写的任何一段小说；且单本无法区分「学会写法」和「背熟铜炉」。
+**改了**：A 先产人能评审的样章（≤3 次调用）→ B 接《诡秘之主》做跨书探针（先解决「节/章」字段名不一致）→ C 快速集+换通道砍 token → D 两本一起拉分，每轮必跑跨书探针。
+**没改**：三条铁律、留出集 hash、已冻尺子 `stop.json`（R1 线 0.70 / R2 线 0.775）。
+**现状（craft2 本轮）**：A 样章已交 `docs/craft-samples/A1-当代职场.md`（作者评；1 次 coding，非 hermes）。B 节/章归一 + `chapters_lotm.json` + 探针冻 `85674429…da10a`；金卡对金卡 n=20 mean=1.0。铜炉 r1_before pred 重打仍 0.439。C 快速集 8+4 已冻；`--provider` 默认 coding。C.3 R2 瘦身未开（单独轮）。D 未跑模型拉分。R1 0.5463 / R2 0.2256 未过线。
+
+### craft-eval · 会拆才会写（2026-08-26，v1 归档）
 
 现行循环 SSOT：[`docs/plans/2026-08-26-craft-ruler-loop.md`](./plans/2026-08-26-craft-ruler-loop.md)（`craft-eval`）。先拆后写。P1 不写小说。
 **P0 齐：** 留出冻结 hash `fb460682…da4649`。母本 30812 行 gitignored。现网三本书已 purge（手术室 / 井台灯 / 腕账），`/works` 空。
