@@ -273,15 +273,15 @@ P1 出口：R1/R2 在留出集上有数，天花板/地板/停机线三个数字
 ## 进度
 
 - 交付形态：**单次 goal**（12 分钟 tick 循环 2026-08-26 10:59 已停）
-- 阶段：P0 齐；P1.1–P1.5 齐（尺子已冻结，冻结 ≠ 过线）；P1 打开书 after **未齐**（429）
-- R1 / R2 / R3：R1 before = **0.439**（n=41）。R2 before = **0.2256**（n=164，hits=37；clean 0.9024 / cut=pump=lecture=0）。R3 无数据
+- 阶段：P0 齐；P1.1–P1.5 齐；P1 打开书 after **齐且涨**，仍 <0.70。下一件 = 打「回不去」
+- R1 / R2 / R3：R1 before = **0.439**（n=41）。R1 after_openbook = **0.5463**（打开书 0.3415）。R2 before = **0.2256**（n=164）。R3 无数据
 - 留出集：已落盘 `scribe3/eval/holdout.json` seed=20260826 n=43
 - 留出 hash：`fb460682bfcff4f2345699068cf818893094e733b987f1c19a91c267dfda4649`（开工与记分前已 `verify_holdout_hash()`）
 - 母本行号：现存 30812 行母本已拷到 gitignored `docs/worlds/乱世铜炉-全文.md`；214 节章界在 `scribe3/eval/chapters.json`；20/20 书证句子可搜到
 - 天花板 / 地板 / 停机线：R1 1.0 / 0.0 / **0.70**；R2 1.0 / 0.25 / **0.775**。已落盘 `scribe3/eval/stop.json`，tag `craft-eval-ruler-v1`
 - 现网书：已空（active=[] archived=[]）
-- 阻塞：无（DEEPSEEK 键在；Qwen 官方 HTTP 429 使打开书 after 停在 n=15，不是 BLOCKED 清单里的三项）
-- 本轮证据：`r1_before.json` n=41 mean=0.439；`r2_before.json` n=164 score=0.2256；`blind_r1_before.json` n=41 mech=0.439 blind=0.8098 agree=0.4927；`human_spotcheck.json` seqs=14/148/160/194（pending_author，非阻塞）
+- 阻塞：无
+- 本轮证据：`r1_after_openbook.json` n=41 mean=0.5463；打开书 0.0976→0.3415；`r1_before.json` 未覆盖
 
 ### P0.1 · 现网清书（本轮）
 
@@ -339,12 +339,10 @@ P0.4 四条流程债（戏层扫专名等）是生成侧约束，铁律一：P1 
 
 已做：`stop.json` 公式 `floor+(ceiling-floor)*0.7`。R1 stop=0.70，R2 stop=0.775。冻结物 = `score_r1.py` + `score_r2.py` + `negatives.py` + `holdout.json` + `stop.json`。第三方盲评对已有系统卡：`blind_r1_before.json` 机械均分 0.439 / 盲评 0.8098 / 一致率 0.4927（盲评更松，**不改机械尺**）。人抽查 10% 清单 `human_spotcheck.json`（14/148/160/194），不空等作者。冻结 ≠ 过线。回退 = 删 tag + revert 本 commit。
 
-### P1 打开书（未齐）
+### P1 打开书（本轮 · 涨）
 
-现系统为什么矮：打开书 0.0976。金卡均长 1172 字且 33/41 有「读完」；系统卡均长 118 字且 7/41 有「读完」。few-shot 钉死开发集第 0 节（打开书 171 字）。
+现系统为什么矮：打开书 0.0976。金卡均长 1172 字且 33/41 有「读完」；系统卡均长 118 字且 7/41 有「读完」。few-shot 钉死开发集第 0 节（打开书 171 字）。`--jobs 6` 把 Qwen 打到 HTTP 429。
 
-已改未冻：`extract_card.py` 提示补「读完 / 眼睛或说书」；`pick_dev_fewshot` 改抽「读完且 ≥400 字」的开发集卡（第 12 节），仍禁留出。测试 `test_craft_eval_openbook.py` 绿。
+已做：提示补「读完 / 眼睛或说书」；few-shot 抽开发集「读完且 ≥400 字」卡（第 12 节），仍禁留出。探针 `hermes_complete` 恢复后 `--jobs 1` resume，不删 preds。n=41 mean **0.5463**（before 0.439，Δ+0.1073）。打开书 **0.3415**（before 0.0976，Δ+0.2439）。五硬字段无下降。仍 < stop 0.70。回退 = revert 本 commit。
 
-after label=`after_openbook`，禁止覆盖 `r1_before.json`。`--jobs 6` 打到 n=15 后 Qwen HTTP 429；jobs 2 / jobs 1 / 冷却 10 分钟后探针仍 429。已落盘 15 张 `preds/r1_after_openbook/` + `r1_after_openbook.json`。重叠 15 章：打开书 0.2667→0.5333，均分 0.3733→0.5333。**不得当全量 after。** 未齐不得判涨/revert。
-
-下一件：429 解除后 `python -m scribe3.eval.run_r1 --label after_openbook --jobs 1` resume。n==41 再比 before；涨才 commit 本轮 extract_card，不涨则 revert。
+下一件：仍在 P1，打「回不去」。after 用新 label，禁止覆盖 `r1_before.json` / `r1_after_openbook.json`。after 用 `--jobs 1`。

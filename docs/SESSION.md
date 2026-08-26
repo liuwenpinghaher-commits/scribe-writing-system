@@ -127,8 +127,8 @@
 **R2 before（齐）：** n=164 score=**0.2256**（clean 0.9024 / cut=pump=lecture=0）。`--jobs 6` resume，无 `R2_MISSING`。这是 before，不是事故。
 **盲评：** `blind_r1_before.json` 机械 0.439 / 盲评 0.8098 / 一致率 0.4927。人抽查清单 `human_spotcheck.json` seqs 14/148/160/194，不空等作者。
 **并行：** 12 分钟 tick 已停，单次 goal。`pool.py` + `--jobs`（`test_craft_eval_jobs.py` 绿）。
-**打开书 after（未齐）：** `extract_card` 已改 few-shot/提示（工作区未提交，等全量 after）。`r1_after_openbook.json` n=15 mean=0.5333，打开书 0.5333；重叠 15 章相对 before 打开书 0.2667→0.5333。其余 26 章 Qwen HTTP 429。冷却 10 分钟探针仍 429。不得当全量 after，不得判涨。
-**goal：** 下一件 = 429 解除后 `python -m scribe3.eval.run_r1 --label after_openbook --jobs 1` resume 到 n=41。未进 P2。
+**打开书 after（齐且涨）：** 探针解除 429 后 `--jobs 1` resume。`r1_after_openbook.json` n=41 mean=**0.5463**（before 0.439）。打开书 **0.3415**（before 0.0976）。未覆盖 `r1_before.json`。仍 < stop 0.70。
+**goal：** 下一件 = 仍在 P1，打「回不去」。after 新 label、`--jobs 1`。未进 P2。
 
 ### 时间线列表+抽屉（2026-08-25）
 
