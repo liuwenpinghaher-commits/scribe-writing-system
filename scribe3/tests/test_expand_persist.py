@@ -173,3 +173,121 @@ def test_chapter_prompt_lists_later_volume_reservations():
     p = build_prompt(St(), "卷一", "办一", 11, 20, 40)
     assert "role:兰因" in p
     assert "现在别用" in p or "预留" in p
+
+
+def test_chapter_prompt_lists_thickens():
+    from scribe3.tools.expand_wanjie_chapters import build_prompt
+
+    class St:
+        def get_intent(self):
+            return {"north_star": "星", "red_lines": "线"}
+
+        def list_volumes(self):
+            return [{"id": "v1", "title": "卷一", "intro": "办",
+                     "charter": {"duty": "办", "chapter_range": [1, 20],
+                                 "introduces": [{"oid": "role:甲", "why": "要"}],
+                                 "thickens": [{"oid": "org:天龙座", "why": "反派还是空壳"}],
+                                 "pays": [], "knowledge_end": {"must_know": [], "must_not_know": []}}}]
+
+        def chapters_lite(self):
+            return []
+
+        def list_promises(self):
+            return []
+
+        def facts_at(self, *_a, **_k):
+            return []
+
+        def characters(self):
+            return []
+
+        def list_world_rules(self):
+            return []
+
+        def list_factions(self):
+            return []
+
+        def list_items(self):
+            return []
+
+        def list_terms(self):
+            return []
+
+        def list_motifs(self):
+            return []
+
+    p = build_prompt(St(), "卷一", "办", 11, 20, 20)
+    assert "org:天龙座" in p
+    assert "写厚" in p or "thickens" in p
+
+
+def test_thicken_named_entities_uses_codex_contract():
+    """铺章末尾写厚走 thicken_codex，不另发明字段。"""
+    from scribe3.tools.expand_wanjie_chapters import thicken_named_entities
+
+    called = []
+
+    class Char:
+        def __init__(self, name):
+            self.name, self.id, self.traits = name, f"role:{name}", {}
+
+    class St:
+        def characters(self):
+            return [Char("柳岸青")]
+
+        def list_factions(self):
+            return [{"name": "天龙座"}]
+
+        def list_world_rules(self):
+            return []
+
+        def list_items(self):
+            return []
+
+        def list_terms(self):
+            return []
+
+        def list_motifs(self):
+            return []
+
+        def list_voice_profiles(self):
+            return []
+
+        def facts_at(self, *_a, **_k):
+            return []
+
+        def entity_relations_at(self, *_a, **_k):
+            return []
+
+        def exists(self, oid):
+            return True
+
+        def update_record(self, oid, fields):
+            called.append((oid, fields))
+            return True
+
+        def get_faction(self, n):
+            return {"name": n} if n == "天龙座" else None
+
+        def add_faction(self, n, **fields):
+            called.append((n, fields))
+
+    vol = {"charter": {
+        "introduces": [{"oid": "role:新人", "why": ""}],
+        "thickens": [{"oid": "role:柳岸青", "why": "主角空壳"},
+                     {"oid": "org:天龙座", "why": "反派空壳"}],
+    }}
+
+    def llm(prompt, max_tokens=4096):
+        if "不要填表" in prompt or "是谁" in prompt:
+            return "柳岸青要把场核按回裂口。他会让世界认走心跳。"
+        if "他要什么" in prompt:
+            return "他要什么：把场核按回裂口\n他让人付出什么：世界认走心跳"
+        if "势力" in prompt or "天龙座" in prompt:
+            return "天龙座要主角交出坐标。公开互助，私下买办。"
+        return '{"ideology": "买办坐标", "public_face": "互助", "recruitment": "标价进门", "leader": "赫斯", "goals": [{"target": "买坐标"}]}'
+
+    out = thicken_named_entities(St(), vol, llm_fn=llm)
+    names = {i.get("name") for i in out.get("items") or []}
+    assert "柳岸青" in names or any("柳岸青" in str(c) for c in called)
+    assert "天龙座" in names or any("天龙座" in str(c) for c in called)

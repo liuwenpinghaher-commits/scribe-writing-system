@@ -24,6 +24,10 @@ from scribe3.store import SurrealStore  # noqa: E402
 
 OK, BAD = "  ✓", "  ✗"
 
+# 方案书第六节。不许为了让现库通过而调低。
+CHAR_ISSUE_RATIO_MAX = 0.3
+COMPLETENESS_SCORE_MIN = 80
+
 
 class Report:
     def __init__(self) -> None:
@@ -126,6 +130,38 @@ def check_consistency(st, rep: Report, until: int, hero: str) -> None:
                 print(f"  ! 探针 {pid} 没删掉，手工清一下：{e}")
 
 
+def check_completeness(st, rep: Report) -> None:
+    """接系统已有的 setting_completeness，不许另起炉灶。
+
+    验收单曾经报全部通过，同时 79% 角色是空壳。完整度早就算出这个数。
+    """
+    print("\n【设定厚度】")
+    try:
+        c = st.setting_completeness() or {}
+    except Exception as e:
+        rep.check(False, "setting_completeness 调得起来", str(e))
+        return
+    ratio = float(c.get("char_issue_ratio") or 0)
+    score = int(c.get("completeness_score") or 0)
+    n_issues = len(c.get("char_issues") or [])
+    n_chars = int(c.get("total_chars") or 0)
+    missing = c.get("missing_dimensions") or []
+    print(f"  角色 {n_chars}　空壳 {n_issues}　char_issue_ratio {ratio:.3f}"
+          f"　completeness_score {score}")
+    if missing:
+        print(f"  缺维：{'、'.join(str(x) for x in missing)}")
+    for row in (c.get("char_issues") or [])[:8]:
+        print(f"  · {row.get('name')}：{'、'.join(row.get('issues') or [])}")
+    if n_issues > 8:
+        print(f"  · ……另有 {n_issues - 8} 人")
+    rep.check(ratio <= CHAR_ISSUE_RATIO_MAX,
+              f"空壳角色占比 ≤{CHAR_ISSUE_RATIO_MAX}",
+              f"char_issue_ratio {ratio:.3f}（{n_issues}/{n_chars}）")
+    rep.check(score >= COMPLETENESS_SCORE_MIN,
+              f"设定完整度 ≥{COMPLETENESS_SCORE_MIN}",
+              f"completeness_score {score}")
+
+
 def check_scale(st, rep: Report, expect_chapters: int) -> None:
     print("\n【规模】")
     chs = st.chapters_lite() or []
@@ -160,6 +196,7 @@ def main() -> int:
         check_volumes(st, rep, a.hero)
         check_prefixes(st, rep, a.chapters)
         check_consistency(st, rep, a.chapters, a.hero)
+        check_completeness(st, rep)
     finally:
         st.close()
 

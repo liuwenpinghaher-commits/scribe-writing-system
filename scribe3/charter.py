@@ -70,6 +70,11 @@ def required_introduces(span_chapters: int) -> int:
     return target + INTRODUCE_SLACK
 
 
+def required_thickens(span_chapters: int) -> int:
+    """一卷该点名写厚几个已有实体。和引入同源——没写进契约模型就不会做。"""
+    return required_introduces(span_chapters)
+
+
 def story_entities(facts) -> set[str]:
     """命题里属于设定本体的实体，排除系统自建的账目命题。"""
     return {f.entity_id for f in facts
@@ -105,16 +110,8 @@ def normalize_charter(raw: Any) -> dict:
     # oid 就地归位。契约里写 `loc:忘川驿`、章节落库写 `place:忘川驿`，
     # 对账就会判「说要引入却没出现」——东西明明引入了。归不了的保留原样，
     # 交给 `validate_charter` 报出来，不静默丢掉一条引入要求。
-    for item in raw.get("introduces") or []:
-        if isinstance(item, str):
-            oid, why = item.strip(), ""
-        elif isinstance(item, dict):
-            oid = str(item.get("oid") or item.get("id") or item.get("name") or "").strip()
-            why = str(item.get("why") or "").strip()
-        else:
-            continue
-        if oid:
-            out["introduces"].append({"oid": canon_oid(oid) or oid, "why": why})
+    out["introduces"] = _norm_oid_items(raw.get("introduces"))
+    out["thickens"] = _norm_oid_items(raw.get("thickens"))
 
     for item in raw.get("pays") or []:
         text = item.strip() if isinstance(item, str) else str((item or {}).get("text") or "").strip()
@@ -168,8 +165,23 @@ def _norm_knowledge_entry(item: Any) -> dict | None:
     return None
 
 
+def _norm_oid_items(raw) -> list[dict]:
+    out = []
+    for item in raw or []:
+        if isinstance(item, str):
+            oid, why = item.strip(), ""
+        elif isinstance(item, dict):
+            oid = str(item.get("oid") or item.get("id") or item.get("name") or "").strip()
+            why = str(item.get("why") or "").strip()
+        else:
+            continue
+        if oid:
+            out.append({"oid": canon_oid(oid) or oid, "why": why})
+    return out
+
+
 def _empty_charter() -> dict:
-    return {"duty": "", "introduces": [], "pays": [],
+    return {"duty": "", "introduces": [], "thickens": [], "pays": [],
             "knowledge_end": {"must_know": [], "must_not_know": []},
             "chapter_range": None}
 
@@ -190,6 +202,11 @@ def validate_charter(charter: dict, *, strict: bool = True) -> list[str]:
             f"这一卷 {span} 章，只引入 {len(c['introduces'])} 个新实体，少于 {need} 个。"
             f"判据是每 10 章 ≥{MIN_NEW_ENTITIES_PER_10CH} 个，契约点名少于这个数，"
             "模型就照少的办——实测每卷稳定不合格")
+    need_th = required_thickens(span)
+    if len(c["thickens"]) < need_th:
+        problems.append(
+            f"这一卷只点名写厚 {len(c['thickens'])} 个已有实体，少于 {need_th} 个。"
+            "引入即算数、引入完撂着不管照样满分——世界会饿死。")
     for slot in ("must_know", "must_not_know"):
         nokey = [e["what"] for e in c["knowledge_end"][slot] if not e["key"]]
         if nokey:
@@ -243,6 +260,8 @@ class CharterAudit:
     introduces_declared: list[str] = field(default_factory=list)
     introduces_actual: list[str] = field(default_factory=list)
     introduces_missing: list[str] = field(default_factory=list)
+    thickens_declared: list[str] = field(default_factory=list)
+    thickens_missing: list[str] = field(default_factory=list)
     pays_declared: list[str] = field(default_factory=list)
     #: 纲说要收几条，和这一卷实际收掉的更早埋的线数。文本对不上不算错，数目不够才算。
     pays_expected: int = 0
@@ -270,7 +289,7 @@ class CharterAudit:
     @property
     def ok(self) -> bool:
         """关键词集中度不参与判定，理由见 KEYWORD_SHARE_NOTE 上方注释。"""
-        return not (self.introduces_missing or self.pays_short
+        return not (self.introduces_missing or self.thickens_missing or self.pays_short
                     or self.must_know_missing or self.must_not_know_violated
                     or self.new_entities_per_10ch < MIN_NEW_ENTITIES_PER_10CH)
 
@@ -287,6 +306,8 @@ class CharterAudit:
                          + "；".join(self.must_not_know_unusable))
         if self.introduces_missing:
             lines.append(f"  ✗ 说要引入却没出现：{'、'.join(self.introduces_missing)}")
+        if self.thickens_missing:
+            lines.append(f"  ✗ 说要写厚却还是空壳：{'、'.join(self.thickens_missing)}")
         if self.pays_short:
             lines.append(f"  ✗ 说要收 {self.pays_expected} 条旧线，"
                          f"实际只收掉 {self.cross_volume_payoffs} 条上一卷之前埋的")
@@ -303,6 +324,24 @@ class CharterAudit:
         return "\n".join(lines)
 
 
+def _duty_ready(store, oid: str) -> bool:
+    """点名写厚的实体是否已有 duty 字段。走 thicken_codex 同一套合同，不另发明。
+
+    place 没有写厚合同，不算空壳。role / org 缺「他要什么」才报。
+    """
+    from scribe3.codex_generate import duty_fields_ready, load_codex_row
+
+    prefix, _, name = (oid or "").partition(":")
+    kind = {"role": "character", "org": "faction"}.get(prefix)
+    if not kind or not name:
+        return True
+    try:
+        row = load_codex_row(store, kind, name) or {}
+    except Exception:
+        row = {}
+    return duty_fields_ready(kind, row)
+
+
 def audit_volume(store, volume: dict, hero: str, *,
                  prior_entities: set[str] | None = None) -> CharterAudit:
     """核对一卷：纲说的 vs 库里真有的。
@@ -317,6 +356,7 @@ def audit_volume(store, volume: dict, hero: str, *,
 
     audit = CharterAudit(volume_id=vid, chapter_range=(lo, hi))
     audit.introduces_declared = [i["oid"] for i in charter["introduces"]]
+    audit.thickens_declared = [i["oid"] for i in charter["thickens"]]
     audit.pays_declared = list(charter["pays"])
     if hi < lo:
         return audit
@@ -334,6 +374,8 @@ def audit_volume(store, volume: dict, hero: str, *,
     audit.introduces_missing = [
         oid for oid in audit.introduces_declared
         if not any(oid == e or oid in e or e in oid for e in audit.introduces_actual)]
+    audit.thickens_missing = [
+        oid for oid in audit.thickens_declared if not _duty_ready(store, oid)]
 
     audit.new_entities_per_10ch = (
         len(actual_entities - prior_entities) / max(hi - lo + 1, 1) * 10)
@@ -548,6 +590,10 @@ def build_charter_prompt(store, n_volumes: int, total: int) -> str:
         {{"oid": "role:新人名 / place:新地点 / org:新组织，前缀只能用这三个",
           "why": "这一卷为什么非要他不可"}}
       ],
+      "thickens": [
+        {{"oid": "role:已有人名 / org:已有组织，必须是上面『已经用过的实体』里的",
+          "why": "这一卷为什么非要把他写厚"}}
+      ],
       "pays": ["这一卷要收掉的、前面卷埋下的线，一句话说清收的是什么"],
       "knowledge_end": {{
         "must_know": [
@@ -572,6 +618,9 @@ def build_charter_prompt(store, n_volumes: int, total: int) -> str:
   实测过一次少给的后果：契约只点名 3 个，模型就正好只引入那 3 个，一个不多，
   整卷每 10 章新增 1.5 个，和没有卷纲时差不多。**你写几个，就只会有几个。**
   **前缀只能是 `role:` / `place:` / `org:`**，别的前缀系统认不出来、存进去也关联不上。
+- 每卷 `thickens` **至少 {need} 个已有实体**。数量和引入同源。只引入不写厚，世界是空的——
+  实测 79% 角色缺「他要什么」，天龙座/地球/月球各 1 条命题。点名的必须是已经用过的，
+  不许拿本卷刚引入的充数。
 - 每卷 `pays` 至少一条，收的必须是前面卷埋下的线。第一卷可以收种子里立的。
   核对时数的是「这一卷收掉了几条本卷之前埋的线」，所以别把本卷刚埋的算进来。
 - `knowledge_end` 两栏都要有，会被拿去和限知帧逐条对，写不实会被查出来。
@@ -636,7 +685,7 @@ def persist_charters(store, charters: list[dict], total: int) -> dict:
     n_new = n_upd = 0
     for c in charters:
         so, title = c["sort_order"], c["title"]
-        body = {k: c[k] for k in ("duty", "introduces", "pays",
+        body = {k: c[k] for k in ("duty", "introduces", "thickens", "pays",
                                   "knowledge_end", "chapter_range")}
         if so in existing:
             store.update_volume(existing[so]["id"], {"charter": body, "intro": c["duty"]})

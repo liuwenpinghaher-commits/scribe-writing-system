@@ -63,6 +63,7 @@ def test_normalize_accepts_json_string_and_bare_list():
     assert c["introduces"] == [{"oid": "role:新人", "why": ""}]
     assert c["pays"] == ["旧线"]
     assert c["knowledge_end"] == {"must_know": [], "must_not_know": []}
+    assert c["thickens"] == []
 
 
 def test_normalize_empty_and_bad_input():
@@ -78,6 +79,7 @@ def _charter(**kw):
     # 6 章短卷：目标 3 + 余量 1 = 4。地板必须高于新鲜度目标。
     base = {"duty": "办这件",
             "introduces": ["role:甲", "role:乙", "org:丙", "place:渡口"],
+            "thickens": ["role:老人", "place:旧镇", "org:旧会"],
             "pays": ["旧线"], "chapter_range": [1, 6],
             "knowledge_end": {
                 "must_know": [{"key": "甲身份", "what": "知道甲是谁"}],
@@ -112,6 +114,7 @@ def test_required_introduces_scales_with_volume_length():
     assert any("少于" in p and "新实体" in p for p in validate_charter(twenty))
 
     twenty["introduces"] = [f"role:人{i}" for i in range(required_introduces(20))]
+    twenty["thickens"] = [f"role:旧{i}" for i in range(required_introduces(20))]
     assert validate_charter(twenty) == []
 
 
@@ -139,7 +142,8 @@ def test_generate_retries_with_the_problems_in_hand():
     need = required_introduces(10)
     good = json.dumps({"volumes": [dict(_charter(chapter_range=[1, 10]), sort_order=1,
                                         title="卷一",
-                                        introduces=[f"role:人{i}" for i in range(need)])]},
+                                        introduces=[f"role:人{i}" for i in range(need)],
+                                        thickens=[f"role:旧{i}" for i in range(need)])]},
                       ensure_ascii=False)
     seen: list[str] = []
 
@@ -227,9 +231,11 @@ def test_validate_charters_reject_oid_reserved_twice():
     from scribe3.charter import validate_charters
 
     v1 = dict(_charter(chapter_range=[1, 20]), sort_order=1, title="卷一",
-              introduces=[f"role:人{i}" for i in range(11)] + ["role:兰因"])
+              introduces=[f"role:人{i}" for i in range(11)] + ["role:兰因"],
+              thickens=[f"role:旧{i}" for i in range(11)])
     v2 = dict(_charter(chapter_range=[21, 40]), sort_order=2, title="卷二",
-              introduces=[f"role:后{i}" for i in range(11)] + ["role:兰因"])
+              introduces=[f"role:后{i}" for i in range(11)] + ["role:兰因"],
+              thickens=[f"role:老{i}" for i in range(11)])
     problems = validate_charters([v1, v2])
     assert any("兰因" in p and "重名" in p for p in problems)
 
@@ -593,3 +599,61 @@ def test_prompt_names_used_entities_so_model_can_avoid_them():
     assert "role:柳岸青" in p
     assert "北极星文" in p and "红线文" in p
     assert "200" in p and "10 卷" in p
+    assert "thickens" in p, "不写进契约模型就不会写厚已有实体"
+
+
+def test_required_thickens_is_the_same_floor_as_introduces():
+    """写厚数量必须和引入同源。契约是地板，没要的一点不给。"""
+    from scribe3.charter import required_introduces, required_thickens
+
+    assert required_thickens(20) == required_introduces(20)
+    assert required_thickens(10) == required_introduces(10)
+    assert required_thickens(4) == required_introduces(4)
+
+    twenty = _charter(chapter_range=[1, 20], thickens=["role:老人"])
+    twenty["introduces"] = [f"role:人{i}" for i in range(required_introduces(20))]
+    assert any("写厚" in p or "thickens" in p for p in validate_charter(twenty))
+
+    twenty["thickens"] = [f"role:旧{i}" for i in range(required_thickens(20))]
+    assert validate_charter(twenty) == []
+
+
+def test_normalize_thickens_like_introduces():
+    c = normalize_charter({
+        "duty": "办", "introduces": ["role:甲"],
+        "thickens": ["role:柳岸青", {"oid": "loc:地球", "why": "北极星讲的就是它"}],
+        "pays": ["线"],
+    })
+    assert c["thickens"][0]["oid"] == "role:柳岸青"
+    assert c["thickens"][1]["oid"] == "place:地球", "loc 要归位，否则对账对不上"
+
+
+def test_persist_keeps_thickens():
+    raw = json.dumps({"volumes": [dict(_charter(chapter_range=[1, 6]),
+                                       sort_order=1, title="开场",
+                                       thickens=[{"oid": "role:柳岸青", "why": "主角还是空壳"}])]},
+                     ensure_ascii=False)
+    st = FakeVolStore()
+    persist_charters(st, parse_charters(raw), 6)
+    assert st.volumes[0]["charter"]["thickens"][0]["oid"] == "role:柳岸青"
+
+
+def test_audit_reports_unthickened_named_entities():
+    """点名写厚却还是空壳，必须报。用 duty 字段合同，不另发明一套。"""
+    class Char:
+        def __init__(self, name, traits):
+            self.name, self.id, self.traits = name, f"role:{name}", traits
+
+    facts = [_fact("p1", "role:新0", "a", "事", 11)]
+    st = FakeStore(facts)
+    st.characters = lambda: [Char("柳岸青", {})]
+    vol = _volume({"duty": "办", "chapter_range": [11, 20],
+                   "introduces": ["role:新0"], "thickens": ["role:柳岸青"],
+                   "pays": [], "knowledge_end": {}})
+    a = audit_volume(st, vol, "role:新0")
+    assert "role:柳岸青" in a.thickens_missing
+    assert not a.ok
+
+    st.characters = lambda: [Char("柳岸青", {"surface_goal": "按回裂口", "fear": "被标成样本"})]
+    a = audit_volume(st, vol, "role:新0")
+    assert a.thickens_missing == []

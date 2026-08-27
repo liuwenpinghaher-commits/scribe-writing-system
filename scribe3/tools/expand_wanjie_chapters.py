@@ -221,6 +221,12 @@ def _charter_block(st, seq: int) -> str:
         for i in c["introduces"]:
             out.append(f"  - {i['oid']}：{i['why']}")
         out.append("")
+    if c["thickens"]:
+        out.append("**这一卷必须把下面这些已有实体写厚**（他要什么、他让人付出什么；"
+                   "引入完撂着不管，世界就是空的）：")
+        for i in c["thickens"]:
+            out.append(f"  - {i['oid']}：{i['why']}")
+        out.append("")
     if c["pays"]:
         out.append("这一卷要收的旧线：")
         out += [f"  - {p}" for p in c["pays"]]
@@ -499,6 +505,52 @@ def persist(st, chapters: list[dict], vol_id: str | None) -> dict:
             "plant": n_plant, "payoff": n_payoff}
 
 
+_THICKEN_KIND = {"role": "character", "org": "faction"}
+
+
+def thicken_named_entities(st, vol: dict, *, llm_fn, persist: bool = True) -> dict:
+    """把这一卷点名的已有实体 + 新引入的角色/势力走 thicken_codex。
+
+    不另发明字段。place 没有写厚合同，跳过。
+    """
+    from scribe3.charter import normalize_charter
+    from scribe3.codex_generate import (
+        apply_codex_persist_fields, load_codex_row, persist_codex_row, thicken_codex,
+    )
+
+    c = normalize_charter((vol or {}).get("charter"))
+    oids: list[str] = []
+    seen: set[str] = set()
+    for item in c["thickens"] + c["introduces"]:
+        oid = item["oid"]
+        if oid and oid not in seen:
+            seen.add(oid)
+            oids.append(oid)
+    items: list[dict] = []
+    for oid in oids:
+        prefix, _, name = oid.partition(":")
+        kind = _THICKEN_KIND.get(prefix)
+        if not kind or not name:
+            continue
+        row = load_codex_row(st, kind, name) or {"name": name}
+        persist_fn = None
+        if persist:
+            def persist_fn(fields, _kind=kind, _name=name):
+                packed = apply_codex_persist_fields(_kind, fields, {}, {})
+                persist_codex_row(st, _kind, _name, packed)
+        out = thicken_codex(
+            kind, row, llm_fn=llm_fn, persist_fn=persist_fn, st=st, name=name,
+        )
+        items.append({
+            "oid": oid, "kind": kind, "name": name,
+            "ok": bool(out.get("ok")),
+            "skipped": bool(out.get("skipped")),
+            "status": ("skipped_ready" if out.get("skipped")
+                       else ("ok" if out.get("ok") else out.get("code") or "fail")),
+        })
+    return {"items": items}
+
+
 def plan_batches(st, lo: int, hi: int, batch: int) -> list[tuple[dict, int, int]]:
     """把 [lo,hi] 按卷契约的章号范围切成批，每批不跨卷且不超过 batch 章。
 
@@ -549,6 +601,9 @@ def run_batch(st, vol: dict, lo: int, hi: int, total: int, *,
         print("  （dry-run，没落库）")
         return
     print("  落库：", persist(st, chapters, vol.get("id")))
+    print("  写厚：", thicken_named_entities(
+        st, vol, llm_fn=lambda p, max_tokens=4096: hermes_complete(
+            p, max_tokens=max_tokens, temperature=0.4, timeout=180)))
 
 
 def main() -> None:
