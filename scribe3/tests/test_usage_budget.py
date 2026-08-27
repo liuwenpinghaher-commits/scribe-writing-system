@@ -352,7 +352,7 @@ def test_ai_usage_endpoint_exposes_only_safe_official_provider_evidence(
     assert provider == {
         "provider": "qwen",
         "api_base": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
-        "model": "qwen3.8-max-preview",
+        "model": "qwen3.8-flash",
         "official": True,
         "transport": "direct",
         "key_present": True,

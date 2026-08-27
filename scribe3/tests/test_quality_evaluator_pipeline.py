@@ -109,7 +109,7 @@ def test_evaluate_chapter_produces_ten_anchored_system_judgments(store, evaluato
     system = evaluation.system_reference_judgments
     assert evaluation.job.model_settings == {
         "provider": "qwen",
-        "model": "qwen3.8-max-preview",
+        "model": "qwen3.8-flash",
     }
     assert len(system) == len(CORE_DIMENSIONS)
     dims = {bound.judgment.dimension for bound in system}

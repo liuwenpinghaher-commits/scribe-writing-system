@@ -21,7 +21,7 @@ _THINKING_OFF = {"disabled", "none", "off", "false", "0"}
 
 
 OFFICIAL_PROVIDER = "qwen"
-DEFAULT_MODEL = "deepseek-v4-pro-0813"
+DEFAULT_MODEL = "qwen3.8-flash"
 OFFICIAL_API_BASE = "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
 _CHAT_COMPLETIONS_URL = f"{OFFICIAL_API_BASE}/chat/completions"
 _RETRYABLE_REQUEST_ERRORS = (

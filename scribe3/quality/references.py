@@ -34,7 +34,7 @@ _FINGERPRINT_REQUIRED_FIELDS = (
     "applicable_scope",
 )
 
-# TokenPlan 的 qwen3.8-max-preview 会进行强制思考，指纹生成不能继承普通写作
+# TokenPlan 的 qwen3.8-flash 会进行强制思考，指纹生成不能继承普通写作
 # 路径的 600 秒超时、3 次重试与无输出上限。显式 JSON 模式与该受限预算让一次
 # 失败在可解释的时间内返回给作者；不发送 thinking=disabled（该模型会拒绝它）。
 FINGERPRINT_MAX_TOKENS = 1200
