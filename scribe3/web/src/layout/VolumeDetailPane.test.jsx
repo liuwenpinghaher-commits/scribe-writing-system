@@ -106,6 +106,33 @@ describe('VolumeDetailPane', () => {
     expect(box.textContent).not.toMatch(/金縢裂纹/)
   })
 
+  it('分卷面板只读展示卷契约', async () => {
+    api.outline.mockResolvedValue({
+      volumes: [{
+        id: 'vol-2', title: '第二卷', intro: '卷纲正文', color: '#123456', sort_order: 2,
+        charter: {
+          duty: '把坐标从买办处抢回来',
+          introduces: [{ oid: 'role:纪棠', why: '名讳司的人' }],
+          thickens: [{ oid: 'org:天龙座', why: '反派还是空壳' }],
+          pays: ['袖口标价'],
+          knowledge_end: {
+            must_know: [{ key: '档案空白', what: '空白会被追索' }],
+            must_not_know: [{ key: '场核坐标', what: '留到下一卷' }],
+          },
+        },
+      }],
+      chapters: [],
+    })
+    render(<VolumeDetailPane node={{ id: 'vol:vol-2', type: 'volume', ref: 'vol-2', label: '第二卷' }} />)
+    const box = await screen.findByTestId('volume-charter-readout')
+    expect(box.textContent).toMatch(/把坐标从买办处抢回来/)
+    expect(box.textContent).toMatch(/role:纪棠/)
+    expect(box.textContent).toMatch(/org:天龙座/)
+    expect(box.textContent).toMatch(/袖口标价/)
+    expect(box.textContent).toMatch(/档案空白/)
+    expect(box.textContent).toMatch(/场核坐标/)
+  })
+
   it('侧栏列出设定还缺什么，不挡写', async () => {
     api.codexCompleteness.mockResolvedValue({
       advisory: true,

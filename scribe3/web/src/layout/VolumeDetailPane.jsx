@@ -14,6 +14,7 @@ import {
   volumePendingHuman,
   volumeRemainingWork,
 } from '../lib/volumeLedger.js'
+import { parseVolumeCharter } from '../lib/volumeCharter.js'
 
 function volumeIdOf(node) {
   if (node?.ref != null) return node.ref
@@ -35,6 +36,64 @@ function chapterNode(chapter) {
 
 function FieldLabel({ children }) {
   return <label className="grid gap-1 text-meta text-faint uppercase tracking-wider">{children}</label>
+}
+
+function CharterLine({ item }) {
+  const main = item.oid || item.key || item.what
+  const sub = item.why || (item.key && item.what ? item.what : '')
+  return (
+    <li className="text-f12 leading-relaxed text-ink">
+      <span>{main}</span>
+      {sub ? <span className="text-faint"> · {sub}</span> : null}
+    </li>
+  )
+}
+
+function CharterReadout({ charter }) {
+  const c = parseVolumeCharter(charter)
+  if (!c) {
+    return (
+      <section data-testid="volume-charter-readout" className="text-f12 text-faint leading-relaxed">
+        这一卷还没有契约。作者看不见的机制等于不存在。
+      </section>
+    )
+  }
+  return (
+    <section data-testid="volume-charter-readout" className="space-y-3">
+      <SectionTitle>卷契约</SectionTitle>
+      {c.duty ? <p className="text-f13 leading-relaxed text-ink">{c.duty}</p> : null}
+      {c.introduces.length ? (
+        <div>
+          <div className="text-meta text-faint uppercase tracking-wider mb-1">引入</div>
+          <ul className="grid gap-0.5">{c.introduces.map((item, i) => <CharterLine key={`i${i}`} item={item} />)}</ul>
+        </div>
+      ) : null}
+      {c.thickens.length ? (
+        <div>
+          <div className="text-meta text-faint uppercase tracking-wider mb-1">写厚</div>
+          <ul className="grid gap-0.5">{c.thickens.map((item, i) => <CharterLine key={`t${i}`} item={item} />)}</ul>
+        </div>
+      ) : null}
+      {c.pays.length ? (
+        <div>
+          <div className="text-meta text-faint uppercase tracking-wider mb-1">收线</div>
+          <ul className="grid gap-0.5">{c.pays.map((p, i) => <li key={`p${i}`} className="text-f12 text-ink">{p}</li>)}</ul>
+        </div>
+      ) : null}
+      {c.mustKnow.length ? (
+        <div>
+          <div className="text-meta text-faint uppercase tracking-wider mb-1">卷末须知</div>
+          <ul className="grid gap-0.5">{c.mustKnow.map((item, i) => <CharterLine key={`k${i}`} item={item} />)}</ul>
+        </div>
+      ) : null}
+      {c.mustNotKnow.length ? (
+        <div>
+          <div className="text-meta text-faint uppercase tracking-wider mb-1">卷末不许知</div>
+          <ul className="grid gap-0.5">{c.mustNotKnow.map((item, i) => <CharterLine key={`n${i}`} item={item} />)}</ul>
+        </div>
+      ) : null}
+    </section>
+  )
 }
 
 export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
@@ -379,6 +438,8 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
               {' · '}无 REST 叙事直写 · WRITE_GATED
             </p>
           </section>
+
+          <CharterReadout charter={volume.charter} />
 
           <section>
             <SectionTitle right={
