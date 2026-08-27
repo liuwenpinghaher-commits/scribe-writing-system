@@ -95,11 +95,12 @@ def test_merge_codex_slot_keeps_other_fields():
     ) == "surface_goal"
 
 
-def test_batch_not_in_write_gated():
+def test_batch_persist_is_write_gated():
+    """persist=true 必须过审批，与单卡 s3_generate_codex 对齐。"""
     assert "s3_generate_codex" in WRITE_GATED
     assert "s3_generate_codex" in DEFAULT_WRITE_GATED
-    assert "s3_generate_codex_batch" not in WRITE_GATED
-    assert "s3_generate_codex_batch" not in DEFAULT_WRITE_GATED
+    assert "s3_generate_codex_batch" in WRITE_GATED
+    assert "s3_generate_codex_batch" in DEFAULT_WRITE_GATED
 
 
 class _BatchStore:

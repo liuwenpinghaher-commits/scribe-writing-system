@@ -1191,10 +1191,20 @@ async def s3_plan_chapter_accounts(ctx: Context, volume_id: str, work: str | Non
 
     def _write():
         st = _store_for(work)
-        outline = st.outline() if hasattr(st, "outline") else {"chapters": []}
-        seqs = [c.get("seq") for c in (outline.get("chapters") or [])
-                if str(c.get("volume") or "") == str(volume_id)]
-        return {"volume_id": volume_id, "seqs": seqs, "note": "账目由主编按章补进 synopsis，本工具只锁定这一卷。"}
+        vol = next((v for v in (st.list_volumes() or [])
+                    if str(v.get("id") or "") == str(volume_id)
+                    or str(v.get("id") or "").endswith(":" + str(volume_id))), None)
+        if not vol:
+            return False
+        from scribe3.llm import hermes_complete
+        from scribe3.tools.expand_wanjie_chapters import expand_volume_accounts
+        out = expand_volume_accounts(
+            st, vol,
+            llm_fn=lambda p, max_tokens=12288: hermes_complete(
+                p, max_tokens=max_tokens, temperature=0.6, timeout=900),
+        )
+        out["volume_id"] = volume_id
+        return out
 
     return commit_if_approved("s3_plan_chapter_accounts", ok, _write)
 
@@ -1255,10 +1265,25 @@ async def s3_expand_arc_window(ctx: Context, volume_id: str, work: str | None = 
     if off:
         return off
     ok = await _ask(ctx, f"只铺卷 {volume_id} 眼前这一段和接下来一段，不铺全书")
-    return commit_if_approved(
-        "s3_expand_arc_window", ok,
-        lambda: {"volume_id": volume_id, "window": "current_and_next", "status": "draft"},
-    )
+
+    def _write():
+        st = _store_for(work)
+        vol = next((v for v in (st.list_volumes() or [])
+                    if str(v.get("id") or "") == str(volume_id)
+                    or str(v.get("id") or "").endswith(":" + str(volume_id))), None)
+        if not vol:
+            return False
+        from scribe3.llm import hermes_complete
+        from scribe3.tools.expand_wanjie_chapters import expand_volume_accounts
+        out = expand_volume_accounts(
+            st, vol, window=20,
+            llm_fn=lambda p, max_tokens=12288: hermes_complete(
+                p, max_tokens=max_tokens, temperature=0.6, timeout=900),
+        )
+        out["volume_id"] = volume_id
+        return out
+
+    return commit_if_approved("s3_expand_arc_window", ok, _write)
 
 
 @mcp.tool(annotations=_RW)
@@ -1719,16 +1744,28 @@ async def s3_generate_codex_batch(
     max_items: int = 50,
     work: str | None = None,
 ) -> dict:
-    """批量写厚本书 stub/thin。persist=true 过闸直接落库，无需批准。"""
+    """批量写厚本书 stub/thin。persist=true 待批落库，与单卡版对齐。"""
     from scribe3.codex_generate import thicken_codex_batch
     st = _store_for(work)
-    out = thicken_codex_batch(
-        st, llm_fn=_codex_llm_fn(st, work, "batch"), persist=bool(persist),
-        kinds=kinds, force=force, extra=extra or "",
-        include_secret=bool(include_secret), offset=int(offset or 0),
-        max_items=int(max_items or 50), work=work,
-    )
-    return {"tool": "s3_generate_codex_batch", **out}
+    if not persist:
+        out = thicken_codex_batch(
+            st, llm_fn=_codex_llm_fn(st, work, "batch"), persist=False,
+            kinds=kinds, force=force, extra=extra or "",
+            include_secret=bool(include_secret), offset=int(offset or 0),
+            max_items=int(max_items or 50), work=work,
+        )
+        return {"tool": "s3_generate_codex_batch", **out}
+    ok = await _ask(ctx, f"批量写厚设定卡 persist kinds={kinds or 'all'} max={max_items}")
+
+    def _write():
+        return thicken_codex_batch(
+            st, llm_fn=_codex_llm_fn(st, work, "batch"), persist=True,
+            kinds=kinds, force=force, extra=extra or "",
+            include_secret=bool(include_secret), offset=int(offset or 0),
+            max_items=int(max_items or 50), work=work,
+        )
+
+    return commit_if_approved("s3_generate_codex_batch", ok, _write)
 
 
 @mcp.tool(annotations=_RW)

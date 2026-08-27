@@ -291,3 +291,96 @@ def test_thicken_named_entities_uses_codex_contract():
     names = {i.get("name") for i in out.get("items") or []}
     assert "柳岸青" in names or any("柳岸青" in str(c) for c in called)
     assert "天龙座" in names or any("天龙座" in str(c) for c in called)
+
+
+def test_expand_volume_accounts_persists_parsed_chapters():
+    """产品路径铺章必须真写 synopsis，不能只返回章号列表。"""
+    from scribe3.tools.expand_wanjie_chapters import expand_volume_accounts
+
+    class St:
+        def __init__(self):
+            self.chapters = {}
+            self.meta = {}
+            self.facts = []
+
+        def get_intent(self):
+            return {"north_star": "星", "red_lines": "线"}
+
+        def list_volumes(self):
+            return [self.vol]
+
+        def chapters_lite(self):
+            return [{"seq": s, "title": c.get("title"), "synopsis": self.meta.get(s, {}).get("synopsis", "")}
+                    for s, c in self.chapters.items()]
+
+        def list_promises(self):
+            return []
+
+        def facts_at(self, *_a, **_k):
+            return list(self.facts)
+
+        def characters(self):
+            return []
+
+        def list_world_rules(self):
+            return []
+
+        def list_factions(self):
+            return []
+
+        def list_items(self):
+            return []
+
+        def list_terms(self):
+            return []
+
+        def list_motifs(self):
+            return []
+
+        def save_chapter(self, seq, prose, title="", focalizer=""):
+            self.chapters[seq] = {"title": title, "prose": prose}
+
+        def update_chapter_meta(self, seq, meta):
+            self.meta[seq] = dict(meta)
+            return True
+
+        def entity(self, oid):
+            return True
+
+        def add_entity(self, *a, **k):
+            return None
+
+        def add_fact(self, fact, **k):
+            self.facts.append(fact)
+
+        def add_knowledge(self, *a, **k):
+            return None
+
+        def plant_promise(self, *a, **k):
+            return None
+
+        def advance_promise(self, *a, **k):
+            return None
+
+    st = St()
+    st.vol = {"id": "v1", "title": "卷一", "intro": "办",
+              "charter": {"duty": "办", "chapter_range": [11, 12],
+                          "introduces": [{"oid": "role:甲", "why": "要"}],
+                          "pays": [], "knowledge_end": {"must_know": [], "must_not_know": []}}}
+
+    def llm(prompt, max_tokens=4096):
+        return '''[
+          {"seq": 11, "title": "第一笔", "synopsis": "甲在渡口被挡住，付了体温才过。",
+           "new_facts": [{"entity": "role:甲", "attribute": "过河", "value": "付了体温", "secret": false}],
+           "learns": [], "hides": [{"who": "role:甲", "from": "role:乙", "what": "体温缺口"}],
+           "plant": [], "payoff": []},
+          {"seq": 12, "title": "第二笔", "synopsis": "甲发现名单缺了一夜。",
+           "new_facts": [{"entity": "role:甲", "attribute": "名单", "value": "缺了一夜", "secret": false}],
+           "learns": [], "hides": [{"who": "role:甲", "from": "role:乙", "what": "缺名"}],
+           "plant": [], "payoff": []}
+        ]'''
+
+    out = expand_volume_accounts(st, st.vol, llm_fn=llm, total=20, batch=10)
+    assert st.meta[11]["synopsis"].startswith("甲在渡口")
+    assert st.meta[12]["synopsis"].startswith("甲发现")
+    assert out.get("chapters") == 2 or len(out.get("batches") or []) >= 1

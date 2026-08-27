@@ -34,7 +34,7 @@ DEFAULT_WRITE_GATED: frozenset[str] = frozenset({
     "s3_refreeze_volume",
     "s3_patch_play", "s3_patch_contract",
     "s3_generate_stage", "s3_save_chapter_draft",
-    "s3_generate_codex", "s3_set_char_anchors",
+    "s3_generate_codex", "s3_generate_codex_batch", "s3_set_char_anchors",
     "s3_reorder_chapters", "s3_delete_volume",
     "s3_add_motif", "s3_patch_motif", "s3_patch_promise",
     "s3_delete_codex",

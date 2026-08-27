@@ -574,6 +574,44 @@ def plan_batches(st, lo: int, hi: int, batch: int) -> list[tuple[dict, int, int]
     return out
 
 
+def expand_volume_accounts(st, vol: dict, *, llm_fn, total: int = 200,
+                           batch: int = 10, window: int | None = None) -> dict:
+    """给一卷立章级账。产品路径和 CLI 共用。
+
+    window 只铺从已有章之后的 N 章（眼前这一段）。不传则铺契约范围内还空的。
+    """
+    from scribe3.charter import normalize_charter
+
+    c = normalize_charter((vol or {}).get("charter"))
+    rng = c["chapter_range"] or [1, total]
+    lo, hi = int(rng[0]), int(rng[1])
+    have = [int(ch.get("seq") or 0) for ch in (st.chapters_lite() or [])]
+    in_vol = [s for s in have if lo <= s <= hi]
+    start = (max(in_vol) + 1) if in_vol else lo
+    if window:
+        hi = min(hi, start + int(window) - 1)
+    lo = start
+    if hi < lo:
+        return {"chapters": 0, "note": "这一卷已经铺完"}
+    n_ch = 0
+    stats = []
+    for v, a, b in plan_batches(st, lo, hi, batch):
+        prompt = build_prompt(st, v.get("title") or "", v.get("intro") or "", a, b, total)
+        try:
+            raw = llm_fn(prompt, max_tokens=12288)
+        except TypeError:
+            raw = llm_fn(prompt)
+        chapters = parse(raw)
+        persisted = persist(st, chapters, v.get("id"))
+        n_ch += len(chapters)
+        try:
+            thick = thicken_named_entities(st, v, llm_fn=llm_fn)
+        except Exception as e:
+            thick = {"error": str(e)}
+        stats.append({"lo": a, "hi": b, "persist": persisted, "thicken": thick})
+    return {"chapters": n_ch, "batches": stats}
+
+
 def run_batch(st, vol: dict, lo: int, hi: int, total: int, *,
               dry_run: bool = False, out: str | None = None) -> None:
     from scribe3.llm import hermes_complete
