@@ -119,6 +119,37 @@ def _promise_ledger(st, at: int) -> str:
     return "\n".join(out)
 
 
+def reserved_ahead(st, seq: int) -> list[str]:
+    """后面几卷契约点名、这一章还不能用的实体。
+
+    一次性立完全书时，模型给卷 2 预留了兰因，铺卷 1 时又把她提前引入。
+    章级提示已经发「已经登场过的」，没发「后面预留的」。重名检查拦不住
+    「契约没点名、生成时自己提前用」——必须把预留名单发下去。
+    """
+    from scribe3.charter import normalize_charter
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for v in st.list_volumes() or []:
+        c = normalize_charter(v.get("charter"))
+        rng = c["chapter_range"]
+        if not rng or int(rng[0]) <= seq:
+            continue
+        for item in c["introduces"]:
+            oid = item["oid"]
+            if oid and oid not in seen:
+                seen.add(oid)
+                out.append(oid)
+    return out
+
+
+def _reserved_block(st, seq: int) -> str:
+    oids = reserved_ahead(st, seq)
+    if not oids:
+        return "（后面几卷没有预留）"
+    return "、".join(oids)
+
+
 def _entities_in_play(st, before: int) -> str:
     """这一章之前已经登场的实体。
 
@@ -235,6 +266,9 @@ def build_prompt(st, vol_title: str, vol_intro: str, lo: int, hi: int,
 ## 已经登场过的实体（这些不算新的，别拿它们充数）
 {_entities_in_play(st, lo)}
 
+## 后面几卷预留的实体（现在别用，用了后一卷就长不出新东西）
+{_reserved_block(st, lo)}
+
 ## 前面已经发生的
 {_recent(st, lo)}
 
@@ -274,6 +308,8 @@ def build_prompt(st, vol_title: str, vol_intro: str, lo: int, hi: int,
 
 - **上面契约里点名要引入的新东西，必须在这一批章里真的出场并立下事实**，
   用契约给的那个 oid 作 `entity`，不要改名。这是卷与卷之间能往前走的唯一保证。
+- 「后面几卷预留的实体」现在别用。实测卷 2 预留了兰因，铺卷 1 时第 13 章就把她用了，
+  卷 2 新鲜度掉到 4.5。
 - `new_facts` 每章至少一条。这是这本书的账在长厚，没有新事实说明这章白写了。
 - `learns` 里的 `fact_index` 指向本章 `new_facts` 的下标。**谁不在场就不许知道**。
 - 上面「柳岸青此刻知道什么」里已经有的，不要重复立成新事实。

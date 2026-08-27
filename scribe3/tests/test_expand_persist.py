@@ -116,3 +116,60 @@ def test_will_not_pay_a_line_that_is_already_closed():
     st = PromiseStore(_LINES)
     assert resolve_payoff(st, {"ref": "Lghi789"}) is None
     assert resolve_payoff(st, {"ref": "L不存在"}) is None
+
+
+def test_chapter_prompt_lists_later_volume_reservations():
+    """后卷预留的实体现在不许用。一次性立完全书时，铺前卷会把后卷的人提前引入。
+
+    实测：卷 2 预留了 role:兰因，铺卷 1 时第 13 章就把她用了，卷 2 新鲜度掉到 4.5。
+    章级提示已经发「已经登场过的」，没发「后面预留的」。选这条路而不是立纲查重名，
+    因为重名检查拦不住「契约没点名、生成时自己提前用」。
+    """
+    from scribe3.tools.expand_wanjie_chapters import build_prompt
+
+    class St:
+        def get_intent(self):
+            return {"north_star": "北极星", "red_lines": "红线"}
+
+        def list_volumes(self):
+            return [
+                {"id": "v1", "title": "卷一", "intro": "办一",
+                 "charter": {"duty": "办一", "chapter_range": [1, 20],
+                             "introduces": [{"oid": "role:甲", "why": "要他"}],
+                             "pays": [], "knowledge_end": {"must_know": [], "must_not_know": []}}},
+                {"id": "v2", "title": "卷二", "intro": "办二",
+                 "charter": {"duty": "办二", "chapter_range": [21, 40],
+                             "introduces": [{"oid": "role:兰因", "why": "第二卷才出场"}],
+                             "pays": [], "knowledge_end": {"must_know": [], "must_not_know": []}}},
+            ]
+
+        def chapters_lite(self):
+            return []
+
+        def list_promises(self):
+            return []
+
+        def facts_at(self, *_a, **_k):
+            return []
+
+        def characters(self):
+            return []
+
+        def list_world_rules(self):
+            return []
+
+        def list_factions(self):
+            return []
+
+        def list_items(self):
+            return []
+
+        def list_terms(self):
+            return []
+
+        def list_motifs(self):
+            return []
+
+    p = build_prompt(St(), "卷一", "办一", 11, 20, 40)
+    assert "role:兰因" in p
+    assert "现在别用" in p or "预留" in p

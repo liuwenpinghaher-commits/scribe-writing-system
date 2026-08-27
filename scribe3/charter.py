@@ -27,6 +27,10 @@ from scribe3.ontology import canon_oid
 # 而卷一开头是 7 个。5.0 是「不倒退回打转」的线，不是文笔判断。
 MIN_NEW_ENTITIES_PER_10CH = 5.0
 
+# 契约点名数必须高于新鲜度目标。余量为零时，一个被前卷提前用掉就掉线下。
+# 实测卷 2 点名 10、目标 10，兰因第 13 章被用掉，新鲜度 4.5。模型不会主动超过地板。
+INTRODUCE_SLACK = 1
+
 # 关键词集中度**不做门禁**，只作报告信息。
 #
 # 原本想拿它当判据（25 章时「开-3」占 33% 看着很像打转的证据），实测校准后废掉了：
@@ -56,8 +60,14 @@ def required_introduces(span_chapters: int) -> int:
     判据却按 5 个/10 章（20 章卷 = 10 个）算，模型严格照契约办事——
     点名的三个都引入了，此外一个不多给，于是每卷稳定不合格。
     **契约是地板，模型不会主动超过它；地板定低了，判据再高也没用。**
+
+    地板还得留余量。20 章目标 10、点名正好 10 时，一个被前卷提前占用就掉到 4.5。
+    短卷仍兜底 3，不再加码——4 章要 4 个会把种子卷逼去凑名字。
     """
-    return max(3, round(span_chapters / 10 * MIN_NEW_ENTITIES_PER_10CH))
+    target = max(3, round(span_chapters / 10 * MIN_NEW_ENTITIES_PER_10CH))
+    if span_chapters < 10:
+        return target
+    return target + INTRODUCE_SLACK
 
 
 def story_entities(facts) -> set[str]:
@@ -200,6 +210,30 @@ def validate_charter(charter: dict, *, strict: bool = True) -> list[str]:
     return problems
 
 
+def validate_charters(charters: list[dict]) -> list[str]:
+    """单卷校验 + 跨卷 oid 不得重名。
+
+    一次性立完全书时，两卷点同一个人，铺前卷就会把后卷的预留用掉。
+    这拦不住「契约没点名、生成时自己提前用」——那条走章级预留清单。
+    """
+    problems: list[str] = []
+    seen: dict[str, Any] = {}
+    for raw in charters:
+        c = normalize_charter(raw)
+        so, title = raw.get("sort_order"), raw.get("title") or c.get("title") or ""
+        prefix = f"卷{so}《{title}》："
+        problems.extend(prefix + p for p in validate_charter(raw))
+        for item in c["introduces"]:
+            oid = item["oid"]
+            if oid in seen:
+                problems.append(
+                    f"{oid} 跨卷重名：卷{seen[oid]} 和卷{so} 都点名引入，"
+                    "后一卷的预留会被提前用掉")
+            else:
+                seen[oid] = so
+    return problems
+
+
 @dataclass
 class CharterAudit:
     """契约核对结果。declared 是纲说的，actual 是库里真有的。"""
@@ -294,9 +328,12 @@ def audit_volume(store, volume: dict, hero: str, *,
 
     actual_entities = story_entities(in_range)
     audit.introduces_actual = sorted(actual_entities - prior_entities)
+    # 点名引入必须是本卷**首次**出现。旧判据拿本卷出现过的实体比，
+    # 前卷已经出场、本卷再提一次的也算兑现——实测兰因第 13 章出场，
+    # 卷 2 点名她，报缺 0，新鲜度却只有 4.5。
     audit.introduces_missing = [
         oid for oid in audit.introduces_declared
-        if not any(oid == e or oid in e or e in oid for e in actual_entities)]
+        if not any(oid == e or oid in e or e in oid for e in audit.introduces_actual)]
 
     audit.new_entities_per_10ch = (
         len(actual_entities - prior_entities) / max(hi - lo + 1, 1) * 10)
@@ -583,8 +620,7 @@ def generate_charters(store, n_volumes: int, total: int, complete, *,
         charters = parse_charters(complete(prompt))
         if not charters:
             raise CharterError("模型没给出任何卷")
-        problems = [f"卷{c['sort_order']}《{c['title']}》：{p}"
-                    for c in charters for p in validate_charter(c)]
+        problems = validate_charters(charters)
         if not problems or attempt == retries:
             break
         prompt = (build_charter_prompt(store, n_volumes, total)

@@ -75,7 +75,9 @@ def test_normalize_empty_and_bad_input():
 
 
 def _charter(**kw):
-    base = {"duty": "办这件", "introduces": ["role:甲", "role:乙", "org:丙"],
+    # 6 章短卷：目标 3 + 余量 1 = 4。地板必须高于新鲜度目标。
+    base = {"duty": "办这件",
+            "introduces": ["role:甲", "role:乙", "org:丙", "place:渡口"],
             "pays": ["旧线"], "chapter_range": [1, 6],
             "knowledge_end": {
                 "must_know": [{"key": "甲身份", "what": "知道甲是谁"}],
@@ -92,22 +94,24 @@ def test_validate_flags_the_wall_we_hit():
 
 
 def test_required_introduces_scales_with_volume_length():
-    """契约的地板必须和新鲜度判据同源。
+    """契约的地板必须和新鲜度判据同源，并且留出余量。
 
-    真出过的事：契约固定要 3 个、判据按每 10 章 5 个算，20 章的卷要 10 个。
-    模型严格照契约办——点名三个都引入了，此外一个不给，于是每卷稳定不合格。
+    真出过两件事：① 契约固定要 3 个、判据按每 10 章 5 个算，模型只点名三个；
+    ② 地板正好等于目标（20 章点名 10 个）时，一个被前卷提前用掉就掉到 4.5。
+    模型不会主动超过地板，所以地板必须高于目标。
     """
-    from scribe3.charter import MIN_NEW_ENTITIES_PER_10CH, required_introduces
+    from scribe3.charter import INTRODUCE_SLACK, MIN_NEW_ENTITIES_PER_10CH, required_introduces
 
-    assert required_introduces(20) == 10
-    assert required_introduces(10) == 5
+    target_20 = round(20 / 10 * MIN_NEW_ENTITIES_PER_10CH)
+    assert required_introduces(20) == target_20 + INTRODUCE_SLACK
+    assert required_introduces(20) > target_20, "余量为零，提前占用就会掉线"
+    assert required_introduces(10) == round(10 / 10 * MIN_NEW_ENTITIES_PER_10CH) + INTRODUCE_SLACK
     assert required_introduces(4) == 3, "短卷兜底 3 个，不能要 2 个"
-    assert required_introduces(20) / 20 * 10 == MIN_NEW_ENTITIES_PER_10CH
 
     twenty = _charter(chapter_range=[1, 20])
-    assert any("少于 10 个" in p for p in validate_charter(twenty))
+    assert any("少于" in p and "新实体" in p for p in validate_charter(twenty))
 
-    twenty["introduces"] = [f"role:人{i}" for i in range(10)]
+    twenty["introduces"] = [f"role:人{i}" for i in range(required_introduces(20))]
     assert validate_charter(twenty) == []
 
 
@@ -131,9 +135,11 @@ def test_generate_retries_with_the_problems_in_hand():
     bad = json.dumps({"volumes": [dict(_charter(chapter_range=[1, 10]),
                                        sort_order=1, title="卷一",
                                        introduces=["role:甲"])]}, ensure_ascii=False)
+    from scribe3.charter import required_introduces
+    need = required_introduces(10)
     good = json.dumps({"volumes": [dict(_charter(chapter_range=[1, 10]), sort_order=1,
                                         title="卷一",
-                                        introduces=[f"role:人{i}" for i in range(5)])]},
+                                        introduces=[f"role:人{i}" for i in range(need)])]},
                       ensure_ascii=False)
     seen: list[str] = []
 
@@ -146,7 +152,7 @@ def test_generate_retries_with_the_problems_in_hand():
     assert left == [], "重写这一版是合格的"
     assert len(seen) == 2, "不合格必须重来一次"
     assert "新实体" in seen[1], "重写时得把问题告诉模型，否则它凭什么改"
-    assert len(charters[0]["introduces"]) == 5
+    assert len(charters[0]["introduces"]) == need
 
 
 def test_generate_gives_up_after_retries_but_still_reports():
@@ -196,6 +202,39 @@ def test_audit_passes_when_charter_is_honored():
     assert a.introduces_missing == []
     assert a.pays_short == 0
     assert a.new_entities_per_10ch >= 5.0
+
+
+def test_introduces_missing_if_first_seen_before_this_volume():
+    """点名实体必须在本卷首次出现。卷末「存在」不算引入。
+
+    真误报：卷 2 点名 role:兰因，她第 13 章（卷 1）就出场了。
+    旧判据查「到卷末存不存在」，报缺 0；真正的新实体只有 9 个，新鲜度 4.5。
+    """
+    # 兰因第 13 章已出场，卷 2 又立了一条——旧判据只看本卷有没有她，报缺 0。
+    facts = ([_fact("early", "role:兰因", "身份", "早出场", 13),
+              _fact("again", "role:兰因", "去向", "卷内又提一次", 25)]
+             + [_fact(f"n{i}", f"role:新{i}", f"a{i}", f"事{i}", 21 + i) for i in range(9)])
+    vol = _volume({"duty": "办", "chapter_range": [21, 40],
+                   "introduces": ["role:兰因"] + [f"role:新{i}" for i in range(9)],
+                   "pays": [], "knowledge_end": {}})
+    a = audit_volume(FakeStore(facts), vol, "role:新0")
+    assert "role:兰因" in a.introduces_missing, "前卷出场的不能算本卷引入"
+    assert "role:新0" not in a.introduces_missing
+
+
+def test_validate_charters_reject_oid_reserved_twice():
+    """立纲时同一 oid 不许跨卷重名。一次性立完全书时，后卷预留的人会被前卷提前用掉。"""
+    from scribe3.charter import validate_charters
+
+    v1 = dict(_charter(chapter_range=[1, 20]), sort_order=1, title="卷一",
+              introduces=[f"role:人{i}" for i in range(11)] + ["role:兰因"])
+    v2 = dict(_charter(chapter_range=[21, 40]), sort_order=2, title="卷二",
+              introduces=[f"role:后{i}" for i in range(11)] + ["role:兰因"])
+    problems = validate_charters([v1, v2])
+    assert any("兰因" in p and "重名" in p for p in problems)
+
+    v2["introduces"] = [f"role:后{i}" for i in range(12)]
+    assert validate_charters([v1, v2]) == []
 
 
 def test_audit_counts_payoffs_not_wording():
