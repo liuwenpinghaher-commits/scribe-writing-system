@@ -293,6 +293,19 @@ def test_thicken_named_entities_uses_codex_contract():
     assert "天龙座" in names or any("天龙座" in str(c) for c in called)
 
 
+def test_hero_knows_ranks_charter_keys_before_arbitrary_head():
+    """第 200 章主角知道上百条时，前 25 条必须是这一卷用得上的，不是任意切片。"""
+    from scribe3.ontology import Fact
+    from scribe3.tools.expand_wanjie_chapters import rank_known_facts
+
+    facts = [Fact(f"fact:{i}", "role:路人", f"杂{i}", f"无关{i}", i, None, False, [])
+             for i in range(40)]
+    facts.append(Fact("fact:k", "place:月球", "场核坐标",
+                      "裂口在北峰", 12, None, False, []))
+    ranked = rank_known_facts(facts, keys={"场核坐标"}, oids={"place:月球"}, cap=5)
+    assert ranked[0].attribute == "场核坐标"
+
+
 def test_expand_volume_accounts_persists_parsed_chapters():
     """产品路径铺章必须真写 synopsis，不能只返回章号列表。"""
     from scribe3.tools.expand_wanjie_chapters import expand_volume_accounts

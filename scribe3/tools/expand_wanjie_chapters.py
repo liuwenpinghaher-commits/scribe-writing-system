@@ -167,6 +167,23 @@ def _entities_in_play(st, before: int) -> str:
     return "、".join(sorted(oids))
 
 
+def rank_known_facts(facts, *, keys=(), oids=(), cap: int = 25):
+    """按卷契约 key 和本批实体排序。不要 facts[:25] 任意切片。"""
+    keys = {str(k) for k in (keys or ()) if k}
+    oids = {str(o) for o in (oids or ()) if o}
+
+    def score(f) -> tuple:
+        attr = str(getattr(f, "attribute", "") or "")
+        eid = str(getattr(f, "entity_id", "") or "")
+        val = str(getattr(f, "value", "") or "")
+        hit_key = 2 if attr in keys else (1 if any(k in attr or k in val for k in keys) else 0)
+        hit_oid = 1 if eid in oids else 0
+        recency = int(getattr(f, "valid_from", 0) or 0)
+        return (hit_key, hit_oid, recency)
+
+    return sorted(facts, key=score, reverse=True)[:cap]
+
+
 def _hero_knows(st, at: int, cap: int = 25) -> str:
     """主角此刻知道什么——从库里查，不是让模型现编。
 
@@ -180,7 +197,22 @@ def _hero_knows(st, at: int, cap: int = 25) -> str:
     facts = list(getattr(frame, "facts", []) or [])
     if not facts:
         return "（库里还没有他的知情记录）"
-    head = facts[:cap]
+    keys, oids = set(), set()
+    try:
+        from scribe3.charter import normalize_charter
+        vol = volume_for_chapter(st, at)
+        c = normalize_charter((vol or {}).get("charter"))
+        ke = c.get("knowledge_end") or {}
+        for slot in ("must_know", "must_not_know"):
+            for item in ke.get(slot) or []:
+                if item.get("key"):
+                    keys.add(item["key"])
+        for item in (c.get("introduces") or []) + (c.get("thickens") or []):
+            if item.get("oid"):
+                oids.add(item["oid"])
+    except Exception:
+        pass
+    head = rank_known_facts(facts, keys=keys, oids=oids, cap=cap)
     tail = f"\n（另有 {len(facts) - cap} 条略）" if len(facts) > cap else ""
     return "\n".join(f"- {f.entity_id}·{f.attribute}：{f.value}" for f in head) + tail
 

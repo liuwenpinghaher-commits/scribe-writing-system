@@ -541,7 +541,25 @@ def _bible(store) -> str:
     return "\n".join(out)
 
 
-def build_charter_prompt(store, n_volumes: int, total: int) -> str:
+def _prior_actuals(store) -> str:
+    """已完成卷的实际产出，给滚动立纲当输入。不能只喂北极星。"""
+    lines = []
+    for v in store.list_volumes() or []:
+        c = normalize_charter(v.get("charter"))
+        rng = c["chapter_range"]
+        if not rng:
+            continue
+        fr = freshness(store, int(rng[0]), int(rng[1]))
+        lines.append(
+            f"卷{v.get('sort_order')}《{v.get('title')}》{rng[0]}-{rng[1]}："
+            f"新实体 {('、'.join(fr['new_entities'][:12]) or '无')}；"
+            f"新鲜度 {fr['new_entities_per_10ch']:.1f}/10章"
+        )
+    return "\n".join(lines) or "（还没有铺完的卷）"
+
+
+def build_charter_prompt(store, n_volumes: int, total: int, *,
+                         start_sort: int = 1) -> str:
     """分卷立纲的提示词。判据只有一条：下一卷必须比上一卷长出新东西。"""
     intent = store.get_intent() or {}
     vols = store.list_volumes() or []
@@ -549,8 +567,24 @@ def build_charter_prompt(store, n_volumes: int, total: int) -> str:
         f"卷{v.get('sort_order')}《{v.get('title')}》：{str(v.get('intro') or '')[:80]}"
         for v in vols) or "（还没有卷）"
     used = sorted(story_entities(store.facts_at(99999) or []))
-    span = max(1, round(total / max(n_volumes, 1)))
+    remaining_vols = max(1, n_volumes)
+    remaining_ch = total
+    if start_sort > 1:
+        last_hi = 0
+        for v in vols:
+            rng = normalize_charter(v.get("charter"))["chapter_range"]
+            if rng:
+                last_hi = max(last_hi, int(rng[1]))
+        remaining_ch = max(1, total - last_hi)
+    span = max(1, round(remaining_ch / remaining_vols))
     need = required_introduces(span)
+    rolling = ""
+    if start_sort > 1:
+        rolling = (
+            f"\n## 只立后面 {n_volumes} 卷，sort_order 从 {start_sort} 起\n"
+            f"前面几卷已经铺过，不要重写。输入是它们**实际长出的东西**：\n"
+            f"{_prior_actuals(store)}\n"
+        )
 
     return f"""你在给一本 {total} 章的长篇分卷立纲，不是写正文，也不是写章纲。
 
@@ -574,7 +608,7 @@ def build_charter_prompt(store, n_volumes: int, total: int) -> str:
 
 ## 已经用过的实体（新卷引入的必须不在这个名单里）
 {'、'.join(used) or '（空）'}
-
+{rolling}
 ---
 
 交一个 JSON 对象，不要代码块标记，第一个字符就是 `{{`：
@@ -611,7 +645,7 @@ def build_charter_prompt(store, n_volumes: int, total: int) -> str:
 
 硬要求：
 
-- 一共 {n_volumes} 卷，章号连续覆盖 1 到 {total}，不许有缺口或重叠。
+- 一共 {n_volumes} 卷，sort_order 从 {start_sort} 起。章号连续覆盖到 {total}，不许有缺口或重叠。
 - 每卷 `introduces` **至少 {need} 个新实体**（按每 10 章 {MIN_NEW_ENTITIES_PER_10CH:.0f} 个算，
   一卷 {span} 章），且 oid 不许出现在上面「已经用过的实体」里。
   这是全书能往前走的唯一保证——不引入新东西就是原地打转。
@@ -654,7 +688,7 @@ def parse_charters(raw: str) -> list[dict]:
 
 
 def generate_charters(store, n_volumes: int, total: int, complete, *,
-                      retries: int = 1) -> tuple[list[dict], list[str]]:
+                      retries: int = 1, start_sort: int = 1) -> tuple[list[dict], list[str]]:
     """立纲并把 `validate_charter` 当门：不合格就把问题清单退给模型重写。
 
     没有这道门时，写成句子的 must_not_know 直接落了库，一直到逐卷对账才炸出来，
@@ -662,7 +696,7 @@ def generate_charters(store, n_volumes: int, total: int, complete, *,
 
     `complete` 是 `(prompt) -> str`。返回 (契约, 仍未解决的问题)。
     """
-    prompt = build_charter_prompt(store, n_volumes, total)
+    prompt = build_charter_prompt(store, n_volumes, total, start_sort=start_sort)
     charters: list[dict] = []
     problems: list[str] = []
     for attempt in range(retries + 1):
@@ -672,7 +706,7 @@ def generate_charters(store, n_volumes: int, total: int, complete, *,
         problems = validate_charters(charters)
         if not problems or attempt == retries:
             break
-        prompt = (build_charter_prompt(store, n_volumes, total)
+        prompt = (build_charter_prompt(store, n_volumes, total, start_sort=start_sort)
                   + "\n\n## 上一版被打回，逐条改掉再交\n"
                   + "\n".join(f"- {p}" for p in problems)
                   + "\n\n只改这些问题，其余保持不变。")

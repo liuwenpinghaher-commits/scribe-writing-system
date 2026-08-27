@@ -1148,7 +1148,7 @@ async def s3_patch_volume(ctx: Context, volume_id: str,
 
 @mcp.tool(annotations=_RW)
 async def s3_plan_volumes(ctx: Context, n_volumes: int = 10, total_chapters: int = 200,
-                          work: str | None = None) -> dict:
+                          start_sort: int = 1, work: str | None = None) -> dict:
     """按卷把账立住：从北极星长出全书卷纲，每卷写死引入哪些新实体、收哪几条旧线、
     卷末主角该知道什么。不写节拍，不写正文。
 
@@ -1158,7 +1158,8 @@ async def s3_plan_volumes(ctx: Context, n_volumes: int = 10, total_chapters: int
     st = _store_for(work)
     try:
         from scribe3.charter import build_charter_prompt, generate_charters, persist_charters
-        build_charter_prompt(st, int(n_volumes), int(total_chapters))  # 缺北极星就在这儿报
+        build_charter_prompt(st, int(n_volumes), int(total_chapters),
+                             start_sort=int(start_sort or 1))  # 缺北极星就在这儿报
     except Exception as e:
         return {"status": "error", "code": "charter_prompt_failed", "message": str(e)}
 
@@ -1172,7 +1173,8 @@ async def s3_plan_volumes(ctx: Context, n_volumes: int = 10, total_chapters: int
         from scribe3.llm import hermes_complete
         charters, problems = generate_charters(
             st, int(n_volumes), int(total_chapters),
-            lambda p: hermes_complete(p, max_tokens=8000))
+            lambda p: hermes_complete(p, max_tokens=8000),
+            start_sort=int(start_sort or 1))
         result = persist_charters(st, charters, int(total_chapters))
         result["titles"] = [c["title"] for c in charters]
         if problems:

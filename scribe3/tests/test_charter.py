@@ -602,6 +602,25 @@ def test_prompt_names_used_entities_so_model_can_avoid_them():
     assert "thickens" in p, "不写进契约模型就不会写厚已有实体"
 
 
+def test_rolling_charter_prompt_sees_prior_volume_output():
+    """后 N 卷立纲必须看见前面真长出了什么，不能只喂北极星。"""
+    st = FakeStore([_fact("p1", "role:纪棠", "身份", "名讳司的人", 12)])
+    st.get_intent = lambda: {"north_star": "北极星文", "red_lines": "红线文"}
+    st.list_volumes = lambda: [{
+        "id": "v1", "title": "开场", "sort_order": 1, "intro": "办完了",
+        "charter": {"duty": "办完了", "chapter_range": [1, 20],
+                    "introduces": [{"oid": "role:纪棠", "why": "要她"}],
+                    "pays": [], "knowledge_end": {"must_know": [], "must_not_know": []}},
+    }]
+    st.list_world_rules = lambda: []
+    st.characters = lambda: []
+    st.list_factions = lambda: []
+    p = build_charter_prompt(st, 2, 40, start_sort=2)
+    assert "role:纪棠" in p
+    assert "开场" in p
+    assert "从第 2 卷" in p or "第2卷" in p or "sort_order\"： 2" in p or "只立后面" in p
+
+
 def test_required_thickens_is_the_same_floor_as_introduces():
     """写厚数量必须和引入同源。契约是地板，没要的一点不给。"""
     from scribe3.charter import required_introduces, required_thickens
