@@ -130,6 +130,71 @@ def check_consistency(st, rep: Report, until: int, hero: str) -> None:
                 print(f"  ! 探针 {pid} 没删掉，手工清一下：{e}")
 
 
+def check_depth(st, rep: Report, until: int) -> None:
+    """StoryScope 能当门的四项。监控项（说教/感官）绝对不进这里，也不进提示词。"""
+    from scribe3.charter import normalize_charter, story_entities
+    from scribe3.setting_depth import (
+        LE2_RATIO_MAX, LE4_RATIO_MAX, TOP3_SHARE_MAX,
+        obstacle_rate, spatial_spread, suspense_rate, thickness_distribution,
+    )
+
+    print("\n【内容深度】")
+    facts = list(st.facts_at(until) or [])
+    t = thickness_distribution(facts)
+    print(f"  故事实体 {t['n_entities']}　命题 {t['n_facts']}"
+          f"　≤2 {t['le2']}（{t['le2_ratio']:.0%}）"
+          f"　≤4 {t['le4']}（{t['le4_ratio']:.0%}）"
+          f"　前3占 {t['top3_share']:.0%}")
+    for oid, n in t["top3"]:
+        print(f"    {oid} ×{n}")
+    tail = sorted(((n, oid) for oid, n in t["counts"].items() if n <= 2), reverse=True)[:8]
+    if tail:
+        print("  长尾 ≤2：" + "、".join(f"{oid}×{n}" for n, oid in tail))
+    rep.check(t["le2_ratio"] <= LE2_RATIO_MAX,
+              f"实体命题数 ≤2 的占比 ≤{LE2_RATIO_MAX:.0%}",
+              f"{t['le2']}/{t['n_entities']} = {t['le2_ratio']:.0%}")
+    rep.check(t["le4_ratio"] <= LE4_RATIO_MAX,
+              f"实体命题数 ≤4 的占比 ≤{LE4_RATIO_MAX:.0%}",
+              f"{t['le4']}/{t['n_entities']} = {t['le4_ratio']:.0%}")
+    rep.check(t["top3_share"] <= TOP3_SHARE_MAX,
+              f"前 3 个实体占故事命题 ≤{TOP3_SHARE_MAX:.0%}",
+              f"{t['top3_share']:.0%}")
+
+    place_names = [oid.split(":", 1)[1] for oid in story_entities(facts)
+                   if oid.startswith("place:")]
+    sp = spatial_spread(place_names)
+    print(f"  地点 {sp['n_places']}　区域 {sp['n_regions']}"
+          f"　一区一地点 {sp['singleton_regions']}（{sp['singleton_ratio']:.0%}）")
+    nested = sum(1 for v in sp["regions"].values() if len(v) >= 2)
+    # 地点表没有上级字段，用名字前缀认区域。≥8 个地点而 ≥90% 一区一地点 = 铺不开。
+    # 现库 19 地点 18 区域，只有「不署名门/签押廊」一对，singleton 94%。
+    spread_ok = sp["n_places"] < 8 or sp["singleton_ratio"] < 0.9
+    rep.check(spread_ok, "一区一地点 <90%（地点≥8 时）",
+              f"{sp['n_places']} 地点 / {sp['n_regions']} 区域 / "
+              f"一区一地点 {sp['singleton_ratio']:.0%} / 多地点区域 {nested}")
+
+    rules = st.list_world_rules() or []
+    ob = obstacle_rate(rules, facts)
+    print(f"  世界规则 {ob['n_rules']}　有代价 {ob['with_cost']}"
+          f"　被命题点名 {ob['triggered']}（{ob['triggered_ratio']:.0%}）")
+    if ob["triggered_names"]:
+        print("    触发：" + "、".join(ob["triggered_names"][:8]))
+    rep.check(not (ob["n_rules"] >= 1 and ob["triggered"] == 0),
+              "设定当障碍：至少有一条规矩被命题引用",
+              f"{ob['triggered']}/{ob['n_rules']}")
+
+    ends = []
+    for v in st.list_volumes() or []:
+        rng = normalize_charter(v.get("charter"))["chapter_range"]
+        if rng:
+            ends.append(int(rng[1]))
+    su = suspense_rate(st.list_promises() or [], volume_ends=ends or [until])
+    print(f"  悬置（跨卷未收）{su['cross_open']}/{su['n']} = {su['rate']:.0%}")
+    rep.check(not su["all_closed"] and su["n"] > 0,
+              "悬置率不得为 0（全收完 = 把话说完）",
+              f"跨卷未收 {su['cross_open']}")
+
+
 def check_completeness(st, rep: Report) -> None:
     """接系统已有的 setting_completeness，不许另起炉灶。
 
@@ -197,6 +262,7 @@ def main() -> int:
         check_prefixes(st, rep, a.chapters)
         check_consistency(st, rep, a.chapters, a.hero)
         check_completeness(st, rep)
+        check_depth(st, rep, a.chapters)
     finally:
         st.close()
 
