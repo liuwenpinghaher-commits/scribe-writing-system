@@ -73,3 +73,7 @@ loop 改成验一本（2026-08-25）：作者授意「要的是能够写出这�
 craft-eval P1.5 冻结尺子（2026-08-26）：作者授意执行 `2026-08-26-craft-ruler-loop.md` + 实施判断为最优。旧路：R1/R2 有 before 分但停机线未写死，能力轮容易顺手改阈值。新路：`stop.json` 写死 R1 0.70 / R2 0.775，评分器+holdout+negatives 打 tag `craft-eval-ruler-v1`；盲评对照机械分另落盘，不改机械尺。回退：删 tag + revert 本 commit。
 
 craft-eval P1 打开书（2026-08-26）：作者授意「解决 429 并完成打开书 after」+ 实施判断为最优。旧路：few-shot 钉死开发集第 0 节短卡（打开书 171 字），提示不问「读完」；after 用 `--jobs 6` 打满 Qwen 429。新路：few-shot 抽「读完且 ≥400 字」的开发集卡；提示要写谁的日子、哪一件、读完怎么变、谁的眼睛；after 用 `--jobs 1` resume，不删 preds。留出 after mean 0.439→0.5463，打开书 0.0976→0.3415，仍 <0.70。回退：revert 本 commit。
+
+默认模型 DeepSeek V4 Flash（2026-08-26）：作者授意「把 tonglu 模型全部换成 deepseekv4flash」。旧路：无工具补全默认 `deepseek-v4-pro-0813`，Hermes 五写作网关默认 `qwen3.8-max-preview`。新路：代码 `llm.model` / `DEFAULT_MODEL` 与本机五网关改成 TokenPlan 可调用的 `deepseek-v4-flash-0731`（别名 `deepseek-v4-flash` 同钥 HTTP 403；快照 id 同钥可通）。供应商仍 `provider=qwen`，TokenPlan 口不变；兜底 kimi/MiniMax 未动。demo 未部署，不宣称现网已切。回退：revert 本 commit + 本机 Hermes `default:` 改回。
+
+craft4 指标坍缩（2026-08-27）：作者授意执行 `2026-08-27-craft-v4.md` + 实施判断为最优。旧路：v3 把 `prose_check` 六项抄进提示，6/6 全绿、三篇同一套对白。新路：提示与检查表物理隔离；给语域卡/信息差不给阈值；闸改区间。课：只要指标被系统看见，它就会变成提纲。回退：revert 本轮 craft4 路径，不动冻结尺子。

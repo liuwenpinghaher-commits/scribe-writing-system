@@ -264,7 +264,7 @@ P1 出口：R1/R2 在留出集上有数，天花板/地板/停机线三个数字
 
 卫生：不提交 docs/worlds/诡秘*、lotm 计划、乱世铜炉-全文.md、scribe3/eval/preds/、artifacts/、密钥、本地 DB。
 不要把 scribe3/craft_ruler.py 当本 loop 的尺子。commit 只含本轮路径；可 push 当前分支；禁止 force-push main。
-键 DEEPSEEK_API_KEY，默认模型 deepseek-v4-pro-0813。
+键 DEEPSEEK_API_KEY，默认模型 deepseek-v4-flash-0731。
 禁止：为过闸写书、改尺子刷分、调阈值当改进、留出章进 few-shot、把钉过的卡当模型能力、通读全文、古白话当成色、先注水凑字数。
 ```
 

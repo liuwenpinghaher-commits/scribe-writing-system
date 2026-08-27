@@ -1,0 +1,8 @@
+{
+  "seed": 20260826,
+  "provider": "coding",
+  "n": 3,
+  "ids": ["p04", "p07", "p11"],
+  "genres": ["当代家庭", "海运", "幼儿园"],
+  "note": "draw_premises(n=3, seed=20260826)。不许挑。"
+}
