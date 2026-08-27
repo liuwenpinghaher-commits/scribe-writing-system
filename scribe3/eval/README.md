@@ -15,6 +15,15 @@
 - `stop.json`：**冻结**。R1 stop=0.70，R2 stop=0.775。冻结 ≠ 过线。tag `craft-eval-ruler-v1`。
 - `blind_r1.py`：对已有系统卡做第三方盲评，对照机械 R1，不重拆。
 - `human_spotcheck.json`：人抽查 10% 清单（seed=20260826）。不空等作者。
-- `card_schema.py`：21 个段题。
+- `card_schema.py`：21 个段题。读取侧 `canonical_heading` 把诡秘的「章」映成铜炉的「节」。评分键仍是「节」，不许改。
+- `lotm.py` / `chapters_lotm.json`：诡秘 1394 章界（1-based，来自 `00-index.md`）。
+- `probe_lotm.json`：**冻结**。种子 `20260826`，20 章跨书探针。不进 few-shot。校验 `probe_lotm.sha256`。
+- `citation_spotcheck_lotm.json`：20 条诡秘书证能否在全文搜到。
+- `quick.json`：**冻结**。铜炉留出可评 8 + 诡秘探针 4。迭代只跑这个。校验 `quick.sha256`。
+- `provider.py`：`--provider` 默认 `coding`（必须注入 complete_fn）；`hermes` 要显式点名。
+- `sample_scene.py`：评测侧样章。不调 playbook。产物在 `docs/craft-samples/`，不作闸的证据。
+- `r1_lotm_probe_gold.json`：诡秘探针金卡对金卡（证明评分器能读），不是模型 R1。
+
+现行执行顺序：[`docs/plans/2026-08-26-craft-two-books.md`](../../docs/plans/2026-08-26-craft-two-books.md)。
 
 母本因版权不入库（见根 `.gitignore`）。本机没有全文时，先把 txt 拷到该路径再跑脚本。

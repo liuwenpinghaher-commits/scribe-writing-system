@@ -1,6 +1,12 @@
 """章卡 21 段骨架。与 docs/worlds/乱世铜炉-拆文/PROMPTS.md 第 1 轮一致。"""
 from __future__ import annotations
 
+
+def canonical_heading(name: str) -> str:
+    """Read-side only. LOTM cards say 章 where 铜炉 cards say 节. Scoring keys stay 节."""
+    n = (name or "").strip()
+    return n.replace("这一章", "这一节").replace("下一章", "下一节")
+
 CARD_HEADINGS: tuple[str, ...] = (
     "打开书",
     "这场戏有没有翻",

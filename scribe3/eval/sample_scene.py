@@ -120,6 +120,117 @@ def build_prompt_v4(premise: dict, demo_md: str = "") -> str:
     return "\n".join(lines)
 
 
+_DRAFT_SECTIONS = ("正文", "事实清单", "洞", "岔路")
+
+
+def build_prompt_draft(premise: dict) -> str:
+    """交草稿，不交成品。
+
+    与 v4 的两处关键差别：
+
+    一是**不给对白示范**。示范会让模型往范文上靠，而草稿要的是它自己
+    想到哪、想不到哪——尤其是「洞」那一段，给了范例就等于把答案漏了。
+
+    二是**不给 speech_habit / tic / catchphrase**。那三个参数是文笔层的，
+    前几轮已证明会被逐条机械执行（`catchphrase: 有文件。` → 原样贴进第一句）。
+    草稿本来就不追求对白措辞，索性从生成路径里拿掉。
+    """
+    person = premise["person"]
+    gap = premise["info_gap"]
+    cast = "；".join(
+        f"{c['name']}（{c.get('age', '')}，{c['job']}）" for c in premise["cast"]
+    )
+    props = "、".join(premise.get("props") or [])
+    return f"""你要交的是一份草稿，不是成品。
+
+草稿的用途是给作者拿去改。所以你要做的是让他改着省事，不是让他读着舒服。
+判据只有一条：他改你这份，比他从零写要快。
+
+这个人：{person['name']}，{person['age']}岁，{person['job']}。在乎的是：{person['cares']}。
+这件事（今天躲不掉）：{premise['event']}
+怕失去：{premise['fear']}
+题材：{premise['genre']}
+这场里还有：{cast}
+这场里有这些东西：{props}
+
+谁已经知道：{gap['knows']}
+谁还不知道：{gap['does_not_know']}
+谁在瞒：{gap['hides']}
+
+交四样东西，用下面的标题，不要代码块。
+
+# <短标题>
+
+## 正文
+
+八百到一千五百字的骨架。三条死规矩：
+
+- 不许点题。不许在结尾或任何地方总结这件事的意义。
+- 不许用比喻。一个都不要。写你看见什么。
+- 不许用漂亮句子盖住你没想清楚的地方。想不清楚就用方括号标出来，像这样：
+  ［这里缺三五句交代两人过去的关系，我还没想好用哪件事来交代］
+
+环境描写、情绪的细腻刻画、句子的节奏——这些一概不要写，那是作者的活，
+你写了他还得拆。省下的字数用在把事情讲清楚上。
+
+## 事实清单
+
+三小节：
+
+- **时间线**：逐条列，精确到能查出矛盾的程度。
+- **谁在什么时候知道什么**：每个出场的人一行，分「知道」和「不知道」两栏。
+- **这一稿新立的事实**：这场戏之后就成立了、以后不能推翻的东西。
+
+写完自己回头验一遍时间线。对不上的地方直接写出来，不要藏，也不要顺手改圆。
+
+## 洞
+
+你没解决的问题，按要紧程度排，**至少五条**。三类都要找：
+
+- 现实里说不通的。这一类最要紧，一条就能让整个故事塌。
+- 你埋了但没收的。
+- 你自己也不确定的。
+
+如果你觉得没有洞，那是你没找。
+
+## 岔路
+
+关键选择：你走了哪条、另外还有哪条、你倾向哪条、为什么。
+
+只列真岔路——两条走下去，故事会长成不同的样子，才算真岔路。
+三条其实差不多的选项不要列，那是凑数。
+"""
+
+
+def parse_draft(raw: str) -> dict[str, str]:
+    text = (raw or "").strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[-1]
+        if text.rstrip().endswith("```"):
+            text = text.rstrip()[:-3].rstrip()
+    parts: dict[str, str] = {}
+    title = ""
+    current = None
+    buf: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("# ") and current is None and not title:
+            title = line[2:].strip()
+            continue
+        if line.startswith("## "):
+            if current is not None:
+                parts[current] = "\n".join(buf).strip()
+            current = line[3:].strip()
+            buf = []
+        elif current is not None:
+            buf.append(line)
+    if current is not None:
+        parts[current] = "\n".join(buf).strip()
+    out = {"title": title, "raw": text}
+    for key in _DRAFT_SECTIONS:
+        out[key] = parts.get(key, "")
+    return out
+
+
 def build_prompt_v3(premise: dict, rules: tuple[str, ...] | list[str]) -> str:
     """Write first. Checklist later. No 21-section mould."""
     rules = list(rules)[:5]

@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from scribe3.eval.card_schema import CARD_HEADINGS
+from scribe3.eval.card_schema import CARD_HEADINGS, canonical_heading
 
 ROOT = Path(__file__).resolve().parents[2]
 EVAL = Path(__file__).resolve().parent
@@ -58,7 +58,7 @@ def parse_card(md: str) -> dict[str, str]:
         if line.startswith("## "):
             if current is not None:
                 parts[current] = "\n".join(buf).strip()
-            current = line[3:].strip()
+            current = canonical_heading(line[3:].strip())
             buf = []
         else:
             if current is not None:

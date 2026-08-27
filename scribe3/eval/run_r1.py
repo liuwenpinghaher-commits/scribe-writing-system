@@ -129,12 +129,19 @@ def main(argv: list[str] | None = None) -> dict:
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--no-resume", action="store_true")
     p.add_argument("--jobs", type=int, default=1)
+    p.add_argument("--provider", default="coding", help="coding (default, inject-only) or hermes")
+    p.add_argument("--quick", action="store_true", help="holdout quick set only (8 tonglu seqs)")
     args = p.parse_args(argv)
+    from scribe3.eval.provider import complete_for_provider
+
     seqs = scored_seqs()
+    if args.quick:
+        q = json.loads((EVAL / "quick.json").read_text(encoding="utf-8"))
+        seqs = list(q["tonglu"])
     if args.limit:
         seqs = seqs[: args.limit]
     out = run_holdout(
-        complete_fn=live_complete,
+        complete_fn=complete_for_provider(args.provider),
         label=args.label,
         resume=not args.no_resume,
         seqs=seqs,
