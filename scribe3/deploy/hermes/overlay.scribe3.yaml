@@ -23,7 +23,7 @@ platforms:
 
 
 # P4(hermes 能力审查 2026-07-17):模型兜底链——主模型(阿里云 TokenPlan /
-# qwen3.8-max-preview)故障时
+# qwen3.8-flash)故障时
 # agent loop(conversation_loop 消费 get_fallback_chain)自动切换,三网关同配。
 # 两个兜底模型均经真机探针实证可用(同一 ark coding key;kimi 中文长文优先)。
 # 这是基础设施韧性(同 DB 重连 S-1,U-011 豁免类),切换在 hermes 侧有日志,非静默降级。

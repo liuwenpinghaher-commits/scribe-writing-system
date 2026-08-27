@@ -531,7 +531,7 @@ class TestToolFreeOfficialRouting:
         def get_setting(key):
             settings_reads.append(key)
             if key == "llm.model":
-                return "qwen3.8-max-preview"
+                return "qwen3.8-flash"
             raise AssertionError(f"provider identity helper read forbidden setting: {key}")
 
         monkeypatch.setattr(deepseek.settings, "get_setting", get_setting)
@@ -547,7 +547,7 @@ class TestToolFreeOfficialRouting:
         expected = {
             "provider": "qwen",
             "api_base": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
-            "model": "qwen3.8-max-preview",
+            "model": "qwen3.8-flash",
             "official": True,
             "transport": "httpx",
         }
@@ -759,7 +759,7 @@ class TestToolFreeOfficialRouting:
         assert persisted[0][1]["provider"] == {
             "provider": "qwen",
             "api_base": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
-            "model": "qwen3.8-max-preview",
+            "model": "qwen3.8-flash",
             "official": True,
             "transport": "httpx",
         }
@@ -795,7 +795,7 @@ class TestToolFreeOfficialRouting:
         assert persisted[0]["provider"] == {
             "provider": "qwen",
             "api_base": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
-            "model": "qwen3.8-max-preview",
+            "model": "qwen3.8-flash",
             "official": True,
             "transport": "httpx",
         }

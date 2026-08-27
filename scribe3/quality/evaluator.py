@@ -38,7 +38,7 @@ from scribe3.quality.store import (
 )
 
 # 质量判断需要短而可核验的 JSON 证据，不应继承正文生成的 600 秒超时。
-# TokenPlan 的 qwen3.8-max-preview 禁止显式关闭思考；发送该字段会收到 HTTP 400，
+# TokenPlan 的 qwen3.8-flash 禁止显式关闭思考；发送该字段会收到 HTTP 400，
 # 因此这里不传 thinking，让供应商按模型约束处理，失败仍如实上抛给作者重试。
 QUALITY_MAX_TOKENS = 800
 # 十维质量判断是固定合同与量表下的结构化裁决，不是创作采样。显式低温可降低

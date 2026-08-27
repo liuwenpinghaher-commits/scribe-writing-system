@@ -57,9 +57,10 @@ def _invoke(client, operation):
     return list(client.stream(messages))
 
 
-def test_registered_default_model_is_qwen38_max_preview():
+def test_registered_default_model_is_qwen38_flash():
     model_setting = next(item for item in deepseek.settings.REGISTRY if item.key == "llm.model")
-    assert model_setting.default == "deepseek-v4-pro-0813"
+    assert model_setting.default == "qwen3.8-flash"
+    assert deepseek.DEFAULT_MODEL == "qwen3.8-flash"
 
 
 def test_token_plan_route_exposes_literal_qwen_provider_contract():

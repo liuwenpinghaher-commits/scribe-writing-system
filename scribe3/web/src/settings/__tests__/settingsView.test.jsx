@@ -18,7 +18,7 @@ import { SettingsView } from '../SettingsView'
 
 const ITEMS = [
   { key: 'llm.model', category: 'llm', type: 'str', label: '补全模型名',
-    value: 'qwen3.8-max-preview', default: 'qwen3.8-max-preview', source: 'default', effect: 'hot', danger: false, pending_restart: false },
+    value: 'qwen3.8-flash', default: 'qwen3.8-flash', source: 'default', effect: 'hot', danger: false, pending_restart: false },
   { key: 'SCRIBE3_DAILY_CALL_CAP', category: 'llm', type: 'int', label: '每日 LLM 调用日帽',
     value: 500, default: 500, source: 'default', effect: 'hot', danger: true, pending_restart: false },
   { key: 'SCRIBE3_SURREAL_URL', category: 'connection', type: 'str', label: 'SurrealDB 地址',
@@ -33,7 +33,7 @@ const ITEMS = [
     value: null, default: null, source: 'db', is_set: true, effect: 'hot', danger: false, pending_restart: false },
 ]
 
-const usagePayload = ({ model = 'qwen3.8-max-preview', cap = 0, used = 0, key = true } = {}) => ({
+const usagePayload = ({ model = 'qwen3.8-flash', cap = 0, used = 0, key = true } = {}) => ({
   work: 'main',
   cap: {
     cap,
@@ -172,13 +172,13 @@ describe('SettingsView', () => {
       cap: { cap: 0, used_today: 3, remaining: null, scope: 'shared', unlimited: true },
       tokens: { days: [] },
       provider: {
-        provider: 'qwen', api_base: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', model: 'qwen3.8-max-preview',
+        provider: 'qwen', api_base: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', model: 'qwen3.8-flash',
         official: true, transport: 'direct', key_present: true,
       },
     }))
     render(<SettingsView work="demo" />)
 
-    expect(await screen.findByText('阿里云 TokenPlan · Qwen 兼容 · qwen3.8-max-preview · 直连')).toBeTruthy()
+    expect(await screen.findByText('阿里云 TokenPlan · Qwen 兼容 · qwen3.8-flash · 直连')).toBeTruthy()
   })
 
   it.each([
@@ -261,10 +261,10 @@ describe('SettingsView', () => {
 
   it('保存 llm.model 后同时重拉 settings 与 usage 并立即更新模型', async () => {
     apiMock.aiUsage
-      .mockResolvedValueOnce(usagePayload({ model: 'qwen3.8-max-preview' }))
+      .mockResolvedValueOnce(usagePayload({ model: 'qwen3.8-flash' }))
       .mockResolvedValueOnce(usagePayload({ model: 'qwen-plus' }))
     render(<SettingsView work="demo" />)
-    expect(await screen.findByText('阿里云 TokenPlan · Qwen 兼容 · qwen3.8-max-preview · 直连')).toBeTruthy()
+    expect(await screen.findByText('阿里云 TokenPlan · Qwen 兼容 · qwen3.8-flash · 直连')).toBeTruthy()
 
     const input = screen.getByRole('textbox', { name: '补全模型名' })
     fireEvent.change(input, { target: { value: 'qwen-plus' } })
@@ -327,10 +327,10 @@ describe('SettingsView', () => {
 
     await act(async () => { resolveNew(usagePayload({ model: 'qwen-plus' })) })
     expect(await screen.findByText('阿里云 TokenPlan · Qwen 兼容 · qwen-plus · 直连')).toBeTruthy()
-    await act(async () => { resolveOld(usagePayload({ model: 'qwen3.8-max-preview' })) })
+    await act(async () => { resolveOld(usagePayload({ model: 'qwen3.8-flash' })) })
     await waitFor(() => {
       expect(screen.getByText('阿里云 TokenPlan · Qwen 兼容 · qwen-plus · 直连')).toBeTruthy()
-      expect(screen.queryByText('阿里云 TokenPlan · Qwen 兼容 · qwen3.8-max-preview · 直连')).toBeNull()
+      expect(screen.queryByText('阿里云 TokenPlan · Qwen 兼容 · qwen3.8-flash · 直连')).toBeNull()
     })
   })
 
@@ -344,7 +344,7 @@ describe('SettingsView', () => {
       categories: ['connection', 'llm', 'craft', 'flags', 'gateway'],
     })
     apiMock.settings
-      .mockResolvedValueOnce(settingsPayload('qwen3.8-max-preview'))
+      .mockResolvedValueOnce(settingsPayload('qwen3.8-flash'))
       .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve }))
       .mockImplementationOnce(() => new Promise((resolve) => { resolveNew = resolve }))
     render(<SettingsView work="demo" />)

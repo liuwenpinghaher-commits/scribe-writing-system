@@ -94,7 +94,7 @@ REGISTRY: tuple[Setting, ...] = (
     Setting("SCRIBE3_LLM_LEDGER", "connection", "str", "", "restart", "日帽台账路径", "空 = ~/.scribe2-surreal/scribe3_llm_ledger.sqlite3"),
     Setting("SCRIBE3_READ_MCP_LABEL", "connection", "str", "scribe3_read", "restart", "只读 MCP 工具集标签"),
     # ── llm(LLM 与用量;全热)──
-    Setting("llm.model", "llm", "str", "deepseek-v4-pro-0813", "hot", "补全模型名"),
+    Setting("llm.model", "llm", "str", "qwen3.8-flash", "hot", "补全模型名"),
     # 与写网关 agent.gateway_timeout=1800 对齐(H1 2026-08-08)；客户端须 ≥ 最长动稿。
     Setting("llm.timeout_seconds", "llm", "float", 1800.0, "hot", "LLM 请求超时(秒)", min=30, max=3600),
     Setting("llm.max_retries", "llm", "int", 3, "hot", "瞬时错误重试次数", min=0, max=10),
