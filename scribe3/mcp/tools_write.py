@@ -1147,21 +1147,39 @@ async def s3_patch_volume(ctx: Context, volume_id: str,
 
 
 @mcp.tool(annotations=_RW)
-async def s3_plan_volumes(ctx: Context, work: str | None = None) -> dict:
-    """按卷把账立住：每一卷的 intro 要对着该卷每一章各办哪一件。不写节拍，不写正文。"""
+async def s3_plan_volumes(ctx: Context, n_volumes: int = 10, total_chapters: int = 200,
+                          work: str | None = None) -> dict:
+    """按卷把账立住：从北极星长出全书卷纲，每卷写死引入哪些新实体、收哪几条旧线、
+    卷末主角该知道什么。不写节拍，不写正文。
+
+    此前这个工具只是把现有卷章列出来给主编看，返回 `planned: True`，什么都不写。
+    《万界概率战争》实测：没有卷纲时第 14 章起每章新增实体恒为 0，接上契约后回到 7 个/10 章。
+    """
     st = _store_for(work)
-    outline = st.outline() if hasattr(st, "outline") else {"volumes": [], "chapters": []}
-    vols = outline.get("volumes") or []
-    chs = outline.get("chapters") or []
-    lines = ["请按卷把账立住。每一卷 intro 必须按章写出各办哪一件，禁止只写其中一章的夜。"]
-    for v in vols:
-        vid = v.get("id")
-        peers = [c for c in chs if str(c.get("volume") or "") == str(vid or "")]
-        lines.append(f"卷《{v.get('title') or vid}》volume_id={vid} 现有 {len(peers)} 章。")
-        for c in peers:
-            lines.append(f"  第{c.get('seq')}章《{c.get('title') or ''}》：{(c.get('synopsis') or '还没立要办的事')}")
-    ok = await _ask(ctx, "\n".join(lines)[:1500])
-    return commit_if_approved("s3_plan_volumes", ok, lambda: {"volumes": len(vols), "planned": True})
+    try:
+        from scribe3.charter import build_charter_prompt, generate_charters, persist_charters
+        build_charter_prompt(st, int(n_volumes), int(total_chapters))  # 缺北极星就在这儿报
+    except Exception as e:
+        return {"status": "error", "code": "charter_prompt_failed", "message": str(e)}
+
+    ok = await _ask(
+        ctx,
+        f"要按北极星把全书分成 {n_volumes} 卷、覆盖 {total_chapters} 章，"
+        f"每卷写死三件事：引入哪些新实体、收哪几条旧线、卷末主角该知道什么/仍不许知道什么。"
+        f"这会覆盖现有卷的 charter 与 intro。")
+
+    def _write():
+        from scribe3.llm import hermes_complete
+        charters, problems = generate_charters(
+            st, int(n_volumes), int(total_chapters),
+            lambda p: hermes_complete(p, max_tokens=8000))
+        result = persist_charters(st, charters, int(total_chapters))
+        result["titles"] = [c["title"] for c in charters]
+        if problems:
+            result["problems"] = problems
+        return result
+
+    return commit_if_approved("s3_plan_volumes", ok, _write)
 
 
 @mcp.tool(annotations=_RW)

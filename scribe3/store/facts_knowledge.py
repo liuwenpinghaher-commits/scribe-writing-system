@@ -185,7 +185,13 @@ class FactsKnowledgeMixin:
         from scribe3.fact_surface import resolve_injection_facts
         return resolve_injection_facts(rows)
 
-    def facts_at(self, chapter: int) -> list[Fact]:
+    def facts_unfolded_at(self, chapter: int) -> list[Fact]:
+        """当前有效的命题，**不做** D4 同键折叠。
+
+        一致性检查必须走这条路。`facts_at` 会把同 (entity, attribute) 折成单真，
+        而「同属性上两个不同的值」恰恰就是要查的矛盾——拿 facts_at 去扫，
+        冲突的一方在读取时就已经没了，这类检查永远返回空。
+        """
         rows = self._query(
             "SELECT meta::id(id) AS local, entity_id, attribute, value, "
             "valid_from, valid_to, secret, leak_markers, injection_mode, priority, "
@@ -205,9 +211,12 @@ class FactsKnowledgeMixin:
                 injection_mode=r.get("injection_mode"), priority=r.get("priority"),
                 source=src,
             ))
+        return facts
+
+    def facts_at(self, chapter: int) -> list[Fact]:
         # D4 读路径：同键折叠 + 同 entity 互斥 value 消解（注入面单真）
         from scribe3.fact_surface import resolve_injection_facts
-        return resolve_injection_facts(facts)
+        return resolve_injection_facts(self.facts_unfolded_at(chapter))
 
     def list_entity_truth_history(
         self,

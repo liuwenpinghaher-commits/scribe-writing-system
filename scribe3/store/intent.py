@@ -5,30 +5,56 @@ from scribe3.store.core_preamble import *  # noqa: F403
 
 class IntentMixin:
 
+    # 命运轴四字段 migration 144 就建了，但读写白名单一直没接——写进去静默丢弃、
+    # 也读不出来，等于死字段。168 的 book_charter 一并补上。
+    _FATE_FIELDS = ("who_pays", "axis_terms", "clock_start", "clock_end")
+
     def get_intent(self) -> dict:
         try:
             rows = self._query(
                 "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold, "
                 "total_word_goal, daily_word_goal, arc_tracking, imagery, north_star, "
-                "structure_mode, structure_budget FROM intent:main")
+                "structure_mode, structure_budget, who_pays, axis_terms, clock_start, "
+                "clock_end, book_charter FROM intent:main")
         except Exception:
-            try:
-                rows = self._query(
-                    "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold, "
-                    "total_word_goal, daily_word_goal, arc_tracking, imagery, north_star FROM intent:main")
-            except Exception:
-                try:
-                    rows = self._query(
-                        "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold, "
-                        "total_word_goal, daily_word_goal, arc_tracking, imagery FROM intent:main")
-                except Exception:
-                    rows = self._query(
-                        "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold, "
-                        "total_word_goal, daily_word_goal, arc_tracking FROM intent:main")
+            rows = self._get_intent_legacy()
         r = rows[0] if rows else {}
         result = {"reader_feeling": r.get("reader_feeling", ""),
                   "emotional_arc": r.get("emotional_arc", ""),
                   "red_lines": r.get("red_lines", "")}
+        for k in self._FATE_FIELDS:
+            if r.get(k) is not None and str(r.get(k)).strip():
+                result[k] = str(r[k]).strip()
+        if r.get("book_charter"):
+            result["book_charter"] = r["book_charter"]
+        return self._merge_intent_tail(result, r)
+
+    def _get_intent_legacy(self) -> list:
+        """旧库缺 168/154/149/148 的字段时逐级回退，别让读挂掉。"""
+        try:
+            return self._query(
+                "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold, "
+                "total_word_goal, daily_word_goal, arc_tracking, imagery, north_star, "
+                "structure_mode, structure_budget FROM intent:main")
+        except Exception:
+            pass
+        try:
+            return self._query(
+                "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold, "
+                "total_word_goal, daily_word_goal, arc_tracking, imagery, north_star FROM intent:main")
+        except Exception:
+            pass
+        try:
+            return self._query(
+                "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold, "
+                "total_word_goal, daily_word_goal, arc_tracking, imagery FROM intent:main")
+        except Exception:
+            return self._query(
+                "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold, "
+                "total_word_goal, daily_word_goal, arc_tracking FROM intent:main")
+
+    @staticmethod
+    def _merge_intent_tail(result: dict, r: dict) -> dict:
         if r.get("imagery") is not None and str(r.get("imagery")).strip():
             result["imagery"] = str(r["imagery"]).strip()
         if r.get("north_star") is not None and str(r.get("north_star")).strip():
@@ -53,9 +79,16 @@ class IntentMixin:
         # 此前 CONTENT 会把未传的 reader_feeling/emotional_arc/red_lines/阈值抹掉
         # (GET 失败后局部保存会毁未传目标)。intent 为 SCHEMAFULL,首建时缺省字段由 schema DEFAULT 补齐。
         content: dict = {}
-        for k in ("reader_feeling", "emotional_arc", "red_lines", "imagery", "north_star"):
+        for k in ("reader_feeling", "emotional_arc", "red_lines", "imagery", "north_star",
+                  *self._FATE_FIELDS):
             if k in fields:
                 content[k] = fields[k]
+        if "book_charter" in fields and fields.get("book_charter") is not None:
+            bc = fields["book_charter"]
+            if isinstance(bc, str):
+                import json
+                bc = json.loads(bc) if bc.strip() else {}
+            content["book_charter"] = bc
         if fields.get("overdue_threshold") is not None:
             content["overdue_threshold"] = fields["overdue_threshold"]
         if fields.get("total_word_goal") is not None:

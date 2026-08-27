@@ -58,7 +58,12 @@ class TestLoadKnowledgeCaching:
             return orig()
         monkeypatch.setattr(store, "load_knowledge", counting)
         dramatic_irony(store, "role:老道", 1)
-        assert calls["n"] == 1, f"dramatic_irony 应只调 1 次 load_knowledge,实际 {calls['n']}"
+        # DB 侧限知帧可用时一次都不该载：两次投影都走 SQL，预载的全表边根本用不上
+        # （千万字规模实测 2.3 秒）。走不了 SQL 才回退，那时仍须只载一次。
+        from scribe3.knowledge import _db_frame_ready
+        want = 0 if _db_frame_ready(store) else 1
+        assert calls["n"] == want, (
+            f"dramatic_irony 应调 {want} 次 load_knowledge,实际 {calls['n']}")
 
 
 class TestWriteGate:

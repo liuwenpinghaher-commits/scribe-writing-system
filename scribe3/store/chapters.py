@@ -892,17 +892,26 @@ class ChaptersMixin:
 
     def list_volumes(self) -> list[dict]:
         """按 sort_order 升序列所有卷。"""
-        rows = self._query(
-            "SELECT meta::id(id) AS id, title, sort_order, intro, color "
-            "FROM volume ORDER BY sort_order")
-        return rows
+        try:
+            return self._query(
+                "SELECT meta::id(id) AS id, title, sort_order, intro, color, charter "
+                "FROM volume ORDER BY sort_order")
+        except Exception:
+            # 旧库没有 168 的 charter 字段
+            return self._query(
+                "SELECT meta::id(id) AS id, title, sort_order, intro, color "
+                "FROM volume ORDER BY sort_order")
 
     def update_volume(self, vid: str, fields: dict) -> bool:
-        """更新卷字段(title/sort_order/intro/color 白名单)。返回 True 若存在,False 若不存在。"""
+        """更新卷字段(title/sort_order/intro/color/charter 白名单)。返回 True 若存在,False 若不存在。
+
+        charter 是 168 的卷契约(object)：这一卷引入哪些新实体、收哪几条旧线、
+        卷末主角该知道什么。结构与核对见 `scribe3/charter.py`。
+        """
         rows = self._query("SELECT id FROM type::record('volume',$vid) LIMIT 1", {"vid": vid})
         if not rows:
             return False
-        allowed = {"title", "sort_order", "intro", "color"}
+        allowed = {"title", "sort_order", "intro", "color", "charter"}
         payload = {k: v for k, v in fields.items() if k in allowed}
         if not payload:
             return True

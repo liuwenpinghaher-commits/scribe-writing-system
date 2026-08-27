@@ -53,6 +53,30 @@ def project_frame(world: World, knower_id: str, chapter: int, edges=None) -> Kno
                           [f for f in facts_now if f.id in known_ids])
 
 
+def _normalize_frame_rows(rows) -> list | None:
+    """把 fn::knowledge_frame 的返回归一成命题行列表。
+
+    驱动对 `RETURN <array>` 的返回是**拍平的行列表**，不是 `[[row, row, ...]]`。
+    这里原先直接 `rows[0]` 当整批用，于是**只剩第一条事实**——角色只有一条命题时
+    看不出来（单测数据正是如此），一旦真书里某人知道十几件事，限知帧就残废了。
+    两种形状都认，别再赌驱动的解包行为。
+    """
+    if not rows:
+        return []
+    if isinstance(rows, dict):
+        return [rows] if "local" in rows else None
+    if not isinstance(rows, list):
+        return None
+    if all(isinstance(r, dict) for r in rows):
+        return rows
+    head = rows[0]
+    if isinstance(head, list):
+        return [r for r in head if isinstance(r, dict)]
+    if isinstance(head, dict):
+        return [head]
+    return None
+
+
 def _project_frame_db(store, knower_id: str, chapter: int) -> KnowledgeFrame | None:
     """DB 侧投影；失败返回 None。"""
     from scribe3.ontology import Fact
@@ -60,12 +84,8 @@ def _project_frame_db(store, knower_id: str, chapter: int) -> KnowledgeFrame | N
         rows = store.knowledge_frame_fn(knower_id, int(chapter)) or []
     except Exception:
         return None
-    raw = rows[0] if rows else None
+    raw = _normalize_frame_rows(rows)
     if raw is None:
-        return KnowledgeFrame(knower_id, int(chapter), [])
-    if isinstance(raw, dict) and "local" in raw:
-        raw = [raw]
-    if not isinstance(raw, list):
         return None
     facts: list[Fact] = []
     for r in raw:
@@ -87,10 +107,26 @@ def _project_frame_db(store, knower_id: str, chapter: int) -> KnowledgeFrame | N
     return KnowledgeFrame(knower_id, int(chapter), facts)
 
 
+def _db_frame_ready(world) -> bool:
+    """DB 侧限知帧可用时，两次 project_frame 都走 SQL，不必预载全表边。"""
+    try:
+        from scribe3.surreal_flags import db_knowledge_frame
+        return bool(db_knowledge_frame()) and hasattr(world, "_query")
+    except Exception:
+        return False
+
+
 def dramatic_irony(world, focalizer: str, chapter: int) -> list[Fact]:
     """戏剧反讽点 = KNOWS(reader,F) ∧ ¬KNOWS(focalizer,F)。
-    返回读者已知、而视角角色尚不知的事实(可计算查询,非人脑事后判断)。"""
-    edges = world.load_knowledge() if hasattr(world, "load_knowledge") else world.knowledge
+    返回读者已知、而视角角色尚不知的事实(可计算查询,非人脑事后判断)。
+
+    走 DB 路径时不预载 `load_knowledge()`——那是一次全表边扫描，千万字规模实测 2.3 秒，
+    而 project_frame 会优先用 SQL，预载的边根本用不上。内存 World 仍然预载一次，
+    否则两次投影各扫一遍反而更慢。
+    """
+    edges = None
+    if not _db_frame_ready(world):
+        edges = world.load_knowledge() if hasattr(world, "load_knowledge") else world.knowledge
     reader = project_frame(world, "reader", chapter, edges=edges)
     foc_ids = {f.id for f in project_frame(world, focalizer, chapter, edges=edges).facts}
     return [f for f in reader.facts if f.id not in foc_ids]

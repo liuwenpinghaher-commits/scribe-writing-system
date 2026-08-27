@@ -152,7 +152,19 @@ class CharacterArcMixin:
         except Exception:
             pass
 
-        return {
+        # 角色缺项按**比例**扣分，封顶 20。
+        #
+        # 原先是 len(char_issues) * 5：400 个角色里只要 20 个缺 duty 字段，分数直接归零，
+        # 千万字规模下这个指标恒为 0、不产生任何信号。而缺 20/400 和缺 200/400
+        # 显然不是一回事，按比例才有区分度。
+        char_penalty = round(20 * len(char_issues) / len(chars)) if chars else 0
+
+        try:
+            n_chapters = len(self.chapters_lite() or [])
+        except Exception:
+            n_chapters = 0
+
+        result = {
             "total_chars": len(chars),
             "total_rules": len(rules),
             "total_factions": len(factions),
@@ -160,9 +172,21 @@ class CharacterArcMixin:
             "total_facts": len(facts),
             "total_motifs": len(motifs),
             "char_issues": char_issues,
+            "char_issue_ratio": round(len(char_issues) / len(chars), 3) if chars else 0.0,
             "missing_dimensions": missing,
-            "completeness_score": max(0, 100 - len(missing) * 20 - len(char_issues) * 5),
+            "completeness_score": max(0, 100 - len(missing) * 20 - char_penalty),
         }
+        # 密度只报不判。多长的书该有几条世界规则，目前没有可信依据，
+        # 拍一个阈值出来只会变成又一个没区分度的指标（keyword_share 就是这么废掉的）。
+        if n_chapters:
+            result["density_per_100ch"] = {
+                "chapters": n_chapters,
+                "rules": round(len(rules) / n_chapters * 100, 1),
+                "factions": round(len(factions) / n_chapters * 100, 1),
+                "places": round(len(places) / n_chapters * 100, 1),
+                "facts": round(len(facts) / n_chapters * 100, 1),
+            }
+        return result
 
     def check_ooc(self, character_id: str, dialogue: str) -> list[dict]:
         """OOC 检测:对照 voice_profile.ooc_signals 规则列表扫描对话。

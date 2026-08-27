@@ -85,6 +85,27 @@ class TestSettingCompleteness:
         assert result["total_factions"] >= 1
         assert result["completeness_score"] > 0
 
+    def test_score_survives_many_characters(self, store):
+        """角色一多分数不该必然归零。
+
+        原先是 `len(char_issues) * 5`：400 个角色里 20 个缺 duty 字段就扣满 100，
+        千万字规模下这个指标恒为 0、不产生任何信号。改成按比例扣、封顶 20 分。
+        这里 40 个角色只有 8 个缺字段（20%），旧算法扣 40 分，新算法扣 4 分。
+        """
+        store.add_world_rule("魔法代价", "magic", cost="消耗灵力")
+        store.add_faction("公会", ideology="互助")
+        store.add_fact(Fact("fact:s9", "role:全0", "获知", "秘密", valid_from=1, secret=True))
+        for i in range(40):
+            traits = {} if i < 8 else {"surface_goal": f"要{i}", "fear": f"怕{i}"}
+            store.add_entity(Entity(f"role:全{i}", "character", f"全{i}", traits=traits))
+
+        result = store.setting_completeness()
+        assert result["total_chars"] >= 40
+        assert len(result["char_issues"]) >= 8
+        assert result["char_issue_ratio"] <= 0.25
+        assert result["completeness_score"] > 0, \
+            "40 个角色里 8 个缺字段就归零的话，这个指标在长篇上没有意义"
+
 
 class TestRelationsWithUntil:
     """层3: 关系演变(until_chapter)"""

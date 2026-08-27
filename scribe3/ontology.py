@@ -13,6 +13,34 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+#: 命题主语只能是这三类。`fact:` / `ev:` 在本体里另有其表，不做命题主语。
+#: 势力走 faction 表、不进 entity，但在命题里仍用 `org:` 指称。
+SUBJECT_PREFIXES = ("role", "place", "org")
+
+#: 模型笔误的等价写法。提示词已写死只许用上面三个，实测仍会零星写 `loc:`。
+_PREFIX_ALIAS = {
+    "loc": "place", "location": "place", "site": "place", "地点": "place",
+    "char": "role", "person": "role", "people": "role", "人物": "role",
+    "faction": "org", "group": "org", "organization": "org", "势力": "org",
+}
+
+
+def canon_oid(oid: str) -> str | None:
+    """把实体 id 归到本体里，认不出返回 None。
+
+    认不出的绝不能放行：`loc:` / `world:` / `hist:` 曾这样混进 20 条命题——
+    能被字符串统计到、却永远关联不上实体，一致性检查和限知帧全都照不到。
+    """
+    oid = (oid or "").strip()
+    if not oid or ":" not in oid:
+        return None
+    prefix, name = oid.split(":", 1)
+    prefix, name = prefix.strip().lower(), name.strip()
+    if not name:
+        return None
+    prefix = _PREFIX_ALIAS.get(prefix, prefix)
+    return f"{prefix}:{name}" if prefix in SUBJECT_PREFIXES else None
+
 
 @dataclass
 class Entity:
