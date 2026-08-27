@@ -697,6 +697,26 @@ def _rule_lines(world: Any, needles: list[str], *, pad: bool) -> list[str]:
     return lines
 
 
+def _trim_lines(text: str, budget: int) -> str:
+    """按行截到预算内，不切半句。
+
+    原先是 `text[:budget]`，正好卡在一条设定中间时，模型读到的是半句话——
+    比少给它一条更糟，因为半句话看着像完整的。宁可少一条也要给完整的。
+    """
+    if len(text) <= budget:
+        return text
+    out: list[str] = []
+    used = 0
+    for line in text.split("\n"):
+        need = len(line) + (1 if out else 0)
+        if used + need > budget:
+            break
+        out.append(line)
+        used += need
+    # 第一行就超预算：只能硬切，但这种情况说明预算配得不合理
+    return "\n".join(out) if out else text[:budget]
+
+
 def _legacy_codex_recall(world: Any, seq: int, needles: list[str], public: list[Any]) -> str:
     """紧急回退依赖。删码待旗退役。"""
     def _hit(blob: str) -> bool:
@@ -722,7 +742,7 @@ def _legacy_codex_recall(world: Any, seq: int, needles: list[str], public: list[
     text = "\n".join(parts)
     if text == "这些已经为真，不许另造。":
         return ""
-    return text[:_CODEX_BUDGET]
+    return _trim_lines(text, _CODEX_BUDGET)
 
 
 def playbook_codex_recall(
@@ -776,7 +796,7 @@ def playbook_codex_recall(
                 if not parts:
                     parts.append("这些已经为真，不许另造。")
                 parts.extend(rules)
-            text = "\n".join(parts)[:_CODEX_BUDGET]
+            text = _trim_lines("\n".join(parts), _CODEX_BUDGET)
         except Exception as exc:
             _log.info("codex_recall hub skip: %s", type(exc).__name__)
             try:

@@ -217,3 +217,22 @@ def test_guide_fail_only_on_throw_not_natural_empty():
 def test_extra_can_override_guide_fail():
     ctx = build_ctx(_World(), 1, extra={"_guide_fail": ["north_star"]}, playbook=_FrozenOnly())
     assert ctx["_guide_fail"] == ["north_star"]
+
+
+def test_codex_recall_trims_by_line_not_mid_sentence():
+    """截断不许切在半句上——半句话看着像完整的，比少给一条更糟。"""
+    from scribe3.playbook.context import _CODEX_BUDGET, _trim_lines
+
+    lines = [f"角色{i} / 属性：这是第{i}条完整的设定，不该被切成半句" for i in range(40)]
+    out = _trim_lines("\n".join(lines), _CODEX_BUDGET)
+    assert len(out) <= _CODEX_BUDGET
+    assert out.split("\n")[-1] in lines, "末行被切断了"
+    for line in out.split("\n"):
+        assert line in lines
+
+
+def test_trim_lines_passthrough_when_within_budget():
+    from scribe3.playbook.context import _trim_lines
+
+    text = "一行\n两行"
+    assert _trim_lines(text, 100) == text
