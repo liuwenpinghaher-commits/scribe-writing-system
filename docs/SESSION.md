@@ -541,7 +541,13 @@ CLI 和 MCP `s3_plan_volumes` 共用 `generate_charters`。
 
 **对照库 `wanjie_scale` 未动。** `verify_scale --db wanjie_scale --chapters 200` 仍未复测（上次 11 红）。
 
-**下一件**：等作者下令再从 `--from 41 --to 200` 续铺；先补写厚或先清野前缀由作者定。不要为过线调低阈值。
+**下一件**：R1+R2 已推 `craft-eval`（`3a724206` / `4bb3b9db`）。40 章验证：短文对得上命题，duty 字段仍空，`char_issue_ratio` 仍 0.737。未铺 41–200。等作者看并排读再决定——抽字段闸还是先 R3。不要为过线调低阈值。
+
+### R1+R2 写厚（2026-08-28）
+作者更正：野前缀是种子不是模型；写厚几乎全军覆没（非空壳 4 个是手写种子，牧场主半个）；半本书上的悬置 23% 无意义。
+**R1** `_bible_for` 给 portrait 补该实体命题（含 `隐瞒·`，上限 12）。**R2** 抽取 4 轮重试，失败把短文落到 `personality_detail`。
+**40 章验证、未铺新章：** 14 个空壳全跑了，全是 `llm_thin` + 短文已 stash。比例 **0.737 没动**（`surface_goal`/`fear` 仍空）。并排读：温贩婆短文就是亲情价/余温价单/抵押条款；柳母对得上「牧场主写进抵押、还能再活一年」；盲眼邮差有择侧/假折射/裂口灯，也夹了母题块「囚笼与摇篮」（R7 范围）。R1 的上下文修好了；卡住的是抽取必须整段是短文子串。
+根因清单两处更正、不挡 R1：真正绕过 `canon_oid` 落库的是 `seed_wanjie_scale.seed_facts`（`humanrun` 只是 FACTS 常量）；母题重复在 `_codex_segments` 的 must_echo + 可主动编织，不是 expand 的 `_bible()`。
 
 ### StoryScope 判据再修一层（2026-08-28）
 
