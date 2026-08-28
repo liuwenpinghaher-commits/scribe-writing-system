@@ -376,9 +376,11 @@ def audit_volume(store, volume: dict, hero: str, *,
     # 点名引入必须是本卷**首次**出现。旧判据拿本卷出现过的实体比，
     # 前卷已经出场、本卷再提一次的也算兑现——实测兰因第 13 章出场，
     # 卷 2 点名她，报缺 0，新鲜度却只有 4.5。
+    # 精确相等。子串会把 place:不署名 算成 place:不署名门 已引入。
+    # 模型给 oid 加后缀的情况走 canon_oid，不在这里用包含关系兜。
     audit.introduces_missing = [
         oid for oid in audit.introduces_declared
-        if not any(oid == e or oid in e or e in oid for e in audit.introduces_actual)]
+        if oid not in audit.introduces_actual]
     audit.thickens_missing = [
         oid for oid in audit.thickens_declared if not _duty_ready(store, oid)]
 

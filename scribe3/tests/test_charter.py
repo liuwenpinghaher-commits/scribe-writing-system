@@ -208,6 +208,19 @@ def test_audit_passes_when_charter_is_honored():
     assert a.new_entities_per_10ch >= 5.0
 
 
+def test_introduces_missing_requires_exact_oid():
+    """子串匹配会把短名算成长名已引入。必须精确相等。
+
+    `place:门` 带前缀其实撞不上 `place:不署名门`；会误伤的是前缀关系：
+    点名 `place:不署名`，库里只有 `place:不署名门`。
+    """
+    facts = [_fact("p", "place:不署名门", "位置", "在北峰", 11)]
+    vol = _volume({"duty": "办", "chapter_range": [11, 20],
+                   "introduces": ["place:不署名"], "pays": [], "knowledge_end": {}})
+    a = audit_volume(FakeStore(facts), vol, "role:新0")
+    assert a.introduces_missing == ["place:不署名"]
+
+
 def test_introduces_missing_if_first_seen_before_this_volume():
     """点名实体必须在本卷首次出现。卷末「存在」不算引入。
 
