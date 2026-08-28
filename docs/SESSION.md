@@ -541,7 +541,7 @@ CLI 和 MCP `s3_plan_volumes` 共用 `generate_charters`。
 
 **对照库 `wanjie_scale` 未动。** `verify_scale --db wanjie_scale --chapters 200` 仍未复测（上次 11 红）。
 
-**下一件**：R3+R5 已推。41–60 小样本：点名 11 个按 5+6 切开，两批都有新实体（7.0 / 6.0）。R4/R6/R7/R8 未做。不要铺 61–200，不要动 `wanjie_scale`。
+**下一件**：R4–R8 已推。wanjie_v2 已铺到 60 章。等作者下令再铺 61–200，然后 `verify_scale --db wanjie_v2 --chapters 200`。不要动 `wanjie_scale`。
 
 ### 抽取闸（2026-08-28）
 两处把已抄对的短文判失败：抽取只认「他要什么：」标签；`portrait_grounded` 把两字段拼成一串再找子串。已改：无标签按空行/两句切开；grounded 逐字段实词过半（与 `_loose_match` 同源，防另编不防压缩）。已有够长 `personality_detail` 直接抽。
@@ -550,6 +550,12 @@ CLI 和 MCP `s3_plan_volumes` 共用 `generate_charters`。
 ### R3 按批分配 + R5 未铺不计红（2026-08-28）
 R3 `19bae543`：本批配额 = 剩余点名 ÷ 剩余批数，提示词只强制本批。R5 `392c5fa0`：已铺范围外的卷标未铺，悬置终卷裁到已铺最后一卷。
 **41–60 小样本：** 卷 3 点名 11，配额 5+6。实测首次出场 41–50 五个（换名吏/假名桥/回魂铺/吞名童/两相巷），51–60 六个（双轨裁所/耳票人/定金井/活路局/无脸秤/改命牌房）。新鲜度 7.0 / 6.0。点名一个不落。
+
+### R4–R8（2026-08-28）
+- R4 `7464acf6`：种子走 canon_oid。地球/修仙界→place:（融合点发生地），周公→role:。不把 world:/hist: 加进全局别名。wanjie_v2 6 条已改写，野前缀 0。
+- R6 `eac004ec`：写厚整卷铺完跑一次。
+- R7 `5a6ed9f2`：可编织不再重复 must_echo。
+- R8 `2dc18bb6`：FastEmbed 缓存 `~/.cache/scribe3/fastembed`。
 
 ### R1+R2 写厚（2026-08-28）
 作者更正：野前缀是种子不是模型；写厚几乎全军覆没（非空壳 4 个是手写种子，牧场主半个）；半本书上的悬置 23% 无意义。
