@@ -75,6 +75,18 @@ def required_thickens(span_chapters: int) -> int:
     return required_introduces(span_chapters)
 
 
+def required_holdovers(n_open: int) -> int:
+    """本卷必须留给下一卷以后的开口线。
+
+    改前提示词只催收，64 条里同卷收 33、跨卷未收 3%。
+    开口少于 3 条时不硬留（种子卷没线可留）；否则至少 2 条或开口的四分之一。
+    """
+    n = int(n_open or 0)
+    if n < 3:
+        return 0
+    return max(2, n // 4)
+
+
 def story_entities(facts) -> set[str]:
     """命题里属于设定本体的实体，排除系统自建的账目命题。"""
     return {f.entity_id for f in facts
@@ -112,6 +124,7 @@ def normalize_charter(raw: Any) -> dict:
     # 交给 `validate_charter` 报出来，不静默丢掉一条引入要求。
     out["introduces"] = _norm_oid_items(raw.get("introduces"))
     out["thickens"] = _norm_oid_items(raw.get("thickens"))
+    out["holdovers"] = _norm_holdover_items(raw.get("holdovers"))
 
     for item in raw.get("pays") or []:
         text = item.strip() if isinstance(item, str) else str((item or {}).get("text") or "").strip()
@@ -180,8 +193,23 @@ def _norm_oid_items(raw) -> list[dict]:
     return out
 
 
+def _norm_holdover_items(raw) -> list[dict]:
+    out = []
+    for item in raw or []:
+        if isinstance(item, str):
+            ref, text = item.strip(), ""
+        elif isinstance(item, dict):
+            ref = str(item.get("ref") or item.get("id") or "").strip()
+            text = str(item.get("text") or "").strip()
+        else:
+            continue
+        if ref:
+            out.append({"ref": ref, "text": text})
+    return out
+
+
 def _empty_charter() -> dict:
-    return {"duty": "", "introduces": [], "thickens": [], "pays": [],
+    return {"duty": "", "introduces": [], "thickens": [], "holdovers": [], "pays": [],
             "knowledge_end": {"must_know": [], "must_not_know": []},
             "chapter_range": None}
 

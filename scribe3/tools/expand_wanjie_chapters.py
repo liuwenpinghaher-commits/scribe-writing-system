@@ -268,6 +268,109 @@ def volume_for_chapter(st, seq: int) -> dict | None:
     return vols[-1] if vols else None
 
 
+# 立纲时只有种子，所以 thickens 会点满柳岸青/兰因/沈烛。开铺时按库重排。
+# 主角跨卷最多点 1 次；其余实体最多 2 次。名额数量仍走 required_thickens。
+SEED_HEADLINERS = frozenset({
+    "role:柳岸青", "role:兰因", "role:沈烛", "role:赫斯", "org:守火人档案局",
+})
+HEADLINER_REPEAT_MAX = 1
+OTHER_REPEAT_MAX = 2
+
+
+def prior_thicken_counts(st, before_seq: int) -> dict[str, int]:
+    from collections import Counter
+    from scribe3.charter import normalize_charter
+
+    c: Counter[str] = Counter()
+    for v in st.list_volumes() or []:
+        ch = normalize_charter(v.get("charter"))
+        rng = ch["chapter_range"]
+        if not rng or int(rng[1]) >= int(before_seq):
+            continue
+        for item in ch["thickens"]:
+            oid = item.get("oid") or ""
+            if oid:
+                c[oid] += 1
+    return dict(c)
+
+
+def pick_thickens(st, vol: dict, n: int) -> list[dict]:
+    """开铺前按此刻命题数重挑。优先 ≤2 且已出场；不碰 introduces。"""
+    from collections import Counter
+    from scribe3.charter import STORY_PREFIXES, normalize_charter, story_entities
+
+    c = normalize_charter((vol or {}).get("charter"))
+    rng = c["chapter_range"] or [1, 1]
+    lo = int(rng[0])
+    facts = list(st.facts_at(lo - 1) or []) if lo > 1 else []
+    counts: Counter[str] = Counter()
+    for f in facts:
+        eid = str(getattr(f, "entity_id", "") or "")
+        if eid.startswith(STORY_PREFIXES):
+            counts[eid] += 1
+    appeared = story_entities(facts)
+    intro = {i["oid"] for i in c["introduces"]}
+    prior = prior_thicken_counts(st, lo)
+    scored: list[tuple[int, int, str]] = []
+    for oid in appeared:
+        if oid in intro:
+            continue
+        cap = HEADLINER_REPEAT_MAX if oid in SEED_HEADLINERS else OTHER_REPEAT_MAX
+        if int(prior.get(oid) or 0) >= cap:
+            continue
+        scored.append((counts[oid], int(prior.get(oid) or 0), oid))
+    scored.sort()
+    thin = [x for x in scored if x[0] <= 2]
+    rest = [x for x in scored if x[0] > 2]
+    chosen = (thin + rest)[: max(0, int(n))]
+    out = []
+    for nfact, _, oid in chosen:
+        why = f"此刻 {nfact} 条命题" + ("，长尾" if nfact <= 2 else "")
+        out.append({"oid": oid, "why": why})
+    return out
+
+
+def pick_holdovers(st, n: int) -> list[dict]:
+    """开口线里最老的几条，本卷不许收。"""
+    rows = _open_promises(st)
+    rows.sort(key=lambda p: (int(p.get("setup_chapter") or 0), str(p.get("id") or "")))
+    out = []
+    for p in rows[: max(0, int(n))]:
+        out.append({"ref": promise_ref(p), "text": str(p.get("text") or "")})
+    return out
+
+
+def ensure_live_roster(st, vol: dict) -> dict:
+    """后续卷开铺前重排 thickens / holdovers。第一卷保留立纲初值。"""
+    from scribe3.charter import normalize_charter, required_holdovers, required_thickens
+
+    c = normalize_charter((vol or {}).get("charter"))
+    rng = c["chapter_range"]
+    if not rng or int(rng[0]) <= 1:
+        return c
+    span = int(rng[1]) - int(rng[0]) + 1
+    c["thickens"] = pick_thickens(st, vol, required_thickens(span))
+    c["holdovers"] = pick_holdovers(st, required_holdovers(len(_open_promises(st))))
+    vid = (vol or {}).get("id")
+    if vid and hasattr(st, "update_volume"):
+        st.update_volume(vid, {"charter": c})
+    if isinstance(vol, dict):
+        vol["charter"] = c
+    return c
+
+
+def holdover_refs_for_volume(st, vol_id: str | None) -> set[str]:
+    from scribe3.charter import normalize_charter
+
+    if not vol_id:
+        return set()
+    for v in st.list_volumes() or []:
+        if (v.get("id") or "") == vol_id:
+            c = normalize_charter(v.get("charter"))
+            return {str(h.get("ref") or "").strip().upper() for h in c.get("holdovers") or [] if h.get("ref")}
+    return set()
+
+
 def _charter_block(st, lo: int, hi: int) -> str:
     """卷契约注入章级生成——这是「下一卷有新起点」的落地点。
 
@@ -310,8 +413,14 @@ def _charter_block(st, lo: int, hi: int) -> str:
         for i in c["thickens"]:
             out.append(f"  - {i['oid']}：{i['why']}")
         out.append("")
+    holds = c.get("holdovers") or []
+    if holds:
+        out.append("**本卷不许收的长线**（payoff 的 ref 不许写这些编号，写了也不落库）：")
+        for h in holds:
+            out.append(f"  - {h.get('ref')}｜{h.get('text') or ''}")
+        out.append("")
     if c["pays"]:
-        out.append("这一卷要收的旧线：")
+        out.append("**本卷该收的线**（优先收这些，不要去收上面不许收的）：")
         out += [f"  - {p}" for p in c["pays"]]
         out.append("")
     ke = c["knowledge_end"]
@@ -406,8 +515,8 @@ def build_prompt(st, vol_title: str, vol_intro: str, lo: int, hi: int,
 - `learns` 里的 `fact_index` 指向本章 `new_facts` 的下标。**谁不在场就不许知道**。
 - 上面「柳岸青此刻知道什么」里已经有的，不要重复立成新事实。
 - `hides` 至少一处。全书的劲都在信息差上，没人瞒人就没有戏。
-- 每三到四章要有一条 `payoff`，`ref` 必须照抄「还欠着的线」里某一条的编号，
-  不要自己编号，也不要收一条那张表上没有的线。标了「已过期」的优先收。
+- 每三到四章要有一条 `payoff`，`ref` 必须照抄「本卷该收的线」或「还欠着的线」里某一条的编号。
+  **「本卷不许收的长线」一条都不许收。** 不要自己编号。标了「已过期」且不在不许收名单里的优先收。
 - 标了 secret 的事实，要想清楚它泄露出去会伤到谁——伤不到人的秘密不是秘密。
 - 不许让柳岸青看见场核坐标（红线）。
 """
@@ -581,7 +690,12 @@ def persist(st, chapters: list[dict], vol_id: str | None) -> dict:
             except Exception as e:
                 print(f"  ! 第{seq}章伏笔: {e}")
 
+        blocked = holdover_refs_for_volume(st, vol_id)
         for p in ch.get("payoff") or []:
+            ref = str(p.get("ref") or "").strip().upper()
+            if ref and ref in blocked:
+                print(f"  ! 第{seq}章收线 {ref} 是本卷不许收的长线，跳过")
+                continue
             pid = resolve_payoff(st, p)
             if not pid:
                 print(f"  ! 第{seq}章收线认不出：ref={p.get('ref')!r} "
@@ -684,6 +798,7 @@ def expand_volume_accounts(st, vol: dict, *, llm_fn, total: int = 200,
     lo = start
     if hi < lo:
         return {"chapters": 0, "note": "这一卷已经铺完"}
+    roster = ensure_live_roster(st, vol)
     n_ch = 0
     stats = []
     for v, a, b in plan_batches(st, lo, hi, batch):
@@ -700,7 +815,11 @@ def expand_volume_accounts(st, vol: dict, *, llm_fn, total: int = 200,
         thick = thicken_named_entities(st, vol, llm_fn=llm_fn)
     except Exception as e:
         thick = {"error": str(e)}
-    return {"chapters": n_ch, "batches": stats, "thicken": thick}
+    return {
+        "chapters": n_ch, "batches": stats, "thicken": thick,
+        "roster": {"thickens": roster.get("thickens") or [],
+                    "holdovers": roster.get("holdovers") or []},
+    }
 
 
 def run_batch(st, vol: dict, lo: int, hi: int, total: int, *,
@@ -760,6 +879,14 @@ def main() -> None:
                 raise SystemExit(f"没有叫《{args.volume}》的卷。")
             batches = [(vol, args.lo, args.hi)]
         else:
+            batches = plan_batches(st, args.lo, args.hi, args.batch)
+        seen_vol: set[str] = set()
+        for vol, _lo, _hi in batches:
+            vid = str(vol.get("id") or "")
+            if vid and vid not in seen_vol:
+                ensure_live_roster(st, vol)
+                seen_vol.add(vid)
+        if not args.volume:
             batches = plan_batches(st, args.lo, args.hi, args.batch)
 
         if args.prompt_only:

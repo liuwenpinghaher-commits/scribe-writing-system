@@ -482,3 +482,143 @@ def test_expand_volume_accounts_persists_parsed_chapters():
     assert out.get("chapters") == 2 or len(out.get("batches") or []) >= 1
     assert "thicken" in out
     assert all("thicken" not in b for b in out.get("batches") or [])
+
+
+def test_pick_thickens_prefers_thin_and_skips_headliners():
+    """开铺前重排：长尾已出场优先；柳岸青在前卷点过就不再占名额。"""
+    from scribe3.ontology import Fact
+    from scribe3.tools.expand_wanjie_chapters import pick_thickens
+
+    facts = [
+        Fact("fact:h1", "role:柳岸青", "a", "厚", 1, None, False, []),
+        Fact("fact:h2", "role:柳岸青", "b", "更厚", 2, None, False, []),
+        Fact("fact:h3", "role:柳岸青", "c", "还厚", 3, None, False, []),
+        Fact("fact:t1", "role:验温嫂", "面目", "一句话", 13, None, False, []),
+        Fact("fact:t2", "place:无名井", "位置", "一口井", 20, None, False, []),
+        Fact("fact:n1", "role:新人", "面目", "本卷才点名", 50, None, False, []),
+    ]
+
+    class St:
+        def facts_at(self, ch):
+            return [f for f in facts if f.valid_from <= ch]
+
+        def list_volumes(self):
+            return [{"id": "v1", "charter": {"chapter_range": [1, 20],
+                      "thickens": [{"oid": "role:柳岸青", "why": "主角"}]}}]
+
+    vol = {"id": "v4", "charter": {"chapter_range": [61, 80],
+                                   "introduces": [{"oid": "role:新人", "why": "本卷点名"}],
+                                   "thickens": [{"oid": "role:柳岸青", "why": "立纲钉死"}]}}
+    got = pick_thickens(St(), vol, 2)
+    oids = [i["oid"] for i in got]
+    assert "role:柳岸青" not in oids
+    assert "role:新人" not in oids
+    assert "role:验温嫂" in oids
+    assert "place:无名井" in oids
+
+
+def test_ensure_live_roster_skips_volume_one():
+    from scribe3.tools.expand_wanjie_chapters import ensure_live_roster
+
+    vol = {"id": "v1", "charter": {"duty": "办", "chapter_range": [1, 20],
+                                   "thickens": [{"oid": "role:柳岸青", "why": "种子"}]}}
+    c = ensure_live_roster(type("S", (), {"facts_at": lambda *_a, **_k: [],
+                                           "list_volumes": lambda *_a, **_k: [],
+                                           "list_promises": lambda *_a, **_k: []})(), vol)
+    assert c["thickens"][0]["oid"] == "role:柳岸青"
+
+
+def test_prompt_lists_holdovers_as_must_not_pay():
+    from scribe3.tools.expand_wanjie_chapters import build_prompt
+
+    class St:
+        def get_intent(self):
+            return {"north_star": "星", "red_lines": "线"}
+
+        def list_volumes(self):
+            return [{"id": "v4", "title": "卷四", "intro": "办",
+                     "charter": {"duty": "办", "chapter_range": [61, 80],
+                                 "introduces": [{"oid": "role:甲", "why": "要"}],
+                                 "thickens": [],
+                                 "holdovers": [{"ref": "Labc", "text": "旧欠温"}],
+                                 "pays": ["该收的线"],
+                                 "knowledge_end": {"must_know": [], "must_not_know": []}}}]
+
+        def chapters_lite(self):
+            return []
+
+        def list_promises(self):
+            return []
+
+        def facts_at(self, *_a, **_k):
+            return []
+
+        def characters(self):
+            return []
+
+        def list_world_rules(self):
+            return []
+
+        def list_factions(self):
+            return []
+
+        def list_items(self):
+            return []
+
+        def list_terms(self):
+            return []
+
+        def list_motifs(self):
+            return []
+
+    p = build_prompt(St(), "卷四", "办", 61, 70, 200)
+    assert "本卷不许收" in p and "Labc" in p
+    assert "本卷该收" in p
+
+
+def test_persist_skips_holdover_payoff():
+    from scribe3.tools.expand_wanjie_chapters import persist
+
+    paid = []
+
+    class St:
+        def list_volumes(self):
+            return [{"id": "v4", "charter": {"holdovers": [{"ref": "Labc123", "text": "长线"}]}}]
+
+        def list_promises(self):
+            return [{"id": "promise:abc123", "text": "长线", "status": "open",
+                     "setup_chapter": 4}]
+
+        def save_chapter(self, *a, **k):
+            return None
+
+        def update_chapter_meta(self, *a, **k):
+            return True
+
+        def add_fact(self, *a, **k):
+            return None
+
+        def add_knowledge(self, *a, **k):
+            return None
+
+        def plant_promise(self, *a, **k):
+            return None
+
+        def advance_promise(self, pid, seq):
+            paid.append((pid, seq))
+
+        def entity(self, oid):
+            return True
+
+        def add_entity(self, *a, **k):
+            return None
+
+        def add_faction(self, *a, **k):
+            return None
+
+    persist(St(), [{
+        "seq": 61, "title": "试", "synopsis": "x" * 40,
+        "new_facts": [], "learns": [], "hides": [], "plant": [],
+        "payoff": [{"ref": "Labc123", "how": "不该收"}],
+    }], "v4")
+    assert paid == []

@@ -719,6 +719,28 @@ def test_audit_reports_unthickened_named_entities():
     assert "role:柳岸青" in a.thickens_missing
     assert not a.ok
 
-    st.characters = lambda: [Char("柳岸青", {"surface_goal": "按回裂口", "fear": "被标成样本"})]
+    fat = "温贩婆要把柳母余温写进价单，让亲情可抵成为入口条款。"
+    st.characters = lambda: [Char("柳岸青", {
+        "surface_goal": fat, "deep_need": fat, "fear": fat, "internal_conflict": fat,
+    })]
     a = audit_volume(st, vol, "role:新0")
     assert a.thickens_missing == []
+
+
+def test_required_holdovers_floor():
+    from scribe3.charter import required_holdovers
+
+    assert required_holdovers(0) == 0
+    assert required_holdovers(2) == 0
+    assert required_holdovers(3) == 2
+    assert required_holdovers(8) == 2
+    assert required_holdovers(12) == 3
+
+
+def test_normalize_holdovers():
+    c = normalize_charter({
+        "duty": "办",
+        "holdovers": ["Labc", {"ref": "Ldef", "text": "旧线"}],
+    })
+    assert c["holdovers"][0]["ref"] == "Labc"
+    assert c["holdovers"][1] == {"ref": "Ldef", "text": "旧线"}
