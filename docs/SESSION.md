@@ -541,7 +541,14 @@ CLI 和 MCP `s3_plan_volumes` 共用 `generate_charters`。
 
 **对照库 `wanjie_scale` 未动。** `verify_scale --db wanjie_scale --chapters 200` 仍未复测（上次 11 红）。
 
-**下一件**：R4–R8 已推。wanjie_v2 已铺到 60 章。等作者下令再铺 61–200，然后 `verify_scale --db wanjie_v2 --chapters 200`。不要动 `wanjie_scale`。
+**下一件**：设定深度第一段（P2/P3/P5/P6）已推。wanjie_v2 停在 60 章。第二段只铺 61–80（P1+P4），不要铺 81–200。不要动 `wanjie_scale`。
+
+### 设定深度第一段（2026-08-28）
+方案 [`2026-08-28-DEPTH-PROMPT.md`](./plans/2026-08-28-DEPTH-PROMPT.md)。未铺新章。`f841793c` P2+P6；`e09f5704` P3+P5。
+**P2** 四槽各 ≥25 字，抽取四行。兰因种子 fear 改房规；现库未重灌，库里兰因 fear 仍是「怕她焊上的锚」。
+**verify_scale --db wanjie_v2 --chapters 60 仍 7 红。** 空壳 **0.042→0.833（20/24）**，完整度 **80→63**——下限起作用，没回调。折光贩子 `surface_goal` 仍是「他要体温。」五个字，现已拦。
+厚度两行：全部 54 ≤2 **50%** / ≤4 83% / 前3 36%；≥20章 41 ≤2 **44%** / ≤4 78% / 前3 41%（把关）。空间 15 地点无从属、只报不拦。P7 障碍仍只报。
+阳性对照：合格四槽放行、另编拦下（`test_duty_positive_control_grounded_pass_invented_fail`）。
 
 ### 抽取闸（2026-08-28）
 两处把已抄对的短文判失败：抽取只认「他要什么：」标签；`portrait_grounded` 把两字段拼成一串再找子串。已改：无标签按空行/两句切开；grounded 逐字段实词过半（与 `_loose_match` 同源，防另编不防压缩）。已有够长 `personality_detail` 直接抽。
