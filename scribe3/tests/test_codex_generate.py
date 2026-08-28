@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 from scribe3.codex_generate import (
+    DUTY_FIELD_MIN,
     PORTRAIT_EXTRACT_TRIES,
     PORTRAIT_FACT_CAP,
     _bible_for,
     apply_codex_persist_fields,
     build_codex_prompt,
+    character_duty_issues,
+    duty_fields_ready,
     facts_for_portrait,
     first_codex_slot,
     list_codex_thicken_targets,
@@ -73,10 +76,17 @@ def test_thicken_character_portrait_then_extract():
         prompts.append(prompt)
         if "不要填表" in prompt:
             return (
-                "柳岸青要把场核碎片按回裂口，不交给守火人。"
-                "他会让世界开始认他的心跳，旁人付出单向可见。"
+                "柳岸青要把场核碎片按回裂口，不交给守火人档案局提前开箱。"
+                "他还要母亲还能自己走路离开观测名单，不被钉成档案条目。"
+                "他会让世界开始认他的心跳，旁人从此付出单向可见的余生。"
+                "他还让人付掉能证明他曾经不是样本的那一夜原始记录。"
             )
-        return "他要什么：把场核碎片按回裂口\n他让人付出什么：世界认走心跳，旁人单向可见"
+        return (
+            "他要什么：柳岸青要把场核碎片按回裂口，不交给守火人档案局提前开箱。\n"
+            "他还要什么：他还要母亲还能自己走路离开观测名单，不被钉成档案条目。\n"
+            "他让人付出什么：他会让世界开始认他的心跳，旁人从此付出单向可见的余生。\n"
+            "他还让人付出什么：他还让人付掉能证明他曾经不是样本的那一夜原始记录。"
+        )
 
     out = thicken_codex("character", {"name": "柳岸青"}, llm_fn=llm)
     assert any("不要填表" in p for p in prompts)
@@ -190,10 +200,17 @@ def test_thicken_prompt_sees_own_facts():
     assert any("把柳母余温写进价单" in p for p in prompts)
 
 
-_PORTRAIT = "温贩婆要把余温金融化。她让人付亲情和抵押条款。"
+_PORTRAIT = (
+    "温贩婆要把柳母余温写进价单，让亲情可抵成为入口条款。"
+    "她还要把体温做成下一季能卖出去的余温金融账本条目。"
+    "她让人付出抵押条款，价单交给温税吏收走还能再活的一年。"
+    "她还让人付走能走回头路的那一年余温和全部亲情抵押权。"
+)
 _EXTRACT_OK = (
-    "他要什么：温贩婆要把余温金融化\n"
-    "他让人付出什么：她让人付亲情和抵押条款"
+    "他要什么：温贩婆要把柳母余温写进价单，让亲情可抵成为入口条款。\n"
+    "他还要什么：她还要把体温做成下一季能卖出去的余温金融账本条目。\n"
+    "他让人付出什么：她让人付出抵押条款，价单交给温税吏收走还能再活的一年。\n"
+    "他还让人付出什么：她还让人付走能走回头路的那一年余温和全部亲情抵押权。"
 )
 
 
@@ -208,7 +225,7 @@ def test_portrait_extract_retries_then_ok():
         if "不要填表" in prompt:
             return _PORTRAIT
         if n["i"] == 2:
-            return "他要什么：改写成别的\n他让人付出什么：也改写了"
+            return "他要什么：改写成别的\n他还要什么：也改了\n他让人付出什么：也改写了\n他还让人付出什么：还改"
         return _EXTRACT_OK
 
     out = thicken_codex("character", {"name": "温贩婆"}, llm_fn=llm)
@@ -216,8 +233,9 @@ def test_portrait_extract_retries_then_ok():
     assert n["i"] == 3
     assert any("缺「他要什么」" in p or "缺「他让人付出什么」" in p for p in prompts[1:])
     fields = out.get("public_fields") or {}
-    assert "余温金融化" in str(fields.get("surface_goal") or "")
-    assert "亲情" in str(fields.get("fear") or "")
+    assert "价单" in str(fields.get("surface_goal") or "")
+    assert "温税吏" in str(fields.get("fear") or "")
+    assert fields.get("deep_need") and fields.get("internal_conflict")
 
 
 def test_portrait_extract_fail_stashes_short_text():
@@ -270,6 +288,56 @@ def test_extract_unlabeled_two_sentences():
     assert "亲情" in got["fear"]
 
 
+def test_duty_fields_ready_rejects_five_char_goal():
+    """改前非空即过。改后「他要体温。」过不了 25 字下限。"""
+    thin = {
+        "surface_goal": "他要体温。",
+        "deep_need": "他要体温。",
+        "fear": "他要体温。",
+        "internal_conflict": "他要体温。",
+    }
+    assert duty_fields_ready("character", thin) is False
+    assert "缺他要什么" in character_duty_issues(thin)
+    assert DUTY_FIELD_MIN == 25
+
+
+def test_extract_four_labeled_slots():
+    """抽取必须能填四个槽，不能只写 surface_goal / fear。"""
+    raw = (
+        "他要什么：温贩婆要把柳母余温写进价单，让亲情可抵成为入口条款。\n"
+        "他还要什么：她还要把体温做成下一季能卖出去的余温金融账本条目。\n"
+        "他让人付出什么：她让人付出抵押条款，价单交给温税吏收走还能再活的一年。\n"
+        "他还让人付出什么：她还让人付走能走回头路的那一年余温和全部亲情抵押权。"
+    )
+    got = _apply_portrait_extract("character", {}, {}, raw)
+    assert duty_fields_ready("character", got)
+    assert "价单" in got["surface_goal"]
+    assert "账本" in got["deep_need"]
+    assert "温税吏" in got["fear"]
+    assert "抵押权" in got["internal_conflict"]
+
+
+def test_duty_positive_control_grounded_pass_invented_fail():
+    """合格样本必须放行；另编样本必须拦下。判据没有正样本就会把非空当过。"""
+    portrait = _PORTRAIT
+    ok = {
+        "surface_goal": "温贩婆要把柳母余温写进价单，让亲情可抵成为入口条款。",
+        "deep_need": "她还要把体温做成下一季能卖出去的余温金融账本条目。",
+        "fear": "她让人付出抵押条款，价单交给温税吏收走还能再活的一年。",
+        "internal_conflict": "她还让人付走能走回头路的那一年余温和全部亲情抵押权。",
+    }
+    assert duty_fields_ready("character", ok) is True
+    assert portrait_grounded("character", ok, portrait) is True
+    fake = {
+        "surface_goal": "她要一统天下改写场核坐标锁回裂口，自己当观测主人。",
+        "deep_need": "她要当牧场主把观测名单整本卖给天龙座去换令牌和牧场。",
+        "fear": "她让人付亲情和抵押条款还要再付一整年的体温读数账。",
+        "internal_conflict": "她还让人付走能走回头路的那一年余温和全部亲情抵押权。",
+    }
+    assert duty_fields_ready("character", fake) is True
+    assert portrait_grounded("character", fake, portrait) is False
+
+
 def test_portrait_grounded_nonadjacent_ok_invented_fail():
     """缺陷二：两句非相邻原话算 grounded；另编的不算。"""
     portrait = (
@@ -293,10 +361,7 @@ def test_reuse_stashed_portrait_skips_rewrite():
 
     def llm(prompt, max_tokens=4096):
         prompts.append(prompt)
-        return (
-            "他要什么：温贩婆要把余温金融化\n"
-            "他让人付出什么：她让人付亲情和抵押条款"
-        )
+        return _EXTRACT_OK
 
     src = {"name": "温贩婆", "personality_detail": _PORTRAIT * 4}
     out = thicken_codex("character", src, llm_fn=llm)

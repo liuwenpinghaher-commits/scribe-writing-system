@@ -708,12 +708,37 @@ def _bible_for(st, work, kind: str, row: dict, extra: str, include_secret: bool)
     return "\n".join(p for p in (named, cards, own) if p)
 
 
+#: 角色 duty 字段实质下限。改前：非空即过。改后：四槽各自达到这个字数。
+#: 依据：现库「他要体温。」5 字被放行；7/23 的 surface_goal 短于 25 字。
+#: 25 是「能说出要什么/让人付什么」的最短完整句，不是文风线，不许为过线再调低。
+DUTY_FIELD_MIN = 25
+CHAR_WANT_KEYS = ("surface_goal", "deep_need")
+CHAR_PAY_KEYS = ("fear", "internal_conflict")
+
+
+def _duty_cn(text: str) -> int:
+    return cn_len(str(text or "").strip())
+
+
+def _duty_long_enough(text: str) -> bool:
+    return _duty_cn(text) >= DUTY_FIELD_MIN
+
+
+def character_duty_issues(row: Mapping[str, Any] | None) -> list[str]:
+    """缺他要什么 / 缺他让人付出什么。四槽都要够长，OR 两槽会把短句放行。"""
+    src = row if isinstance(row, dict) else {}
+    issues: list[str] = []
+    if not all(_duty_long_enough(str(src.get(k) or "")) for k in CHAR_WANT_KEYS):
+        issues.append("缺他要什么")
+    if not all(_duty_long_enough(str(src.get(k) or "")) for k in CHAR_PAY_KEYS):
+        issues.append("缺他让人付出什么")
+    return issues
+
+
 def duty_fields_ready(kind: str, row: Mapping[str, Any] | None) -> bool:
     src = row if isinstance(row, dict) else {}
     if kind == "character":
-        want = str(src.get("surface_goal") or src.get("deep_need") or "").strip()
-        pay = str(src.get("fear") or src.get("internal_conflict") or "").strip()
-        return bool(want and pay)
+        return not character_duty_issues(src)
     if kind == "item":
         return bool(str(src.get("description") or "").strip() or src.get("special_properties"))
     if kind == "world_rule":
@@ -731,7 +756,10 @@ def build_portrait_prompt(kind: str, row: Mapping[str, Any] | None, extra: str =
         name = str(row.get("name") or row.get("id") or "")
     who = name or "这个人"
     if kind == "character":
-        ask = f"写{who}在这本书里是谁。他要什么，他会让人付出什么。不要填表，不要 JSON。"
+        ask = (
+            f"写{who}在这本书里是谁。他要什么写两句，他会让人付出什么写两句。"
+            "不要填表，不要 JSON。不要写他怕什么。"
+        )
     elif kind == "item":
         ask = f"写{who}这件东西让谁变贵。不要填表，不要 JSON。"
     elif kind == "world_rule":
@@ -753,7 +781,10 @@ PORTRAIT_EXTRACT_TRIES = 4
 
 def build_portrait_extract_prompt(kind: str, portrait: str, *, missing: str = "") -> str:
     if kind == "character":
-        need = "他要什么：\n他让人付出什么："
+        need = (
+            "他要什么：\n他还要什么：\n"
+            "他让人付出什么：\n他还让人付出什么："
+        )
     elif kind == "item":
         need = "让谁变贵："
     elif kind == "world_rule":
@@ -778,12 +809,15 @@ def portrait_missing_hint(kind: str, working: Mapping[str, Any] | None, portrait
     src = working if isinstance(working, dict) else {}
     bits: list[str] = []
     if kind == "character":
-        want = str(src.get("surface_goal") or src.get("deep_need") or "").strip()
-        pay = str(src.get("fear") or src.get("internal_conflict") or "").strip()
-        if not want:
-            bits.append("缺「他要什么」。从短文里抄一句原话，不要改写。")
-        if not pay:
-            bits.append("缺「他让人付出什么」。从短文里抄一句原话，不要改写。")
+        labels = (
+            ("surface_goal", "他要什么"),
+            ("deep_need", "他还要什么"),
+            ("fear", "他让人付出什么"),
+            ("internal_conflict", "他还让人付出什么"),
+        )
+        for key, lab in labels:
+            if not _duty_long_enough(str(src.get(key) or "")):
+                bits.append(f"缺「{lab}」。从短文里抄一句原话，不要改写，不要写他怕什么。")
     elif kind == "item":
         if not str(src.get("description") or "").strip() and not src.get("special_properties"):
             bits.append("缺「让谁变贵」。从短文里抄一句原话，不要改写。")
@@ -910,18 +944,33 @@ def _labeled_line(text: str, *labels: str) -> str:
     return ""
 
 
+def _split_unlabeled_parts(text: str, n: int) -> list[str]:
+    """无标签切 n 段：空行分段优先，否则按句号切。不够就空串，不许拿别段凑。"""
+    src = (text or "").strip()
+    empty = [""] * n
+    if not src or n <= 0:
+        return empty
+    paras = [p.strip() for p in re.split(r"\n\s*\n", src) if p.strip()]
+    if len(paras) >= n:
+        return paras[:n]
+    sents = [s.strip() for s in re.split(r"(?<=[。！？])", src) if s.strip()]
+    if len(sents) >= n:
+        return sents[:n]
+    return empty
+
+
 def _split_unlabeled_pair(text: str) -> tuple[str, str]:
     """无标签两段：空行分段优先，否则按句号切两句。"""
-    src = (text or "").strip()
-    if not src:
-        return "", ""
-    paras = [p.strip() for p in re.split(r"\n\s*\n", src) if p.strip()]
-    if len(paras) >= 2:
-        return paras[0], paras[1]
-    sents = [s.strip() for s in re.split(r"(?<=[。！？])", src) if s.strip()]
-    if len(sents) >= 2:
-        return sents[0], sents[1]
-    return "", ""
+    a, b = _split_unlabeled_parts(text, 2)[:2]
+    return a, b
+
+
+_CHAR_EXTRACT_SLOTS = (
+    ("surface_goal", ("他要什么", "表层目标")),
+    ("deep_need", ("他还要什么", "深层需求")),
+    ("fear", ("他让人付出什么",)),
+    ("internal_conflict", ("他还让人付出什么", "内在冲突")),
+)
 
 
 def _apply_portrait_extract(kind: str, working: dict, patch: dict, raw: str) -> dict[str, Any]:
@@ -929,18 +978,23 @@ def _apply_portrait_extract(kind: str, working: dict, patch: dict, raw: str) -> 
     src = dict(patch or {})
     text = raw or ""
     if kind == "character":
-        want = str(src.get("surface_goal") or src.get("deep_need") or "").strip()
-        pay = str(src.get("fear") or src.get("internal_conflict") or "").strip()
-        if not want:
-            want = _labeled_line(text, "他要什么", "表层目标", "深层需求")
-        if not pay:
-            pay = _labeled_line(text, "他让人付出什么", "恐惧", "内在冲突")
-        if not want and not pay:
-            want, pay = _split_unlabeled_pair(text)
-        if want:
-            out["surface_goal"] = want
-        if pay:
-            out["fear"] = pay
+        for key, labels in _CHAR_EXTRACT_SLOTS:
+            val = str(src.get(key) or "").strip()
+            if not val:
+                val = _labeled_line(text, *labels)
+            if val:
+                out[key] = val
+        if not any(str(out.get(k) or "").strip() for k, _ in _CHAR_EXTRACT_SLOTS):
+            parts = _split_unlabeled_parts(text, 4)
+            if all(parts):
+                for (key, _labels), part in zip(_CHAR_EXTRACT_SLOTS, parts):
+                    out[key] = part
+            else:
+                want, pay = _split_unlabeled_pair(text)
+                if want:
+                    out["surface_goal"] = want
+                if pay:
+                    out["fear"] = pay
         return out
     if kind == "item":
         desc = str(src.get("description") or "").strip()

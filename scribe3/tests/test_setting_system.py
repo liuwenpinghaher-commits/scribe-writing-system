@@ -96,7 +96,13 @@ class TestSettingCompleteness:
         store.add_faction("公会", ideology="互助")
         store.add_fact(Fact("fact:s9", "role:全0", "获知", "秘密", valid_from=1, secret=True))
         for i in range(40):
-            traits = {} if i < 8 else {"surface_goal": f"要{i}", "fear": f"怕{i}"}
+            fat = (
+                "要在这本书里办成一件能查证的事，不能只剩五个字。"
+                f"编号{i:02d}还要再写清他让人付出什么。"
+            )
+            traits = {} if i < 8 else {
+                "surface_goal": fat, "deep_need": fat, "fear": fat, "internal_conflict": fat,
+            }
             store.add_entity(Entity(f"role:全{i}", "character", f"全{i}", traits=traits))
 
         result = store.setting_completeness()

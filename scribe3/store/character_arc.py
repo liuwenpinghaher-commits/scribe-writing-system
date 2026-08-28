@@ -103,13 +103,11 @@ class CharacterArcMixin:
         places = self._query("SELECT * FROM place")
         facts = self.facts_at(99999)
 
+        from scribe3.codex_generate import character_duty_issues
+
         char_issues = []
         for c in chars:
-            issues = []
-            if not (c.traits.get("surface_goal") or c.traits.get("deep_need")):
-                issues.append("缺他要什么")
-            if not (c.traits.get("internal_conflict") or c.traits.get("fear")):
-                issues.append("缺他让人付出什么")
+            issues = character_duty_issues(c.traits or {})
             if issues:
                 char_issues.append({"name": c.name, "issues": issues})
 
