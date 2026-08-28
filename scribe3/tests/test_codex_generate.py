@@ -273,8 +273,8 @@ def test_portrait_extract_retries_four_times():
 def test_extract_unlabeled_two_paragraphs():
     """缺陷一：无「他要什么」标签、两段原文也能抽出字段。"""
     raw = (
-        "她要把柳母余温写进价单，让亲情可抵成为入口。\n\n"
-        "她让人付出抵押条款，价单交给温税吏。"
+        "她要把柳母余温写进价单，让亲情可抵成为下一季还能卖的入口条款。\n\n"
+        "她让人付出抵押条款，价单交给温税吏收走还能再活的一年余温。"
     )
     got = _apply_portrait_extract("character", {}, {}, raw)
     assert "余温" in got["surface_goal"]
@@ -282,9 +282,12 @@ def test_extract_unlabeled_two_paragraphs():
 
 
 def test_extract_unlabeled_two_sentences():
-    raw = "她要把余温金融化。她让人付亲情和抵押条款。"
+    raw = (
+        "她要把柳母余温做成下一季还能卖出去的金融账本条目。"
+        "她让人付亲情、抵押条款以及还能再活下去的一年余温。"
+    )
     got = _apply_portrait_extract("character", {}, {}, raw)
-    assert "余温金融化" in got["surface_goal"]
+    assert "余温" in got["surface_goal"]
     assert "亲情" in got["fear"]
 
 
@@ -298,6 +301,20 @@ def test_duty_fields_ready_rejects_five_char_goal():
     }
     assert duty_fields_ready("character", thin) is False
     assert "缺他要什么" in character_duty_issues(thin)
+    assert DUTY_FIELD_MIN == 25
+
+
+def test_extract_rejects_five_char_labeled_goal():
+    """折光贩子铁证：短文有「他要体温。」，原样抄进槽会被 25 字下限拦住。"""
+    raw = (
+        "他要什么：他要体温。\n"
+        "他还要什么：他要人相信不被看见是一笔可以折成体温的账，不是天赋。\n"
+        "他让人付出什么：他会让人付出体温、余额和七息之后被重新锁定的风险。\n"
+        "他还让人付出什么：他还会让人付出选择，自由按体温计价、保护按七息到期。"
+    )
+    got = _apply_portrait_extract("character", {}, {}, raw)
+    assert not str(got.get("surface_goal") or "").startswith("他要体温")
+    assert "折成体温" in got["deep_need"]
     assert DUTY_FIELD_MIN == 25
 
 

@@ -275,6 +275,12 @@ SEED_HEADLINERS = frozenset({
 })
 HEADLINER_REPEAT_MAX = 1
 OTHER_REPEAT_MAX = 2
+#: 被点名写厚的实体，本卷新增故事命题下限。改前点名只换来提一句，每人 0–2 条。
+THICKEN_FACTS_MIN = 3
+#: 每一批新增故事命题里，落在当前前 3 名的合计上限。
+#: 全书门槛仍是 20%，这里不改那个数。批内 1/4 是名额：现库前 3 占 40%，
+#: 因为主角情节不受 thickens 约束；1/4 逼 75% 落到长尾。再低会逼模型不写主角办事。
+HEADLINER_FACT_SHARE_MAX = 0.25
 
 
 def prior_thicken_counts(st, before_seq: int) -> dict[str, int]:
@@ -325,9 +331,81 @@ def pick_thickens(st, vol: dict, n: int) -> list[dict]:
     chosen = (thin + rest)[: max(0, int(n))]
     out = []
     for nfact, _, oid in chosen:
-        why = f"此刻 {nfact} 条命题" + ("，长尾" if nfact <= 2 else "")
+        why = (
+            f"这一卷必须给它一次处境、一次冲突、一笔账，"
+            f"本卷至少立 {THICKEN_FACTS_MIN} 条新命题"
+            f"（此刻 {nfact} 条" + ("，长尾" if nfact <= 2 else "") + "）"
+        )
         out.append({"oid": oid, "why": why})
     return out
+
+
+def current_top3(st, before: int) -> list[str]:
+    """这一批开始前故事命题最多的 3 个实体。"""
+    from scribe3.setting_depth import thickness_distribution
+
+    facts = list(st.facts_at(max(0, int(before))) or []) if before >= 0 else []
+    return [oid for oid, _n in thickness_distribution(facts)["top3"]]
+
+
+def story_facts_in_range(st, lo: int, hi: int) -> list:
+    from scribe3.charter import STORY_PREFIXES
+
+    facts = list(st.facts_at(hi) or [])
+    out = []
+    for f in facts:
+        eid = str(getattr(f, "entity_id", "") or "")
+        ch = int(getattr(f, "valid_from", 0) or 0)
+        if eid.startswith(STORY_PREFIXES) and lo <= ch <= hi:
+            out.append(f)
+    return out
+
+
+def thicken_added(st, oids: list[str], lo: int, hi: int) -> dict[str, int]:
+    from collections import Counter
+
+    want = {o for o in oids if o}
+    c: Counter[str] = Counter()
+    for f in story_facts_in_range(st, lo, hi):
+        eid = str(getattr(f, "entity_id", "") or "")
+        if eid in want:
+            c[eid] += 1
+    return {oid: int(c.get(oid) or 0) for oid in oids}
+
+
+def thicken_deficit(st, oids: list[str], lo: int, hi: int,
+                    need: int = THICKEN_FACTS_MIN) -> dict[str, int]:
+    added = thicken_added(st, oids, lo, hi)
+    return {oid: need - n for oid, n in added.items() if n < need}
+
+
+def batch_top3_share(st, lo: int, hi: int, top3: list[str]) -> tuple[float, int, int]:
+    facts = story_facts_in_range(st, lo, hi)
+    n_all = len(facts)
+    heads = set(top3 or ())
+    n_top = sum(1 for f in facts if str(getattr(f, "entity_id", "") or "") in heads)
+    share = (n_top / n_all) if n_all else 0.0
+    return share, n_top, n_all
+
+
+def assert_batch_depth(st, vol: dict, lo: int, hi: int, top3: list[str]) -> None:
+    """一批落库后核对写厚差额和前 3 名额。不过就抛，走批次失败那条重试。"""
+    from scribe3.charter import normalize_charter
+
+    c = normalize_charter((vol or {}).get("charter"))
+    rng = c["chapter_range"] or [lo, hi]
+    vol_lo, vol_hi = int(rng[0]), int(rng[1])
+    oids = [i["oid"] for i in c["thickens"] if i.get("oid")]
+    if hi >= vol_hi and oids:
+        deficit = thicken_deficit(st, oids, vol_lo, hi)
+        if deficit:
+            bits = "、".join(f"{oid}差{n}" for oid, n in deficit.items())
+            raise ValueError(f"写厚本卷不足 {THICKEN_FACTS_MIN} 条：{bits}")
+    share, n_top, n_all = batch_top3_share(st, lo, hi, top3)
+    if n_all and share > HEADLINER_FACT_SHARE_MAX:
+        raise ValueError(
+            f"本批前3名命题 {n_top}/{n_all}={share:.0%}，"
+            f"超过名额 {HEADLINER_FACT_SHARE_MAX:.0%}")
 
 
 def pick_holdovers(st, n: int) -> list[dict]:
@@ -408,10 +486,22 @@ def _charter_block(st, lo: int, hi: int) -> str:
             out.append(f"  - {i['oid']}")
         out.append("")
     if c["thickens"]:
-        out.append("**这一卷必须把下面这些已有实体写厚**（他要什么、他让人付出什么；"
-                   "引入完撂着不管，世界就是空的）：")
+        rng = c["chapter_range"] or [lo, hi]
+        added = thicken_added(st, [i["oid"] for i in c["thickens"]], int(rng[0]), lo - 1)
+        out.append(
+            f"**这一卷必须把下面这些已有实体写厚**（why 是这一卷它做什么，不是提一句；"
+            f"每个本卷至少立 {THICKEN_FACTS_MIN} 条新命题，点名提及不算交差）：")
         for i in c["thickens"]:
-            out.append(f"  - {i['oid']}：{i['why']}")
+            n = int(added.get(i["oid"]) or 0)
+            left = max(0, THICKEN_FACTS_MIN - n)
+            out.append(f"  - {i['oid']}：{i['why']}｜本卷已立 {n} 条，还欠 {left} 条")
+        out.append("")
+    top3 = current_top3(st, lo - 1)
+    if top3:
+        out.append(
+            f"**当前前 3 名实体**（{'、'.join(top3)}）。"
+            f"本批 `new_facts` 落在他们身上的合计不得超过 {HEADLINER_FACT_SHARE_MAX:.0%}，"
+            "其余必须落到长尾和上面的写厚名单。全书前 3 名门槛仍是 20%，这里不改那个数。")
         out.append("")
     holds = c.get("holdovers") or []
     if holds:
@@ -511,6 +601,8 @@ def build_prompt(st, vol_title: str, vol_intro: str, lo: int, hi: int,
 - 「后面几卷预留的实体」现在别用。实测卷 2 预留了兰因，铺卷 1 时第 13 章就把她用了，
   卷 2 新鲜度掉到 4.5。
 - `new_facts` 每章至少一条。这是这本书的账在长厚，没有新事实说明这章白写了。
+- **写厚名单里的每个实体，这一卷至少立 3 条新命题**，要有处境、冲突、账，不许只提一句。
+- **本批 `new_facts` 落在「当前前 3 名」上的合计不得超过 1/4**，其余必须落到长尾。
 - 新地点必须写从属：`attribute` 用「位于」，`value` 用上级的 `place:…`（例：`place:签押廊` 位于 `place:不署名门`）。不许靠名字前缀冒充同区。
 - `learns` 里的 `fact_index` 指向本章 `new_facts` 的下标。**谁不在场就不许知道**。
 - 上面「柳岸青此刻知道什么」里已经有的，不要重复立成新事实。
@@ -811,15 +903,29 @@ def expand_volume_accounts(st, vol: dict, *, llm_fn, total: int = 200,
     n_ch = 0
     stats = []
     for v, a, b in plan_batches(st, lo, hi, batch):
-        prompt = build_prompt(st, v.get("title") or "", v.get("intro") or "", a, b, total)
-        try:
-            raw = llm_fn(prompt, max_tokens=12288)
-        except TypeError:
-            raw = llm_fn(prompt)
-        chapters = parse(raw)
-        persisted = persist(st, chapters, v.get("id"))
+        top3 = current_top3(st, a - 1)
+        last_err = None
+        persisted = {"facts": 0}
+        chapters: list[dict] = []
+        for attempt in (1, 2):
+            prompt = build_prompt(st, v.get("title") or "", v.get("intro") or "", a, b, total)
+            try:
+                raw = llm_fn(prompt, max_tokens=12288)
+            except TypeError:
+                raw = llm_fn(prompt)
+            try:
+                chapters = parse(raw)
+                persisted = persist(st, chapters, v.get("id"))
+                assert_batch_depth(st, v, a, b, top3)
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                print(f"  ✗ 第 {a}-{b} 章 {type(e).__name__}: {e}｜"
+                      f"{'重试' if attempt == 1 else '仍失败'}")
         n_ch += len(chapters)
-        stats.append({"lo": a, "hi": b, "persist": persisted})
+        stats.append({"lo": a, "hi": b, "persist": persisted,
+                      "error": str(last_err) if last_err else None})
     try:
         thick = thicken_named_entities(st, vol, llm_fn=llm_fn)
     except Exception as e:
@@ -836,6 +942,7 @@ def run_batch(st, vol: dict, lo: int, hi: int, total: int, *,
     from scribe3.llm import hermes_complete
 
     vol_title = vol.get("title") or "未命名卷"
+    top3 = current_top3(st, lo - 1)
     prompt = build_prompt(st, vol_title, vol.get("intro") or "", lo, hi, total)
     print(f"卷《{vol_title}》 第 {lo}-{hi} 章｜提示词 {len(prompt)} 字")
 
@@ -862,6 +969,7 @@ def run_batch(st, vol: dict, lo: int, hi: int, total: int, *,
         print("  （dry-run，没落库）")
         return
     print("  落库：", persist(st, chapters, vol.get("id")))
+    assert_batch_depth(st, vol, lo, hi, top3)
     from scribe3.charter import freshness
     fr = freshness(st, lo, hi)
     print(f"  本批新鲜度 {fr['new_entities_per_10ch']:.1f}／10章　"

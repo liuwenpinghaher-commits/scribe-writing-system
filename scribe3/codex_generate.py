@@ -783,7 +783,9 @@ def build_portrait_extract_prompt(kind: str, portrait: str, *, missing: str = ""
     if kind == "character":
         need = (
             "他要什么：\n他还要什么：\n"
-            "他让人付出什么：\n他还让人付出什么："
+            "他让人付出什么：\n他还让人付出什么：\n"
+            f"四行都要，每行至少 {DUTY_FIELD_MIN} 个字。"
+            "不要抄「他要体温。」这种短句；短文里还有更长的原句就抄长的。"
         )
     elif kind == "item":
         need = "让谁变贵："
@@ -973,28 +975,40 @@ _CHAR_EXTRACT_SLOTS = (
 )
 
 
+def _accept_extract_val(val: str) -> str:
+    """抽出的字短于下限就当没抽到。改前原样收下「他要体温。」，四槽看似有值、duty 仍失败。"""
+    text = str(val or "").strip()
+    return text if _duty_long_enough(text) else ""
+
+
 def _apply_portrait_extract(kind: str, working: dict, patch: dict, raw: str) -> dict[str, Any]:
     out = dict(working or {})
     src = dict(patch or {})
     text = raw or ""
     if kind == "character":
         for key, labels in _CHAR_EXTRACT_SLOTS:
-            val = str(src.get(key) or "").strip()
+            val = _accept_extract_val(src.get(key) or "")
             if not val:
-                val = _labeled_line(text, *labels)
+                val = _accept_extract_val(_labeled_line(text, *labels))
             if val:
                 out[key] = val
-        if not any(str(out.get(k) or "").strip() for k, _ in _CHAR_EXTRACT_SLOTS):
+        missing = [k for k, _ in _CHAR_EXTRACT_SLOTS
+                   if not _duty_long_enough(str(out.get(k) or ""))]
+        if missing:
             parts = _split_unlabeled_parts(text, 4)
             if all(parts):
                 for (key, _labels), part in zip(_CHAR_EXTRACT_SLOTS, parts):
-                    out[key] = part
-            else:
+                    if not _duty_long_enough(str(out.get(key) or "")):
+                        part = _accept_extract_val(part)
+                        if part:
+                            out[key] = part
+            elif not any(_duty_long_enough(str(out.get(k) or ""))
+                         for k, _ in _CHAR_EXTRACT_SLOTS):
                 want, pay = _split_unlabeled_pair(text)
-                if want:
-                    out["surface_goal"] = want
-                if pay:
-                    out["fear"] = pay
+                if _accept_extract_val(want):
+                    out["surface_goal"] = want.strip()
+                if _accept_extract_val(pay):
+                    out["fear"] = pay.strip()
         return out
     if kind == "item":
         desc = str(src.get("description") or "").strip()

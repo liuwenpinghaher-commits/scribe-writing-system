@@ -680,3 +680,109 @@ def test_persist_reports_chapter_with_zero_facts(capsys):
     assert "第77章零命题落库" in log
     assert "第79章零命题落库" in log
     assert "第78章零命题落库" not in log
+
+
+def test_thicken_deficit_counts_this_volume_facts():
+    from scribe3.ontology import Fact
+    from scribe3.tools.expand_wanjie_chapters import (
+        THICKEN_FACTS_MIN, assert_batch_depth, thicken_deficit,
+    )
+
+    facts = [
+        Fact("fact:a1", "role:验温嫂", "拒册", "一", 81, None, False, []),
+        Fact("fact:a2", "role:验温嫂", "验名", "二", 82, None, False, []),
+        Fact("fact:old", "role:验温嫂", "旧", "前卷", 12, None, False, []),
+    ]
+
+    class St:
+        def facts_at(self, ch):
+            return [f for f in facts if f.valid_from <= ch]
+
+    d = thicken_deficit(St(), ["role:验温嫂", "place:无名井"], 81, 100)
+    assert d["role:验温嫂"] == THICKEN_FACTS_MIN - 2
+    assert d["place:无名井"] == THICKEN_FACTS_MIN
+
+    vol = {"charter": {"chapter_range": [81, 100],
+                       "thickens": [{"oid": "role:验温嫂", "why": "验"}]}}
+    try:
+        assert_batch_depth(St(), vol, 91, 100, [])
+        raise AssertionError("差额必须抛")
+    except ValueError as e:
+        assert "验温嫂" in str(e)
+
+
+def test_batch_top3_share_caps_headliners():
+    from scribe3.ontology import Fact
+    from scribe3.tools.expand_wanjie_chapters import (
+        HEADLINER_FACT_SHARE_MAX, assert_batch_depth, batch_top3_share,
+    )
+
+    facts = [Fact(f"fact:{i}", "role:柳岸青", f"a{i}", "事", 81, None, False, [])
+             for i in range(8)]
+    facts.append(Fact("fact:t", "role:验温嫂", "验", "事", 81, None, False, []))
+
+    class St:
+        def facts_at(self, ch):
+            return list(facts)
+
+    share, n_top, n_all = batch_top3_share(St(), 81, 90, ["role:柳岸青"])
+    assert n_top == 8 and n_all == 9
+    assert share > HEADLINER_FACT_SHARE_MAX
+    vol = {"charter": {"chapter_range": [81, 100], "thickens": []}}
+    try:
+        assert_batch_depth(St(), vol, 81, 90, ["role:柳岸青"])
+        raise AssertionError("超名额必须抛")
+    except ValueError as e:
+        assert "前3名" in str(e)
+    assert HEADLINER_FACT_SHARE_MAX == 0.25
+
+
+def test_chapter_prompt_names_thicken_quota_and_top3_cap():
+    from scribe3.ontology import Fact
+    from scribe3.tools.expand_wanjie_chapters import build_prompt
+
+    class St:
+        def get_intent(self):
+            return {"north_star": "星", "red_lines": "线"}
+
+        def list_volumes(self):
+            return [{"id": "v5", "title": "卷五", "intro": "办",
+                     "charter": {"duty": "办", "chapter_range": [81, 100],
+                                 "introduces": [{"oid": "role:甲", "why": "要"}],
+                                 "thickens": [{"oid": "role:验温嫂",
+                                               "why": "这一卷她必须当场验出污染读数"}],
+                                 "pays": [], "knowledge_end": {
+                                     "must_know": [], "must_not_know": []}}}]
+
+        def chapters_lite(self):
+            return []
+
+        def list_promises(self):
+            return []
+
+        def facts_at(self, *_a, **_k):
+            return [Fact("fact:h", "role:柳岸青", "a", "厚", 1, None, False, [])]
+
+        def characters(self):
+            return []
+
+        def list_world_rules(self):
+            return []
+
+        def list_factions(self):
+            return []
+
+        def list_items(self):
+            return []
+
+        def list_terms(self):
+            return []
+
+        def list_motifs(self):
+            return []
+
+    p = build_prompt(St(), "卷五", "办", 81, 90, 200)
+    assert "至少立 3 条" in p or "至少 3 条" in p
+    assert "验温嫂" in p and "污染读数" in p
+    assert "1/4" in p or "25%" in p
+    assert "role:柳岸青" in p

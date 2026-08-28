@@ -235,6 +235,11 @@ def validate_charter(charter: dict, *, strict: bool = True) -> list[str]:
         problems.append(
             f"这一卷只点名写厚 {len(c['thickens'])} 个已有实体，少于 {need_th} 个。"
             "引入即算数、引入完撂着不管照样满分——世界会饿死。")
+    no_job = [i["oid"] for i in c["thickens"] if not str(i.get("why") or "").strip()]
+    if no_job:
+        problems.append(
+            "这些写厚实体没写这一卷它做什么（要一句话：处境/冲突/账，不是光一个 oid）："
+            + "、".join(no_job))
     for slot in ("must_know", "must_not_know"):
         nokey = [e["what"] for e in c["knowledge_end"][slot] if not e["key"]]
         if nokey:
@@ -664,7 +669,7 @@ def build_charter_prompt(store, n_volumes: int, total: int, *,
       ],
       "thickens": [
         {{"oid": "role:已有人名 / org:已有组织，必须是上面『已经用过的实体』里的",
-          "why": "这一卷为什么非要把他写厚"}}
+          "why": "这一卷它做什么：一次处境、一次冲突、一笔账，一句话写死"}}
       ],
       "pays": ["这一卷要收掉的、前面卷埋下的线，一句话说清收的是什么"],
       "knowledge_end": {{
@@ -693,6 +698,8 @@ def build_charter_prompt(store, n_volumes: int, total: int, *,
 - 每卷 `thickens` **至少 {need} 个已有实体**。数量和引入同源。只引入不写厚，世界是空的——
   实测 79% 角色缺「他要什么」，天龙座/地球/月球各 1 条命题。点名的必须是已经用过的，
   不许拿本卷刚引入的充数。
+  **`why` 必须写这一卷它做什么**（一次处境、一次冲突、一笔账），不许只给 oid。
+  实测点名换来的是提一句，每人只加 0–2 条，≤4 卡在 77%。
 - 每卷 `pays` 至少一条，收的必须是前面卷埋下的线。第一卷可以收种子里立的。
   核对时数的是「这一卷收掉了几条本卷之前埋的线」，所以别把本卷刚埋的算进来。
 - `knowledge_end` 两栏都要有，会被拿去和限知帧逐条对，写不实会被查出来。

@@ -79,7 +79,11 @@ def _charter(**kw):
     # 6 章短卷：目标 3 + 余量 1 = 4。地板必须高于新鲜度目标。
     base = {"duty": "办这件",
             "introduces": ["role:甲", "role:乙", "org:丙", "place:渡口"],
-            "thickens": ["role:老人", "place:旧镇", "org:旧会"],
+            "thickens": [
+                {"oid": "role:老人", "why": "这一卷他被旧账堵住，必须当场付温。"},
+                {"oid": "place:旧镇", "why": "这一卷旧镇把过路人记成无名条目。"},
+                {"oid": "org:旧会", "why": "这一卷旧会用投票逼人交掌心温度。"},
+            ],
             "pays": ["旧线"], "chapter_range": [1, 6],
             "knowledge_end": {
                 "must_know": [{"key": "甲身份", "what": "知道甲是谁"}],
@@ -114,7 +118,9 @@ def test_required_introduces_scales_with_volume_length():
     assert any("少于" in p and "新实体" in p for p in validate_charter(twenty))
 
     twenty["introduces"] = [f"role:人{i}" for i in range(required_introduces(20))]
-    twenty["thickens"] = [f"role:旧{i}" for i in range(required_introduces(20))]
+    twenty["thickens"] = [
+        {"oid": f"role:旧{i}", "why": "这一卷他必须当场付一笔账"}
+        for i in range(required_introduces(20))]
     assert validate_charter(twenty) == []
 
 
@@ -143,7 +149,9 @@ def test_generate_retries_with_the_problems_in_hand():
     good = json.dumps({"volumes": [dict(_charter(chapter_range=[1, 10]), sort_order=1,
                                         title="卷一",
                                         introduces=[f"role:人{i}" for i in range(need)],
-                                        thickens=[f"role:旧{i}" for i in range(need)])]},
+                                        thickens=[{"oid": f"role:旧{i}",
+                                                   "why": "这一卷他必须当场付一笔账"}
+                                                  for i in range(need)])]},
                       ensure_ascii=False)
     seen: list[str] = []
 
@@ -245,10 +253,12 @@ def test_validate_charters_reject_oid_reserved_twice():
 
     v1 = dict(_charter(chapter_range=[1, 20]), sort_order=1, title="卷一",
               introduces=[f"role:人{i}" for i in range(11)] + ["role:兰因"],
-              thickens=[f"role:旧{i}" for i in range(11)])
+              thickens=[{"oid": f"role:旧{i}", "why": "这一卷他必须当场付一笔账"}
+                        for i in range(11)])
     v2 = dict(_charter(chapter_range=[21, 40]), sort_order=2, title="卷二",
               introduces=[f"role:后{i}" for i in range(11)] + ["role:兰因"],
-              thickens=[f"role:老{i}" for i in range(11)])
+              thickens=[{"oid": f"role:老{i}", "why": "这一卷他必须当场付一笔账"}
+                        for i in range(11)])
     problems = validate_charters([v1, v2])
     assert any("兰因" in p and "重名" in p for p in problems)
 
@@ -667,6 +677,12 @@ def test_rolling_charter_prompt_sees_prior_volume_output():
     assert "从第 2 卷" in p or "第2卷" in p or "sort_order\"： 2" in p or "只立后面" in p
 
 
+def test_validate_thickens_requires_this_volume_job():
+    """写厚不能只给 oid。点名提一句就是 ≤4 卡在 77% 的根。"""
+    c = _charter(thickens=[{"oid": "role:老人"}, {"oid": "place:旧镇"}, {"oid": "org:旧会"}])
+    assert any("做什么" in p for p in validate_charter(c))
+
+
 def test_required_thickens_is_the_same_floor_as_introduces():
     """写厚数量必须和引入同源。契约是地板，没要的一点不给。"""
     from scribe3.charter import required_introduces, required_thickens
@@ -679,7 +695,9 @@ def test_required_thickens_is_the_same_floor_as_introduces():
     twenty["introduces"] = [f"role:人{i}" for i in range(required_introduces(20))]
     assert any("写厚" in p or "thickens" in p for p in validate_charter(twenty))
 
-    twenty["thickens"] = [f"role:旧{i}" for i in range(required_thickens(20))]
+    twenty["thickens"] = [
+        {"oid": f"role:旧{i}", "why": "这一卷他必须当场付一笔账"}
+        for i in range(required_thickens(20))]
     assert validate_charter(twenty) == []
 
 
