@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 from scribe3.codex_generate import (
+    PORTRAIT_FACT_CAP,
+    _bible_for,
     apply_codex_persist_fields,
     build_codex_prompt,
+    facts_for_portrait,
     first_codex_slot,
     list_codex_thicken_targets,
     load_codex_row,
@@ -78,6 +81,109 @@ def test_thicken_character_portrait_then_extract():
     fields = out.get("public_fields") or {}
     assert "按回" in str(fields.get("surface_goal") or "")
     assert fields.get("fear")
+
+
+class _FactRow:
+    def __init__(self, entity_id, attribute, value, valid_from, id=""):
+        self.entity_id = entity_id
+        self.attribute = attribute
+        self.value = value
+        self.valid_from = valid_from
+        self.id = id or f"fact:{attribute}"
+
+
+class _PortraitFactStore:
+    def __init__(self, facts):
+        self._facts = list(facts)
+        self.terms = []
+
+    def characters(self):
+        return []
+
+    def list_factions(self):
+        return []
+
+    def list_items(self):
+        return []
+
+    def list_world_rules(self):
+        return []
+
+    def list_motifs(self):
+        return []
+
+    def list_terms(self):
+        return list(self.terms)
+
+    def facts_unfolded_at(self, *_a, **_k):
+        return list(self._facts)
+
+    def facts_at(self, *_a, **_k):
+        return list(self._facts)
+
+    def entity_relations_at(self, *_a, **_k):
+        return []
+
+
+def test_portrait_bible_includes_own_facts_not_others():
+    """写厚圣经必须带这个人自己的命题，含 隐瞒·；别人的一条都不能进。"""
+    st = _PortraitFactStore([
+        _FactRow("role:温贩婆", "亲情价", "把柳母余温写进价单", 13),
+        _FactRow("role:温贩婆", "隐瞒·瞒抵押条款", "对role:柳母瞒：瞒抵押条款", 19),
+        _FactRow("role:柳岸青", "扣温", "不该出现在温贩婆圣经里", 11),
+    ])
+    got = facts_for_portrait(st, "character", {"name": "温贩婆"})
+    attrs = [f.attribute for f in got]
+    assert "亲情价" in attrs
+    assert "隐瞒·瞒抵押条款" in attrs
+    assert "扣温" not in attrs
+    bible = _bible_for(st, None, "character", {"name": "温贩婆"}, "", False)
+    assert "【这个实体在书里已经发生的事】" in bible
+    assert "把柳母余温写进价单" in bible
+    assert "瞒抵押条款" in bible
+    assert "不该出现在温贩婆圣经里" not in bible
+
+
+def test_portrait_bible_zero_facts_has_no_block():
+    """阳性对照：没有命题时不得假装有「已经发生的事」。"""
+    empty = _bible_for(
+        _PortraitFactStore([]), None, "character", {"name": "温贩婆"}, "", False)
+    assert "【这个实体在书里已经发生的事】" not in empty
+    filled = _bible_for(
+        _PortraitFactStore([
+            _FactRow("role:温贩婆", "亲情价", "把柳母余温写进价单", 13),
+        ]),
+        None, "character", {"name": "温贩婆"}, "", False)
+    assert "【这个实体在书里已经发生的事】" in filled
+    assert "把柳母余温写进价单" in filled
+
+
+def test_portrait_facts_cap_and_chapter_order():
+    facts = [
+        _FactRow("role:温贩婆", f"a{i:02d}", f"v{i}", 40 - i)
+        for i in range(20)
+    ]
+    got = facts_for_portrait(
+        _PortraitFactStore(facts), "character", {"name": "温贩婆"})
+    assert len(got) == PORTRAIT_FACT_CAP
+    chapters = [f.valid_from for f in got]
+    assert chapters == sorted(chapters)
+
+
+def test_thicken_prompt_sees_own_facts():
+    """短文提示必须看见这个人自己的命题。过不过闸是另一件事。"""
+    prompts: list[str] = []
+
+    def llm(prompt, max_tokens=4096):
+        prompts.append(prompt)
+        return "短"
+
+    st = _PortraitFactStore([
+        _FactRow("role:温贩婆", "亲情价", "把柳母余温写进价单", 13),
+    ])
+    thicken_codex("character", {"name": "温贩婆"}, llm_fn=llm, st=st)
+    assert prompts, "写厚至少要调一次模型"
+    assert any("把柳母余温写进价单" in p for p in prompts)
 
 
 def test_merge_codex_slot_keeps_other_fields():

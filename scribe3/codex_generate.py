@@ -597,6 +597,96 @@ def apply_codex_persist_fields(
     return fields
 
 
+PORTRAIT_FACT_CAP = 12
+_PORTRAIT_KINDS = frozenset({"character", "faction", "item", "term", "world_rule"})
+
+_KIND_PREFIX = {
+    "character": "role",
+    "faction": "org",
+    "item": "item",
+    "term": "term",
+    "world_rule": "rule",
+}
+
+
+def portrait_entity_oids(kind: str, row: Mapping[str, Any] | None) -> list[str]:
+    """这个实体在命题里可能出现的主语 id。"""
+    src = row if isinstance(row, dict) else {}
+    name = str(src.get("name") or "").strip()
+    raw_id = str(src.get("id") or src.get("oid") or "").strip()
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def _add(oid: str) -> None:
+        oid = (oid or "").strip()
+        if oid and oid not in seen:
+            seen.add(oid)
+            out.append(oid)
+
+    _add(raw_id)
+    prefix = _KIND_PREFIX.get((kind or "").strip().lower())
+    if prefix and name:
+        _add(f"{prefix}:{name}")
+    if name and ":" not in name:
+        _add(name)
+    return out
+
+
+def facts_for_portrait(
+    st,
+    kind: str,
+    row: Mapping[str, Any] | None,
+    *,
+    cap: int = PORTRAIT_FACT_CAP,
+) -> list:
+    """这个实体自己的命题，按章号排。含 隐瞒·。
+
+    写厚短文问的是「他要什么 / 他让人付出什么」。答案在命题里，不在设定名片上。
+    """
+    if st is None:
+        return []
+    oids = set(portrait_entity_oids(kind, row))
+    if not oids:
+        return []
+    reader = getattr(st, "facts_unfolded_at", None) or getattr(st, "facts_at", None)
+    if not callable(reader):
+        return []
+    try:
+        facts = list(reader(10**9) or [])
+    except TypeError:
+        facts = list(reader() or [])
+    except Exception:
+        logging.getLogger("scribe3.codex_generate").debug(
+            "facts_for_portrait failed", exc_info=True)
+        return []
+    hit = []
+    for f in facts:
+        eid = str(getattr(f, "entity_id", "") or "")
+        if eid in oids:
+            hit.append(f)
+    hit.sort(key=lambda f: (
+        int(getattr(f, "valid_from", 0) or 0),
+        str(getattr(f, "attribute", "") or ""),
+        str(getattr(f, "id", "") or ""),
+    ))
+    return hit[: max(0, int(cap))]
+
+
+def format_portrait_facts(facts) -> str:
+    lines = []
+    for f in facts or []:
+        ch = getattr(f, "valid_from", None)
+        attr = str(getattr(f, "attribute", "") or "").strip()
+        val = str(getattr(f, "value", "") or "").strip()
+        if not attr and not val:
+            continue
+        prefix = f"第{ch}章 " if ch not in (None, "") else ""
+        lines.append(f"- {prefix}{attr}：{val}")
+    if not lines:
+        return ""
+    return "【这个实体在书里已经发生的事】\n" + "\n".join(lines)
+
+
 def _bible_for(st, work, kind: str, row: dict, extra: str, include_secret: bool) -> str:
     if st is None:
         return ""
@@ -612,10 +702,10 @@ def _bible_for(st, work, kind: str, row: dict, extra: str, include_secret: bool)
         request_text=request, work=work,
         named_soft_cap=named_pack_soft_cap(work=work),
     )
-    return "\n".join(p for p in (named, cards) if p)
-
-
-_PORTRAIT_KINDS = frozenset({"character", "faction", "item", "term", "world_rule"})
+    own = ""
+    if (kind or "").strip().lower() in _PORTRAIT_KINDS:
+        own = format_portrait_facts(facts_for_portrait(st, kind, row))
+    return "\n".join(p for p in (named, cards, own) if p)
 
 
 def duty_fields_ready(kind: str, row: Mapping[str, Any] | None) -> bool:
