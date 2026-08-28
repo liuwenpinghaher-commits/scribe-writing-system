@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from scribe3.codex_generate import (
+    PORTRAIT_EXTRACT_TRIES,
     PORTRAIT_FACT_CAP,
     _bible_for,
     apply_codex_persist_fields,
@@ -13,6 +14,7 @@ from scribe3.codex_generate import (
     merge_codex_slot,
     parse_codex_payload,
     persist_codex_row,
+    portrait_stash_fields,
     thicken_codex,
     thicken_codex_batch,
 )
@@ -184,6 +186,80 @@ def test_thicken_prompt_sees_own_facts():
     thicken_codex("character", {"name": "温贩婆"}, llm_fn=llm, st=st)
     assert prompts, "写厚至少要调一次模型"
     assert any("把柳母余温写进价单" in p for p in prompts)
+
+
+_PORTRAIT = "温贩婆要把余温金融化。她让人付亲情和抵押条款。"
+_EXTRACT_OK = (
+    "他要什么：温贩婆要把余温金融化\n"
+    "他让人付出什么：她让人付亲情和抵押条款"
+)
+
+
+def test_portrait_extract_retries_then_ok():
+    """第一次抽取改写了短文，第二次照抄才过。非 portrait 那条路有 4 轮，这条也要有。"""
+    prompts: list[str] = []
+    n = {"i": 0}
+
+    def llm(prompt, max_tokens=4096):
+        prompts.append(prompt)
+        n["i"] += 1
+        if "不要填表" in prompt:
+            return _PORTRAIT
+        if n["i"] == 2:
+            return "他要什么：改写成别的\n他让人付出什么：也改写了"
+        return _EXTRACT_OK
+
+    out = thicken_codex("character", {"name": "温贩婆"}, llm_fn=llm)
+    assert out.get("ok"), out
+    assert n["i"] == 3
+    assert any("缺「他要什么」" in p or "缺「他让人付出什么」" in p for p in prompts[1:])
+    fields = out.get("public_fields") or {}
+    assert "余温金融化" in str(fields.get("surface_goal") or "")
+    assert "亲情" in str(fields.get("fear") or "")
+
+
+def test_portrait_extract_fail_stashes_short_text():
+    written: list[dict] = []
+
+    def llm(prompt, max_tokens=4096):
+        if "不要填表" in prompt:
+            return _PORTRAIT
+        return "短"
+
+    out = thicken_codex(
+        "character", {"name": "温贩婆"}, llm_fn=llm,
+        persist_fn=written.append,
+    )
+    assert out.get("ok") is False
+    assert out.get("code") == "llm_thin"
+    assert out.get("portrait_stashed") is True
+    assert written and written[0].get("personality_detail") == _PORTRAIT
+    assert out.get("stash_fields", {}).get("personality_detail") == _PORTRAIT
+
+
+def test_portrait_extract_retries_four_times():
+    n = {"extract": 0}
+
+    def llm(prompt, max_tokens=4096):
+        if "不要填表" in prompt:
+            return _PORTRAIT
+        n["extract"] += 1
+        return "短"
+
+    thicken_codex("character", {"name": "温贩婆"}, llm_fn=llm)
+    assert n["extract"] == PORTRAIT_EXTRACT_TRIES
+
+
+def test_portrait_stash_skips_empty_and_keeps_existing():
+    assert portrait_stash_fields("character", {"name": "温贩婆"}, "") == {}
+    assert portrait_stash_fields(
+        "character", {"name": "温贩婆", "personality_detail": "已有"}, _PORTRAIT,
+    ) == {}
+    filled = portrait_stash_fields("character", {"name": "温贩婆"}, _PORTRAIT)
+    assert filled.get("personality_detail") == _PORTRAIT
+    empty = portrait_stash_fields("character", {"name": "温贩婆"}, "")
+    assert empty == {}
+    assert filled != empty
 
 
 def test_merge_codex_slot_keeps_other_fields():

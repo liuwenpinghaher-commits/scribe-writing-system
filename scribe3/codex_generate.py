@@ -748,7 +748,10 @@ def build_portrait_prompt(kind: str, row: Mapping[str, Any] | None, extra: str =
     return "\n\n".join(bits)
 
 
-def build_portrait_extract_prompt(kind: str, portrait: str) -> str:
+PORTRAIT_EXTRACT_TRIES = 4
+
+
+def build_portrait_extract_prompt(kind: str, portrait: str, *, missing: str = "") -> str:
     if kind == "character":
         need = "他要什么：\n他让人付出什么："
     elif kind == "item":
@@ -759,12 +762,63 @@ def build_portrait_extract_prompt(kind: str, portrait: str) -> str:
         need = "是什么：\n不是什么：\n本书用法：\n边界："
     else:
         need = "他们要主角付出什么："
-    return (
-        "下面这篇短文已经过审。只从这篇里抽出这几行，不要另编。\n"
-        f"{need}\n"
-        "【短文】\n" + (portrait or "").strip() + "\n"
-        "只输出从短文里抄出来的行。"
-    )
+    bits = [
+        "下面这篇短文已经过审。只从这篇里抽出这几行，不要另编。",
+        need,
+        "【短文】\n" + (portrait or "").strip(),
+        "只输出从短文里抄出来的行。抽出的字必须是短文里连续出现的原句。",
+    ]
+    if (missing or "").strip():
+        bits.append("【缺的就是这几条，只补它们】\n" + missing.strip())
+    return "\n\n".join(bits)
+
+
+def portrait_missing_hint(kind: str, working: Mapping[str, Any] | None, portrait: str) -> str:
+    """抽取重试时把缺哪条直接点给模型。"""
+    src = working if isinstance(working, dict) else {}
+    bits: list[str] = []
+    if kind == "character":
+        want = str(src.get("surface_goal") or src.get("deep_need") or "").strip()
+        pay = str(src.get("fear") or src.get("internal_conflict") or "").strip()
+        if not want:
+            bits.append("缺「他要什么」。从短文里抄一句原话，不要改写。")
+        if not pay:
+            bits.append("缺「他让人付出什么」。从短文里抄一句原话，不要改写。")
+    elif kind == "item":
+        if not str(src.get("description") or "").strip() and not src.get("special_properties"):
+            bits.append("缺「让谁变贵」。从短文里抄一句原话，不要改写。")
+    elif kind == "world_rule":
+        if not str(src.get("cost") or "").strip():
+            bits.append("缺「谁打破谁付钱」。从短文里抄一句原话，不要改写。")
+    elif kind == "term":
+        if not str(src.get("definition") or "").strip():
+            bits.append("缺这个词怎么收账。从短文里抄，不要改写。")
+    elif kind == "faction":
+        if not str(src.get("ideology") or "").strip() and not src.get("goals"):
+            bits.append("缺「他们要主角付出什么」。从短文里抄一句原话，不要改写。")
+    if duty_fields_ready(kind, src) and not portrait_grounded(kind, src, portrait):
+        bits.append("抽出的字必须是短文里连续出现的原句，不要改写、不要把两句拼成一句。")
+    return "\n".join(bits)
+
+
+def portrait_stash_fields(kind: str, src: Mapping[str, Any] | None, portrait: str) -> dict[str, Any]:
+    """抽取最终失败时把短文留下来。已有正文的字段不覆盖。"""
+    text = str(portrait or "").strip()
+    if not text:
+        return {}
+    key = {
+        "character": "personality_detail",
+        "faction": "ideology",
+        "item": "description",
+        "world_rule": "cost",
+        "term": "definition",
+    }.get((kind or "").strip().lower())
+    if not key:
+        return {}
+    row = src if isinstance(src, dict) else {}
+    if str(row.get(key) or "").strip():
+        return {}
+    return {key: text}
 
 
 def _duty_blob(kind: str, fields: Mapping[str, Any] | None) -> str:
@@ -859,17 +913,28 @@ def thicken_codex_portrait(
     portrait = _call_llm(llm_fn, build_portrait_prompt(kind, src, extra=extra, bible=bible), MAX_TOKENS[kind])
     first = parse_codex_payload(kind, portrait)
     working = dict(first)
-    if duty_fields_ready(kind, working) and portrait_grounded(kind, working, portrait):
-        pass
-    else:
-        ext = _call_llm(llm_fn, build_portrait_extract_prompt(kind, portrait), 1024)
-        patch = parse_codex_payload(kind, ext)
-        working = _apply_portrait_extract(kind, working, patch, ext)
+    if not (duty_fields_ready(kind, working) and portrait_grounded(kind, working, portrait)):
+        for _rnd in range(PORTRAIT_EXTRACT_TRIES):
+            if duty_fields_ready(kind, working) and portrait_grounded(kind, working, portrait):
+                break
+            hint = portrait_missing_hint(kind, working, portrait)
+            ext = _call_llm(
+                llm_fn,
+                build_portrait_extract_prompt(kind, portrait, missing=hint),
+                1024,
+            )
+            patch = parse_codex_payload(kind, ext)
+            working = _apply_portrait_extract(kind, working, patch, ext)
         if not duty_fields_ready(kind, working) or not portrait_grounded(kind, working, portrait):
+            stash = portrait_stash_fields(kind, src, portrait)
+            if persist_fn and stash:
+                persist_fn(stash)
             return {
                 "ok": False, "code": "llm_thin", "kind": kind, "name": src.get("name"),
                 "message": "短文过了，他要什么 / 他让人付出什么还没从这篇里抽出",
                 "portrait": portrait[:800],
+                "portrait_stashed": bool(stash),
+                "stash_fields": stash,
             }
     public, secret, only = _split_bags(kind, working)
     out_fields = dict(public)
@@ -1167,6 +1232,10 @@ def thicken_codex_batch(
                 "codex_batch work=%s kind=%s name=%s cn=%s source=codex_batch written=%s",
                 work, tgt["kind"], tgt["name"], row["cn"], written,
             )
+        elif persist and out.get("stash_fields"):
+            written = persist_codex_row(st, tgt["kind"], tgt["name"], out["stash_fields"])
+            row["persist"] = "stashed" if written else "write_failed"
+            row["portrait_stashed"] = bool(written)
         elif not persist:
             row["persist"] = "preview"
             row["public_fields"] = out.get("public_fields") or {}
