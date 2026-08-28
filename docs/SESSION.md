@@ -531,6 +531,18 @@ CLI 和 MCP `s3_plan_volumes` 共用 `generate_charters`。
 
 **下一件**：Surreal 起来后续铺 `wanjie_v2` 21–200，再跑同一条 `verify_scale`。不要为过线调低阈值。
 
+### StoryScope 判据再修一层（2026-08-28）
+
+假闸修完之后，口径里还剩两处会把数算错。闸已经能红，但数不对等于下一轮对照表废。
+
+**悬置 `still_open`：** 写成了 `status == open or payoff_chapter is None`。库里收线是 `closed`、弃置是 `abandoned`，这两类经常没有收章。旧写法会把已关/已弃当成跨卷未收。现库 18 条未收全是真 `open`，对照数字碰巧对；新库或弃置线一多就会虚高。改成只认 `status == open`。没有收章的 closed/abandoned 不算长弧。
+
+**障碍比例分母：** `obstacle_ratio` 用全部规则做分母。没代价的被引用只是装饰，不能把分母拉大。现库 6 条都有代价所以 5/6 碰巧一样；有一条空规矩就会从 83% 变成更小的数。分母改成 `with_cost`。仍只报不拦——StoryScope 11.1% 搬不成书内触发率。
+
+**顺手：** 卷 1 没有更早的章，`pays_expected` 按契约条数要跨卷收线是先天不可过，不是书没收。`lo <= 1` 时预期改为 0。这会拿掉对照库「跨卷收线卷1」那条假红；卷 2 仍可能真红。
+
+**测：** 指定五文件 **122 passed**（新判据阳性对照补齐：厚度前 3、终卷前无悬置、长弧、空间闸 0→1）。`verify_scale --db wanjie_scale` 仍 Connection refused，按底线不重启本机 Surreal，红项数仍以上次 11 为准，等库起来再复跑。不许为凑 12 红给障碍设假门。
+
 ### craft4 · 第二次修正：尺子方向翻正（2026-08-27 深夜）
 
 作者读人写对照稿 [`V4-3b-乡土-人写.md`](./craft-samples/V4-3b-乡土-人写.md) 后确认「方向对了」，据此重做 B 步的闸。详见 [`craft-v4.md`](./plans/2026-08-27-craft-v4.md#第二次修正--尺子方向是反的)。

@@ -69,9 +69,9 @@ def test_obstacle_needs_cost_and_a_fact_that_cites_the_rule():
     assert o["with_cost"] == 2
     assert o["triggered"] == 1
     assert o["triggered_ratio"] == 1 / 3
-    # 障碍 = 有代价且被引用。没代价的引用只是装饰。
+    # 障碍 = 有代价且被引用。没代价的引用只是装饰，分母是有代价的规则。
     assert o["costed_triggered"] == 1
-    assert o["obstacle_ratio"] == 1 / 3
+    assert o["obstacle_ratio"] == 1 / 2
 
 
 def test_obstacle_has_no_ratio_threshold():
@@ -91,6 +91,25 @@ def test_obstacle_matches_distinctive_part_of_long_rule_name():
     rules = [{"name": "拓扑锚定与场核", "cost": "反噬"}]
     facts = [_f("1", "role:柳岸青", "场核嗡鸣", "腕内倒计时随体温下降", 3)]
     assert obstacle_rate(rules, facts)["triggered"] == 1
+
+
+def test_obstacle_ratio_uses_costed_rules_as_denominator():
+    """没代价的规则不能把分母拉大。现库口径：6 条有代价、5 条被引用 → 5/6，不是 5/全部。"""
+    rules = [
+        {"name": "光子投票", "cost": "扣体温"},
+        {"name": "场核", "cost": "反噬"},
+        {"name": "空规矩", "cost": ""},
+        {"name": ""},
+    ]
+    facts = [
+        _f("1", "role:甲", "投票", "光子投票盖过反对票", 3),
+        _f("2", "role:乙", "场核嗡鸣", "腕内倒计时", 4),
+    ]
+    o = obstacle_rate(rules, facts)
+    assert o["n_rules"] == 3
+    assert o["with_cost"] == 2
+    assert o["costed_triggered"] == 2
+    assert o["obstacle_ratio"] == 1.0
 
 
 def test_suspense_is_open_lines_that_crossed_a_volume():
@@ -161,6 +180,21 @@ def test_suspense_per_volume_gate_fails_if_early_volumes_are_cleared():
     assert s["barren_volumes"] == ["11-20"]
 
 
+def test_closed_or_abandoned_without_payoff_chapter_is_not_hanging():
+    """库里收线是 closed，弃置是 abandoned。没有 payoff_chapter 也不能当开口。"""
+    bounds = [10, 20, 30]
+    promises = [
+        {"setup_chapter": 3, "payoff_chapter": None, "status": "closed"},
+        {"setup_chapter": 4, "payoff_chapter": None, "status": "abandoned"},
+        {"setup_chapter": 5, "payoff_chapter": 8, "status": "closed"},
+        {"setup_chapter": 12, "payoff_chapter": None, "status": "open"},
+    ]
+    s = suspense_rate(promises, volume_ends=bounds)
+    assert s["cross_open"] == 1
+    assert s["barren_volumes"] == ["1-10"]
+    assert s["long_span"] == 0
+
+
 def test_long_span_ratio_is_reported_not_a_gate_number():
     """跨 ≥3 卷只报。现库 9/256=4%，没有依据说多少才对，不设门。"""
     bounds = [10, 20, 30, 40]
@@ -201,6 +235,20 @@ def test_thickness_positive_control_zero_then_thin():
     assert t1["le4_ratio"] > LE4_RATIO_MAX
 
 
+def test_thickness_positive_control_top3_share():
+    """均厚时前 3 不过线。往一个实体再堆命题，前 3 占比必须从 ≤20% 越过线。"""
+    from scribe3.setting_depth import TOP3_SHARE_MAX
+
+    even = [_f(f"e{i}_{j}", f"role:人{i}", f"a{j}", "x", j) for i in range(16) for j in range(8)]
+    t0 = thickness_distribution(even)
+    assert t0["le2"] == 0 and t0["le4"] == 0
+    assert t0["top3_share"] <= TOP3_SHARE_MAX
+    piled = even + [_f(f"pile{k}", "role:人0", f"p{k}", "x", k) for k in range(20)]
+    t1 = thickness_distribution(piled)
+    assert t1["le2"] == t0["le2"] and t1["le4"] == t0["le4"]
+    assert t1["top3_share"] > TOP3_SHARE_MAX
+
+
 def test_spatial_positive_control_eight_singletons():
     """≥8 地点且一区一地点 ≥90% 才是铺不开。7 个全散不算，第 8 个才过线。"""
     seven = [f"城{i}" for i in range(7)]
@@ -235,3 +283,35 @@ def test_suspense_positive_control_zero_then_one():
         volume_ends=bounds)
     assert s1["cross_open"] == s0["cross_open"] + 1
     assert s1["barren_volumes"] == []
+
+
+def test_suspense_positive_control_barren_zero_then_one():
+    """终卷前两卷都挂着 → barren 空。把卷 1 那条收掉，无悬置必须 0→1。"""
+    bounds = [10, 20, 30]
+    hanging = [
+        {"setup_chapter": 3, "payoff_chapter": None, "status": "open"},
+        {"setup_chapter": 12, "payoff_chapter": None, "status": "open"},
+        {"setup_chapter": 25, "payoff_chapter": None, "status": "open"},
+    ]
+    s0 = suspense_rate(hanging, volume_ends=bounds)
+    assert s0["barren_volumes"] == []
+    paid_vol1 = [
+        {"setup_chapter": 3, "payoff_chapter": 8, "status": "closed"},
+        hanging[1], hanging[2],
+    ]
+    s1 = suspense_rate(paid_vol1, volume_ends=bounds)
+    assert s1["barren_volumes"] == ["1-10"]
+    s2 = suspense_rate(hanging, volume_ends=bounds)
+    assert s2["barren_volumes"] == []
+
+
+def test_long_span_positive_control_zero_then_one():
+    """只报不拦也要 0→1。同卷收是 0；再加一条跨 3 卷，长弧必须变成 1。"""
+    bounds = [10, 20, 30, 40]
+    short = [{"setup_chapter": 2, "payoff_chapter": 8, "status": "closed"}]
+    s0 = suspense_rate(short, volume_ends=bounds)
+    assert s0["long_span"] == 0
+    s1 = suspense_rate(
+        short + [{"setup_chapter": 2, "payoff_chapter": 35, "status": "closed"}],
+        volume_ends=bounds)
+    assert s1["long_span"] == s0["long_span"] + 1

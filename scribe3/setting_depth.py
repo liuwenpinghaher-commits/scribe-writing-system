@@ -91,17 +91,23 @@ def obstacle_rate(rules: Iterable[dict], facts) -> dict[str, Any]:
     现库 5/6=83% 必过，等于挑一个让库通过的数。书内触发率没有实测，不设门。
     「至少一条被引用」更不可能红，已经废掉。
     _rule_needles 的 2 字匹配抽样是真命中，不许改。
+
+    障碍比例的分母是有代价的规则，不是全部规则。没代价的被引用只是装饰，
+    不能把分母拉大。无名规则不计条。
     """
-    rows = [r for r in (rules or []) if r]
-    with_cost = []
-    triggered = []
+    named: list[dict] = []
+    for r in (rules or []):
+        if not r:
+            continue
+        if str(r.get("name") or "").strip():
+            named.append(r)
+    with_cost: list[str] = []
+    triggered: list[str] = []
     costed_triggered: list[str] = []
     blob = " ".join(f"{getattr(f, 'attribute', '')} {getattr(f, 'value', '')}" for f in facts)
-    for r in rows:
+    for r in named:
         name = str(r.get("name") or "").strip()
         cost = str(r.get("cost") or "").strip()
-        if not name:
-            continue
         if cost:
             with_cost.append(name)
         hit = any(n in blob for n in _rule_needles(name))
@@ -109,15 +115,16 @@ def obstacle_rate(rules: Iterable[dict], facts) -> dict[str, Any]:
             triggered.append(name)
             if cost:
                 costed_triggered.append(name)
-    n = len(rows)
+    n = len(named)
+    n_cost = len(with_cost)
     return {
         "n_rules": n,
-        "with_cost": len(with_cost),
+        "with_cost": n_cost,
         "triggered": len(triggered),
         "triggered_names": triggered,
         "triggered_ratio": (len(triggered) / n) if n else 0.0,
         "costed_triggered": len(costed_triggered),
-        "obstacle_ratio": (len(costed_triggered) / n) if n else 0.0,
+        "obstacle_ratio": (len(costed_triggered) / n_cost) if n_cost else 0.0,
     }
 
 
@@ -135,6 +142,9 @@ def suspense_rate(promises: Iterable[dict], *, volume_ends: list[int]) -> dict[s
     把关、用 cross_open 显示，于是「不得为 0」旁边写着 0 却判通过。
 
     跨 ≥3 卷只报不拦：没有依据说多少才对。
+
+    只有 status=open 才算悬着。库里收线是 closed，弃置是 abandoned。
+    曾经写 `open or payoff is None`：已关/已弃但没填收章的线会被当成跨卷未收。
     """
     ends = sorted(int(x) for x in volume_ends if x)
     rows = [p for p in (promises or []) if p.get("setup_chapter") is not None]
@@ -160,13 +170,15 @@ def suspense_rate(promises: Iterable[dict], *, volume_ends: list[int]) -> dict[s
             continue
         status = str(p.get("status") or "open").lower()
         pc = p.get("payoff_chapter")
-        still_open = status == "open" or pc is None
+        still_open = status == "open"
         if still_open:
             ei = last_i
-        else:
+        elif pc is not None:
             ei = _volume_index(int(pc), ends)
             if ei is None:
                 ei = last_i
+        else:
+            continue
         if ei - si >= 3:
             long_span += 1
         if still_open and si < last_i:

@@ -394,8 +394,10 @@ def audit_volume(store, volume: dict, hero: str, *,
     # 跟库里真实的 promise 文本天生对不上——实测十卷全报「说要收却没收」，
     # 而真实收线率是 93%（256 条收了 238 条）。那是判据的错，不是书的错。
     # 卷与卷之间要成账，能客观算的是「这一卷收掉了几条上一卷之前埋的线」。
+    # 第一卷没有更早的章（起点第 1 章），setup < 1 不可能。契约写了几条 pays
+    # 都会「差 N 条」——那是判据先天不可过，不是书没收线。
     audit.cross_volume_payoffs = _cross_volume_payoffs(store, lo, hi)
-    audit.pays_expected = len(audit.pays_declared)
+    audit.pays_expected = 0 if lo <= 1 else len(audit.pays_declared)
 
     try:
         from scribe3.knowledge import project_frame

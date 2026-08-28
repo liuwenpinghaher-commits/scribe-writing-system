@@ -199,6 +199,37 @@ def test_must_know_without_key_is_neither_pass_nor_fail():
     assert "✓ 卷末该知道的都知道了" not in out
 
 
+def test_check_volumes_does_not_fail_first_volume_for_cross_payoffs():
+    """卷1 契约写了 pays 也不该把「每卷收够了更早埋的线」打红。"""
+    from scribe3.ontology import Fact
+    from scribe3.tools.verify_scale import check_volumes
+
+    facts = [Fact(f"fact:n{i}", f"role:新{i}", f"a{i}", "x", i + 1, None, False, [])
+             for i in range(6)]
+    vol = {"id": "v1", "title": "卷一", "sort_order": 1,
+           "charter": {"duty": "办", "chapter_range": [1, 10],
+                       "introduces": [f"role:新{i}" for i in range(6)],
+                       "pays": ["种子线一", "种子线二"],
+                       "knowledge_end": {"must_know": [], "must_not_know": []}}}
+
+    class _Store:
+        def list_volumes(self):
+            return [vol]
+
+        def facts_at(self, ch):
+            return [f for f in facts if f.valid_from <= ch]
+
+        def load_knowledge(self):
+            return []
+
+        def list_promises(self):
+            return []
+
+    rep = Report()
+    check_volumes(_Store(), rep, "role:新0")
+    assert not any("收够" in t or "更早埋" in t for t in rep.failed), rep.failed
+
+
 def test_check_depth_positive_control_singleton_places():
     """8 个互不嵌套的地点 = 一区一地点 100%，空间闸必须红。"""
     from scribe3.tools.verify_scale import check_depth
@@ -211,3 +242,68 @@ def test_check_depth_positive_control_singleton_places():
     rep = Report()
     check_depth(_DepthStore(_vols(20, 40), hanging, facts=facts), rep, 40)
     assert any("一区一地点" in t for t in rep.failed), rep.failed
+
+
+def test_check_depth_positive_control_spatial_zero_then_one():
+    """7 个地点不过线。第 8 个互不嵌套地点必须让空间闸 0→1。"""
+    from scribe3.tools.verify_scale import check_depth
+
+    hanging = [
+        {"setup_chapter": 4, "payoff_chapter": None, "status": "open"},
+        {"setup_chapter": 25, "payoff_chapter": None, "status": "open"},
+    ]
+    seven = [_fact(f"p{i}", f"place:城{i}", "位置", "一句话", 1) for i in range(7)]
+    rep0 = Report()
+    check_depth(_DepthStore(_vols(20, 40), hanging, facts=seven), rep0, 40)
+    assert not any("一区一地点" in t for t in rep0.failed), rep0.failed
+    eight = seven + [_fact("p7", "place:城7", "位置", "一句话", 1)]
+    rep1 = Report()
+    check_depth(_DepthStore(_vols(20, 40), hanging, facts=eight), rep1, 40)
+    assert any("一区一地点" in t for t in rep1.failed), rep1.failed
+
+
+def test_check_depth_positive_control_top3_share():
+    """均厚过线。往一个实体堆命题，前 3 闸必须红；≤2/≤4 不许跟着误红。"""
+    from scribe3.tools.verify_scale import check_depth
+
+    even = [_fact(f"e{i}_{j}", f"role:人{i}", f"a{j}", "x", j)
+            for i in range(16) for j in range(8)]
+    hanging = [
+        {"setup_chapter": 4, "payoff_chapter": None, "status": "open"},
+        {"setup_chapter": 25, "payoff_chapter": None, "status": "open"},
+    ]
+    rep0 = Report()
+    check_depth(_DepthStore(_vols(20, 40), hanging, facts=even), rep0, 40)
+    assert not any("前 3" in t for t in rep0.failed), rep0.failed
+    piled = even + [_fact(f"pile{k}", "role:人0", f"p{k}", "x", k) for k in range(20)]
+    rep1 = Report()
+    check_depth(_DepthStore(_vols(20, 40), hanging, facts=piled), rep1, 40)
+    assert any("前 3" in t for t in rep1.failed), rep1.failed
+    # 「≤20%」含「≤2」，必须比「实体命题数 ≤2 / ≤4」。
+    assert not any("实体命题数 ≤2" in t or "实体命题数 ≤4" in t for t in rep1.failed), rep1.failed
+
+
+def test_check_depth_positive_control_suspense_zero_then_one():
+    """早卷都挂着过线。把卷 1 收掉，终卷前闸必须红；跨卷未收比例仍过。"""
+    from scribe3.tools.verify_scale import check_depth
+
+    hanging = [
+        {"setup_chapter": 4, "payoff_chapter": None, "status": "open"},
+        {"setup_chapter": 25, "payoff_chapter": None, "status": "open"},
+        {"setup_chapter": 4, "payoff_chapter": 8, "status": "closed"},
+        {"setup_chapter": 25, "payoff_chapter": 30, "status": "closed"},
+        {"setup_chapter": 45, "payoff_chapter": None, "status": "open"},
+    ]
+    vols = _vols(20, 40, 60)
+    rep0 = Report()
+    check_depth(_DepthStore(vols, hanging), rep0, 60)
+    assert not any("跨卷未收" in t or "终卷前" in t for t in rep0.failed), rep0.failed
+    paid_vol1 = [
+        {"setup_chapter": 4, "payoff_chapter": 8, "status": "closed"},
+        hanging[1], hanging[2], hanging[3], hanging[4],
+    ]
+    rep1 = Report()
+    check_depth(_DepthStore(vols, paid_vol1), rep1, 60)
+    assert any("终卷前" in t for t in rep1.failed), rep1.failed
+    # 「终卷前…跨卷未收」含「跨卷未收」，比例闸要比「跨卷未收 ≥」。
+    assert not any("跨卷未收 ≥" in t for t in rep1.failed), rep1.failed

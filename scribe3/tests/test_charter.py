@@ -285,6 +285,25 @@ def test_audit_reports_unpaid_line():
     assert "只收掉 0 条" in a.report()
 
 
+def test_first_volume_does_not_owe_cross_volume_payoffs():
+    """第一卷没有更早的章，跨卷收线不该红。
+
+    判据数的是 setup < 本卷起点。卷 1 起点是第 1 章，setup < 1 不可能，
+    契约写了几条 pays 都会「差 N 条」——那是判据先天不可过，不是书没收线。
+    """
+    facts = [_fact(f"n{i}", f"role:新{i}", f"a{i}", f"事{i}", 1 + i) for i in range(6)]
+    promises = [{"text": "种子线", "setup_chapter": 2,
+                 "payoff_chapter": 8, "status": "paid"}]
+    vol = _volume({"duty": "办", "chapter_range": [1, 10],
+                   "introduces": ["role:新0"],
+                   "pays": ["保护和监禁原来是同一件事", "金縢裂了"],
+                   "knowledge_end": {}})
+    a = audit_volume(FakeStore(facts, promises=promises), vol, "role:新0")
+    assert a.pays_expected == 0, "没有更早的卷，不该按契约 pays 条数要跨卷收线"
+    assert a.pays_short == 0
+    assert a.cross_volume_payoffs == 0
+
+
 def test_audit_ignores_lines_set_up_inside_the_volume():
     """卷内埋卷内收是小回环，不构成卷与卷之间的账。"""
     facts = [_fact(f"n{i}", f"role:新{i}", f"a{i}", f"事{i}", 11 + i) for i in range(6)]
