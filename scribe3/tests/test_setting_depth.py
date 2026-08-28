@@ -175,3 +175,63 @@ def test_long_span_ratio_is_reported_not_a_gate_number():
     assert s["long_span"] == 2
     assert s["long_span_ratio"] == 2 / 5
     assert "LONG_SPAN" not in dir(__import__("scribe3.setting_depth", fromlist=["CROSS_OPEN_MIN"]))
+
+
+# ---------- 阳性对照：已知缺陷必须抓得到，撤掉缺陷后数要掉 ----------
+
+def test_thickness_positive_control_zero_then_thin():
+    """空集 le2=0 不能当真干净。塞三个一句话实体，≤2 必须从 0 变成 3。"""
+    from scribe3.setting_depth import LE2_RATIO_MAX, LE4_RATIO_MAX, TOP3_SHARE_MAX
+
+    # 16 个均厚实体：前 3 占 3/16=18.75% ≤20%；每实体 8 条，≤2/≤4 都是 0。
+    even = [_f(f"e{i}_{j}", f"role:人{i}", f"a{j}", "x", j) for i in range(16) for j in range(8)]
+    t0 = thickness_distribution(even)
+    assert t0["le2"] == 0 and t0["le2_ratio"] <= LE2_RATIO_MAX
+    assert t0["le4"] == 0 and t0["le4_ratio"] <= LE4_RATIO_MAX
+    assert t0["top3_share"] <= TOP3_SHARE_MAX
+
+    probe = even + [
+        _f("thin1", "org:天龙座", "面目", "一句话", 1),
+        _f("thin2", "place:地球", "位置", "一句话", 1),
+        _f("thin3", "place:月球", "位置", "一句话", 1),
+    ]
+    t1 = thickness_distribution(probe)
+    assert t1["le2"] == t0["le2"] + 3
+    assert t1["le2_ratio"] > LE2_RATIO_MAX
+    assert t1["le4_ratio"] > LE4_RATIO_MAX
+
+
+def test_spatial_positive_control_eight_singletons():
+    """≥8 地点且一区一地点 ≥90% 才是铺不开。7 个全散不算，第 8 个才过线。"""
+    seven = [f"城{i}" for i in range(7)]
+    s0 = spatial_spread(seven)
+    assert s0["n_places"] < 8
+    s1 = spatial_spread(seven + ["城7"])
+    assert s1["n_places"] == 8
+    assert s1["singleton_ratio"] == 1.0
+    assert s1["singleton_ratio"] >= 0.9
+    nested = spatial_spread(["不署名门", "不署名门签押廊"] + [f"城{i}" for i in range(6)])
+    assert nested["n_places"] == 8
+    assert nested["singleton_ratio"] < 0.9
+
+
+def test_obstacle_positive_control_zero_then_one():
+    """有代价没人引用 → 0；塞一条点名命题 → 1。数条数，不认文案。"""
+    rules = [{"name": "光子投票", "cost": "从体温里扣"}]
+    o0 = obstacle_rate(rules, [])
+    assert o0["costed_triggered"] == 0
+    o1 = obstacle_rate(rules, [_f("1", "role:甲", "投票", "他用光子投票盖过反对票", 3)])
+    assert o1["costed_triggered"] == o0["costed_triggered"] + 1
+
+
+def test_suspense_positive_control_zero_then_one():
+    """末卷开口线保持 0；早卷再挂一条，跨卷未收必须 0→1。"""
+    bounds = [20, 40]
+    last_only = [{"setup_chapter": 35, "payoff_chapter": None, "status": "open"}]
+    s0 = suspense_rate(last_only, volume_ends=bounds)
+    assert s0["cross_open"] == 0
+    s1 = suspense_rate(
+        last_only + [{"setup_chapter": 5, "payoff_chapter": None, "status": "open"}],
+        volume_ends=bounds)
+    assert s1["cross_open"] == s0["cross_open"] + 1
+    assert s1["barren_volumes"] == []

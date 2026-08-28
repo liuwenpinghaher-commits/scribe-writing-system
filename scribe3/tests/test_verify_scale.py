@@ -53,13 +53,14 @@ def test_thresholds_are_the_plan_numbers():
 class _DepthStore:
     """check_depth 只吃公开方法。空命题让厚度/空间真空过，专门打悬置闸。"""
 
-    def __init__(self, volumes, promises, rules=()):
+    def __init__(self, volumes, promises, rules=(), facts=()):
         self._volumes = volumes
         self._promises = promises
         self._rules = list(rules)
+        self._facts = list(facts)
 
     def facts_at(self, until):
-        return []
+        return [f for f in self._facts if int(getattr(f, "valid_from", 0) or 0) <= until]
 
     def list_world_rules(self):
         return list(self._rules)
@@ -137,3 +138,37 @@ def test_suspense_both_gates_pass_when_early_volumes_still_hang():
     rep = Report()
     check_depth(_DepthStore(_vols(20, 40, 60), promises), rep, 60)
     assert not any("跨卷未收" in t or "终卷前" in t for t in rep.failed), rep.failed
+
+
+def _fact(local, entity, attr, value, ch=1):
+    from scribe3.ontology import Fact
+    return Fact(f"fact:{local}", entity, attr, value, ch, None, False, [])
+
+
+def test_check_depth_positive_control_thin_entities():
+    """已知薄实体必须让 ≤2 / ≤4 闸变红。空命题 le2=0 不算干净。"""
+    from scribe3.tools.verify_scale import check_depth
+
+    facts = [_fact(f"t{i}", f"role:薄{i}", "面目", "一句话", 1) for i in range(5)]
+    hanging = [
+        {"setup_chapter": 4, "payoff_chapter": None, "status": "open"},
+        {"setup_chapter": 25, "payoff_chapter": None, "status": "open"},
+    ]
+    rep = Report()
+    check_depth(_DepthStore(_vols(20, 40), hanging, facts=facts), rep, 40)
+    assert any("≤2" in t for t in rep.failed), rep.failed
+    assert any("≤4" in t for t in rep.failed), rep.failed
+
+
+def test_check_depth_positive_control_singleton_places():
+    """8 个互不嵌套的地点 = 一区一地点 100%，空间闸必须红。"""
+    from scribe3.tools.verify_scale import check_depth
+
+    facts = [_fact(f"p{i}", f"place:城{i}", "位置", "一句话", 1) for i in range(8)]
+    hanging = [
+        {"setup_chapter": 4, "payoff_chapter": None, "status": "open"},
+        {"setup_chapter": 25, "payoff_chapter": None, "status": "open"},
+    ]
+    rep = Report()
+    check_depth(_DepthStore(_vols(20, 40), hanging, facts=facts), rep, 40)
+    assert any("一区一地点" in t for t in rep.failed), rep.failed
