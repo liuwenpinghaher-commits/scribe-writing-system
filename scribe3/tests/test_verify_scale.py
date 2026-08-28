@@ -99,6 +99,30 @@ def test_suspense_gate_uses_cross_open_not_all_closed():
     assert any("终卷前" in t for t in rep.failed), rep.failed
 
 
+def test_obstacle_zero_is_reported_not_gated():
+    """旧闸「至少一条被引用」在触发率为 0 时才会红，有一条就永绿。
+
+    没有书内比例依据，改为只报不拦：代价全空、一条没触发，也不进 failed。
+    """
+    import io
+    from contextlib import redirect_stdout
+    from scribe3.tools.verify_scale import check_depth
+
+    rules = [
+        {"name": "光子投票", "cost": "扣体温"},
+        {"name": "空规矩", "cost": ""},
+    ]
+    # 两卷、无线：悬置会红，但障碍不许跟着红。
+    rep = Report()
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        check_depth(_DepthStore(_vols(20, 40), [], rules=rules), rep, 40)
+    out = buf.getvalue()
+    assert "只报不拦" in out
+    assert "有代价" in out
+    assert not any("障碍" in t for t in rep.failed), rep.failed
+
+
 def test_suspense_both_gates_pass_when_early_volumes_still_hang():
     from scribe3.tools.verify_scale import check_depth
 

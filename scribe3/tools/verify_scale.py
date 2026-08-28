@@ -176,12 +176,13 @@ def check_depth(st, rep: Report, until: int) -> None:
     rules = st.list_world_rules() or []
     ob = obstacle_rate(rules, facts)
     print(f"  世界规则 {ob['n_rules']}　有代价 {ob['with_cost']}"
-          f"　被命题点名 {ob['triggered']}（{ob['triggered_ratio']:.0%}）")
+          f"　有代价且被点名 {ob['costed_triggered']}（障碍 {ob['obstacle_ratio']:.0%}）"
+          f"　被点名 {ob['triggered']}（{ob['triggered_ratio']:.0%}）")
     if ob["triggered_names"]:
         print("    触发：" + "、".join(ob["triggered_names"][:8]))
-    rep.check(not (ob["n_rules"] >= 1 and ob["triggered"] == 0),
-              "设定当障碍：至少有一条规矩被命题引用",
-              f"{ob['triggered']}/{ob['n_rules']}")
+    # 只报不拦。StoryScope 11.1% 搬不过来（故事级取值 ≠ 书内规则触发率）；
+    # 「至少一条」有一条就永绿。没有依据就不设门。
+    print("  设定当障碍比例只报不拦（无书内触发率依据，不设门）")
 
     ends = []
     for v in st.list_volumes() or []:

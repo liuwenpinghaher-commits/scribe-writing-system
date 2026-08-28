@@ -84,10 +84,18 @@ def _rule_needles(name: str) -> list[str]:
 
 
 def obstacle_rate(rules: Iterable[dict], facts) -> dict[str, Any]:
-    """有 cost 且被命题点名的世界规则。装饰性规则（有代价没人触发）不算障碍。"""
+    """有 cost 且被命题点名的世界规则。装饰性规则（有代价没人触发）不算障碍。
+
+    比例只报不拦。StoryScope SET_ATM_019 人 11.1% vs 模型 3–4% 是「整篇故事
+    把设定当障碍」的取值占比，不是书内 world_rule 触发率。拿 11.1% 当下限，
+    现库 5/6=83% 必过，等于挑一个让库通过的数。书内触发率没有实测，不设门。
+    「至少一条被引用」更不可能红，已经废掉。
+    _rule_needles 的 2 字匹配抽样是真命中，不许改。
+    """
     rows = [r for r in (rules or []) if r]
     with_cost = []
     triggered = []
+    costed_triggered: list[str] = []
     blob = " ".join(f"{getattr(f, 'attribute', '')} {getattr(f, 'value', '')}" for f in facts)
     for r in rows:
         name = str(r.get("name") or "").strip()
@@ -96,8 +104,11 @@ def obstacle_rate(rules: Iterable[dict], facts) -> dict[str, Any]:
             continue
         if cost:
             with_cost.append(name)
-        if any(n in blob for n in _rule_needles(name)):
+        hit = any(n in blob for n in _rule_needles(name))
+        if hit:
             triggered.append(name)
+            if cost:
+                costed_triggered.append(name)
     n = len(rows)
     return {
         "n_rules": n,
@@ -105,6 +116,8 @@ def obstacle_rate(rules: Iterable[dict], facts) -> dict[str, Any]:
         "triggered": len(triggered),
         "triggered_names": triggered,
         "triggered_ratio": (len(triggered) / n) if n else 0.0,
+        "costed_triggered": len(costed_triggered),
+        "obstacle_ratio": (len(costed_triggered) / n) if n else 0.0,
     }
 
 

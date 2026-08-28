@@ -69,6 +69,21 @@ def test_obstacle_needs_cost_and_a_fact_that_cites_the_rule():
     assert o["with_cost"] == 2
     assert o["triggered"] == 1
     assert o["triggered_ratio"] == 1 / 3
+    # 障碍 = 有代价且被引用。没代价的引用只是装饰。
+    assert o["costed_triggered"] == 1
+    assert o["obstacle_ratio"] == 1 / 3
+
+
+def test_obstacle_has_no_ratio_threshold():
+    """找不到能搬家的依据，不许拍一个门。
+
+    StoryScope SET_ATM_019 的 11.1% 是「这篇故事把设定当障碍」的取值占比，
+    不是书内 world_rule 被引用的比例。拿 11.1% 当下限，现库 5/6=83% 必过，
+    就是挑一个让库通过的数。书内触发率没有实测，只报不拦。
+    """
+    import scribe3.setting_depth as sd
+
+    assert not hasattr(sd, "OBSTACLE_RATIO_MIN")
 
 
 def test_obstacle_matches_distinctive_part_of_long_rule_name():
