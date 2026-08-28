@@ -221,6 +221,75 @@ def test_chapter_prompt_lists_thickens():
     assert "写厚" in p or "thickens" in p
 
 
+def test_introduce_quota_splits_evenly_last_batch_takes_rest():
+    from scribe3.tools.expand_wanjie_chapters import introduce_quota, remaining_batches
+
+    assert remaining_batches(40, 21, 10) == 2
+    assert remaining_batches(40, 31, 10) == 1
+    assert introduce_quota(11, 2) == 5
+    assert introduce_quota(6, 1) == 6
+    assert introduce_quota(0, 2) == 0
+
+
+def test_chapter_prompt_holds_later_batch_introduces():
+    """点名 11 个不能全塞进前半批。本批 5，其余留给后批。"""
+    from scribe3.ontology import Fact
+    from scribe3.tools.expand_wanjie_chapters import build_prompt
+
+    oids = [f"role:人{i}" for i in range(11)]
+
+    class St:
+        def get_intent(self):
+            return {"north_star": "星", "red_lines": "线"}
+
+        def list_volumes(self):
+            return [{"id": "v2", "title": "卷二", "intro": "办",
+                     "charter": {"duty": "办", "chapter_range": [21, 40],
+                                 "introduces": [{"oid": o, "why": "要"} for o in oids],
+                                 "pays": [], "knowledge_end": {"must_know": [], "must_not_know": []}}}]
+
+        def chapters_lite(self):
+            return []
+
+        def list_promises(self):
+            return []
+
+        def facts_at(self, ch, *_a, **_k):
+            if ch < 21:
+                return []
+            return [Fact(f"fact:{i}", oids[i], "面目", "已出场", 21, None, False, [])
+                    for i in range(5)] if ch >= 21 else []
+
+        def characters(self):
+            return []
+
+        def list_world_rules(self):
+            return []
+
+        def list_factions(self):
+            return []
+
+        def list_items(self):
+            return []
+
+        def list_terms(self):
+            return []
+
+        def list_motifs(self):
+            return []
+
+    first = build_prompt(St(), "卷二", "办", 21, 30, 200)
+    assert "本批必须引入这 5 个" in first
+    assert "role:人0" in first and "role:人4" in first
+    assert "留给后面几批" in first
+    assert "role:人5" in first and "role:人10" in first
+    # 后半批：前 5 已出场，剩下 6 个本批收干净
+    second = build_prompt(St(), "卷二", "办", 31, 40, 200)
+    assert "本批必须引入这 6 个" in second
+    assert "role:人5" in second and "role:人10" in second
+    assert "**本卷还欠着、留给后面几批**" not in second
+
+
 def test_thicken_named_entities_uses_codex_contract():
     """铺章末尾写厚走 thicken_codex，不另发明字段。"""
     from scribe3.tools.expand_wanjie_chapters import thicken_named_entities

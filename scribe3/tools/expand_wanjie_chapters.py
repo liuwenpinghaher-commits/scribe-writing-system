@@ -219,6 +219,40 @@ def _hero_knows(st, at: int, cap: int = 25) -> str:
 
 # ---------- 提示词 ----------
 
+def pending_introduces(st, charter: dict, before: int) -> list[dict]:
+    """契约点名、这一章之前还没首次出场的。"""
+    from scribe3.charter import story_entities
+
+    prior = story_entities(st.facts_at(before - 1) or []) if before > 1 else set()
+    out: list[dict] = []
+    for item in charter.get("introduces") or []:
+        if isinstance(item, dict):
+            oid, why = item.get("oid") or "", item.get("why") or ""
+        else:
+            oid, why = str(item), ""
+        if oid and oid not in prior:
+            out.append({"oid": oid, "why": why})
+    return out
+
+
+def remaining_batches(vol_hi: int, lo: int, batch: int) -> int:
+    if batch <= 0 or lo > vol_hi:
+        return 0
+    return (vol_hi - lo + 1 + batch - 1) // batch
+
+
+def introduce_quota(pending: int, n_batches: int) -> int:
+    """本批该引入几个。剩余点名 ÷ 剩余批数，最后一批收干净。
+
+    卷级点名可以全塞进前半批，判据看卷级就发现不了。11 个、两批：5 然后 6。
+    """
+    if pending <= 0 or n_batches <= 0:
+        return 0
+    if n_batches == 1:
+        return pending
+    return max(1, pending // n_batches)
+
+
 def volume_for_chapter(st, seq: int) -> dict | None:
     """按契约的章号范围找这一章属于哪一卷。没有契约就回退到最后一卷。"""
     from scribe3.charter import normalize_charter
@@ -231,15 +265,18 @@ def volume_for_chapter(st, seq: int) -> dict | None:
     return vols[-1] if vols else None
 
 
-def _charter_block(st, seq: int) -> str:
+def _charter_block(st, lo: int, hi: int) -> str:
     """卷契约注入章级生成——这是「下一卷有新起点」的落地点。
 
     没有这一段时实测过：拿同一份卷纲生成 200 章，第 14 章起每章新增实体恒为 0。
     模型不是不会长新东西，是没人告诉它这一卷该长出什么。
+
+    引入按批切：点名可以全塞进前半批，卷级新鲜度仍然达标、后半十章 0。
+    本批只强制「剩余 ÷ 剩余批数」那么多个，其余留给后面几批。
     """
     from scribe3.charter import normalize_charter
 
-    vol = volume_for_chapter(st, seq)
+    vol = volume_for_chapter(st, lo)
     if not vol:
         return "（这一卷还没有契约）"
     c = normalize_charter(vol.get("charter"))
@@ -247,11 +284,22 @@ def _charter_block(st, seq: int) -> str:
         return "（这一卷还没有契约）"
 
     out = [f"这一卷要办的那一件事：{c['duty']}", ""]
-    if c["introduces"]:
-        out.append("**这一卷必须把下面这些新东西带进来**（这是硬要求，"
-                   "不引入新东西就是在原地打转）：")
-        for i in c["introduces"]:
+    pending = pending_introduces(st, c, lo)
+    rng = c["chapter_range"] or [lo, hi]
+    n_left = remaining_batches(int(rng[1]), lo, max(1, hi - lo + 1))
+    quota = introduce_quota(len(pending), n_left)
+    must, later = pending[:quota], pending[quota:]
+    if must:
+        out.append(f"**本批必须引入这 {len(must)} 个**（硬要求，用契约给的 oid 立事实；"
+                   f"本卷还剩 {len(pending)} 个没出场，后面还有 {n_left} 批，"
+                   "不许把后面几批的提前用光）：")
+        for i in must:
             out.append(f"  - {i['oid']}：{i['why']}")
+        out.append("")
+    if later:
+        out.append("**本卷还欠着、留给后面几批**（现在别用）：")
+        for i in later:
+            out.append(f"  - {i['oid']}")
         out.append("")
     if c["thickens"]:
         out.append("**这一卷必须把下面这些已有实体写厚**（他要什么、他让人付出什么；"
@@ -296,7 +344,7 @@ def build_prompt(st, vol_title: str, vol_intro: str, lo: int, hi: int,
 {_bible(st)}
 
 ## 这一卷的契约（必须兑现，会被逐条核对）
-{_charter_block(st, lo)}
+{_charter_block(st, lo, hi)}
 
 ## 这一卷
 《{vol_title}》：{vol_intro}
@@ -344,8 +392,10 @@ def build_prompt(st, vol_title: str, vol_intro: str, lo: int, hi: int,
 
 几条硬要求：
 
-- **上面契约里点名要引入的新东西，必须在这一批章里真的出场并立下事实**，
-  用契约给的那个 oid 作 `entity`，不要改名。这是卷与卷之间能往前走的唯一保证。
+- **「本批必须引入」里的 oid，必须在这一批章里真的出场并立下事实**，
+  用契约给的那个 oid 作 `entity`，不要改名。
+  「本卷还欠着、留给后面几批」现在别用——实测卷 2 点名 11 个全塞进 21-26 章，
+  31-40 章引入 0，卷级新鲜度 7.0 仍然达标，闸看不见。
 - 「后面几卷预留的实体」现在别用。实测卷 2 预留了兰因，铺卷 1 时第 13 章就把她用了，
   卷 2 新鲜度掉到 4.5。
 - `new_facts` 每章至少一条。这是这本书的账在长厚，没有新事实说明这章白写了。
@@ -671,6 +721,11 @@ def run_batch(st, vol: dict, lo: int, hi: int, total: int, *,
         print("  （dry-run，没落库）")
         return
     print("  落库：", persist(st, chapters, vol.get("id")))
+    from scribe3.charter import freshness
+    fr = freshness(st, lo, hi)
+    print(f"  本批新鲜度 {fr['new_entities_per_10ch']:.1f}／10章　"
+          f"新 {len(fr['new_entities'])}：{'、'.join(fr['new_entities'][:8]) or '无'}"
+          f"{'…' if len(fr['new_entities']) > 8 else ''}（只报不拦）")
     print("  写厚：", thicken_named_entities(
         st, vol, llm_fn=lambda p, max_tokens=4096: hermes_complete(
             p, max_tokens=max_tokens, temperature=0.4, timeout=180)))
