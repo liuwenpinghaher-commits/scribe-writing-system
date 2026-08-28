@@ -15,6 +15,9 @@
 用法：
     scribe3/.venv/bin/python -m scribe3.tools.expand_wanjie_chapters \
         --db wanjie_scale --from 11 --to 20 --dry-run
+
+嵌入模型缓存在 ~/.cache/scribe3/fastembed（SCRIBE3_FASTEMBED_CACHE 可覆盖）。
+不要放系统临时目录，macOS 会清，长跑会重下 54MB。
 """
 from __future__ import annotations
 

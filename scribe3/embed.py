@@ -21,9 +21,20 @@ os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
 _default_hf = os.environ.get("SCRIBE3_HF_HOME") or os.environ.get("HF_HOME") or ""
 if _default_hf:
     os.environ.setdefault("HF_HOME", _default_hf)
-_default_fe = os.environ.get("SCRIBE3_FASTEMBED_CACHE") or os.environ.get("FASTEMBED_CACHE_PATH") or ""
-if _default_fe:
-    os.environ.setdefault("FASTEMBED_CACHE_PATH", _default_fe)
+DEFAULT_FASTEMBED_CACHE = os.path.expanduser("~/.cache/scribe3/fastembed")
+
+
+def apply_fastembed_cache_env() -> str:
+    """缓存在固定目录。macOS 会清 /var/folders/.../T，隔一阵就要重下 54.6MB。"""
+    if os.environ.get("FASTEMBED_CACHE_PATH"):
+        return os.environ["FASTEMBED_CACHE_PATH"]
+    path = os.environ.get("SCRIBE3_FASTEMBED_CACHE") or DEFAULT_FASTEMBED_CACHE
+    os.environ["FASTEMBED_CACHE_PATH"] = path
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+apply_fastembed_cache_env()
 
 _model = None
 _MODEL_NAME = "BAAI/bge-small-zh-v1.5"
