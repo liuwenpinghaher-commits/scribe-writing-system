@@ -594,6 +594,15 @@ CLI 和 MCP `s3_plan_volumes` 共用 `generate_charters`。
 **指定五文件 142 passed。**
 **`verify_scale --db wanjie_scale --chapters 200`：10 红，不是预估的 12。** 预估把障碍当门、空间当门、卷1欠跨卷收线。实际：障碍/空间只报不拦；卷1 `pays_expected=0`；「卷末该知道」改无法判定。10 项：新鲜度卷2–9、引入（卷1 温盏/白霜拍卖行/寒灯街，卷8 名讳司）、跨卷收线卷2 差1、空壳 0.789、完整度 64、≤2 21%、≤4 26%、前3 37%、跨卷未收 0/256、终卷前 1–9 卷全 0。未调阈值。未重铺 200。
 
+### PADDING 第一步 · 清注水（2026-08-29）
+方案 [`2026-08-29-PADDING-PROMPT.md`](./plans/2026-08-29-PADDING-PROMPT.md)。**只清注水，未铺章，未进 U1/U2/U3。** `wanjie_scale` 未动。扫描未放宽。
+**代码：** 写厚差额只认本卷**新 attribute**（同键换词算 1 条）；重跑把已写 attribute 列进提示并写明不算数；`persist` 故事命题显式 `supersede_open=True`（隐瞒仍 False）。测 `test_thicken_deficit_rewrite_same_attribute_does_not_count` / `test_chapter_prompt_lists_written_attributes_as_not_counting` / `test_persist_story_facts_pass_supersede_open`，连同原差额/配额 **5 passed**。
+**现库 2 条：** 后写者 supersede 前一条。`role:灯下扣·热痕` `fact:c83-1` valid_to=89，留 `fact:c89-9`；`role:柳岸青·报名缺` `fact:c89-5` valid_to=90，留 `fact:c90-8`。
+**`verify_scale --db wanjie_v2 --chapters 100`：7 红**（原 8，一致性那条没了）。全库无矛盾 ✓；阳性对照 **0 → 1**。其余红仍是空壳 0.656 / 完整度 67 / ≤2 18% / ≤4 62% / 前3 36%（runway≥20 把关）/ 跨卷未收 4% / 终卷前荒卷 1–20 与 61–80。
+**同队列（首现 ≤40 的 40 个）：** ≤2 **7/40=18%**，≤4 **27/40=68%**，前 3 **47%**（柳岸青 77 / 沈烛 34 / 兰因 30）。对照方案书 17% / 67% / 36%——36% 是把关口径，同队列前 3 没动。
+**卷 5 声明长线：** holdovers 5 条，卷末仍 **5 条 open**。
+**下一件：** 等作者看过第一步，再做 U1 诊断（不铺章，下限不调）。
+
 ### 抽取闸（2026-08-28）
 两处把已抄对的短文判失败：抽取只认「他要什么：」标签；`portrait_grounded` 把两字段拼成一串再找子串。已改：无标签按空行/两句切开；grounded 逐字段实词过半（与 `_loose_match` 同源，防另编不防压缩）。已有够长 `personality_detail` 直接抽。
 **验证：** 14/14 ok，未铺新章，未动 `wanjie_scale`。完整度 80 是主角色 Lie 缺 4 人，不是空壳。

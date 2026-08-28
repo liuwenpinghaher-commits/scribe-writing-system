@@ -361,16 +361,26 @@ def story_facts_in_range(st, lo: int, hi: int) -> list:
     return out
 
 
-def thicken_added(st, oids: list[str], lo: int, hi: int) -> dict[str, int]:
-    from collections import Counter
-
+def thicken_attr_names(st, oids: list[str], lo: int, hi: int) -> dict[str, list[str]]:
+    """本卷已立的 attribute 名。同一 attribute 改写只算一条，不认换词。"""
     want = {o for o in oids if o}
-    c: Counter[str] = Counter()
+    order: dict[str, list[str]] = {oid: [] for oid in oids}
+    seen: dict[str, set[str]] = {oid: set() for oid in oids}
     for f in story_facts_in_range(st, lo, hi):
         eid = str(getattr(f, "entity_id", "") or "")
-        if eid in want:
-            c[eid] += 1
-    return {oid: int(c.get(oid) or 0) for oid in oids}
+        if eid not in want:
+            continue
+        attr = str(getattr(f, "attribute", "") or "").strip()
+        if not attr or attr in seen[eid]:
+            continue
+        seen[eid].add(attr)
+        order[eid].append(attr)
+    return order
+
+
+def thicken_added(st, oids: list[str], lo: int, hi: int) -> dict[str, int]:
+    names = thicken_attr_names(st, oids, lo, hi)
+    return {oid: len(attrs) for oid, attrs in names.items()}
 
 
 def thicken_deficit(st, oids: list[str], lo: int, hi: int,
@@ -400,7 +410,8 @@ def assert_batch_depth(st, vol: dict, lo: int, hi: int, top3: list[str]) -> None
         deficit = thicken_deficit(st, oids, vol_lo, hi)
         if deficit:
             bits = "、".join(f"{oid}差{n}" for oid, n in deficit.items())
-            raise ValueError(f"写厚本卷不足 {THICKEN_FACTS_MIN} 条：{bits}")
+            raise ValueError(
+                f"写厚本卷不足 {THICKEN_FACTS_MIN} 条新 attribute：{bits}")
     share, n_top, n_all = batch_top3_share(st, lo, hi, top3)
     if n_all and share > HEADLINER_FACT_SHARE_MAX:
         raise ValueError(
@@ -487,14 +498,20 @@ def _charter_block(st, lo: int, hi: int) -> str:
         out.append("")
     if c["thickens"]:
         rng = c["chapter_range"] or [lo, hi]
-        added = thicken_added(st, [i["oid"] for i in c["thickens"]], int(rng[0]), lo - 1)
+        oids = [i["oid"] for i in c["thickens"]]
+        written = thicken_attr_names(st, oids, int(rng[0]), lo - 1)
         out.append(
             f"**这一卷必须把下面这些已有实体写厚**（why 是这一卷它做什么，不是提一句；"
-            f"每个本卷至少立 {THICKEN_FACTS_MIN} 条新命题，点名提及不算交差）：")
+            f"每个本卷至少立 {THICKEN_FACTS_MIN} 条**新 attribute**，点名提及不算交差；"
+            f"改写已有 attribute 不算数，同 attribute 的后写者必须关掉前一条）：")
         for i in c["thickens"]:
-            n = int(added.get(i["oid"]) or 0)
+            attrs = written.get(i["oid"]) or []
+            n = len(attrs)
             left = max(0, THICKEN_FACTS_MIN - n)
-            out.append(f"  - {i['oid']}：{i['why']}｜本卷已立 {n} 条，还欠 {left} 条")
+            listed = "、".join(attrs) if attrs else "无"
+            out.append(
+                f"  - {i['oid']}：{i['why']}｜本卷已立 {n} 条新 attribute"
+                f"（{listed}；这些不算数），还欠 {left} 条新 attribute")
         out.append("")
     top3 = current_top3(st, lo - 1)
     if top3:
@@ -601,7 +618,7 @@ def build_prompt(st, vol_title: str, vol_intro: str, lo: int, hi: int,
 - 「后面几卷预留的实体」现在别用。实测卷 2 预留了兰因，铺卷 1 时第 13 章就把她用了，
   卷 2 新鲜度掉到 4.5。
 - `new_facts` 每章至少一条。这是这本书的账在长厚，没有新事实说明这章白写了。
-- **写厚名单里的每个实体，这一卷至少立 3 条新命题**，要有处境、冲突、账，不许只提一句。
+- **写厚名单里的每个实体，这一卷至少立 3 条新 attribute 的命题**，要有处境、冲突、账，不许只提一句。提示里已列的 attribute 改写不算数；同 attribute 只能有一条开口，后写的要换代前一条。
 - **本批 `new_facts` 落在「当前前 3 名」上的合计不得超过 1/4**，其余必须落到长尾。
 - 新地点必须写从属：`attribute` 用「位于」，`value` 用上级的 `place:…`（例：`place:签押廊` 位于 `place:不署名门`）。不许靠名字前缀冒充同区。
 - `learns` 里的 `fact_index` 指向本章 `new_facts` 的下标。**谁不在场就不许知道**。
@@ -724,9 +741,11 @@ def persist(st, chapters: list[dict], vol_id: str | None) -> dict:
             # supersede_open=True：同 (实体, 属性) 的旧值在本章关闭，时态历史仍查得到。
             # 用 False 会让同一属性的历次说法全挂成开区间「同时有效」，
             # 一致性扫描把它们当矛盾报（实测 36-100 章误报 11 条），而注入面本来也只认单真。
+            # 重试差额时模型会把同一件事换词再写一条；不关掉前一条就会被扫成矛盾。
             st.add_fact(Fact(id=fid, entity_id=oid,
                              attribute=f.get("attribute") or "事", value=f.get("value") or "",
-                             valid_from=seq, secret=bool(f.get("secret"))))
+                             valid_from=seq, secret=bool(f.get("secret"))),
+                        supersede_open=True)
             fact_ids.append(fid)
             n_fact += 1
 

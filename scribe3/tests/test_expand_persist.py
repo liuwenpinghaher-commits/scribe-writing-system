@@ -709,6 +709,26 @@ def test_thicken_deficit_counts_this_volume_facts():
         raise AssertionError("差额必须抛")
     except ValueError as e:
         assert "验温嫂" in str(e)
+        assert "新 attribute" in str(e)
+
+
+def test_thicken_deficit_rewrite_same_attribute_does_not_count():
+    """同一 attribute 换词重写只算一条。差额只认新 attribute。"""
+    from scribe3.ontology import Fact
+    from scribe3.tools.expand_wanjie_chapters import THICKEN_FACTS_MIN, thicken_deficit
+
+    facts = [
+        Fact("fact:a1", "role:灯下扣", "热痕", "会在沈烛验封时成为凭据", 85, None, False, []),
+        Fact("fact:a2", "role:灯下扣", "热痕", "留下的热痕被沈烛收进金縢", 92, None, False, []),
+        Fact("fact:a3", "role:灯下扣", "热痕", "再换一次词", 97, None, False, []),
+    ]
+
+    class St:
+        def facts_at(self, ch):
+            return [f for f in facts if f.valid_from <= ch]
+
+    d = thicken_deficit(St(), ["role:灯下扣"], 81, 100)
+    assert d["role:灯下扣"] == THICKEN_FACTS_MIN - 1
 
 
 def test_batch_top3_share_caps_headliners():
@@ -783,6 +803,116 @@ def test_chapter_prompt_names_thicken_quota_and_top3_cap():
 
     p = build_prompt(St(), "卷五", "办", 81, 90, 200)
     assert "至少立 3 条" in p or "至少 3 条" in p
+    assert "新 attribute" in p
     assert "验温嫂" in p and "污染读数" in p
     assert "1/4" in p or "25%" in p
     assert "role:柳岸青" in p
+
+
+def test_chapter_prompt_lists_written_attributes_as_not_counting():
+    """重跑必须把本卷已写过的 attribute 列给模型，并写明不算数。"""
+    from scribe3.ontology import Fact
+    from scribe3.tools.expand_wanjie_chapters import build_prompt
+
+    class St:
+        def get_intent(self):
+            return {"north_star": "星", "red_lines": "线"}
+
+        def list_volumes(self):
+            return [{"id": "v5", "title": "卷五", "intro": "办",
+                     "charter": {"duty": "办", "chapter_range": [81, 100],
+                                 "introduces": [{"oid": "role:甲", "why": "要"}],
+                                 "thickens": [{"oid": "role:验温嫂",
+                                               "why": "这一卷她必须当场验出污染读数"}],
+                                 "pays": [], "knowledge_end": {
+                                     "must_know": [], "must_not_know": []}}}]
+
+        def chapters_lite(self):
+            return []
+
+        def list_promises(self):
+            return []
+
+        def facts_at(self, *_a, **_k):
+            return [
+                Fact("fact:h", "role:柳岸青", "a", "厚", 1, None, False, []),
+                Fact("fact:t1", "role:验温嫂", "热痕", "旧说法", 85, None, False, []),
+                Fact("fact:t2", "role:验温嫂", "热痕", "换词", 88, None, False, []),
+            ]
+
+        def characters(self):
+            return []
+
+        def list_world_rules(self):
+            return []
+
+        def list_factions(self):
+            return []
+
+        def list_items(self):
+            return []
+
+        def list_terms(self):
+            return []
+
+        def list_motifs(self):
+            return []
+
+    p = build_prompt(St(), "卷五", "办", 91, 100, 200)
+    assert "热痕" in p
+    assert "这些不算数" in p
+    assert "还欠" in p
+
+
+def test_persist_story_facts_pass_supersede_open():
+    """同 attribute 后写者必须关掉前一条。隐瞒仍显式 False。"""
+    from scribe3.tools.expand_wanjie_chapters import persist
+
+    flags = []
+
+    class St:
+        def list_volumes(self):
+            return []
+
+        def list_promises(self):
+            return []
+
+        def save_chapter(self, *a, **k):
+            return None
+
+        def update_chapter_meta(self, *a, **k):
+            return True
+
+        def add_fact(self, fact, *a, **k):
+            flags.append((fact.attribute, k.get("supersede_open")))
+
+        def add_knowledge(self, *a, **k):
+            return None
+
+        def plant_promise(self, *a, **k):
+            return None
+
+        def advance_promise(self, *a, **k):
+            return None
+
+        def entity(self, oid):
+            return True
+
+        def add_entity(self, *a, **k):
+            return None
+
+        def add_faction(self, *a, **k):
+            return None
+
+    persist(St(), [{
+        "seq": 92, "title": "试", "synopsis": "x" * 40,
+        "new_facts": [{"entity": "role:灯下扣", "attribute": "热痕",
+                       "value": "后写", "secret": False}],
+        "learns": [],
+        "hides": [{"who": "role:灯下扣", "from": "role:沈烛", "what": "热痕"}],
+        "plant": [], "payoff": [],
+    }], "v5")
+    story = [x for x in flags if x[0] == "热痕"]
+    hide = [x for x in flags if str(x[0]).startswith("隐瞒")]
+    assert story == [("热痕", True)]
+    assert hide and hide[0][1] is False
