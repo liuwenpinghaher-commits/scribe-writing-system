@@ -605,6 +605,7 @@ def _local_id(p: dict) -> str:
 
 def persist(st, chapters: list[dict], vol_id: str | None) -> dict:
     n_fact = n_know = n_plant = n_payoff = n_hide = 0
+    empty: list[int] = []
     for ch in chapters:
         seq = int(ch["seq"])
         st.save_chapter(seq, "", title=ch.get("title") or f"第{seq}章",
@@ -615,6 +616,7 @@ def persist(st, chapters: list[dict], vol_id: str | None) -> dict:
         st.update_chapter_meta(seq, meta)
 
         fact_ids: list[str] = []
+        n_fact_before = n_fact
         for k, f in enumerate(ch.get("new_facts") or []):
             oid = canon_oid(f.get("entity") or "")
             if not oid:
@@ -706,8 +708,15 @@ def persist(st, chapters: list[dict], vol_id: str | None) -> dict:
                 n_payoff += 1
             except Exception as e:
                 print(f"  ! 第{seq}章收线 {pid}: {e}")
+        landed = n_fact - n_fact_before
+        offered = len(ch.get("new_facts") or [])
+        if landed == 0:
+            # 章壳已写、账没有。以前落库计数里 facts=0 不举章号，
+            # chapters_lite 看起来铺到 80，命题却停在中途。
+            print(f"  ! 第{seq}章零命题落库：new_facts {offered} 条，落下 0 条。章壳已写、账没有")
+            empty.append(seq)
     return {"facts": n_fact, "knows": n_know, "hides": n_hide,
-            "plant": n_plant, "payoff": n_payoff}
+            "plant": n_plant, "payoff": n_payoff, "empty": empty}
 
 
 _THICKEN_KIND = {"role": "character", "org": "faction"}
@@ -836,6 +845,10 @@ def run_batch(st, vol: dict, lo: int, hi: int, total: int, *,
             f.write(raw)
     chapters = parse(raw)
     print(f"  解析出 {len(chapters)} 章")
+    got = {int(ch.get("seq") or 0) for ch in chapters}
+    missing = [s for s in range(lo, hi + 1) if s not in got]
+    if missing:
+        print(f"  ! 解析缺章 {missing}（请求 {lo}-{hi}）")
     for ch in chapters:
         print(f"  第{ch.get('seq')}章《{ch.get('title')}》 {ch.get('synopsis')}")
         for f in ch.get("new_facts") or []:

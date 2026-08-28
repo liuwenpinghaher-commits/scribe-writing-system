@@ -622,3 +622,61 @@ def test_persist_skips_holdover_payoff():
         "payoff": [{"ref": "Labc123", "how": "不该收"}],
     }], "v4")
     assert paid == []
+
+
+def test_persist_reports_chapter_with_zero_facts(capsys):
+    """章壳先写、命题零条时必须举章号。以前只在合计 facts=0，看不出哪几章空。"""
+    from scribe3.tools.expand_wanjie_chapters import persist
+
+    class St:
+        def list_volumes(self):
+            return []
+
+        def list_promises(self):
+            return []
+
+        def save_chapter(self, *a, **k):
+            return None
+
+        def update_chapter_meta(self, *a, **k):
+            return True
+
+        def add_fact(self, *a, **k):
+            return None
+
+        def add_knowledge(self, *a, **k):
+            return None
+
+        def plant_promise(self, *a, **k):
+            return None
+
+        def advance_promise(self, *a, **k):
+            return None
+
+        def entity(self, oid):
+            return True
+
+        def add_entity(self, *a, **k):
+            return None
+
+        def add_faction(self, *a, **k):
+            return None
+
+    out = persist(St(), [
+        {"seq": 77, "title": "空", "synopsis": "y" * 40,
+         "new_facts": [], "learns": [], "hides": [], "plant": [], "payoff": []},
+        {"seq": 78, "title": "有", "synopsis": "z" * 40,
+         "new_facts": [{"entity": "role:甲", "attribute": "过门",
+                        "value": "付了体温", "secret": False}],
+         "learns": [], "hides": [], "plant": [], "payoff": []},
+        {"seq": 79, "title": "野", "synopsis": "w" * 40,
+         "new_facts": [{"entity": "world:地球", "attribute": "融合",
+                        "value": "认不出", "secret": False}],
+         "learns": [], "hides": [], "plant": [], "payoff": []},
+    ], "v4")
+    assert out["empty"] == [77, 79]
+    assert out["facts"] == 1
+    log = capsys.readouterr().out
+    assert "第77章零命题落库" in log
+    assert "第79章零命题落库" in log
+    assert "第78章零命题落库" not in log
