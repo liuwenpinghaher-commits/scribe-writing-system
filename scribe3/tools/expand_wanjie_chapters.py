@@ -686,12 +686,12 @@ def expand_volume_accounts(st, vol: dict, *, llm_fn, total: int = 200,
         chapters = parse(raw)
         persisted = persist(st, chapters, v.get("id"))
         n_ch += len(chapters)
-        try:
-            thick = thicken_named_entities(st, v, llm_fn=llm_fn)
-        except Exception as e:
-            thick = {"error": str(e)}
-        stats.append({"lo": a, "hi": b, "persist": persisted, "thicken": thick})
-    return {"chapters": n_ch, "batches": stats}
+        stats.append({"lo": a, "hi": b, "persist": persisted})
+    try:
+        thick = thicken_named_entities(st, vol, llm_fn=llm_fn)
+    except Exception as e:
+        thick = {"error": str(e)}
+    return {"chapters": n_ch, "batches": stats, "thicken": thick}
 
 
 def run_batch(st, vol: dict, lo: int, hi: int, total: int, *,
@@ -726,9 +726,6 @@ def run_batch(st, vol: dict, lo: int, hi: int, total: int, *,
     print(f"  本批新鲜度 {fr['new_entities_per_10ch']:.1f}／10章　"
           f"新 {len(fr['new_entities'])}：{'、'.join(fr['new_entities'][:8]) or '无'}"
           f"{'…' if len(fr['new_entities']) > 8 else ''}（只报不拦）")
-    print("  写厚：", thicken_named_entities(
-        st, vol, llm_fn=lambda p, max_tokens=4096: hermes_complete(
-            p, max_tokens=max_tokens, temperature=0.4, timeout=180)))
 
 
 def main() -> None:
@@ -765,6 +762,7 @@ def main() -> None:
         print(f"共 {len(batches)} 批："
               + "、".join(f"《{v.get('title')}》{a}-{b}" for v, a, b in batches) + "\n")
         failed: list[tuple[int, int]] = []
+        from scribe3.llm import hermes_complete
         for i, (vol, lo, hi) in enumerate(batches, 1):
             print(f"[{i}/{len(batches)}] ", end="")
             # 失败重试一次：一批就是十章，直接跳过等于书里空一段，
@@ -780,6 +778,12 @@ def main() -> None:
                     if attempt == 2:
                         failed.append((lo, hi))
             print()
+            nxt = batches[i][0] if i < len(batches) else None
+            vol_done = nxt is None or nxt.get("id") != vol.get("id")
+            if vol_done and not args.dry_run:
+                print(f"  写厚（整卷一次）：", thicken_named_entities(
+                    st, vol, llm_fn=lambda p, max_tokens=4096: hermes_complete(
+                        p, max_tokens=max_tokens, temperature=0.4, timeout=180)))
         if failed:
             print("这些章没铺成，补跑：" + "、".join(f"{a}-{b}" for a, b in failed))
     finally:

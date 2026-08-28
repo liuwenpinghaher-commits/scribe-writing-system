@@ -480,3 +480,5 @@ def test_expand_volume_accounts_persists_parsed_chapters():
     assert st.meta[11]["synopsis"].startswith("甲在渡口")
     assert st.meta[12]["synopsis"].startswith("甲发现")
     assert out.get("chapters") == 2 or len(out.get("batches") or []) >= 1
+    assert "thicken" in out
+    assert all("thicken" not in b for b in out.get("batches") or [])
