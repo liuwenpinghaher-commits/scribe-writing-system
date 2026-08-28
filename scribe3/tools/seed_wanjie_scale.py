@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts"))
 
-from scribe3.ontology import Entity, Fact  # noqa: E402
+from scribe3.ontology import Entity, Fact, canon_oid  # noqa: E402
 from scribe3.store import SurrealStore  # noqa: E402
 
 import humanrun_wanjie_seed as seed  # noqa: E402
@@ -87,11 +87,66 @@ def seed_rules(st) -> int:
     return len(seed.RULES)
 
 
+# 种子里曾经用 loc:/world:/hist:。loc 走 canon_oid 归 place。
+# world:地球 / world:修仙界 是融合点发生的地方，不是势力，归 place:。
+# hist:周公 是做事的人，归 role:。不把 world:/hist: 加进全局别名——
+# 模型再写野前缀必须被拒，只有种子这一处显式映射。
+_SEED_OID = {
+    "world:地球": "place:地球",
+    "world:修仙界": "place:修仙界",
+    "hist:周公": "role:周公",
+}
+
+
+def seed_oid(oid: str) -> str | None:
+    raw = (oid or "").strip()
+    if raw in _SEED_OID:
+        return _SEED_OID[raw]
+    return canon_oid(raw)
+
+
+def _ensure_seed_subject(st, oid: str) -> None:
+    prefix, _, name = oid.partition(":")
+    if prefix == "place" and not st.entity(oid):
+        st.add_entity(Entity(oid, "place", name))
+    elif prefix == "role" and not st.entity(oid):
+        st.add_entity(Entity(oid, "character", name))
+
+
 def seed_facts(st) -> int:
+    n = 0
     for fid, entity_id, attribute, value, vf in seed.FACTS:
-        st.add_fact(Fact(id=fid, entity_id=entity_id, attribute=attribute,
+        oid = seed_oid(entity_id)
+        if not oid:
+            print(f"  ! 跳过野前缀 {entity_id}")
+            continue
+        _ensure_seed_subject(st, oid)
+        st.add_fact(Fact(id=fid, entity_id=oid, attribute=attribute,
                          value=value, valid_from=vf))
-    return len(seed.FACTS)
+        n += 1
+    return n
+
+
+def rewrite_wild_facts(st) -> int:
+    """把库里已有的种子野前缀改写成本体。id 不变，知情边不用动。"""
+    reader = getattr(st, "facts_unfolded_at", None) or st.facts_at
+    try:
+        facts = list(reader(10**9) or [])
+    except TypeError:
+        facts = list(reader() or [])
+    n = 0
+    for f in facts:
+        old = f.entity_id or ""
+        new = seed_oid(old)
+        if not new or new == old:
+            continue
+        _ensure_seed_subject(st, new)
+        st.add_fact(Fact(
+            id=f.id, entity_id=new, attribute=f.attribute, value=f.value,
+            valid_from=f.valid_from, secret=getattr(f, "secret", False),
+        ))
+        n += 1
+    return n
 
 
 def seed_factions(st) -> int:
@@ -164,11 +219,18 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="ws://127.0.0.1:8123/rpc")
     ap.add_argument("--db", default="wanjie_scale")
+    ap.add_argument("--rewrite-wild", action="store_true",
+                    help="只改写库里已有的 loc:/world:/hist: 命题，不重新灌种子")
     args = ap.parse_args()
 
     st = SurrealStore(url=args.url, ns="scribe3", db=args.db)
     st.apply_schema()
     print(f"连上 {args.url} db={args.db}\n")
+    if args.rewrite_wild:
+        n = rewrite_wild_facts(st)
+        print(f"改写野前缀 {n} 条")
+        st.close()
+        return
 
     seed_intent(st)
     print("意图（北极星 / 红线 / 轴心词）已写")

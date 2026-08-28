@@ -33,6 +33,20 @@ def test_known_prefixes_land_in_ontology(raw, want):
     assert canon_oid(raw) == want
 
 
+def test_seed_oid_maps_world_and_hist_without_aliasing_canon():
+    """种子显式映射。canon_oid 仍拒 world:/hist:，模型写了照样拦。"""
+    from scribe3.ontology import canon_oid
+    from scribe3.tools.seed_wanjie_scale import seed_oid
+
+    assert seed_oid("loc:月球") == "place:月球"
+    assert seed_oid("world:地球") == "place:地球"
+    assert seed_oid("world:修仙界") == "place:修仙界"
+    assert seed_oid("hist:周公") == "role:周公"
+    assert seed_oid("role:柳岸青") == "role:柳岸青"
+    assert canon_oid("world:地球") is None
+    assert canon_oid("hist:周公") is None
+
+
 @pytest.mark.parametrize("raw", [
     "", None, "没有冒号", "world:地球", "hist:开元之乱", "ev:某事", "fact:某条",
     "role:", "  :  ",
