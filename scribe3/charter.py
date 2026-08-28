@@ -267,6 +267,8 @@ class CharterAudit:
     pays_expected: int = 0
     cross_volume_payoffs: int = 0
     must_know_missing: list[str] = field(default_factory=list)
+    #: 契约没给 key，模糊匹配误报过 8/11。这一项既不算过也不算不过。
+    must_know_undecidable: list[str] = field(default_factory=list)
     must_not_know_violated: list[str] = field(default_factory=list)
     #: 只在命题内容里撞见、属性名没撞上。可能是叙述里提了一嘴，也可能真漏了，交给人看。
     must_not_know_suspect: list[str] = field(default_factory=list)
@@ -311,6 +313,9 @@ class CharterAudit:
         if self.pays_short:
             lines.append(f"  ✗ 说要收 {self.pays_expected} 条旧线，"
                          f"实际只收掉 {self.cross_volume_payoffs} 条上一卷之前埋的")
+        if self.must_know_undecidable:
+            lines.append("  · 无法判定（契约无 key）："
+                         + "、".join(self.must_know_undecidable))
         if self.must_know_missing:
             lines.append(f"  ✗ 卷末该知道却不知道：{'、'.join(self.must_know_missing)}")
         if self.new_entities_per_10ch < MIN_NEW_ENTITIES_PER_10CH:
@@ -401,7 +406,7 @@ def audit_volume(store, volume: dict, hero: str, *,
     # 契约里写的是人话，库里存的也是人话，拿长句互相模糊匹配两头都不准：
     # 实测 must_know 报缺失 11 条里 8 条是误报（库里有几乎同义的命题，
     # 只是措辞不同、实词重合不到一半），红线误报过六卷。
-    # 带 key 的走精确匹配，不带 key 的（旧契约）才退回模糊，并标明结果不可靠。
+    # 带 key 的走精确匹配。不带 key 的标无法判定，不再模糊匹配（误报 8/11）。
     blob = [f"{f.attribute} {f.value}" for f in known]
     attrs = [f.attribute for f in known]
 
@@ -410,8 +415,9 @@ def audit_volume(store, volume: dict, hero: str, *,
         if key:
             if not any(key == a or _attr_names_forbidden(a, key) for a in attrs):
                 audit.must_know_missing.append(what or key)
-        elif not any(_loose_match(what, b) for b in blob):
-            audit.must_know_missing.append(what)
+        else:
+            # 无 key 不能退回模糊匹配：那条路 11 条里 8 条是误报。
+            audit.must_know_undecidable.append(what)
 
     for forbid in charter["knowledge_end"]["must_not_know"]:
         key, what = forbid["key"], forbid["what"]

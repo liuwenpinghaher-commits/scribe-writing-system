@@ -368,9 +368,23 @@ def test_audit_red_line_held_when_hero_kept_ignorant():
 def test_audit_reports_missing_must_know():
     st = FakeStore([_fact("x", "role:主角", "别的事", "无关", 12)])
     vol = _volume({"duty": "办", "chapter_range": [11, 20], "introduces": [], "pays": [],
-                   "knowledge_end": {"must_know": ["母亲还活着"]}})
+                   "knowledge_end": {"must_know": [{"key": "母亲还活着", "what": "母亲还活着"}]}})
     a = audit_volume(st, vol, "role:主角")
     assert a.must_know_missing == ["母亲还活着"]
+
+
+def test_must_know_without_key_is_undecidable():
+    """旧契约全是人话、没有 key。模糊匹配误报率 8/11，这一项判不了。
+
+    不算缺失，也不算过。报告里写无法判定。
+    """
+    st = FakeStore([_fact("x", "role:主角", "别的事", "无关", 12)])
+    vol = _volume({"duty": "办", "chapter_range": [11, 20], "introduces": [], "pays": [],
+                   "knowledge_end": {"must_know": ["母亲还活着"]}})
+    a = audit_volume(st, vol, "role:主角")
+    assert a.must_know_missing == []
+    assert a.must_know_undecidable == ["母亲还活着"]
+    assert "无法判定" in a.report() and "契约无 key" in a.report()
 
 
 # ---------- freshness ----------

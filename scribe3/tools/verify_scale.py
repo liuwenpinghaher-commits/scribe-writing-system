@@ -46,7 +46,8 @@ def check_volumes(st, rep: Report, hero: str) -> None:
     if not vols:
         rep.check(False, "库里没有带契约的卷")
         return
-    bad_fresh, bad_intro, bad_pays, red, missing_know = [], [], [], [], []
+    bad_fresh, bad_intro, bad_pays, red, missing_know, undecidable_know = [], [], [], [], [], []
+    keyed_know = False
     for v in sorted(vols, key=lambda x: int(x.get("sort_order") or 0)):
         a = audit_volume(st, v, hero)
         so = v.get("sort_order")
@@ -55,6 +56,7 @@ def check_volumes(st, rep: Report, hero: str) -> None:
               f"　引入缺 {len(a.introduces_missing)}"
               f"　跨卷收线 {a.cross_volume_payoffs}/{a.pays_expected}"
               f"　该知道缺 {len(a.must_know_missing)}"
+              f"　知情无法判定 {len(a.must_know_undecidable)}"
               f"　破红线 {len(a.must_not_know_violated)}")
         if a.new_entities_per_10ch < 5.0:
             bad_fresh.append(f"卷{so} {a.new_entities_per_10ch:.1f}")
@@ -64,8 +66,14 @@ def check_volumes(st, rep: Report, hero: str) -> None:
             bad_pays.append(f"卷{so} 差 {a.pays_short} 条")
         if a.must_not_know_violated:
             red.append(f"卷{so} {'、'.join(a.must_not_know_violated)}")
+        n_keyed = (len(normalize_charter(v.get("charter"))["knowledge_end"]["must_know"])
+                   - len(a.must_know_undecidable))
+        if n_keyed > 0:
+            keyed_know = True
         if a.must_know_missing:
             missing_know.append(f"卷{so} {len(a.must_know_missing)} 条")
+        if a.must_know_undecidable:
+            undecidable_know.append(f"卷{so} {len(a.must_know_undecidable)} 条")
         if a.must_not_know_unusable:
             print(f"    （契约这几条写不了，核对时跳过：{'、'.join(a.must_not_know_unusable)}）")
 
@@ -74,7 +82,12 @@ def check_volumes(st, rep: Report, hero: str) -> None:
     rep.check(not bad_intro, "契约点名的新实体都引入了", "；".join(bad_intro))
     rep.check(not bad_pays, "每卷收够了更早埋的线", "；".join(bad_pays))
     rep.check(not red, "红线一条没破", "；".join(red))
-    rep.check(not missing_know, "卷末该知道的都知道了", "；".join(missing_know))
+    if undecidable_know:
+        print(f"  · 无法判定（契约无 key）　{'；'.join(undecidable_know)}")
+    if missing_know:
+        rep.check(False, "卷末该知道的都知道了", "；".join(missing_know))
+    elif keyed_know:
+        rep.check(True, "卷末该知道的都知道了", "")
 
 
 def check_prefixes(st, rep: Report, until: int) -> None:

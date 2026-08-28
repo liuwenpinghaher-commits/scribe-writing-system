@@ -160,6 +160,45 @@ def test_check_depth_positive_control_thin_entities():
     assert any("≤4" in t for t in rep.failed), rep.failed
 
 
+def test_must_know_without_key_is_neither_pass_nor_fail():
+    """对照库知情终态全无 key：报告无法判定，不进 failed，也不打钩。"""
+    import io
+    from contextlib import redirect_stdout
+    from scribe3.ontology import Fact
+    from scribe3.tools.verify_scale import check_volumes
+
+    facts = [Fact(f"fact:n{i}", f"role:新{i}", f"a{i}", "x", i + 1, None, False, [])
+             for i in range(6)]
+    vol = {"id": "v1", "title": "卷一", "sort_order": 1,
+           "charter": {"duty": "办", "chapter_range": [1, 10],
+                       "introduces": [f"role:新{i}" for i in range(6)],
+                       "pays": [],
+                       "knowledge_end": {"must_know": ["母亲还活着"],
+                                         "must_not_know": []}}}
+
+    class _Store:
+        def list_volumes(self):
+            return [vol]
+
+        def facts_at(self, ch):
+            return [f for f in facts if f.valid_from <= ch]
+
+        def load_knowledge(self):
+            return []
+
+        def list_promises(self):
+            return []
+
+    rep = Report()
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        check_volumes(_Store(), rep, "role:新0")
+    out = buf.getvalue()
+    assert "无法判定" in out and "契约无 key" in out
+    assert not any("该知道" in t for t in rep.failed), rep.failed
+    assert "✓ 卷末该知道的都知道了" not in out
+
+
 def test_check_depth_positive_control_singleton_places():
     """8 个互不嵌套的地点 = 一区一地点 100%，空间闸必须红。"""
     from scribe3.tools.verify_scale import check_depth
