@@ -594,6 +594,13 @@ CLI 和 MCP `s3_plan_volumes` 共用 `generate_charters`。
 **指定五文件 142 passed。**
 **`verify_scale --db wanjie_scale --chapters 200`：10 红，不是预估的 12。** 预估把障碍当门、空间当门、卷1欠跨卷收线。实际：障碍/空间只报不拦；卷1 `pays_expected=0`；「卷末该知道」改无法判定。10 项：新鲜度卷2–9、引入（卷1 温盏/白霜拍卖行/寒灯街，卷8 名讳司）、跨卷收线卷2 差1、空壳 0.789、完整度 64、≤2 21%、≤4 26%、前3 37%、跨卷未收 0/256、终卷前 1–9 卷全 0。未调阈值。未重铺 200。
 
+### 假闸怎么活到交付（2026-08-29 复测）
+FOLLOWUP 要求把这件事写进 SESSION，比「修好了」更有用。本轮指定五文件 **145 passed**（PADDING 第一步多 3 条），对照库再跑仍是 **10 红**，阳性对照 0→1。未调阈值，未写 `wanjie_scale`。
+**两道假闸的形状：** 悬置显示 `cross_open`、把关 `all_closed`。末卷 18 条开口让 `not all_closed` 为真，报告却写「跨卷未收 0」还打钩——推导一个口径、验收另一个。障碍闸写成「至少一条被引用」，`_rule_needles` 两字就能命中，「有一条就永绿」；`with_cost` 算了没进闸。
+**为什么能交付：** 方法论第三条（返回 0 必须有阳性对照）只钉在一致性扫描上。新深度四项一项都没有。悬置返回的就是 0，对照缺席等于批准假绿。闸先被写成永远能绿的形状，测试再绕开读路径或只测分函数，端到端 `check_depth` 抓不到。
+**改完为什么是 10 不是 12：** 原 10 项去掉「卷末该知道」（十卷各 3 条无法判定，报告打出、不进红项），加上悬置两道真红，本该 11；再拿掉卷 1 跨卷收线（`pays_expected=0`，先天不可过）变成 10。第 12 项假定障碍比例门会红——StoryScope 11.1% 是故事级取值，搬成书内触发率现库 83% 必过，找不到依据就不设门，不凑数。空间无从属同样只报不拦。
+**还在的真红（对照库）：** 新鲜度卷 2–9、引入卷 1/8、跨卷收线卷 2 差 1、空壳 0.789、完整度 64、≤2 21%、≤4 26%、前 3 37%、跨卷未收 0/256、终卷前 1–9 卷全 0。跨 ≥3 卷 9/256=4% 只报。
+
 ### PADDING 第一步 · 清注水（2026-08-29）
 方案 [`2026-08-29-PADDING-PROMPT.md`](./plans/2026-08-29-PADDING-PROMPT.md)。**只清注水，未铺章，未进 U1/U2/U3。** `wanjie_scale` 未动。扫描未放宽。
 **代码：** 写厚差额只认本卷**新 attribute**（同键换词算 1 条）；重跑把已写 attribute 列进提示并写明不算数；`persist` 故事命题显式 `supersede_open=True`（隐瞒仍 False）。测 `test_thicken_deficit_rewrite_same_attribute_does_not_count` / `test_chapter_prompt_lists_written_attributes_as_not_counting` / `test_persist_story_facts_pass_supersede_open`，连同原差额/配额 **5 passed**。
