@@ -297,18 +297,21 @@ def motif_schedule_directives(
 def generation_motif_block(directives: dict) -> str:
     """写作路径注入块文案(可拼进 _codex_block)。空则 ""。"""
     parts: list[str] = []
-    if directives.get("must_echo"):
+    echo = list(directives.get("must_echo") or [])
+    if echo:
         parts.append(
             "【母题·该回声 must_echo】\n"
-            + "\n".join(f"- {x}" for x in directives["must_echo"]))
+            + "\n".join(f"- {x}" for x in echo))
     if directives.get("avoid_overuse"):
         parts.append(
             "【母题·过热避免连刷 avoid_overuse】\n"
             + "\n".join(f"- {x}" for x in directives["avoid_overuse"]))
-    if directives.get("lines"):
+    # 可编织不要把 must_echo 再贴一遍。实测四条母题各出现两次，白占上下文。
+    extra = [x for x in (directives.get("lines") or []) if x not in echo]
+    if extra:
         parts.append(
             "【贯穿母题·可主动编织】\n"
-            + "\n".join(f"- {x}" for x in directives["lines"]))
+            + "\n".join(f"- {x}" for x in extra))
     return "\n".join(parts)
 
 

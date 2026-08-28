@@ -45,6 +45,7 @@ def test_schedule_and_generation_block():
     block = generation_motif_block(d)
     assert "must_echo" in block and "avoid_overuse" in block
     assert "铜炉" in block and "纸命" in block
+    assert block.count("纸命") == 1
 
 
 def test_store_heat_brief_and_codex_generation(store):
