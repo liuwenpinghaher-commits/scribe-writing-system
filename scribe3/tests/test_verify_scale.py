@@ -48,3 +48,68 @@ def test_thresholds_are_the_plan_numbers():
 
     assert CHAR_ISSUE_RATIO_MAX == 0.3
     assert COMPLETENESS_SCORE_MIN == 80
+
+
+class _DepthStore:
+    """check_depth 只吃公开方法。空命题让厚度/空间真空过，专门打悬置闸。"""
+
+    def __init__(self, volumes, promises, rules=()):
+        self._volumes = volumes
+        self._promises = promises
+        self._rules = list(rules)
+
+    def facts_at(self, until):
+        return []
+
+    def list_world_rules(self):
+        return list(self._rules)
+
+    def list_volumes(self):
+        return list(self._volumes)
+
+    def list_promises(self):
+        return list(self._promises)
+
+
+def _vols(*ends):
+    prev = 0
+    out = []
+    for i, e in enumerate(ends, 1):
+        out.append({"sort_order": i, "title": f"卷{i}",
+                    "charter": {"chapter_range": [prev + 1, e]}})
+        prev = e
+    return out
+
+
+def test_suspense_gate_uses_cross_open_not_all_closed():
+    """假闸：末卷还有开口线 → all_closed 为假 → 绿；显示却是跨卷未收 0。
+
+    把关必须用同一个数：跨卷未收 / 总线数 ≥15%，以及终卷前每卷至少一条。
+    """
+    from scribe3.tools.verify_scale import check_depth
+
+    promises = [
+        {"setup_chapter": 4, "payoff_chapter": 8, "status": "paid"},
+        {"setup_chapter": 4, "payoff_chapter": 25, "status": "paid"},
+        {"setup_chapter": 55, "payoff_chapter": None, "status": "open"},
+    ]
+    rep = Report()
+    check_depth(_DepthStore(_vols(20, 40, 60), promises), rep, 60)
+    assert any("跨卷未收" in t for t in rep.failed), rep.failed
+    assert any("终卷前" in t for t in rep.failed), rep.failed
+
+
+def test_suspense_both_gates_pass_when_early_volumes_still_hang():
+    from scribe3.tools.verify_scale import check_depth
+
+    promises = [
+        {"setup_chapter": 4, "payoff_chapter": None, "status": "open"},
+        {"setup_chapter": 25, "payoff_chapter": None, "status": "open"},
+        {"setup_chapter": 4, "payoff_chapter": 8, "status": "paid"},
+        {"setup_chapter": 25, "payoff_chapter": 30, "status": "paid"},
+        {"setup_chapter": 45, "payoff_chapter": None, "status": "open"},
+    ]
+    # 跨卷未收 2/5 = 40% ≥15%；卷1、卷2 各一条未收。
+    rep = Report()
+    check_depth(_DepthStore(_vols(20, 40, 60), promises), rep, 60)
+    assert not any("跨卷未收" in t or "终卷前" in t for t in rep.failed), rep.failed

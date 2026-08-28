@@ -79,16 +79,84 @@ def test_obstacle_matches_distinctive_part_of_long_rule_name():
 
 
 def test_suspense_is_open_lines_that_crossed_a_volume():
-    """全收完 = 把话说完 = 无悬念。悬置率不得为 0。"""
+    """跨卷未收 = 仍开着且埋在终卷之前。末卷刚埋的不算跨卷。"""
     promises = [
         {"text": "旧线", "setup_chapter": 4, "payoff_chapter": 18, "status": "paid"},
         {"text": "跨卷还开着", "setup_chapter": 18, "payoff_chapter": None, "status": "open"},
         {"text": "本卷刚埋", "setup_chapter": 195, "payoff_chapter": None, "status": "open"},
     ]
-    # 卷界 20, 40, … 200
     bounds = list(range(20, 201, 20))
     s = suspense_rate(promises, volume_ends=bounds)
     assert s["n"] == 3
     assert s["cross_open"] == 1
     assert s["rate"] == 1 / 3
-    assert s["all_closed"] is False
+
+
+def test_cross_open_min_is_author_serial_floor_not_storyscope():
+    """15% 是作者定的连载口径，不是 StoryScope 推出来的。不许假装实测依据。"""
+    from scribe3.setting_depth import CROSS_OPEN_MIN
+
+    assert CROSS_OPEN_MIN == 0.15
+
+
+def test_suspense_zero_cross_open_even_when_last_volume_still_has_open_lines():
+    """假闸原样：18 条未收全在最后一卷，跨卷未收是 0，不能因 all_closed 为假而绿。"""
+    promises = [
+        {"setup_chapter": 4, "payoff_chapter": 18, "status": "paid"},
+        {"setup_chapter": 18, "payoff_chapter": 45, "status": "paid"},
+        {"setup_chapter": 195, "payoff_chapter": None, "status": "open"},
+        {"setup_chapter": 198, "payoff_chapter": None, "status": "open"},
+    ]
+    s = suspense_rate(promises, volume_ends=list(range(20, 201, 20)))
+    assert s["cross_open"] == 0
+    assert s["rate"] == 0.0
+    assert s["n"] == 4
+
+
+def test_suspense_reports_which_volumes_have_zero_hanging_lines():
+    """终卷之前每一卷都要有跨卷未收。末卷排除。报告要写出哪几卷是 0。"""
+    bounds = [10, 20, 30]
+    promises = [
+        {"setup_chapter": 2, "payoff_chapter": 8, "status": "paid"},
+        {"setup_chapter": 12, "payoff_chapter": 28, "status": "paid"},
+        {"setup_chapter": 25, "payoff_chapter": None, "status": "open"},
+    ]
+    s = suspense_rate(promises, volume_ends=bounds)
+    assert s["cross_open"] == 0
+    barren = s["barren_volumes"]
+    assert "1-10" in barren and "11-20" in barren
+    assert "21-30" not in barren
+    by = {f"{v['lo']}-{v['hi']}": v["cross_open"] for v in s["by_volume"]}
+    assert by["1-10"] == 0 and by["11-20"] == 0
+    assert by["21-30"] == 0
+    last = [v for v in s["by_volume"] if v["is_last"]]
+    assert len(last) == 1 and last[0]["hi"] == 30
+
+
+def test_suspense_per_volume_gate_fails_if_early_volumes_are_cleared():
+    """只有早卷还挂着的线才算。卷1 挂一条、卷2 一条没有 → 卷2 仍约。"""
+    bounds = [10, 20, 30]
+    promises = [
+        {"setup_chapter": 3, "payoff_chapter": None, "status": "open"},
+        {"setup_chapter": 12, "payoff_chapter": 18, "status": "paid"},
+        {"setup_chapter": 25, "payoff_chapter": None, "status": "open"},
+    ]
+    s = suspense_rate(promises, volume_ends=bounds)
+    assert s["cross_open"] == 1
+    assert s["barren_volumes"] == ["11-20"]
+
+
+def test_long_span_ratio_is_reported_not_a_gate_number():
+    """跨 ≥3 卷只报。现库 9/256=4%，没有依据说多少才对，不设门。"""
+    bounds = [10, 20, 30, 40]
+    promises = [
+        {"setup_chapter": 2, "payoff_chapter": 8, "status": "paid"},    # 同卷
+        {"setup_chapter": 2, "payoff_chapter": 15, "status": "paid"},   # 跨 1 卷
+        {"setup_chapter": 2, "payoff_chapter": 25, "status": "paid"},   # 跨 2 卷
+        {"setup_chapter": 2, "payoff_chapter": 35, "status": "paid"},   # 跨 3 卷
+        {"setup_chapter": 2, "payoff_chapter": None, "status": "open"},  # 开到终卷，跨 3 卷
+    ]
+    s = suspense_rate(promises, volume_ends=bounds)
+    assert s["long_span"] == 2
+    assert s["long_span_ratio"] == 2 / 5
+    assert "LONG_SPAN" not in dir(__import__("scribe3.setting_depth", fromlist=["CROSS_OPEN_MIN"]))

@@ -134,7 +134,7 @@ def check_depth(st, rep: Report, until: int) -> None:
     """StoryScope 能当门的四项。监控项（说教/感官）绝对不进这里，也不进提示词。"""
     from scribe3.charter import normalize_charter, story_entities
     from scribe3.setting_depth import (
-        LE2_RATIO_MAX, LE4_RATIO_MAX, TOP3_SHARE_MAX,
+        CROSS_OPEN_MIN, LE2_RATIO_MAX, LE4_RATIO_MAX, TOP3_SHARE_MAX,
         obstacle_rate, spatial_spread, suspense_rate, thickness_distribution,
     )
 
@@ -190,9 +190,21 @@ def check_depth(st, rep: Report, until: int) -> None:
             ends.append(int(rng[1]))
     su = suspense_rate(st.list_promises() or [], volume_ends=ends or [until])
     print(f"  悬置（跨卷未收）{su['cross_open']}/{su['n']} = {su['rate']:.0%}")
-    rep.check(not su["all_closed"] and su["n"] > 0,
-              "悬置率不得为 0（全收完 = 把话说完）",
-              f"跨卷未收 {su['cross_open']}")
+    if su["by_volume"]:
+        barren = su["barren_volumes"]
+        hung = [f"{v['lo']}-{v['hi']}×{v['cross_open']}"
+                for v in su["by_volume"] if not v["is_last"]]
+        print("    终卷前各卷未收：" + "、".join(hung))
+        if barren:
+            print("    无悬置：" + "、".join(barren))
+    print(f"  跨≥3卷 {su['long_span']}/{su['n']} = {su['long_span_ratio']:.0%}（只报不拦，无依据设门）")
+    # 显示和把关同一口径：跨卷未收 / 总线数。15% 是作者连载口径，不是 StoryScope。
+    rep.check(su["n"] > 0 and su["rate"] >= CROSS_OPEN_MIN,
+              f"跨卷未收 ≥{CROSS_OPEN_MIN:.0%}（连载口径，非 StoryScope）",
+              f"{su['cross_open']}/{su['n']} = {su['rate']:.0%}")
+    rep.check(su["n"] > 0 and not su["barren_volumes"],
+              "终卷前每一卷都有跨卷未收的线",
+              "无悬置：" + "、".join(su["barren_volumes"]) if su["barren_volumes"] else "")
 
 
 def check_completeness(st, rep: Report) -> None:

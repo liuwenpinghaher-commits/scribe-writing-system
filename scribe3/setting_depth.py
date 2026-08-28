@@ -108,29 +108,68 @@ def obstacle_rate(rules: Iterable[dict], facts) -> dict[str, Any]:
     }
 
 
+def _volume_index(ch: int, ends: list[int]) -> int | None:
+    for i, e in enumerate(ends):
+        if int(ch) <= e:
+            return i
+    return None
+
+
 def suspense_rate(promises: Iterable[dict], *, volume_ends: list[int]) -> dict[str, Any]:
-    """埋下后跨过一卷仍未收的线。全收完 = 把话说完。"""
+    """跨卷未收：仍开着、且埋在终卷之前的线。
+
+    显示和把关必须用这一个数。曾经用 all_closed（开口线在不在末卷都算没全收）
+    把关、用 cross_open 显示，于是「不得为 0」旁边写着 0 却判通过。
+
+    跨 ≥3 卷只报不拦：没有依据说多少才对。
+    """
     ends = sorted(int(x) for x in volume_ends if x)
-    rows = list(promises or [])
-    n = 0
+    rows = [p for p in (promises or []) if p.get("setup_chapter") is not None]
+    n = len(rows)
+    last_i = len(ends) - 1 if ends else 0
+    by_volume: list[dict[str, Any]] = []
+    prev = 0
+    for i, e in enumerate(ends):
+        by_volume.append({
+            "index": i + 1,
+            "lo": prev + 1,
+            "hi": e,
+            "cross_open": 0,
+            "is_last": i == last_i,
+        })
+        prev = e
+
     cross_open = 0
-    last = ends[-1] if ends else 0
+    long_span = 0
     for p in rows:
-        sc = p.get("setup_chapter")
-        if sc is None:
+        si = _volume_index(int(p["setup_chapter"]), ends)
+        if si is None:
             continue
-        n += 1
-        if str(p.get("status") or "open").lower() == "open":
-            first_end = next((e for e in ends if e >= int(sc)), None)
-            if first_end is not None and first_end < last:
-                cross_open += 1
+        status = str(p.get("status") or "open").lower()
+        pc = p.get("payoff_chapter")
+        still_open = status == "open" or pc is None
+        if still_open:
+            ei = last_i
+        else:
+            ei = _volume_index(int(pc), ends)
+            if ei is None:
+                ei = last_i
+        if ei - si >= 3:
+            long_span += 1
+        if still_open and si < last_i:
+            cross_open += 1
+            by_volume[si]["cross_open"] += 1
+
+    barren = [f"{v['lo']}-{v['hi']}" for v in by_volume
+              if not v["is_last"] and v["cross_open"] == 0]
     return {
         "n": n,
         "cross_open": cross_open,
         "rate": (cross_open / n) if n else 0.0,
-        "all_closed": n > 0 and cross_open == 0 and all(
-            str(p.get("status") or "").lower() != "open" for p in rows if p.get("setup_chapter") is not None
-        ),
+        "by_volume": by_volume,
+        "barren_volumes": barren,
+        "long_span": long_span,
+        "long_span_ratio": (long_span / n) if n else 0.0,
     }
 
 
@@ -138,3 +177,6 @@ def suspense_rate(promises: Iterable[dict], *, volume_ends: list[int]) -> dict[s
 LE2_RATIO_MAX = 0.10
 LE4_RATIO_MAX = 0.15
 TOP3_SHARE_MAX = 0.20
+# 跨卷未收下限。作者定的连载口径，不是 StoryScope 推出来的。
+# StoryScope 只说明模型默认把话说完；连载要留多少悬着没有实测，不许伪装。
+CROSS_OPEN_MIN = 0.15
