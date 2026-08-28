@@ -14,9 +14,11 @@ from scribe3.codex_generate import (
     merge_codex_slot,
     parse_codex_payload,
     persist_codex_row,
+    portrait_grounded,
     portrait_stash_fields,
     thicken_codex,
     thicken_codex_batch,
+    _apply_portrait_extract,
 )
 from scribe3.mcp._common import WRITE_GATED
 from scribe3.write_commit import DEFAULT_WRITE_GATED
@@ -248,6 +250,59 @@ def test_portrait_extract_retries_four_times():
 
     thicken_codex("character", {"name": "温贩婆"}, llm_fn=llm)
     assert n["extract"] == PORTRAIT_EXTRACT_TRIES
+
+
+def test_extract_unlabeled_two_paragraphs():
+    """缺陷一：无「他要什么」标签、两段原文也能抽出字段。"""
+    raw = (
+        "她要把柳母余温写进价单，让亲情可抵成为入口。\n\n"
+        "她让人付出抵押条款，价单交给温税吏。"
+    )
+    got = _apply_portrait_extract("character", {}, {}, raw)
+    assert "余温" in got["surface_goal"]
+    assert "抵押" in got["fear"]
+
+
+def test_extract_unlabeled_two_sentences():
+    raw = "她要把余温金融化。她让人付亲情和抵押条款。"
+    got = _apply_portrait_extract("character", {}, {}, raw)
+    assert "余温金融化" in got["surface_goal"]
+    assert "亲情" in got["fear"]
+
+
+def test_portrait_grounded_nonadjacent_ok_invented_fail():
+    """缺陷二：两句非相邻原话算 grounded；另编的不算。"""
+    portrait = (
+        "温贩婆要把余温金融化。中间夹着别的句子，跟抽取无关。"
+        "她让人付亲情和抵押条款。"
+    )
+    ok = {
+        "surface_goal": "温贩婆要把余温金融化",
+        "fear": "她让人付亲情和抵押条款",
+    }
+    assert portrait_grounded("character", ok, portrait) is True
+    fake = {
+        "surface_goal": "她要一统天下改写场核",
+        "fear": "她让人付亲情和抵押条款",
+    }
+    assert portrait_grounded("character", fake, portrait) is False
+
+
+def test_reuse_stashed_portrait_skips_rewrite():
+    prompts: list[str] = []
+
+    def llm(prompt, max_tokens=4096):
+        prompts.append(prompt)
+        return (
+            "他要什么：温贩婆要把余温金融化\n"
+            "他让人付出什么：她让人付亲情和抵押条款"
+        )
+
+    src = {"name": "温贩婆", "personality_detail": _PORTRAIT * 4}
+    out = thicken_codex("character", src, llm_fn=llm)
+    assert out.get("ok"), out
+    assert prompts, "应走抽取"
+    assert all("不要填表" not in p for p in prompts)
 
 
 def test_portrait_stash_skips_empty_and_keeps_existing():

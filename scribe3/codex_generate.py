@@ -838,13 +838,90 @@ def _duty_blob(kind: str, fields: Mapping[str, Any] | None) -> str:
     return ""
 
 
-def portrait_grounded(kind: str, fields: Mapping[str, Any] | None, portrait: str) -> bool:
+#: 字段实词过半落在短文里即算同源。与 charter._loose_match 同一条线：
+#: 防的是另编，不是防抽取器把长句压短。过半是「多数」，不是「全部」——
+#: 压缩会丢掉虚词和尾巴，全部命中会把合法压缩误杀。
+PORTRAIT_GROUND_RATIO = 0.5
+PORTRAIT_REUSE_MIN = 80
+
+_DUTY_KEYS = {
+    "character": ("surface_goal", "deep_need", "fear", "internal_conflict"),
+    "item": ("description",),
+    "world_rule": ("cost",),
+    "term": ("definition",),
+    "faction": ("ideology",),
+}
+
+
+def duty_field_texts(kind: str, fields: Mapping[str, Any] | None) -> list[str]:
+    src = fields if isinstance(fields, dict) else {}
+    out: list[str] = []
+    for key in _DUTY_KEYS.get((kind or "").strip().lower(), ()):
+        val = src.get(key)
+        if isinstance(val, (list, tuple)):
+            val = " ".join(str(x) for x in val if str(x).strip())
+        text = str(val or "").strip()
+        if text:
+            out.append(text)
+    return out
+
+
+def _field_in_portrait(field: str, portrait: str) -> bool:
+    from scribe3.charter import _tokens
     from scribe3.playbook.quote import _norm
-    blob = _duty_blob(kind, fields)
-    if not str(blob or "").strip() or not str(portrait or "").strip():
+    toks = [t for t in _tokens(field, drop_stop=True) if len(t) >= 2]
+    if not toks:
+        f, p = _norm(field), _norm(portrait)
+        return bool(f) and f in p
+    hit = sum(1 for t in toks if t in portrait)
+    return hit / len(toks) >= PORTRAIT_GROUND_RATIO
+
+
+def portrait_grounded(kind: str, fields: Mapping[str, Any] | None, portrait: str) -> bool:
+    """每个非空 duty 字段单独对短文判定，不再把字段拼成一串再找子串。"""
+    if not str(portrait or "").strip():
         return False
-    b, p = _norm(blob), _norm(portrait)
-    return bool(b) and bool(p) and (b in p or p in b)
+    texts = duty_field_texts(kind, fields)
+    if not texts:
+        return False
+    return all(_field_in_portrait(t, portrait) for t in texts)
+
+
+def existing_portrait(kind: str, src: Mapping[str, Any] | None) -> str:
+    """已经 stash 过的短文。够长就直接抽，不要再写一篇。"""
+    key = {
+        "character": "personality_detail",
+        "faction": "ideology",
+        "item": "description",
+        "world_rule": "cost",
+        "term": "definition",
+    }.get((kind or "").strip().lower())
+    if not key:
+        return ""
+    text = str((src or {}).get(key) or "").strip()
+    return text if len(text) >= PORTRAIT_REUSE_MIN else ""
+
+
+def _labeled_line(text: str, *labels: str) -> str:
+    for lab in labels:
+        m = re.search(rf"{re.escape(lab)}\s*[:：]\s*(.+)", text)
+        if m:
+            return m.group(1).strip().split("\n", 1)[0].strip()
+    return ""
+
+
+def _split_unlabeled_pair(text: str) -> tuple[str, str]:
+    """无标签两段：空行分段优先，否则按句号切两句。"""
+    src = (text or "").strip()
+    if not src:
+        return "", ""
+    paras = [p.strip() for p in re.split(r"\n\s*\n", src) if p.strip()]
+    if len(paras) >= 2:
+        return paras[0], paras[1]
+    sents = [s.strip() for s in re.split(r"(?<=[。！？])", src) if s.strip()]
+    if len(sents) >= 2:
+        return sents[0], sents[1]
+    return "", ""
 
 
 def _apply_portrait_extract(kind: str, working: dict, patch: dict, raw: str) -> dict[str, Any]:
@@ -855,13 +932,11 @@ def _apply_portrait_extract(kind: str, working: dict, patch: dict, raw: str) -> 
         want = str(src.get("surface_goal") or src.get("deep_need") or "").strip()
         pay = str(src.get("fear") or src.get("internal_conflict") or "").strip()
         if not want:
-            m = re.search(r"他要什么\s*[:：]\s*(.+)", text)
-            if m:
-                want = m.group(1).strip().split("\n", 1)[0]
+            want = _labeled_line(text, "他要什么", "表层目标", "深层需求")
         if not pay:
-            m = re.search(r"他让人付出什么\s*[:：]\s*(.+)", text)
-            if m:
-                pay = m.group(1).strip().split("\n", 1)[0]
+            pay = _labeled_line(text, "他让人付出什么", "恐惧", "内在冲突")
+        if not want and not pay:
+            want, pay = _split_unlabeled_pair(text)
         if want:
             out["surface_goal"] = want
         if pay:
@@ -910,8 +985,13 @@ def thicken_codex_portrait(
     include_secret: bool,
     bible: str,
 ) -> dict[str, Any]:
-    portrait = _call_llm(llm_fn, build_portrait_prompt(kind, src, extra=extra, bible=bible), MAX_TOKENS[kind])
-    first = parse_codex_payload(kind, portrait)
+    reused = existing_portrait(kind, src)
+    if reused:
+        portrait = reused
+        first = {}
+    else:
+        portrait = _call_llm(llm_fn, build_portrait_prompt(kind, src, extra=extra, bible=bible), MAX_TOKENS[kind])
+        first = parse_codex_payload(kind, portrait)
     working = dict(first)
     if not (duty_fields_ready(kind, working) and portrait_grounded(kind, working, portrait)):
         for _rnd in range(PORTRAIT_EXTRACT_TRIES):
