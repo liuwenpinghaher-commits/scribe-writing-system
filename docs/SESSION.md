@@ -539,9 +539,9 @@ CLI 和 MCP `s3_plan_volumes` 共用 `generate_charters`。
 - 悬置：若把 10 卷终当作全书，跨卷未收 10/44=23% 会过 15%；但终卷前荒卷 = 8，因为后卷根本没铺。**不要对未完成书跑 `verify_scale --chapters 200` 当成绩。**
 - 抽样章（11/15/20/21/25/30/35/40）是调度卡不是空壳：扣温、白档匣、金縢差步、壳裂、裂口灯、假坐标、欠温清算。
 
-**对照库 `wanjie_scale` 未动。** `verify_scale --db wanjie_scale --chapters 200` 仍未复测（上次 11 红）。
+**对照库 `wanjie_scale` 未写。** `verify_scale --db wanjie_scale --chapters 200` 已复测 **10 红**（见 FOLLOWUP 验收节）。
 
-**下一件**：WALL W1+W2 已改并只铺到 100。不要铺 101 以后。不要动 `wanjie_scale`。≤4 有下降（75→68），停下等作者。
+**下一件**：FOLLOWUP 五任务代码已在库，对照库复测 **10 红**。不要铺 101 以后。不要动 `wanjie_scale`。
 
 ### 设定深度第一段（2026-08-28）
 方案 [`2026-08-28-DEPTH-PROMPT.md`](./plans/2026-08-28-DEPTH-PROMPT.md)。未铺新章。`f841793c` P2+P6；`e09f5704` P3+P5。
@@ -583,6 +583,16 @@ CLI 和 MCP `s3_plan_volumes` 共用 `generate_charters`。
 **空壳** 0.656（21/32）完整度 67。W3 诊断计数仍是 skipped 7 / ok 3 / thin 18（当时未落库）。本卷写厚：skipped_ready 10、llm_thin 灯下扣/无名录所、ok 借温人。
 **抽样：** 验温嫂 81–100 零条（不在本卷 thickens）。无名井 ch88 旧名沉井底、ch90 拒收柳母余温、ch97 吞名尾数折声票、ch99 井槽作迁移抵押。修仙界 ch85 只认假名温岸青过界门、ch86 转账折灵气冷账、ch94 拒收空名迁移债、ch98 桥缝空白退回代扣巷。是情节不是补说明。
 `verify_scale --chapters 100` **8 红**（多了一致性 2 条，重试落库同键未关干净）。未铺 101+。`wanjie_scale` 未动。
+
+### FOLLOWUP 五任务验收（2026-08-29）
+方案 [`2026-08-28-FOLLOWUP-PROMPT.md`](./plans/2026-08-28-FOLLOWUP-PROMPT.md)。代码早已落地，本轮只补验证、不重写、不重铺。
+1. 悬置：显示与把关同一口径 `cross_open`；≥15% + 终卷前每卷一条。`16e67286` / `9de0f6ba` 一带。
+2. 障碍：找不到书内触发率依据，**只报不拦**，不设假门。
+3. 阳性对照：厚度 ≤2/≤4/前3、空间、障碍 0→1、悬置 0→1、终卷前 barren 0→1、长弧 0→1，均在 `test_setting_depth` / `test_verify_scale`。不写 `wanjie_scale`。
+4. 无 key 的 must_know：**无法判定**，报告显示，既不打钩也不进红项。对照库十卷各 3 条。
+5. `introduces_missing` **精确相等**（`9de0f6ba`）。`place:不署名` 对不上 `place:不署名门`。
+**指定五文件 142 passed。**
+**`verify_scale --db wanjie_scale --chapters 200`：10 红，不是预估的 12。** 预估把障碍当门、空间当门、卷1欠跨卷收线。实际：障碍/空间只报不拦；卷1 `pays_expected=0`；「卷末该知道」改无法判定。10 项：新鲜度卷2–9、引入（卷1 温盏/白霜拍卖行/寒灯街，卷8 名讳司）、跨卷收线卷2 差1、空壳 0.789、完整度 64、≤2 21%、≤4 26%、前3 37%、跨卷未收 0/256、终卷前 1–9 卷全 0。未调阈值。未重铺 200。
 
 ### 抽取闸（2026-08-28）
 两处把已抄对的短文判失败：抽取只认「他要什么：」标签；`portrait_grounded` 把两字段拼成一串再找子串。已改：无标签按空行/两句切开；grounded 逐字段实词过半（与 `_loose_match` 同源，防另编不防压缩）。已有够长 `personality_detail` 直接抽。
