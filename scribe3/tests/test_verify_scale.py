@@ -192,7 +192,7 @@ def test_must_know_without_key_is_neither_pass_nor_fail():
     rep = Report()
     buf = io.StringIO()
     with redirect_stdout(buf):
-        check_volumes(_Store(), rep, "role:新0")
+        check_volumes(_Store(), rep, "role:新0", 10)
     out = buf.getvalue()
     assert "无法判定" in out and "契约无 key" in out
     assert not any("该知道" in t for t in rep.failed), rep.failed
@@ -226,7 +226,7 @@ def test_check_volumes_does_not_fail_first_volume_for_cross_payoffs():
             return []
 
     rep = Report()
-    check_volumes(_Store(), rep, "role:新0")
+    check_volumes(_Store(), rep, "role:新0", 10)
     assert not any("收够" in t or "更早埋" in t for t in rep.failed), rep.failed
 
 
@@ -307,3 +307,78 @@ def test_check_depth_positive_control_suspense_zero_then_one():
     assert any("终卷前" in t for t in rep1.failed), rep1.failed
     # 「终卷前…跨卷未收」含「跨卷未收」，比例闸要比「跨卷未收 ≥」。
     assert not any("跨卷未收 ≥" in t for t in rep1.failed), rep1.failed
+
+
+def test_unlaid_volumes_are_listed_not_failed():
+    """半本书：卷 3-10 没铺，不能拿引入缺/新鲜度 0 记红。"""
+    import io
+    from contextlib import redirect_stdout
+    from scribe3.ontology import Fact
+    from scribe3.tools.verify_scale import check_volumes
+
+    facts = [Fact(f"fact:n{i}", f"role:新{i}", f"a{i}", "x", i + 1, None, False, [])
+             for i in range(6)]
+    v1 = {"id": "v1", "title": "卷一", "sort_order": 1,
+          "charter": {"duty": "办", "chapter_range": [1, 10],
+                      "introduces": [f"role:新{i}" for i in range(6)],
+                      "pays": [], "knowledge_end": {"must_know": [], "must_not_know": []}}}
+    v2 = {"id": "v2", "title": "卷二", "sort_order": 2,
+          "charter": {"duty": "办二", "chapter_range": [11, 20],
+                      "introduces": [f"role:后{i}" for i in range(11)],
+                      "pays": ["应收一条"],
+                      "knowledge_end": {"must_know": [{"key": "壳裂口", "what": "x"}],
+                                        "must_not_know": []}}}
+
+    class _Store:
+        def list_volumes(self):
+            return [v1, v2]
+
+        def facts_at(self, ch):
+            return [f for f in facts if f.valid_from <= ch]
+
+        def load_knowledge(self):
+            return []
+
+        def list_promises(self):
+            return []
+
+    rep = Report()
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        check_volumes(_Store(), rep, "role:新0", 10)
+    out = buf.getvalue()
+    assert "未铺" in out and "卷二" in out
+    assert not any("role:后" in t or "卷2" in t for t in rep.failed), (rep.failed, out)
+    assert not any("该知道" in t for t in rep.failed), rep.failed
+
+
+def test_suspense_does_not_use_unlaid_last_volume():
+    """停在第 40 章时，卷 2 开口线不能算跨 8 卷，终卷前也不能红 8 卷。"""
+    from scribe3.tools.verify_scale import check_depth
+
+    hanging = [
+        {"setup_chapter": 4, "payoff_chapter": None, "status": "open"},
+        {"setup_chapter": 31, "payoff_chapter": None, "status": "open"},
+    ]
+    # 十卷契约，只铺到 40。until=40 必须把终卷收成卷 2。
+    vols = _vols(20, 40, 60, 80, 100, 120, 140, 160, 180, 200)
+    rep = Report()
+    check_depth(_DepthStore(vols, hanging), rep, 40)
+    assert not any("终卷前" in t for t in rep.failed), rep.failed
+
+
+def test_scale_ignores_chapters_past_laid():
+    from scribe3.tools.verify_scale import check_scale
+
+    syn = "这是一句足够长的章纲，用来证明已铺范围内的壳不是空的。还要再写几个字。"
+
+    class _St:
+        def chapters_lite(self):
+            return [{"seq": i, "synopsis": syn} for i in range(1, 41)]
+
+        def list_promises(self):
+            return [{"status": "closed"} for _ in range(7)] + [{"status": "open"} for _ in range(3)]
+
+    rep = Report()
+    check_scale(_St(), rep, 200, 40)
+    assert not any("无缺口" in t or "齐全" in t for t in rep.failed), rep.failed

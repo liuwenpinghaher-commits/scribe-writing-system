@@ -39,12 +39,44 @@ class Report:
             self.failed.append(title)
 
 
-def check_volumes(st, rep: Report, hero: str) -> None:
+def laid_until(st) -> int:
+    seqs = [int(c.get("seq") or 0) for c in (st.chapters_lite() or [])]
+    return max(seqs) if seqs else 0
+
+
+def volume_starts_after(v, laid: int) -> bool:
+    rng = normalize_charter(v.get("charter"))["chapter_range"]
+    return bool(rng) and int(rng[0]) > laid
+
+
+def laid_volume_ends(st, laid: int) -> list[int]:
+    """已铺范围内的卷末。没铺到的卷不算终卷，否则卷 2 的开口线会被当成跨 8 卷。"""
+    ends: list[int] = []
+    for v in sorted(st.list_volumes() or [], key=lambda x: int(x.get("sort_order") or 0)):
+        rng = normalize_charter(v.get("charter"))["chapter_range"]
+        if not rng or int(rng[0]) > laid:
+            continue
+        ends.append(min(int(rng[1]), laid))
+    return ends or ([laid] if laid else [])
+
+
+def check_volumes(st, rep: Report, hero: str, laid: int) -> None:
     print("\n【逐卷对账】")
     vols = [v for v in (st.list_volumes() or [])
             if normalize_charter(v.get("charter"))["chapter_range"]]
     if not vols:
         rep.check(False, "库里没有带契约的卷")
+        return
+    unlaid = [v for v in vols if volume_starts_after(v, laid)]
+    vols = [v for v in vols if not volume_starts_after(v, laid)]
+    if unlaid:
+        print("  未铺（不计入红项）："
+              + "、".join(f"卷{v.get('sort_order')}《{v.get('title')}》"
+                          f"{normalize_charter(v.get('charter'))['chapter_range'][0]}-"
+                          f"{normalize_charter(v.get('charter'))['chapter_range'][1]}"
+                          for v in unlaid))
+    if not vols:
+        print("  （已铺范围内没有带契约的卷）")
         return
     bad_fresh, bad_intro, bad_pays, red, missing_know, undecidable_know = [], [], [], [], [], []
     keyed_know = False
@@ -197,11 +229,8 @@ def check_depth(st, rep: Report, until: int) -> None:
     # 「至少一条」有一条就永绿。没有依据就不设门。
     print("  设定当障碍比例只报不拦（无书内触发率依据，不设门）")
 
-    ends = []
-    for v in st.list_volumes() or []:
-        rng = normalize_charter(v.get("charter"))["chapter_range"]
-        if rng:
-            ends.append(int(rng[1]))
+    ends = laid_volume_ends(st, until)
+    print(f"  悬置口径：已铺到第 {until} 章，卷末 {ends or [until]}")
     su = suspense_rate(st.list_promises() or [], volume_ends=ends or [until])
     print(f"  悬置（跨卷未收）{su['cross_open']}/{su['n']} = {su['rate']:.0%}")
     if su["by_volume"]:
@@ -253,13 +282,17 @@ def check_completeness(st, rep: Report) -> None:
               f"completeness_score {score}")
 
 
-def check_scale(st, rep: Report, expect_chapters: int) -> None:
+def check_scale(st, rep: Report, expect_chapters: int, laid: int) -> None:
     print("\n【规模】")
+    print(f"  已铺到第 {laid} 章（目标 {expect_chapters}）")
     chs = st.chapters_lite() or []
     have = {int(c.get("seq") or 0) for c in chs}
-    gaps = sorted(set(range(1, expect_chapters + 1)) - have)
-    rep.check(not gaps, f"{expect_chapters} 章齐全",
+    span = max(1, laid)
+    gaps = sorted(set(range(1, span + 1)) - have)
+    rep.check(not gaps, f"已铺 1-{laid} 章无缺口",
               f"缺 {len(gaps)} 章：{gaps[:12]}" if gaps else "")
+    if laid < expect_chapters:
+        print(f"  · 未铺 {laid + 1}-{expect_chapters}（不计入红项）")
 
     thin = [c.get("seq") for c in chs if len(str(c.get("synopsis") or "")) < 40]
     rep.check(not thin, "每章都有像样的梗概", f"过短 {len(thin)} 章：{thin[:10]}")
@@ -283,12 +316,15 @@ def main() -> int:
     st = SurrealStore(url=a.url, ns=a.ns, db=a.db)
     rep = Report()
     try:
-        check_scale(st, rep, a.chapters)
-        check_volumes(st, rep, a.hero)
-        check_prefixes(st, rep, a.chapters)
-        check_consistency(st, rep, a.chapters, a.hero)
+        laid = laid_until(st)
+        print(f"已铺到第 {laid} 章（--chapters 目标 {a.chapters}）。"
+              "未铺的卷单独列出，不计入红项；跨卷指标只在已铺范围内算。")
+        check_scale(st, rep, a.chapters, laid)
+        check_volumes(st, rep, a.hero, laid)
+        check_prefixes(st, rep, laid or a.chapters)
+        check_consistency(st, rep, laid or a.chapters, a.hero)
         check_completeness(st, rep)
-        check_depth(st, rep, a.chapters)
+        check_depth(st, rep, laid or a.chapters)
     finally:
         st.close()
 
