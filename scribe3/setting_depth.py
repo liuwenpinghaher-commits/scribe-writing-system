@@ -11,29 +11,60 @@ from typing import Any, Iterable
 from scribe3.charter import STORY_PREFIXES
 
 
-def place_regions(names: Iterable[str]) -> dict[str, list[str]]:
-    """用名字前缀认上级。地点表没有 geography 上级字段，对给定名单有唯一答案。"""
+#: 地点从属用命题表达，不新开表。attribute 只认这几个，value 走 canon_oid。
+PLACE_IN_ATTRS = frozenset({"位于", "从属"})
+#: 厚度把关：实体从首现到已铺末章至少这么多章。改前把刚出场的和老实体混算。
+THICKNESS_RUNWAY = 20
+
+
+def place_containment(facts) -> list[tuple[str, str]]:
+    """(子地点名, 上级地点名)。只认 place: 主语、位于/从属、value 能归到 place:。"""
+    from scribe3.ontology import canon_oid
+
+    edges: list[tuple[str, str]] = []
+    for f in facts or []:
+        eid = str(getattr(f, "entity_id", "") or "")
+        if not eid.startswith("place:"):
+            continue
+        attr = str(getattr(f, "attribute", "") or "").strip()
+        if attr not in PLACE_IN_ATTRS:
+            continue
+        raw = str(getattr(f, "value", "") or "").strip()
+        parent = canon_oid(raw) if ":" in raw else canon_oid(f"place:{raw}")
+        if not parent or not parent.startswith("place:"):
+            continue
+        child = eid.split(":", 1)[1]
+        par = parent.split(":", 1)[1]
+        if child and par and child != par:
+            edges.append((child, par))
+    return edges
+
+
+def place_regions(names: Iterable[str], *, edges: Iterable[tuple[str, str]] | None = None) -> dict[str, list[str]]:
+    """用从属边算连通分量。没有边就每个地点自己一区。不再用名字前缀冒充上级。"""
     names = [str(n).strip() for n in names if str(n or "").strip()]
-    uniq = sorted(set(names), key=lambda n: (-len(n), n))
-    parent: dict[str, str | None] = {n: None for n in uniq}
-    for child in uniq:
-        for cand in uniq:
-            if cand != child and child.startswith(cand) and len(child) > len(cand):
-                if parent[child] is None or len(cand) > len(parent[child] or ""):
-                    parent[child] = cand
+    uniq = sorted(set(names))
+    parent: dict[str, str] = {n: n for n in uniq}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for child, par in edges or []:
+        if child in parent and par in parent:
+            parent[find(child)] = find(par)
     regions: dict[str, list[str]] = {}
-    for n in sorted(uniq):
-        root = n
-        seen: set[str] = set()
-        while parent.get(root) and root not in seen:
-            seen.add(root)
-            root = parent[root]  # type: ignore[assignment]
-        regions.setdefault(root, []).append(n)
+    for n in uniq:
+        regions.setdefault(find(n), []).append(n)
     return regions
 
 
-def spatial_spread(names: Iterable[str]) -> dict[str, Any]:
-    regions = place_regions(names)
+def spatial_spread(names: Iterable[str], facts=None) -> dict[str, Any]:
+    edges = place_containment(facts or [])
+    extra = [n for pair in edges for n in pair]
+    regions = place_regions(list(names) + extra, edges=edges)
     n_places = sum(len(v) for v in regions.values())
     n_regions = len(regions)
     singleton = sum(1 for v in regions.values() if len(v) == 1)
@@ -43,13 +74,30 @@ def spatial_spread(names: Iterable[str]) -> dict[str, Any]:
         "singleton_regions": singleton,
         "singleton_ratio": (singleton / n_regions) if n_regions else 0.0,
         "regions": {k: sorted(v) for k, v in regions.items()},
+        "has_containment": bool(edges),
+        "n_containment": len(edges),
     }
 
 
-def thickness_distribution(facts) -> dict[str, Any]:
-    """故事命题按实体分桶。promise: 不算。≤2 和 ≤4 口径分开，不许混用。"""
+def thickness_distribution(facts, *, until: int | None = None, min_runway: int = 0) -> dict[str, Any]:
+    """故事命题按实体分桶。promise: 不算。≤2 和 ≤4 口径分开，不许混用。
+
+    min_runway>0 时只留「到 until 已有这么多章时间」的实体。改前把第 55 章出场的
+    和第 5 章出场的放一起算。until 缺省则不过滤。
+    """
     story = [f for f in facts if str(getattr(f, "entity_id", "")).startswith(STORY_PREFIXES)]
-    counts = Counter(f.entity_id for f in story)
+    counts: Counter[str] = Counter()
+    first: dict[str, int] = {}
+    for f in story:
+        eid = f.entity_id
+        ch = int(getattr(f, "valid_from", 0) or 0)
+        counts[eid] += 1
+        prev = first.get(eid)
+        if prev is None or ch < prev:
+            first[eid] = ch
+    if until is not None and min_runway > 0:
+        keep = {e for e, fs in first.items() if int(until) - fs >= min_runway}
+        counts = Counter({e: n for e, n in counts.items() if e in keep})
     n_ent = len(counts)
     n_facts = sum(counts.values())
     le2 = sum(1 for n in counts.values() if n <= 2)
@@ -65,6 +113,7 @@ def thickness_distribution(facts) -> dict[str, Any]:
         "top3_share": (top3 / n_facts) if n_facts else 0.0,
         "top3": counts.most_common(3),
         "counts": dict(counts),
+        "first": dict(first),
     }
 
 

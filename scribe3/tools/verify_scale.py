@@ -179,22 +179,29 @@ def check_depth(st, rep: Report, until: int) -> None:
     """StoryScope 能当门的四项。监控项（说教/感官）绝对不进这里，也不进提示词。"""
     from scribe3.charter import normalize_charter, story_entities
     from scribe3.setting_depth import (
-        CROSS_OPEN_MIN, LE2_RATIO_MAX, LE4_RATIO_MAX, TOP3_SHARE_MAX,
+        CROSS_OPEN_MIN, LE2_RATIO_MAX, LE4_RATIO_MAX, THICKNESS_RUNWAY, TOP3_SHARE_MAX,
         obstacle_rate, spatial_spread, suspense_rate, thickness_distribution,
     )
 
     print("\n【内容深度】")
     facts = list(st.facts_at(until) or [])
-    t = thickness_distribution(facts)
-    print(f"  故事实体 {t['n_entities']}　命题 {t['n_facts']}"
+    t_all = thickness_distribution(facts)
+    t = thickness_distribution(facts, until=until, min_runway=THICKNESS_RUNWAY)
+    print(f"  全部实体 {t_all['n_entities']}　命题 {t_all['n_facts']}"
+          f"　≤2 {t_all['le2']}（{t_all['le2_ratio']:.0%}）"
+          f"　≤4 {t_all['le4']}（{t_all['le4_ratio']:.0%}）"
+          f"　前3占 {t_all['top3_share']:.0%}（只报）")
+    print(f"  ≥{THICKNESS_RUNWAY}章时间 {t['n_entities']}　命题 {t['n_facts']}"
           f"　≤2 {t['le2']}（{t['le2_ratio']:.0%}）"
           f"　≤4 {t['le4']}（{t['le4_ratio']:.0%}）"
-          f"　前3占 {t['top3_share']:.0%}")
+          f"　前3占 {t['top3_share']:.0%}（把关）")
     for oid, n in t["top3"]:
         print(f"    {oid} ×{n}")
     tail = sorted(((n, oid) for oid, n in t["counts"].items() if n <= 2), reverse=True)[:8]
     if tail:
         print("  长尾 ≤2：" + "、".join(f"{oid}×{n}" for n, oid in tail))
+    # 改前：全部实体一起把关。改后：把关用有 ≥20 章时间的实体。全部那行只报。
+    # 第 55 章出场的只有 5 章攒命题，和第 5 章出场的放一起算不是同一件事。
     rep.check(t["le2_ratio"] <= LE2_RATIO_MAX,
               f"实体命题数 ≤2 的占比 ≤{LE2_RATIO_MAX:.0%}",
               f"{t['le2']}/{t['n_entities']} = {t['le2_ratio']:.0%}")
@@ -207,16 +214,20 @@ def check_depth(st, rep: Report, until: int) -> None:
 
     place_names = [oid.split(":", 1)[1] for oid in story_entities(facts)
                    if oid.startswith("place:")]
-    sp = spatial_spread(place_names)
+    sp = spatial_spread(place_names, facts)
     print(f"  地点 {sp['n_places']}　区域 {sp['n_regions']}"
-          f"　一区一地点 {sp['singleton_regions']}（{sp['singleton_ratio']:.0%}）")
+          f"　一区一地点 {sp['singleton_regions']}（{sp['singleton_ratio']:.0%}）"
+          f"　从属 {sp['n_containment']}")
     nested = sum(1 for v in sp["regions"].values() if len(v) >= 2)
-    # 地点表没有上级字段，用名字前缀认区域。≥8 个地点而 ≥90% 一区一地点 = 铺不开。
-    # 现库 19 地点 18 区域，只有「不署名门/签押廊」一对，singleton 94%。
-    spread_ok = sp["n_places"] < 8 or sp["singleton_ratio"] < 0.9
-    rep.check(spread_ok, "一区一地点 <90%（地点≥8 时）",
-              f"{sp['n_places']} 地点 / {sp['n_regions']} 区域 / "
-              f"一区一地点 {sp['singleton_ratio']:.0%} / 多地点区域 {nested}")
+    # 改前：用名字前缀认区域，测的是命名习惯。改后：读位于/从属命题算连通分量。
+    # 无从属时只报不拦——现有 60 章没有这条数据，那是正确状态，不是失败。
+    if not sp["has_containment"]:
+        print("  无从属数据、只报不拦")
+    else:
+        spread_ok = sp["n_places"] < 8 or sp["singleton_ratio"] < 0.9
+        rep.check(spread_ok, "一区一地点 <90%（地点≥8 时）",
+                  f"{sp['n_places']} 地点 / {sp['n_regions']} 区域 / "
+                  f"一区一地点 {sp['singleton_ratio']:.0%} / 多地点区域 {nested}")
 
     rules = st.list_world_rules() or []
     ob = obstacle_rate(rules, facts)

@@ -49,7 +49,7 @@ def _bible(st) -> str:
             t = c.traits or {}
             lines.append(
                 f"- {c.name}（{t.get('importance', '')}）要的是：{t.get('surface_goal') or '—'}"
-                f"｜真正缺的：{t.get('deep_need') or '—'}｜怕：{t.get('fear') or '—'}")
+                f"｜真正缺的：{t.get('deep_need') or '—'}｜让人付出：{t.get('fear') or '—'}")
         out.append("【人】\n" + "\n".join(lines))
 
     rules = st.list_world_rules() or []
@@ -402,6 +402,7 @@ def build_prompt(st, vol_title: str, vol_intro: str, lo: int, hi: int,
 - 「后面几卷预留的实体」现在别用。实测卷 2 预留了兰因，铺卷 1 时第 13 章就把她用了，
   卷 2 新鲜度掉到 4.5。
 - `new_facts` 每章至少一条。这是这本书的账在长厚，没有新事实说明这章白写了。
+- 新地点必须写从属：`attribute` 用「位于」，`value` 用上级的 `place:…`（例：`place:签押廊` 位于 `place:不署名门`）。不许靠名字前缀冒充同区。
 - `learns` 里的 `fact_index` 指向本章 `new_facts` 的下标。**谁不在场就不许知道**。
 - 上面「柳岸青此刻知道什么」里已经有的，不要重复立成新事实。
 - `hides` 至少一处。全书的劲都在信息差上，没人瞒人就没有戏。
@@ -512,6 +513,11 @@ def persist(st, chapters: list[dict], vol_id: str | None) -> dict:
                 continue
             fid = f"fact:c{seq}-{k}"
             _ensure_entity(st, oid)
+            if (f.get("attribute") or "").strip() in ("位于", "从属"):
+                parent = canon_oid(f.get("value") or "") or canon_oid(
+                    "place:" + str(f.get("value") or "").strip())
+                if parent and parent.startswith("place:"):
+                    _ensure_entity(st, parent)
             # supersede_open=True：同 (实体, 属性) 的旧值在本章关闭，时态历史仍查得到。
             # 用 False 会让同一属性的历次说法全挂成开区间「同时有效」，
             # 一致性扫描把它们当矛盾报（实测 36-100 章误报 11 条），而注入面本来也只认单真。

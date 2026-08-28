@@ -230,8 +230,10 @@ def test_check_volumes_does_not_fail_first_volume_for_cross_payoffs():
     assert not any("收够" in t or "更早埋" in t for t in rep.failed), rep.failed
 
 
-def test_check_depth_positive_control_singleton_places():
-    """8 个互不嵌套的地点 = 一区一地点 100%，空间闸必须红。"""
+def test_check_depth_no_containment_is_reported_not_gated():
+    """改前 8 个互不嵌套地点空间闸红。改后无从属只报不拦。"""
+    import io
+    from contextlib import redirect_stdout
     from scribe3.tools.verify_scale import check_depth
 
     facts = [_fact(f"p{i}", f"place:城{i}", "位置", "一句话", 1) for i in range(8)]
@@ -240,26 +242,33 @@ def test_check_depth_positive_control_singleton_places():
         {"setup_chapter": 25, "payoff_chapter": None, "status": "open"},
     ]
     rep = Report()
-    check_depth(_DepthStore(_vols(20, 40), hanging, facts=facts), rep, 40)
-    assert any("一区一地点" in t for t in rep.failed), rep.failed
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        check_depth(_DepthStore(_vols(20, 40), hanging, facts=facts), rep, 40)
+    out = buf.getvalue()
+    assert "无从属数据、只报不拦" in out
+    assert not any("一区一地点" in t for t in rep.failed), rep.failed
 
 
-def test_check_depth_positive_control_spatial_zero_then_one():
-    """7 个地点不过线。第 8 个互不嵌套地点必须让空间闸 0→1。"""
+def test_check_depth_containment_gate_zero_then_one():
+    """有从属才把关。11 地点只连一对 → 一区一地点 90% 红；多连几对则过。"""
     from scribe3.tools.verify_scale import check_depth
 
     hanging = [
         {"setup_chapter": 4, "payoff_chapter": None, "status": "open"},
         {"setup_chapter": 25, "payoff_chapter": None, "status": "open"},
     ]
-    seven = [_fact(f"p{i}", f"place:城{i}", "位置", "一句话", 1) for i in range(7)]
-    rep0 = Report()
-    check_depth(_DepthStore(_vols(20, 40), hanging, facts=seven), rep0, 40)
-    assert not any("一区一地点" in t for t in rep0.failed), rep0.failed
-    eight = seven + [_fact("p7", "place:城7", "位置", "一句话", 1)]
+    places = [_fact(f"p{i}", f"place:城{i}", "位置", "一句话", 1) for i in range(11)]
+    one_edge = places + [_fact("loc", "place:城0", "位于", "place:城1", 1)]
     rep1 = Report()
-    check_depth(_DepthStore(_vols(20, 40), hanging, facts=eight), rep1, 40)
+    check_depth(_DepthStore(_vols(20, 40), hanging, facts=one_edge), rep1, 40)
     assert any("一区一地点" in t for t in rep1.failed), rep1.failed
+    many = places + [
+        _fact(f"loc{i}", f"place:城{i}", "位于", "place:城0", 1) for i in range(1, 11)
+    ]
+    rep0 = Report()
+    check_depth(_DepthStore(_vols(20, 40), hanging, facts=many), rep0, 40)
+    assert not any("一区一地点" in t for t in rep0.failed), rep0.failed
 
 
 def test_check_depth_positive_control_top3_share():

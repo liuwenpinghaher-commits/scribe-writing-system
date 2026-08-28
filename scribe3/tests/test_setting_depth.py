@@ -19,21 +19,43 @@ def _f(local, entity, attr, value, ch=1):
     return Fact(f"fact:{local}", entity, attr, value, ch, None, False, [])
 
 
-def test_place_regions_nest_by_name_prefix():
-    """地点没有 geography 上级字段。用名字前缀认区域，对这批名字有唯一答案。"""
+def test_place_regions_without_edges_are_singletons():
+    """改前用名字前缀把「不署名门签押廊」算进「不署名门」。改后没有从属边就各算一区。"""
     names = ["不署名门", "不署名门签押廊", "地球", "月球"]
     regions = place_regions(names)
-    assert set(regions["不署名门"]) == {"不署名门", "不署名门签押廊"}
-    assert regions["地球"] == ["地球"]
-    assert regions["月球"] == ["月球"]
+    assert len(regions) == 4
+    assert all(len(v) == 1 for v in regions.values())
 
 
-def test_spatial_spread_reports_singleton_ratio():
-    s = spatial_spread(["不署名门", "不署名门签押廊", "地球", "月球"])
-    assert s["n_places"] == 4
+def test_place_regions_cluster_by_containment_not_prefix():
+    names = ["不署名门", "签押廊", "地球"]
+    regions = place_regions(names, edges=[("签押廊", "不署名门")])
+    nested = [v for v in regions.values() if len(v) >= 2]
+    assert len(nested) == 1
+    assert set(nested[0]) == {"不署名门", "签押廊"}
+    assert any(v == ["地球"] for v in regions.values())
+
+
+def test_spatial_spread_reads_located_facts():
+    facts = [
+        _f("1", "place:签押廊", "位于", "place:不署名门", 3),
+        _f("2", "place:地球", "位置", "一句话", 1),
+        _f("3", "place:月球", "位置", "一句话", 1),
+    ]
+    s = spatial_spread(["签押廊", "不署名门", "地球", "月球"], facts)
+    assert s["has_containment"] is True
+    assert s["n_containment"] == 1
     assert s["n_regions"] == 3
-    assert s["singleton_regions"] == 2  # 地球、月球
+    assert s["singleton_regions"] == 2
     assert s["singleton_ratio"] == 2 / 3
+
+
+def test_spatial_spread_no_containment_is_all_singletons():
+    s = spatial_spread(["不署名门", "签押廊", "地球", "月球"])
+    assert s["has_containment"] is False
+    assert s["n_places"] == 4
+    assert s["n_regions"] == 4
+    assert s["singleton_ratio"] == 1.0
 
 
 def test_thickness_buckets_and_top3_share():
@@ -249,17 +271,36 @@ def test_thickness_positive_control_top3_share():
     assert t1["top3_share"] > TOP3_SHARE_MAX
 
 
+def test_thickness_runway_drops_late_entities():
+    """改前第 55 章出场和第 5 章出场一起算。改后 ≥20 章时间才把关。"""
+    from scribe3.setting_depth import THICKNESS_RUNWAY
+
+    facts = [
+        _f(f"old{i}", "role:老", f"a{i}", "x", 5) for i in range(8)
+    ] + [_f("new", "role:新", "面目", "一句话", 55)]
+    all_t = thickness_distribution(facts)
+    assert all_t["n_entities"] == 2
+    assert all_t["le2"] == 1
+    gated = thickness_distribution(facts, until=60, min_runway=THICKNESS_RUNWAY)
+    assert gated["n_entities"] == 1
+    assert gated["le2"] == 0
+    assert "role:新" not in gated["counts"]
+    assert THICKNESS_RUNWAY == 20
+
+
 def test_spatial_positive_control_eight_singletons():
-    """≥8 地点且一区一地点 ≥90% 才是铺不开。7 个全散不算，第 8 个才过线。"""
+    """没有从属边时 8 个地点全是一区一地点。有从属边才可能铺开。"""
     seven = [f"城{i}" for i in range(7)]
     s0 = spatial_spread(seven)
     assert s0["n_places"] < 8
     s1 = spatial_spread(seven + ["城7"])
     assert s1["n_places"] == 8
     assert s1["singleton_ratio"] == 1.0
-    assert s1["singleton_ratio"] >= 0.9
-    nested = spatial_spread(["不署名门", "不署名门签押廊"] + [f"城{i}" for i in range(6)])
+    assert s1["has_containment"] is False
+    nested_facts = [_f("n", "place:签押廊", "位于", "place:不署名门", 1)]
+    nested = spatial_spread(["不署名门", "签押廊"] + [f"城{i}" for i in range(6)], nested_facts)
     assert nested["n_places"] == 8
+    assert nested["has_containment"] is True
     assert nested["singleton_ratio"] < 0.9
 
 
