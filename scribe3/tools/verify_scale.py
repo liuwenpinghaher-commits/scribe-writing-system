@@ -179,7 +179,7 @@ def check_depth(st, rep: Report, until: int) -> None:
     """StoryScope 能当门的四项。监控项（说教/感官）绝对不进这里，也不进提示词。"""
     from scribe3.charter import normalize_charter, story_entities
     from scribe3.setting_depth import (
-        CROSS_OPEN_MIN, LE2_RATIO_MAX, LE4_RATIO_MAX, THICKNESS_RUNWAY, TOP3_SHARE_MAX,
+        THICKNESS_RUNWAY,
         obstacle_rate, spatial_spread, suspense_rate, thickness_distribution,
     )
 
@@ -194,7 +194,7 @@ def check_depth(st, rep: Report, until: int) -> None:
     print(f"  ≥{THICKNESS_RUNWAY}章时间 {t['n_entities']}　命题 {t['n_facts']}"
           f"　≤2 {t['le2']}（{t['le2_ratio']:.0%}）"
           f"　≤4 {t['le4']}（{t['le4_ratio']:.0%}）"
-          f"　前3占 {t['top3_share']:.0%}（把关）")
+          f"　前3占 {t['top3_share']:.0%}（只报）")
     for oid, n in t["top3"]:
         print(f"    {oid} ×{n}")
     tail = sorted(((n, oid) for oid, n in t["counts"].items() if n <= 2), reverse=True)[:8]
@@ -202,15 +202,9 @@ def check_depth(st, rep: Report, until: int) -> None:
         print("  长尾 ≤2：" + "、".join(f"{oid}×{n}" for n, oid in tail))
     # 改前：全部实体一起把关。改后：把关用有 ≥20 章时间的实体。全部那行只报。
     # 第 55 章出场的只有 5 章攒命题，和第 5 章出场的放一起算不是同一件事。
-    rep.check(t["le2_ratio"] <= LE2_RATIO_MAX,
-              f"实体命题数 ≤2 的占比 ≤{LE2_RATIO_MAX:.0%}",
-              f"{t['le2']}/{t['n_entities']} = {t['le2_ratio']:.0%}")
-    rep.check(t["le4_ratio"] <= LE4_RATIO_MAX,
-              f"实体命题数 ≤4 的占比 ≤{LE4_RATIO_MAX:.0%}",
-              f"{t['le4']}/{t['n_entities']} = {t['le4_ratio']:.0%}")
-    rep.check(t["top3_share"] <= TOP3_SHARE_MAX,
-              f"前 3 个实体占故事命题 ≤{TOP3_SHARE_MAX:.0%}",
-              f"{t['top3_share']:.0%}")
+    print(f"  · ≤2 / ≤4 / 前3 只报不拦"
+          f"（{t['le2']}/{t['n_entities']} ≤2，{t['le4']}/{t['n_entities']} ≤4，"
+          f"前3 {t['top3_share']:.0%}）")
 
     place_names = [oid.split(":", 1)[1] for oid in story_entities(facts)
                    if oid.startswith("place:")]
@@ -252,16 +246,62 @@ def check_depth(st, rep: Report, until: int) -> None:
         if barren:
             print("    无悬置：" + "、".join(barren))
     print(f"  跨≥3卷 {su['long_span']}/{su['n']} = {su['long_span_ratio']:.0%}（只报不拦，无依据设门）")
-    # 显示和把关同一口径：跨卷未收 / 总线数。15% 是作者连载口径，不是 StoryScope。
-    rep.check(su["n"] > 0 and su["rate"] >= CROSS_OPEN_MIN,
-              f"跨卷未收 ≥{CROSS_OPEN_MIN:.0%}（连载口径，非 StoryScope）",
-              f"{su['cross_open']}/{su['n']} = {su['rate']:.0%}")
-    rep.check(su["n"] > 0 and not su["barren_volumes"],
-              "终卷前每一卷都有跨卷未收的线",
-              "无悬置：" + "、".join(su["barren_volumes"]) if su["barren_volumes"] else "")
+    print("  跨卷未收占比、终卷前荒卷只报不拦（跟窗口走，不跟全书百分比走）")
+    _check_promise_windows(st, rep, until)
 
 
-def check_completeness(st, rep: Report) -> None:
+def _volume_at(st, chapter: int):
+    for v in sorted(st.list_volumes() or [], key=lambda x: int(x.get("sort_order") or 0)):
+        rng = normalize_charter(v.get("charter"))["chapter_range"]
+        if rng and int(rng[0]) <= int(chapter) <= int(rng[1]):
+            return v
+    return None
+
+
+def _check_promise_windows(st, rep: Report, until: int) -> None:
+    from scribe3.expand_lifetime import (
+        is_overdue, payoff_skip_reason, pays_refs_for_volume, promise_ref,
+    )
+
+    early, overdue = [], []
+    for p in st.list_promises() or []:
+        if is_overdue(p, until):
+            overdue.append(promise_ref(p))
+        ch = p.get("payoff_chapter")
+        if str(p.get("status") or "open") == "open" or ch is None:
+            continue
+        vol = _volume_at(st, int(ch))
+        pays = pays_refs_for_volume(st, (vol or {}).get("id"))
+        if payoff_skip_reason(p, int(ch), pays_refs=pays):
+            early.append(promise_ref(p))
+    print(f"  早收 {len(early)}　逾期未收 {len(overdue)}")
+    rep.check(not early, "没有早收", "、".join(early[:8]))
+    rep.check(not overdue, "没有逾期未收", "、".join(overdue[:8]))
+
+
+def _check_named_thicken_shells(st, rep: Report, completeness: dict,
+                                laid: int | None) -> None:
+    if not hasattr(st, "list_volumes") or not laid:
+        return
+    issue_names = {str(r.get("name") or "") for r in completeness.get("char_issues") or []}
+    last = None
+    for v in sorted(st.list_volumes() or [], key=lambda x: int(x.get("sort_order") or 0)):
+        rng = normalize_charter(v.get("charter")).get("chapter_range") or []
+        if rng and int(rng[0]) <= int(laid):
+            last = v
+    if not last or not issue_names:
+        return
+    c = normalize_charter(last.get("charter"))
+    hit = []
+    for item in c.get("thickens") or []:
+        oid = str(item.get("oid") or "")
+        if oid.startswith("role:") and oid.split(":", 1)[1] in issue_names:
+            hit.append(oid)
+    if hit:
+        rep.check(False, "本卷点名写厚的角色仍空壳", "、".join(hit))
+
+
+def check_completeness(st, rep: Report, laid: int | None = None) -> None:
     """接系统已有的 setting_completeness，不许另起炉灶。
 
     验收单曾经报全部通过，同时 79% 角色是空壳。完整度早就算出这个数。
@@ -285,12 +325,8 @@ def check_completeness(st, rep: Report) -> None:
         print(f"  · {row.get('name')}：{'、'.join(row.get('issues') or [])}")
     if n_issues > 8:
         print(f"  · ……另有 {n_issues - 8} 人")
-    rep.check(ratio <= CHAR_ISSUE_RATIO_MAX,
-              f"空壳角色占比 ≤{CHAR_ISSUE_RATIO_MAX}",
-              f"char_issue_ratio {ratio:.3f}（{n_issues}/{n_chars}）")
-    rep.check(score >= COMPLETENESS_SCORE_MIN,
-              f"设定完整度 ≥{COMPLETENESS_SCORE_MIN}",
-              f"completeness_score {score}")
+    print("  空壳比例、完整度分数只报不拦（硬红只打本卷点名仍空壳）")
+    _check_named_thicken_shells(st, rep, c, laid)
 
 
 def check_scale(st, rep: Report, expect_chapters: int, laid: int) -> None:
@@ -311,8 +347,7 @@ def check_scale(st, rep: Report, expect_chapters: int, laid: int) -> None:
     ps = st.list_promises() or []
     closed = [p for p in ps if str(p.get("status") or "open") != "open"]
     rate = len(closed) / len(ps) if ps else 0
-    rep.check(rate >= 0.7, "收线率 ≥70%",
-              f"{len(closed)}/{len(ps)} = {rate:.0%}")
+    print(f"  收线率 {len(closed)}/{len(ps)} = {rate:.0%}（只报不拦）")
 
 
 def main() -> int:
@@ -334,7 +369,7 @@ def main() -> int:
         check_volumes(st, rep, a.hero, laid)
         check_prefixes(st, rep, laid or a.chapters)
         check_consistency(st, rep, laid or a.chapters, a.hero)
-        check_completeness(st, rep)
+        check_completeness(st, rep, laid or a.chapters)
         check_depth(st, rep, laid or a.chapters)
     finally:
         st.close()

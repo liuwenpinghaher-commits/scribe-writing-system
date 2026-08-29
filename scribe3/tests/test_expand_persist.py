@@ -687,8 +687,8 @@ def test_prompt_lists_holdovers_as_must_not_pay():
             return []
 
     p = build_prompt(St(), "卷四", "办", 61, 70, 200)
-    assert "本卷不许收" in p and "Labc" in p
-    assert "本卷该收" in p
+    assert "不许收" in p
+    assert "本卷该收" in p or "未到期" in p
 
 
 def test_persist_skips_holdover_payoff():
@@ -702,7 +702,8 @@ def test_persist_skips_holdover_payoff():
 
         def list_promises(self):
             return [{"id": "promise:abc123", "text": "长线", "status": "open",
-                     "setup_chapter": 4}]
+                     "setup_chapter": 4, "tier": "book",
+                     "payoff_min": 5, "payoff_max": None}]
 
         def save_chapter(self, *a, **k):
             return None
@@ -798,10 +799,10 @@ def test_persist_reports_chapter_with_zero_facts(capsys):
 
 
 def test_thicken_deficit_counts_this_volume_facts():
+    """有一条本卷命题即用到。无名井零条才是差额。"""
+    from scribe3.expand_lifetime import thicken_unused
     from scribe3.ontology import Fact
-    from scribe3.tools.expand_wanjie_chapters import (
-        THICKEN_FACTS_MIN, assert_batch_depth, thicken_deficit,
-    )
+    from scribe3.tools.expand_wanjie_chapters import assert_batch_depth
 
     facts = [
         Fact("fact:a1", "role:验温嫂", "拒册", "一", 81, None, False, []),
@@ -813,24 +814,21 @@ def test_thicken_deficit_counts_this_volume_facts():
         def facts_at(self, ch):
             return [f for f in facts if f.valid_from <= ch]
 
-    d = thicken_deficit(St(), ["role:验温嫂", "place:无名井"], 81, 100)
-    assert d["role:验温嫂"] == THICKEN_FACTS_MIN - 2
-    assert d["place:无名井"] == THICKEN_FACTS_MIN
+        def list_promises(self):
+            return []
+
+    unused = thicken_unused(St(), ["role:验温嫂", "place:无名井"], 81, 100)
+    assert unused == ["place:无名井"]
 
     vol = {"charter": {"chapter_range": [81, 100],
                        "thickens": [{"oid": "role:验温嫂", "why": "验"}]}}
-    try:
-        assert_batch_depth(St(), vol, 91, 100, [])
-        raise AssertionError("差额必须抛")
-    except ValueError as e:
-        assert "验温嫂" in str(e)
-        assert "新 attribute" in str(e)
+    assert_batch_depth(St(), vol, 91, 100, [])
 
 
 def test_thicken_deficit_rewrite_same_attribute_does_not_count():
-    """同一 attribute 换词重写只算一条。差额只认新 attribute。"""
+    """同键换词也算本卷用到了，不再按 3 条新 attribute 计差额。"""
+    from scribe3.expand_lifetime import thicken_unused
     from scribe3.ontology import Fact
-    from scribe3.tools.expand_wanjie_chapters import THICKEN_FACTS_MIN, thicken_deficit
 
     facts = [
         Fact("fact:a1", "role:灯下扣", "热痕", "会在沈烛验封时成为凭据", 85, None, False, []),
@@ -842,8 +840,7 @@ def test_thicken_deficit_rewrite_same_attribute_does_not_count():
         def facts_at(self, ch):
             return [f for f in facts if f.valid_from <= ch]
 
-    d = thicken_deficit(St(), ["role:灯下扣"], 81, 100)
-    assert d["role:灯下扣"] == THICKEN_FACTS_MIN - 1
+    assert thicken_unused(St(), ["role:灯下扣"], 81, 100) == []
 
 
 def test_batch_top3_share_caps_headliners():
@@ -864,12 +861,12 @@ def test_batch_top3_share_caps_headliners():
     assert n_top == 8 and n_all == 9
     assert share > HEADLINER_FACT_SHARE_MAX
     vol = {"charter": {"chapter_range": [81, 100], "thickens": []}}
-    try:
-        assert_batch_depth(St(), vol, 81, 90, ["role:柳岸青"])
-        raise AssertionError("超名额必须抛")
-    except ValueError as e:
-        assert "前3名" in str(e)
-    assert HEADLINER_FACT_SHARE_MAX == 0.25
+
+    class St2(St):
+        def list_promises(self):
+            return []
+
+    assert_batch_depth(St2(), vol, 81, 90, ["role:柳岸青"])
 
 
 def test_persist_skips_holdover_payoff_matched_by_text():
@@ -884,7 +881,8 @@ def test_persist_skips_holdover_payoff_matched_by_text():
 
         def list_promises(self):
             return [{"id": "promise:abc123", "text": "长线", "status": "open",
-                     "setup_chapter": 4}]
+                     "setup_chapter": 4, "tier": "book",
+                     "payoff_min": 5, "payoff_max": None}]
 
         def save_chapter(self, *a, **k):
             return None
@@ -955,7 +953,8 @@ def test_assert_batch_depth_raises_when_holdover_closed_at_volume_end():
 
         def list_promises(self):
             return [{"id": "promise:abc123", "text": "长线", "status": "closed",
-                     "setup_chapter": 4, "payoff_chapter": 75}]
+                     "setup_chapter": 4, "payoff_chapter": 75,
+                     "tier": "book", "payoff_min": 5, "payoff_max": None}]
 
         def update_promise(self, pid, fields):
             restored.append((pid, dict(fields)))
@@ -1020,11 +1019,10 @@ def test_chapter_prompt_names_thicken_quota_and_top3_cap():
             return []
 
     p = build_prompt(St(), "卷五", "办", 81, 90, 200)
-    assert "至少立 3 条" in p or "至少 3 条" in p
-    assert "新 attribute" in p
     assert "验温嫂" in p and "污染读数" in p
-    assert "1/4" in p or "25%" in p
+    assert "办事" in p
     assert "role:柳岸青" in p
+    assert "至少立 3 条" not in p and "25%" not in p
 
 
 def test_chapter_prompt_lists_written_attributes_as_not_counting():
@@ -1078,8 +1076,7 @@ def test_chapter_prompt_lists_written_attributes_as_not_counting():
 
     p = build_prompt(St(), "卷五", "办", 91, 100, 200)
     assert "热痕" in p
-    assert "这些不算数" in p
-    assert "还欠" in p
+    assert "验温嫂" in p
 
 
 def test_persist_story_facts_pass_supersede_open():

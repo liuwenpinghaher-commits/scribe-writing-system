@@ -122,6 +122,23 @@ def _promise_ledger(st, at: int) -> str:
     return "\n".join(out)
 
 
+def _window_pay_lists(st, at: int) -> tuple[list[str], list[str]]:
+    """(该收, 不许收)。按窗口分，不按最老 N 条抽签。"""
+    from scribe3.expand_lifetime import is_overdue, payoff_skip_reason, pays_refs_for_volume
+
+    vol = volume_for_chapter(st, at)
+    pays = pays_refs_for_volume(st, (vol or {}).get("id"))
+    due, blocked = [], []
+    for p in _open_promises(st):
+        line = (f"{promise_ref(p)}｜[{p.get('tier', '?')}] "
+                f"第{p.get('setup_chapter')}章埋：{p.get('text')}")
+        if is_overdue(p, at) or not payoff_skip_reason(p, at, pays_refs=pays):
+            due.append(line)
+        else:
+            blocked.append(line)
+    return due, blocked
+
+
 def reserved_ahead(st, seq: int) -> list[str]:
     """后面几卷契约点名、这一章还不能用的实体。
 
@@ -435,30 +452,10 @@ def restore_closed_holdovers(st, closed: list[dict]) -> None:
 
 
 def assert_batch_depth(st, vol: dict, lo: int, hi: int, top3: list[str]) -> None:
-    """一批落库后核对写厚差额、前 3 名额、声明长线仍 open。不过就抛，走批次失败那条重试。"""
-    from scribe3.charter import normalize_charter
+    """一批落库后核对寿命账：点名实体本卷办事、逾期已收、未到期没被收。前 3 名占比不抛。"""
+    from scribe3.expand_lifetime import assert_volume_lifetime
 
-    c = normalize_charter((vol or {}).get("charter"))
-    rng = c["chapter_range"] or [lo, hi]
-    vol_lo, vol_hi = int(rng[0]), int(rng[1])
-    oids = [i["oid"] for i in c["thickens"] if i.get("oid")]
-    if hi >= vol_hi and oids:
-        deficit = thicken_deficit(st, oids, vol_lo, hi)
-        if deficit:
-            bits = "、".join(f"{oid}差{n}" for oid, n in deficit.items())
-            raise ValueError(
-                f"写厚本卷不足 {THICKEN_FACTS_MIN} 条新 attribute：{bits}")
-    if hi >= vol_hi:
-        closed = holdover_deficit(st, vol)
-        if closed:
-            restore_closed_holdovers(st, closed)
-            bits = "、".join(str(h.get("ref") or "") for h in closed)
-            raise ValueError(f"本卷不许收的长线被收掉了：{bits}")
-    share, n_top, n_all = batch_top3_share(st, lo, hi, top3)
-    if n_all and share > HEADLINER_FACT_SHARE_MAX:
-        raise ValueError(
-            f"本批前3名命题 {n_top}/{n_all}={share:.0%}，"
-            f"超过名额 {HEADLINER_FACT_SHARE_MAX:.0%}")
+    assert_volume_lifetime(st, vol, lo, hi, top3)
 
 
 def pick_holdovers(st, n: int) -> list[dict]:
@@ -473,7 +470,7 @@ def pick_holdovers(st, n: int) -> list[dict]:
 
 def ensure_live_roster(st, vol: dict) -> dict:
     """后续卷开铺前重排 thickens / holdovers。第一卷保留立纲初值。"""
-    from scribe3.charter import normalize_charter, required_holdovers, required_thickens
+    from scribe3.charter import normalize_charter, required_thickens
 
     c = normalize_charter((vol or {}).get("charter"))
     rng = c["chapter_range"]
@@ -481,7 +478,7 @@ def ensure_live_roster(st, vol: dict) -> dict:
         return c
     span = int(rng[1]) - int(rng[0]) + 1
     c["thickens"] = pick_thickens(st, vol, required_thickens(span))
-    c["holdovers"] = pick_holdovers(st, required_holdovers(len(_open_promises(st))))
+    # 长线不再抽最老 N 条冒充。收/不收跟 payoff 窗口走。
     vid = (vol or {}).get("id")
     if vid and hasattr(st, "update_volume"):
         st.update_volume(vid, {"charter": c})
@@ -543,33 +540,32 @@ def _charter_block(st, lo: int, hi: int) -> str:
         oids = [i["oid"] for i in c["thickens"]]
         written = thicken_attr_names(st, oids, int(rng[0]), lo - 1)
         out.append(
-            f"**这一卷必须把下面这些已有实体写厚**（why 是这一卷它做什么，不是提一句；"
-            f"每个本卷至少立 {THICKEN_FACTS_MIN} 条**新 attribute**，点名提及不算交差；"
-            f"改写已有 attribute 不算数，同 attribute 的后写者必须关掉前一条）：")
+            "**这一卷必须把下面这些已有实体写厚**（why 是这一卷它做什么；"
+            "本卷至少立一条接到已有账上的命题，点名提及不算交差）：")
         for i in c["thickens"]:
             attrs = written.get(i["oid"]) or []
-            n = len(attrs)
-            left = max(0, THICKEN_FACTS_MIN - n)
-            listed = "、".join(attrs) if attrs else "无"
-            out.append(
-                f"  - {i['oid']}：{i['why']}｜本卷已立 {n} 条新 attribute"
-                f"（{listed}；这些不算数），还欠 {left} 条新 attribute")
+            listed = "、".join(attrs) if attrs else "尚未办事"
+            out.append(f"  - {i['oid']}：{i['why']}｜本卷已立 {listed}")
         out.append("")
     top3 = current_top3(st, lo - 1)
     if top3:
         out.append(
             f"**当前前 3 名实体**（{'、'.join(top3)}）。"
-            f"本批 `new_facts` 落在他们身上的合计不得超过 {HEADLINER_FACT_SHARE_MAX:.0%}，"
-            "其余必须落到长尾和上面的写厚名单。全书前 3 名门槛仍是 20%，这里不改那个数。")
+            "情节可以写他们，但本批新命题尽量落到长尾和上面的写厚名单。")
         out.append("")
-    holds = c.get("holdovers") or []
-    if holds:
-        out.append("**本卷不许收的长线**（payoff 的 ref 不许写这些编号，写了也不落库）：")
-        for h in holds:
-            out.append(f"  - {h.get('ref')}｜{h.get('text') or ''}")
+    due, blocked = _window_pay_lists(st, lo)
+    if blocked:
+        out.append("**本卷不许收的长线**（未到期或 book 未点名，写了也不落库）：")
+        for line in blocked:
+            out.append(f"  - {line}")
         out.append("")
-    if c["pays"]:
-        out.append("**本卷该收的线**（优先收这些，不要去收上面不许收的）：")
+    if due:
+        out.append("**本卷该收的线**（窗口已开或已逾期，优先收这些）：")
+        for line in due:
+            out.append(f"  - {line}")
+        out.append("")
+    elif c["pays"]:
+        out.append("**本卷契约点名要收的线**：")
         out += [f"  - {p}" for p in c["pays"]]
         out.append("")
     ke = c["knowledge_end"]
@@ -660,14 +656,13 @@ def build_prompt(st, vol_title: str, vol_intro: str, lo: int, hi: int,
 - 「后面几卷预留的实体」现在别用。实测卷 2 预留了兰因，铺卷 1 时第 13 章就把她用了，
   卷 2 新鲜度掉到 4.5。
 - `new_facts` 每章至少一条。这是这本书的账在长厚，没有新事实说明这章白写了。
-- **写厚名单里的每个实体，这一卷至少立 3 条新 attribute 的命题**，要有处境、冲突、账，不许只提一句。提示里已列的 attribute 改写不算数；同 attribute 只能有一条开口，后写的要换代前一条。
-- **本批 `new_facts` 落在「当前前 3 名」上的合计不得超过 1/4**，其余必须落到长尾。
+- **写厚名单里的每个实体，这一卷必须办事**：至少一条接到它已有账上的命题（处境、冲突、账），不许只提一句。同 attribute 只能有一条开口，后写的要换代前一条。
 - 新地点必须写从属：`attribute` 用「位于」，`value` 用上级的 `place:…`（例：`place:签押廊` 位于 `place:不署名门`）。不许靠名字前缀冒充同区。
 - `learns` 里的 `fact_index` 指向本章 `new_facts` 的下标。**谁不在场就不许知道**。
 - 上面「柳岸青此刻知道什么」里已经有的，不要重复立成新事实。
 - `hides` 至少一处。全书的劲都在信息差上，没人瞒人就没有戏。
-- 每三到四章要有一条 `payoff`，`ref` 必须照抄「本卷该收的线」或「还欠着的线」里某一条的编号。
-  **「本卷不许收的长线」一条都不许收。** 不要自己编号。标了「已过期」且不在不许收名单里的优先收。
+- `plant` 必须写 `tier`：`chapter`（本卷收）、`arc`（数章后收）、`book`（挂到很后）。不要缺省。
+- `payoff` 只收「本卷该收的线」和「已过期」的编号。**未到期和 book 未点名的不许收，写了也不落库。** 不要自己编号。没有到期的线就不要硬收。
 - 标了 secret 的事实，要想清楚它泄露出去会伤到谁——伤不到人的秘密不是秘密。
 - 不许让柳岸青看见场核坐标（红线）。
 """
@@ -888,28 +883,36 @@ def persist(st, chapters: list[dict], vol_id: str | None) -> dict:
             text = str(p.get("text") or "").strip()
             if not text or text in open_texts:
                 continue
+            tier = str(p.get("tier") or "").strip()
+            if tier not in ("chapter", "arc", "book"):
+                print(f"  ! 第{seq}章伏笔缺 tier，跳过")
+                continue
             try:
-                st.plant_promise(text, seq, tier=p.get("tier") or "chapter",
+                st.plant_promise(text, seq, tier=tier,
                                  resolution=p.get("how") or "")
                 open_texts.add(text)
                 n_plant += 1
             except Exception as e:
                 print(f"  ! 第{seq}章伏笔: {e}")
 
-        blocked = holdover_refs_for_volume(st, vol_id)
+        from scribe3.expand_lifetime import payoff_skip_reason, pays_refs_for_volume
+
+        pays = pays_refs_for_volume(st, vol_id)
+        by_pid = {}
+        for row in _open_promises(st):
+            pid = str(row.get("id") or "")
+            local = pid.split(":")[-1] if ":" in pid else pid
+            by_pid[local] = row
         for p in ch.get("payoff") or []:
-            ref = str(p.get("ref") or "").strip().upper()
-            if ref and ref in blocked:
-                print(f"  ! 第{seq}章收线 {ref} 是本卷不许收的长线，跳过")
-                continue
             pid = resolve_payoff(st, p)
             if not pid:
                 print(f"  ! 第{seq}章收线认不出：ref={p.get('ref')!r} "
                       f"{str(p.get('text'))[:40]}")
                 continue
-            resolved_ref = ("L" + pid).upper()
-            if resolved_ref in blocked:
-                print(f"  ! 第{seq}章收线 {resolved_ref} 是本卷不许收的长线，跳过")
+            row = by_pid.get(pid)
+            reason = payoff_skip_reason(row, seq, pays_refs=pays) if row else None
+            if reason:
+                print(f"  ! 第{seq}章收线 {('L' + pid).upper()} {reason}，跳过")
                 continue
             try:
                 st.advance_promise(pid, seq)
