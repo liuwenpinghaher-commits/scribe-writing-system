@@ -85,9 +85,124 @@ def test_hiding_the_same_thing_twice_still_folds():
 
 
 def test_hide_attr_is_stable_and_bounded():
-    assert hide_attr("裂纹温度") == hide_attr("  裂纹温度  ") == "隐瞒·裂纹温度"
+    assert hide_attr("裂纹温度") == hide_attr("  裂纹温度  ")
     assert hide_attr("很长" * 40).startswith("隐瞒·")
-    assert len(hide_attr("很长" * 40)) <= len("隐瞒·") + 24
+    # what 截 24 字；from 另计，不能把整键压回旧的 24。
+    what_part = hide_attr("很长" * 40).removeprefix("隐瞒·").split("·对", 1)[0]
+    assert len(what_part) <= 24
+
+
+def test_hide_attr_differs_by_target():
+    """同一件事对不同人瞒，必须是两个键。卷 7 实测：潮忆吏对归名验房 / 沈烛
+    都瞒「改写队列人数」，旧键把两条扫成 value_conflict。"""
+    a = hide_attr("改写队列人数", "org:归名验房")
+    b = hide_attr("改写队列人数", "role:沈烛")
+    assert a != b
+    assert "归名验房" in a
+    assert "沈烛" in b
+
+
+def test_same_secret_two_targets_is_not_value_conflict():
+    from scribe3.setting_audit import scan_value_conflicts
+
+    facts = [
+        Fact("fact:h1", "role:潮忆吏",
+             hide_attr("改写队列人数", "org:归名验房"),
+             "对org:归名验房瞒：改写队列人数", 124, None, True, []),
+        Fact("fact:h2", "role:潮忆吏",
+             hide_attr("改写队列人数", "role:沈烛"),
+             "对role:沈烛瞒：改写队列人数", 127, None, True, []),
+    ]
+    assert scan_value_conflicts(facts) == []
+
+
+def test_persist_hides_same_what_different_from_use_distinct_keys():
+    from scribe3.tools.expand_wanjie_chapters import persist
+
+    attrs = []
+
+    class St:
+        def list_volumes(self):
+            return []
+
+        def list_promises(self):
+            return []
+
+        def save_chapter(self, *a, **k):
+            return None
+
+        def update_chapter_meta(self, *a, **k):
+            return True
+
+        def add_fact(self, fact, *a, **k):
+            attrs.append(fact.attribute)
+
+        def add_knowledge(self, *a, **k):
+            return None
+
+        def plant_promise(self, *a, **k):
+            return None
+
+        def advance_promise(self, *a, **k):
+            return None
+
+        def entity(self, oid):
+            return True
+
+        def add_entity(self, *a, **k):
+            return None
+
+        def add_faction(self, *a, **k):
+            return None
+
+    persist(St(), [{
+        "seq": 124, "title": "试", "synopsis": "x" * 40,
+        "new_facts": [], "learns": [],
+        "hides": [
+            {"who": "role:潮忆吏", "from": "org:归名验房", "what": "改写队列人数"},
+            {"who": "role:潮忆吏", "from": "role:沈烛", "what": "改写队列人数"},
+        ],
+        "plant": [], "payoff": [],
+    }], "v7")
+    hide = [a for a in attrs if str(a).startswith("隐瞒")]
+    assert len(hide) == 2
+    assert hide[0] != hide[1]
+
+
+def test_rekey_legacy_hide_keeps_id_and_splits_targets():
+    """旧键 隐瞒·what 已落库的，原地改 attribute，id 不动（知识边挂在 id 上）。"""
+    from scribe3.setting_audit import scan_value_conflicts
+    from scribe3.tools.expand_wanjie_chapters import rekey_legacy_hide_facts
+
+    rows = [
+        Fact("fact:c124-hide5", "role:潮忆吏", "隐瞒·改写队列人数",
+             "对org:归名验房瞒：改写队列人数", 124, None, True, []),
+        Fact("fact:c127-hide9", "role:潮忆吏", "隐瞒·改写队列人数",
+             "对role:沈烛瞒：改写队列人数", 127, None, True, []),
+        Fact("fact:already", "role:甲", "隐瞒·热痕·对role:乙",
+             "对role:乙瞒：热痕", 10, None, True, []),
+    ]
+
+    class St:
+        def __init__(self):
+            self.rows = list(rows)
+            self.writes = []
+
+        def facts_unfolded_at(self, _ch):
+            return list(self.rows)
+
+        def add_fact(self, fact, *a, **k):
+            self.writes.append(fact)
+            self.rows = [x for x in self.rows if x.id != fact.id] + [fact]
+
+    st = St()
+    n = rekey_legacy_hide_facts(st)
+    assert n == 2
+    assert {w.id for w in st.writes} == {"fact:c124-hide5", "fact:c127-hide9"}
+    by_id = {f.id: f.attribute for f in st.rows}
+    assert by_id["fact:c124-hide5"] != by_id["fact:c127-hide9"]
+    assert by_id["fact:already"] == "隐瞒·热痕·对role:乙"
+    assert scan_value_conflicts(st.rows) == []
 
 
 # ---------- 收线：编号引用优先于模糊匹配 ----------

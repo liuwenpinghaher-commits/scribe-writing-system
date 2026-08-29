@@ -688,9 +688,58 @@ def parse(raw: str) -> list[dict]:
 HIDE_PREFIX = "隐瞒·"
 
 
-def hide_attr(what: str) -> str:
-    """瞒某件事的属性名。同一件事共用一个键（该单真），不同的事互不覆盖。"""
-    return HIDE_PREFIX + " ".join(str(what or "").split())[:24]
+def hide_attr(what: str, frm: str = "") -> str:
+    """瞒某件事的属性名。同一件事对同一对象共用一个键；对不同对象是两件事。
+
+    键里不带 from 时，同一人对两个人瞒同一件事会写成同键不同值，
+    被 scan_value_conflicts 当成设定打架（卷 7 实测 3 条）。
+    """
+    what_n = " ".join(str(what or "").split())[:24]
+    frm_n = " ".join(str(frm or "外人").split())[:24]
+    return f"{HIDE_PREFIX}{what_n}·对{frm_n}"
+
+
+def parse_hide_value(value: str) -> tuple[str, str]:
+    """从「对{from}瞒：{what}」拆出对象和事件。拆不出就当对外人。"""
+    s = str(value or "").strip()
+    if s.startswith("对") and "瞒：" in s:
+        frm, what = s[1:].split("瞒：", 1)
+        return (frm.strip() or "外人"), what
+    return "外人", s
+
+
+def is_legacy_hide_attr(attr: str) -> bool:
+    a = str(attr or "")
+    return a.startswith(HIDE_PREFIX) and "·对" not in a[len(HIDE_PREFIX):]
+
+
+def rekey_legacy_hide_facts(st) -> int:
+    """旧键 隐瞒·what 原地改成 隐瞒·what·对from，id 不动（知识边挂 id）。"""
+    reader = getattr(st, "facts_unfolded_at", None)
+    if reader is None:
+        return 0
+    n = 0
+    for f in list(reader(99999) or []):
+        attr = str(getattr(f, "attribute", "") or "")
+        if not is_legacy_hide_attr(attr):
+            continue
+        frm, what = parse_hide_value(getattr(f, "value", "") or "")
+        if not what:
+            what = attr[len(HIDE_PREFIX):]
+        new_attr = hide_attr(what, frm)
+        if new_attr == attr:
+            continue
+        st.add_fact(Fact(
+            id=f.id,
+            entity_id=f.entity_id,
+            attribute=new_attr,
+            value=f.value,
+            valid_from=f.valid_from,
+            valid_to=f.valid_to,
+            secret=bool(getattr(f, "secret", False)),
+        ), supersede_open=False)
+        n += 1
+    return n
 
 
 _faction_names: "WeakKeyDictionary[object, set[str]]" = WeakKeyDictionary()
@@ -812,7 +861,8 @@ def persist(st, chapters: list[dict], vol_id: str | None) -> dict:
         # attribute 必须带上瞒的是哪件事。`facts_at` 末尾要过 `resolve_injection_facts`
         # 做同键折叠（注入面单真），全写成 "隐瞒" 的话一个人瞒的所有事挤在同一个键上，
         # 读出来只剩最后一条——实测 36-100 章写了 71 条、读回来 7 条，每人一条。
-        # 隐瞒不是互斥值，同时瞒十件事是常态；只有「同一件事」才该单真。
+        # 隐瞒不是互斥值：同时瞒十件事是常态，对两个人瞒同一件事也是。
+        # 单真只落在「同一件事 × 同一对象」上。
         for h in ch.get("hides") or []:
             who, frm, what = canon_oid(h.get("who") or ""), h.get("from"), h.get("what")
             if not (who and what):
@@ -820,7 +870,8 @@ def persist(st, chapters: list[dict], vol_id: str | None) -> dict:
             _ensure_entity(st, who)
             fid = f"fact:c{seq}-hide{n_hide}"
             try:
-                st.add_fact(Fact(id=fid, entity_id=who, attribute=hide_attr(what),
+                st.add_fact(Fact(id=fid, entity_id=who,
+                                 attribute=hide_attr(what, frm),
                                  value=f"对{frm or '外人'}瞒：{what}",
                                  valid_from=seq, secret=True),
                             supersede_open=False)
