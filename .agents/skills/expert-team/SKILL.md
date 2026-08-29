@@ -1,8 +1,8 @@
 ---
 name: expert-team
 description: >-
-  This repo's expert-team pointer. Orchestration SSOT is the global skill.
-  Use for 专家团 / engineering work in 写作 3.0; do not invent a second protocol.
+  This repo's expert-team pointer. Use only when the user says 专家团.
+  Orchestration SSOT is ~/.agents/skills/expert-team/SKILL.md.
 ---
 
 # Expert Team（本仓指针）

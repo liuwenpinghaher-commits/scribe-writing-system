@@ -577,18 +577,29 @@ class ChaptersMixin:
             "FROM chapter:.. "
             "WHERE archived = NONE OR archived != true ORDER BY seq"
         )
+        sql_plot = (
+            "SELECT seq, title, synopsis, deltas, "
+            "(IF volume THEN meta::id(volume) ELSE NONE END) AS volume, focalizer, "
+            "plot_action, "
+            "(IF prose IS NONE OR prose = '' THEN false ELSE true END) AS has_prose "
+            "FROM chapter:.. "
+            "WHERE archived = NONE OR archived != true ORDER BY seq"
+        )
         try:
-            rows = self._query(sql_flags)
+            rows = self._query(sql_plot)
         except Exception:
             try:
-                rows = self._query(sql)
+                rows = self._query(sql_flags)
             except Exception:
-                rows = self._query(
-                    "SELECT seq, title, synopsis, deltas FROM chapter:.. "
-                    "WHERE archived = NONE OR archived != true ORDER BY seq"
-                )
+                try:
+                    rows = self._query(sql)
+                except Exception:
+                    rows = self._query(
+                        "SELECT seq, title, synopsis, deltas FROM chapter:.. "
+                        "WHERE archived = NONE OR archived != true ORDER BY seq"
+                    )
         for r in rows:
-            for k in ("title", "synopsis", "deltas", "volume", "focalizer"):
+            for k in ("title", "synopsis", "deltas", "volume", "focalizer", "plot_action"):
                 r.setdefault(k, None)
             r.setdefault("beats", None)
             r.setdefault("scene_truth", None)

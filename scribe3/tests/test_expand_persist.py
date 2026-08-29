@@ -1131,3 +1131,107 @@ def test_persist_story_facts_pass_supersede_open():
     hide = [x for x in flags if str(x[0]).startswith("隐瞒")]
     assert story == [("热痕", True)]
     assert hide and hide[0][1] is False
+
+
+def test_chapter_prompt_names_p1_p2_rules():
+    """视角不得独占、手段不得单一必须写进章级提示。不进文笔。"""
+    from scribe3.tools.expand_wanjie_chapters import build_prompt
+
+    class St:
+        def get_intent(self):
+            return {"north_star": "星", "red_lines": "线"}
+
+        def list_volumes(self):
+            return [{"id": "v8", "title": "卷八", "intro": "办",
+                     "charter": {"duty": "办", "chapter_range": [141, 160],
+                                 "alt_focalizers": [{
+                                     "oid": "role:兰因",
+                                     "why": "这一卷她自己揭账"}],
+                                 "pays": [], "knowledge_end": {
+                                     "must_know": [], "must_not_know": []}}}]
+
+        def chapters_lite(self):
+            return [{"seq": 141, "focalizer": "role:柳岸青", "plot_action": "买",
+                     "synopsis": "付零点三度"}]
+
+        def list_promises(self):
+            return []
+
+        def facts_at(self, *_a, **_k):
+            return []
+
+        def characters(self):
+            return []
+
+        def list_world_rules(self):
+            return []
+
+        def list_factions(self):
+            return []
+
+        def list_items(self):
+            return []
+
+        def list_terms(self):
+            return []
+
+        def list_motifs(self):
+            return []
+
+    p = build_prompt(St(), "卷八", "办", 151, 160, 200)
+    assert "focalizer" in p
+    assert "action" in p
+    assert "兰因" in p
+    assert "揭发" in p and "买" in p
+    assert "自己" in p
+    assert "同一类" in p or "不得全是" in p
+    assert "读到第三段" not in p
+    assert "文笔" not in p
+
+
+def test_persist_saves_chapter_focalizer_and_plot_action():
+    from scribe3.tools.expand_wanjie_chapters import persist
+
+    saved = []
+    meta = {}
+
+    class St:
+        def list_volumes(self):
+            return [{"id": "v8", "charter": {"chapter_range": [141, 160]}}]
+
+        def list_promises(self):
+            return []
+
+        def save_chapter(self, seq, prose, title="", focalizer=""):
+            saved.append((seq, focalizer))
+
+        def update_chapter_meta(self, seq, fields):
+            meta[seq] = dict(fields)
+            return True
+
+        def add_fact(self, *a, **k):
+            return None
+
+        def add_knowledge(self, *a, **k):
+            return None
+
+        def plant_promise(self, *a, **k):
+            return None
+
+        def entity(self, oid):
+            return True
+
+        def add_entity(self, *a, **k):
+            return None
+
+        def add_faction(self, *a, **k):
+            return None
+
+    persist(St(), [{
+        "seq": 150, "title": "揭", "synopsis": "兰因当场点破名册。",
+        "focalizer": "role:兰因", "action": "揭发",
+        "new_facts": [], "learns": [], "hides": [], "plant": [], "payoff": [],
+    }], "v8")
+    assert saved == [(150, "role:兰因")]
+    assert meta[150]["plot_action"] == "揭发"
+    assert meta[150]["synopsis"].startswith("兰因")

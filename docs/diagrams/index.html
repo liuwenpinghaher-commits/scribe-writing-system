@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>铜炉 · scribe3 架构图索引</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f7f9;
+      --card: #fff;
+      --ink: #1a1d24;
+      --muted: #5c6470;
+      --line: #d8dde6;
+      --brand: #2563eb;
+      --brand-hover: #1d4ed8;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1117;
+        --card: #181b24;
+        --ink: #e8eaed;
+        --muted: #9aa3b2;
+        --line: #2a3140;
+        --brand: #60a5fa;
+        --brand-hover: #93c5fd;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.55;
+    }
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 2.5rem 1.25rem 3rem;
+    }
+    header { margin-bottom: 2rem; }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 650;
+      margin: 0 0 0.35rem;
+      letter-spacing: -0.02em;
+    }
+    .lead {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .grid {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    a.card {
+      display: block;
+      padding: 1rem 1.15rem;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    a.card:hover {
+      border-color: var(--brand);
+      box-shadow: 0 2px 12px rgb(0 0 0 / 0.06);
+    }
+    a.card:focus-visible {
+      outline: 2px solid var(--brand);
+      outline-offset: 2px;
+    }
+    .card-title {
+      font-weight: 600;
+      font-size: 1rem;
+      margin-bottom: 0.25rem;
+      color: var(--brand);
+    }
+    a.card:hover .card-title { color: var(--brand-hover); }
+    .card-desc {
+      font-size: 0.875rem;
+      color: var(--muted);
+      margin: 0;
+    }
+    .tag {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    footer {
+      margin-top: 2rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--line);
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    footer code {
+      font-size: 0.78rem;
+      background: var(--line);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>铜炉 · scribe3 架构图</h1>
+      <p class="lead">基于 <code>docs/CURRENT_ARCHITECTURE.md</code> 生成的可交互架构图，支持暗/亮主题、缩放与 PNG/SVG 导出。</p>
+    </header>
+
+    <nav class="grid" aria-label="架构图列表">
+      <a class="card" href="tonglu-architecture.html">
+        <span class="tag">Architecture</span>
+        <div class="card-title">运行时架构</div>
+        <p class="card-desc">作者 → 写作台 → FastAPI → SurrealDB 正典；主编 MCP 写路径与 Hermes 写作通道。</p>
+      </a>
+
+      <a class="card" href="tonglu-write-path.html">
+        <span class="tag">Sequence</span>
+        <div class="card-title">MCP 写路径时序</div>
+        <p class="card-desc">主编 s3_* 调用 → elicitation 审批 → commit_if_approved → status=written / declined / error。</p>
+      </a>
+
+      <a class="card" href="tonglu-limited-knowledge.html">
+        <span class="tag">Dataflow</span>
+        <div class="card-title">限知渲染数据流</div>
+        <p class="card-desc">正典 → hybrid_recall → project_frame 硬裁 → ContextEngine → Hermes 限知 prompt。</p>
+      </a>
+
+      <a class="card" href="tonglu-write-proposal.html">
+        <span class="tag">Lifecycle</span>
+        <div class="card-title">/chat/write 提案生命周期</div>
+        <p class="card-desc">写作请求 → 流式生成 → DraftCard 待批 → 应用落库 → 已存稿；与世界写分离。</p>
+      </a>
+    </nav>
+
+    <footer>
+      规格 JSON 与本页同目录 · 由 <a href="https://github.com/tt-a1i/archify" style="color: var(--brand);">archify</a> 生成
+    </footer>
+  </div>
+</body>
+</html>

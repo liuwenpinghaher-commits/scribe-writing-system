@@ -81,7 +81,8 @@ def thicken_unused(st, oids: list[str], lo: int, hi: int) -> list[str]:
 
 
 def assert_volume_lifetime(st, vol: dict, lo: int, hi: int,
-                           top3: list[str] | None = None) -> None:
+                           top3: list[str] | None = None, *,
+                           hero: str = "role:柳岸青") -> None:
     """卷末：点名实体必须被用到；逾期必须已收；前 3 名占比不抛。"""
     del top3  # 不再把关
     c = normalize_charter((vol or {}).get("charter"))
@@ -119,3 +120,8 @@ def assert_volume_lifetime(st, vol: dict, lo: int, hi: int,
                         st.update_promise(local, {"status": "open"})
             bits = "、".join(promise_ref(p) for p in early)
             raise ValueError(f"本卷不许收的长线被收掉了：{bits}")
+        from scribe3.plot_rules import plot_deficits
+
+        plot_msgs = plot_deficits(st, vol, lo, hi, hero=hero)
+        if plot_msgs:
+            raise ValueError("；".join(plot_msgs))

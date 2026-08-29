@@ -1,5 +1,6 @@
-// 容器卡片墙/大纲表的色彩编码:label 语义色 + POV 稳定哈希色。
+// 容器卡片墙/大纲表的色彩编码:label 语义色 + POV 稳定哈希色 + 剧情动作色。
 // 复用全站 --color-* token,不引入新调色板。
+import { ACTION_TOKEN, plotBeat } from './plotBeat'
 
 // label(状态)→ CSS 变量 token
 export const LABELS = ['idea', 'draft', 'revise', 'done', 'beat']
@@ -26,7 +27,8 @@ export function povToken(focalizer) {
 // 给定章 + 模式 → CSS 颜色字符串(用于色条 background)
 export function cardColorVar(chapter, mode) {
   let token = 'line'
-  if (mode === 'pov') token = povToken(chapter.focalizer)
+  if (mode === 'plot') token = ACTION_TOKEN[plotBeat(chapter).action] || 'line'
+  else if (mode === 'pov') token = povToken(chapter.focalizer)
   else { // 'status'(默认)
     const m = LABEL_META[chapter.label]
     token = m ? m.token : 'line'

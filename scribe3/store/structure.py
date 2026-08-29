@@ -182,7 +182,7 @@ class StructureMixin:
             "FROM chapter:.. WHERE archived = NONE OR archived != true"
         )
         sql_flags = (
-            "SELECT seq, sort_order, title, synopsis, focalizer, "
+            "SELECT seq, sort_order, title, synopsis, focalizer, plot_action, "
             "(IF volume THEN meta::id(volume) ELSE NONE END) AS volume, label, "
             "qc_word_count AS word_count, qc_issues, qc_causal, qc_breakdown, qc_cache_revision, "
             "scene_count, scene_meta, beats, beats_meta, "
@@ -198,7 +198,7 @@ class StructureMixin:
                 sql_flags_old = sql_flags.replace(
                     "outline_status, outline_rev, confidence, settled_note, ",
                     "",
-                )
+                ).replace("plot_action, ", "")
                 rows = self._query(sql_flags_old)
             except Exception:
                 rows = self._query(sql)

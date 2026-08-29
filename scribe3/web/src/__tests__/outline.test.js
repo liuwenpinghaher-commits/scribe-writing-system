@@ -26,6 +26,9 @@ describe('outlineColors', () => {
   it('cardColorVar by pov uses focalizer hash', () => {
     expect(cardColorVar({ focalizer: '焦三' }, 'pov')).toBe(`var(--color-${povToken('焦三')})`)
   })
+  it('cardColorVar by plot uses action token', () => {
+    expect(cardColorVar({ synopsis: '付零点五度买三息' }, 'plot')).toMatch(/var\(--color-/)
+  })
   it('wcLabel compacts thousands', () => {
     expect(wcLabel(3120)).toBe('3.1k')
     expect(wcLabel(800)).toBe('800')

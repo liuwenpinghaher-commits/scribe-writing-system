@@ -173,3 +173,58 @@ def test_persist_skips_pre_window_payoff():
         "payoff": [{"ref": "Labc123", "how": "太早"}],
     }], "v7")
     assert paid == []
+
+
+def test_assert_volume_end_fails_p1_when_hero_owns_every_chapter():
+    from scribe3.expand_lifetime import assert_volume_lifetime
+    from scribe3.ontology import Fact
+
+    class St:
+        def facts_at(self, ch):
+            return [Fact("fact:h", "role:柳岸青", "付温", "半成", 141, None, False, [])]
+
+        def list_promises(self):
+            return []
+
+        def chapters_lite(self):
+            return [{"seq": i, "focalizer": "role:柳岸青", "plot_action": "买"}
+                    for i in range(141, 161)]
+
+    vol = {"charter": {
+        "chapter_range": [141, 160], "thickens": [],
+        "alt_focalizers": [{"oid": "role:兰因", "why": "她自己揭账"}],
+    }}
+    try:
+        assert_volume_lifetime(St(), vol, 151, 160)
+        raise AssertionError("视角独占必须抛")
+    except ValueError as e:
+        assert "兰因" in str(e)
+
+
+def test_assert_mid_volume_does_not_throw_p1():
+    """P1 是卷规则。前半批还没写到兰因那章，不能在半卷就炸。"""
+    from scribe3.expand_lifetime import assert_volume_lifetime
+    from scribe3.ontology import Fact
+
+    class St:
+        def facts_at(self, ch):
+            return [Fact("fact:h", "role:柳岸青", "付温", "半成", 141, None, False, [])]
+
+        def list_promises(self):
+            return []
+
+        def chapters_lite(self):
+            return [{"seq": i, "focalizer": "role:柳岸青", "plot_action": "买"}
+                    for i in range(141, 151)]
+
+    vol = {"charter": {
+        "chapter_range": [141, 160], "thickens": [],
+        "alt_focalizers": [{"oid": "role:兰因", "why": "她自己揭账"}],
+    }}
+    assert_volume_lifetime(St(), vol, 141, 150)
+
+
+def test_plot_action_is_allowed_chapter_meta():
+    from scribe3.chapter_meta_codec import CHAPTER_META_ALLOWED
+
+    assert "plot_action" in CHAPTER_META_ALLOWED

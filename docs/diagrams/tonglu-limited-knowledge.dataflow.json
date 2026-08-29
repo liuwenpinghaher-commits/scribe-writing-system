@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "铜炉 · 限知渲染数据流",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1080, 480]
+  },
+  "stages": [
+    { "label": "正典" },
+    { "label": "召回" },
+    { "label": "投影" },
+    { "label": "组装" },
+    { "label": "生成" }
+  ],
+  "nodes": [
+    { "id": "surreal", "type": "database", "label": "SurrealDB", "sublabel": "事实/事件/知识边", "stage": 0, "row": 1, "tag": "正典" },
+    { "id": "recall", "type": "backend", "label": "hybrid_recall", "sublabel": "时间门语义召回", "stage": 1, "row": 1 },
+    { "id": "frame", "type": "security", "label": "project_frame", "sublabel": "focalizer 硬裁", "stage": 2, "row": 1, "tag": "限知闸" },
+    { "id": "cce", "type": "backend", "label": "ContextEngine", "sublabel": "八块 envelope", "stage": 3, "row": 1 },
+    { "id": "hermes", "type": "external", "label": "Hermes", "sublabel": "/chat/write", "stage": 4, "row": 1 }
+  ],
+  "flows": [
+    { "id": "canon-recall", "from": "surreal", "to": "recall", "label": "正典查询", "variant": "emphasis" },
+    { "id": "recall-frame", "from": "recall", "to": "frame", "label": "召回上下文" },
+    { "id": "frame-cce", "from": "frame", "to": "cce", "label": "裁剪后上下文", "variant": "emphasis" },
+    { "id": "cce-hermes", "from": "cce", "to": "hermes", "label": "限知 prompt" }
+  ],
+  "cards": [
+    { "dot": "rose", "title": "限知保证", "items": ["角色不知的事实物理上不进 prompt", "讨论 /chat/stream 默认全知，≠ 限知"] },
+    { "dot": "cyan", "title": "记忆边界", "items": ["memory_fabric 过程记忆不替代正典", "素材参考门控，借鉴非事实"] }
+  ]
+}

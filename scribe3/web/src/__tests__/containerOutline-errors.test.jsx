@@ -24,6 +24,7 @@ describe('ContainerOutline 错误态', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     sessionStorage.clear()
+    localStorage.clear()
     apiMock.outline.mockResolvedValue(emptyOutline)
   })
 
@@ -58,5 +59,12 @@ describe('ContainerOutline 错误态', () => {
     expect(seeds.join('\n')).toMatch(/s3_add_volume|第一卷/)
     expect(tabs).toContain('chief')
     expect(apiMock.addVolume).not.toHaveBeenCalled()
+  })
+
+  it('卡片墙色彩可选按剧情', async () => {
+    render(<ContainerOutline node={{ type: 'manuscript_root', label: '手稿' }} />)
+    expect(await screen.findByText('手稿')).toBeTruthy()
+    const sel = screen.getByLabelText('色彩')
+    expect([...sel.options].map((o) => o.value)).toContain('plot')
   })
 })

@@ -122,7 +122,7 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
   const [actionErr, setActionErr] = useState(null)
   const [delVol, setDelVol] = useState(null)   // {vid,title,body} 删卷确认
   const [mode, setMode] = useStrPref('s3.container.mode', 'corkboard')
-  const [colorMode, setColorMode] = useStrPref('s3.container.color', 'status')
+  const [colorMode, setColorMode] = useStrPref('s3.container.color', 'plot')
   const [adding, setAdding] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const addRef = useRef(null)
@@ -359,6 +359,7 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
                 className="h-7 rounded-md border border-line bg-canvas px-1.5 text-f12 text-ink outline-none cursor-pointer">
                 <option value="status">按状态</option>
                 <option value="pov">按视角</option>
+                <option value="plot">按剧情</option>
               </select>
             </label>
           )}

@@ -87,7 +87,10 @@ def _charter(**kw):
             "pays": ["旧线"], "chapter_range": [1, 6],
             "knowledge_end": {
                 "must_know": [{"key": "甲身份", "what": "知道甲是谁"}],
-                "must_not_know": [{"key": "场核坐标", "what": "翻开得留到第三卷"}]}}
+                "must_not_know": [{"key": "场核坐标", "what": "翻开得留到第三卷"}]},
+            "alt_focalizers": [
+                {"oid": "role:老人", "why": "这一卷他自己去挡秤，不是旁观主角。"},
+            ]}
     base.update(kw)
     return base
 
@@ -762,3 +765,52 @@ def test_normalize_holdovers():
     })
     assert c["holdovers"][0]["ref"] == "Labc"
     assert c["holdovers"][1] == {"ref": "Ldef", "text": "旧线"}
+
+
+def test_normalize_alt_focalizers_like_introduces():
+    c = normalize_charter({
+        "duty": "办",
+        "alt_focalizers": ["role:兰因", {"oid": "role:沈烛", "why": "他自己揭账"}],
+    })
+    assert c["alt_focalizers"][0] == {"oid": "role:兰因", "why": ""}
+    assert c["alt_focalizers"][1]["oid"] == "role:沈烛"
+    assert "揭账" in c["alt_focalizers"][1]["why"]
+
+
+def test_validate_requires_named_alt_focalizer_who_acts():
+    """没点名非主角视角 = 150/150 柳岸青的根。不设比例，只问有没有这个人。"""
+    problems = validate_charter(_charter(alt_focalizers=[]))
+    assert any("视角" in p or "alt_focalizer" in p for p in problems)
+
+    no_job = _charter(alt_focalizers=[{"oid": "role:兰因"}])
+    assert any("做什么" in p or "自己" in p for p in validate_charter(no_job))
+
+    hero = _charter(alt_focalizers=[
+        {"oid": "role:柳岸青", "why": "这一卷他自己去揭账"}])
+    assert any("主角" in p for p in validate_charter(hero, hero="role:柳岸青"))
+
+    ok = _charter(alt_focalizers=[
+        {"oid": "role:兰因", "why": "这一卷她自己揭发腕账，不是旁观。"}])
+    assert validate_charter(ok, hero="role:柳岸青") == []
+
+
+def test_charter_prompt_asks_for_alt_focalizers():
+    st = FakeStore([_fact("p1", "role:柳岸青", "a", "v", 1)])
+    st.get_intent = lambda: {"north_star": "北极星文", "red_lines": "红线文"}
+    st.list_volumes = lambda: []
+    p = build_charter_prompt(st, 10, 200)
+    assert "alt_focalizers" in p
+    assert "自己" in p
+    assert "旁观" in p or "非主角" in p
+
+
+def test_persist_keeps_alt_focalizers():
+    raw = json.dumps({"volumes": [dict(_charter(chapter_range=[1, 6]),
+                                       sort_order=1, title="开场",
+                                       alt_focalizers=[{
+                                           "oid": "role:兰因",
+                                           "why": "这一卷她自己揭账"}])]},
+                     ensure_ascii=False)
+    st = FakeVolStore()
+    persist_charters(st, parse_charters(raw), 6)
+    assert st.volumes[0]["charter"]["alt_focalizers"][0]["oid"] == "role:兰因"

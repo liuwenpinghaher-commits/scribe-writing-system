@@ -16,7 +16,7 @@ CHAPTER_JSON_LIST_META_KEYS = frozenset({
 CHAPTER_META_ALLOWED = frozenset({
     "synopsis", "volume", "label", "title", "beats",
     "scene_truth", "involved_characters", "deductions",
-    "purpose_text", "deltas", "focalizer", "prose_lock",
+    "purpose_text", "deltas", "focalizer", "plot_action", "prose_lock",
     "play_sha", "contract_sha", "playbook_version",
     "outline_status", "outline_rev", "confidence",
     "settled_note",

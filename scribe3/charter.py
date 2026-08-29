@@ -125,6 +125,7 @@ def normalize_charter(raw: Any) -> dict:
     out["introduces"] = _norm_oid_items(raw.get("introduces"))
     out["thickens"] = _norm_oid_items(raw.get("thickens"))
     out["holdovers"] = _norm_holdover_items(raw.get("holdovers"))
+    out["alt_focalizers"] = _norm_oid_items(raw.get("alt_focalizers"))
 
     for item in raw.get("pays") or []:
         text = item.strip() if isinstance(item, str) else str((item or {}).get("text") or "").strip()
@@ -210,11 +211,13 @@ def _norm_holdover_items(raw) -> list[dict]:
 
 def _empty_charter() -> dict:
     return {"duty": "", "introduces": [], "thickens": [], "holdovers": [], "pays": [],
+            "alt_focalizers": [],
             "knowledge_end": {"must_know": [], "must_not_know": []},
             "chapter_range": None}
 
 
-def validate_charter(charter: dict, *, strict: bool = True) -> list[str]:
+def validate_charter(charter: dict, *, strict: bool = True,
+                     hero: str | None = None) -> list[str]:
     """返回问题清单，空列表 = 合格。strict=False 只查结构不查内容强度。"""
     c = normalize_charter(charter)
     problems: list[str] = []
@@ -240,6 +243,26 @@ def validate_charter(charter: dict, *, strict: bool = True) -> list[str]:
         problems.append(
             "这些写厚实体没写这一卷它做什么（要一句话：处境/冲突/账，不是光一个 oid）："
             + "、".join(no_job))
+    if not c["alt_focalizers"]:
+        problems.append(
+            "没点名非主角视角。每一卷至少要有一章由别人限知、"
+            "且那一章的核心动作是他自己做的")
+    no_pov_job = [i["oid"] for i in c["alt_focalizers"]
+                  if not str(i.get("why") or "").strip()]
+    if no_pov_job:
+        problems.append(
+            "这些非主角视角没写这一卷他自己做什么（不是旁观主角）："
+            + "、".join(no_pov_job))
+    hero_oid = canon_oid(hero) if hero else None
+    if hero_oid:
+        as_hero = [i["oid"] for i in c["alt_focalizers"] if i["oid"] == hero_oid]
+        if as_hero:
+            problems.append(
+                "、".join(as_hero) + " 是主角，不能当非主角视角")
+    stray_pov = [i["oid"] for i in c["alt_focalizers"]
+                 if not str(i["oid"]).startswith("role:")]
+    if stray_pov:
+        problems.append("非主角视角必须是人物（role:）：" + "、".join(stray_pov))
     for slot in ("must_know", "must_not_know"):
         nokey = [e["what"] for e in c["knowledge_end"][slot] if not e["key"]]
         if nokey:
@@ -260,7 +283,7 @@ def validate_charter(charter: dict, *, strict: bool = True) -> list[str]:
     return problems
 
 
-def validate_charters(charters: list[dict]) -> list[str]:
+def validate_charters(charters: list[dict], *, hero: str | None = None) -> list[str]:
     """单卷校验 + 跨卷 oid 不得重名。
 
     一次性立完全书时，两卷点同一个人，铺前卷就会把后卷的预留用掉。
@@ -272,7 +295,7 @@ def validate_charters(charters: list[dict]) -> list[str]:
         c = normalize_charter(raw)
         so, title = raw.get("sort_order"), raw.get("title") or c.get("title") or ""
         prefix = f"卷{so}《{title}》："
-        problems.extend(prefix + p for p in validate_charter(raw))
+        problems.extend(prefix + p for p in validate_charter(raw, hero=hero))
         for item in c["introduces"]:
             oid = item["oid"]
             if oid in seen:
@@ -671,6 +694,10 @@ def build_charter_prompt(store, n_volumes: int, total: int, *,
         {{"oid": "role:已有人名 / org:已有组织，必须是上面『已经用过的实体』里的",
           "why": "这一卷它做什么：一次处境、一次冲突、一笔账，一句话写死"}}
       ],
+      "alt_focalizers": [
+        {{"oid": "role:非主角人名，不许是本书主角",
+          "why": "这一卷他自己办的那件事，不是旁观主角"}}
+      ],
       "pays": ["这一卷要收掉的、前面卷埋下的线，一句话说清收的是什么"],
       "knowledge_end": {{
         "must_know": [
@@ -700,6 +727,8 @@ def build_charter_prompt(store, n_volumes: int, total: int, *,
   不许拿本卷刚引入的充数。
   **`why` 必须写这一卷它做什么**（一次处境、一次冲突、一笔账），不许只给 oid。
   实测点名换来的是提一句，每人只加 0–2 条，≤4 卡在 77%。
+- 每卷 `alt_focalizers` **至少点名一个非主角**。这一卷必须有一章由他限知，
+  且该章核心动作是他自己做的，不是旁观主角。点名谁，就核谁。
 - 每卷 `pays` 至少一条，收的必须是前面卷埋下的线。第一卷可以收种子里立的。
   核对时数的是「这一卷收掉了几条本卷之前埋的线」，所以别把本卷刚埋的算进来。
 - `knowledge_end` 两栏都要有，会被拿去和限知帧逐条对，写不实会被查出来。
@@ -765,7 +794,8 @@ def persist_charters(store, charters: list[dict], total: int) -> dict:
     for c in charters:
         so, title = c["sort_order"], c["title"]
         body = {k: c[k] for k in ("duty", "introduces", "thickens", "pays",
-                                  "knowledge_end", "chapter_range")}
+                                  "knowledge_end", "chapter_range",
+                                  "alt_focalizers")}
         if so in existing:
             store.update_volume(existing[so]["id"], {"charter": body, "intro": c["duty"]})
             n_upd += 1

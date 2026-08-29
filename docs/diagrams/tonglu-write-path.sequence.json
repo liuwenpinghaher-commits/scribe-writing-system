@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "铜炉 · MCP 写路径时序",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [780, 480]
+  },
+  "participants": [
+    { "id": "chief", "type": "external", "label": "主编 Agent", "sublabel": "Cursor 客户端" },
+    { "id": "mcp", "type": "backend", "label": "MCP scribe3", "sublabel": "WRITE_GATED" },
+    { "id": "author", "type": "external", "label": "作者", "sublabel": "审批 UI" },
+    { "id": "surreal", "type": "database", "label": "SurrealDB", "sublabel": "世界正典" }
+  ],
+  "messages": [
+    { "id": "write-call", "from": "chief", "to": "mcp", "y": 170, "label": "s3_* 写工具调用", "variant": "emphasis" },
+    { "id": "elicitation", "from": "mcp", "to": "author", "y": 210, "label": "elicitation 待批", "variant": "security" },
+    { "id": "approve", "from": "author", "to": "mcp", "y": 250, "label": "批准", "variant": "return" },
+    { "id": "commit", "from": "mcp", "to": "surreal", "y": 300, "label": "commit 写入", "variant": "emphasis" },
+    { "id": "persisted", "from": "surreal", "to": "mcp", "y": 340, "label": "持久化 ok", "variant": "return" },
+    { "id": "written", "from": "mcp", "to": "chief", "y": 390, "label": "status=written", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "mcp", "from": 165, "to": 400, "type": "backend" },
+    { "participant": "author", "from": 205, "to": 260, "type": "external" },
+    { "participant": "surreal", "from": 295, "to": 350, "type": "database" }
+  ],
+  "cards": [
+    { "dot": "rose", "title": "commit_if_approved", "items": ["declined/expired/error 均不写", "written 仅持久化成功后返回"] }
+  ]
+}

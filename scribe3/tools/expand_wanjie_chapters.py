@@ -350,7 +350,7 @@ def pick_thickens(st, vol: dict, n: int) -> list[dict]:
     for nfact, _, oid in chosen:
         why = (
             f"这一卷必须给它一次处境、一次冲突、一笔账，"
-            f"本卷至少立 {THICKEN_FACTS_MIN} 条新命题"
+            f"本卷至少立一条接到已有账上的命题"
             f"（此刻 {nfact} 条" + ("，长尾" if nfact <= 2 else "") + "）"
         )
         out.append({"oid": oid, "why": why})
@@ -455,7 +455,7 @@ def assert_batch_depth(st, vol: dict, lo: int, hi: int, top3: list[str]) -> None
     """一批落库后核对寿命账：点名实体本卷办事、逾期已收、未到期没被收。前 3 名占比不抛。"""
     from scribe3.expand_lifetime import assert_volume_lifetime
 
-    assert_volume_lifetime(st, vol, lo, hi, top3)
+    assert_volume_lifetime(st, vol, lo, hi, top3, hero=FOCALIZER)
 
 
 def pick_holdovers(st, n: int) -> list[dict]:
@@ -478,6 +478,11 @@ def ensure_live_roster(st, vol: dict) -> dict:
         return c
     span = int(rng[1]) - int(rng[0]) + 1
     c["thickens"] = pick_thickens(st, vol, required_thickens(span))
+    from scribe3.plot_rules import ensure_alt_focalizers
+
+    c["alt_focalizers"] = ensure_alt_focalizers(
+        c, hero=FOCALIZER,
+        candidates=("role:兰因", "role:沈烛", "role:赫斯", "role:牧场主", "role:温贩婆"))
     # 长线不再抽最老 N 条冒充。收/不收跟 payoff 窗口走。
     vid = (vol or {}).get("id")
     if vid and hasattr(st, "update_volume"):
@@ -579,6 +584,13 @@ def _charter_block(st, lo: int, hi: int) -> str:
                    "这些属性名底下的事实，不许给他挂知识边：")
         out += [f"  - 属性名「{k['key'] or '（未给）'}」：{k['what']}"
                 for k in ke["must_not_know"]]
+        out.append("")
+    from scribe3.plot_rules import volume_plot_block
+
+    rng = c["chapter_range"] or [lo, hi]
+    out.append(volume_plot_block(
+        st, int(rng[0]), lo - 1, hero=FOCALIZER,
+        alt_focalizers=c.get("alt_focalizers") or []))
     return "\n".join(out)
 
 
@@ -631,6 +643,8 @@ def build_prompt(st, vol_title: str, vol_intro: str, lo: int, hi: int,
 {{
   "seq": 章号,
   "title": "四到六字，不要副标题",
+  "focalizer": "role:人名。本章限知视角。不要章章都是主角",
+  "action": "买 / 换 / 骗 / 抢 / 拖 / 揭发 / 结盟 / 背叛，只能这八个字",
   "synopsis": "80-150字。这一章谁要干什么、被什么挡住、付了什么代价、结果偏到哪去。要有一件具体的事，不要写心境。",
   "new_facts": [
     {{"entity": "role:人名 / place:地名 / org:组织名，前缀只能用这三个",
@@ -655,6 +669,9 @@ def build_prompt(st, vol_title: str, vol_intro: str, lo: int, hi: int,
   31-40 章引入 0，卷级新鲜度 7.0 仍然达标，闸看不见。
 - 「后面几卷预留的实体」现在别用。实测卷 2 预留了兰因，铺卷 1 时第 13 章就把她用了，
   卷 2 新鲜度掉到 4.5。
+- 每章必须标 `focalizer` 和 `action`。`action` 只许：买、换、骗、抢、拖、揭发、结盟、背叛。
+- 本卷至少一章 `focalizer` 是契约点名的非主角，且该章 `new_facts` 至少一条 `entity` 是他本人——他自己办事，不是旁观。
+- 本卷 `action` 不得全是同一类。已经用过的见上面「本卷剧情」。
 - `new_facts` 每章至少一条。这是这本书的账在长厚，没有新事实说明这章白写了。
 - **写厚名单里的每个实体，这一卷必须办事**：至少一条接到它已有账上的命题（处境、冲突、账），不许只提一句。同 attribute 只能有一条开口，后写的要换代前一条。
 - 新地点必须写从属：`attribute` 用「位于」，`value` 用上级的 `place:…`（例：`place:签押廊` 位于 `place:不署名门`）。不许靠名字前缀冒充同区。
@@ -803,11 +820,17 @@ def persist(st, chapters: list[dict], vol_id: str | None) -> dict:
     empty: list[int] = []
     for ch in chapters:
         seq = int(ch["seq"])
+        from scribe3.plot_rules import chapter_action, chapter_focalizer
+
+        foc = chapter_focalizer(ch, default=FOCALIZER)
         st.save_chapter(seq, "", title=ch.get("title") or f"第{seq}章",
-                        focalizer=FOCALIZER)
+                        focalizer=foc)
         meta = {"synopsis": ch.get("synopsis") or ""}
         if vol_id:
             meta["volume"] = vol_id
+        action = chapter_action(ch)
+        if action:
+            meta["plot_action"] = action
         st.update_chapter_meta(seq, meta)
 
         fact_ids: list[str] = []

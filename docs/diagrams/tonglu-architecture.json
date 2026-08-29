@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "铜炉 · scribe3 运行时架构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [980, 560]
+  },
+  "components": [
+    { "id": "author", "type": "external", "label": "作者", "sublabel": "浏览器", "pos": [40, 180], "size": [120, 60] },
+    { "id": "web", "type": "frontend", "label": "铜炉写作台", "sublabel": "React · :3311", "pos": [260, 180], "size": [140, 64] },
+    { "id": "api", "type": "backend", "label": "FastAPI", "sublabel": "scribe3.app · :3321", "pos": [500, 180], "size": [140, 64] },
+    { "id": "live", "type": "backend", "label": "LIVE → SSE", "sublabel": "live.py", "pos": [780, 40], "size": [140, 60] },
+    { "id": "surreal", "type": "database", "label": "SurrealDB 3.x", "sublabel": "ns=scribe3 · 一书一 db", "pos": [780, 180], "size": [150, 64], "tag": "世界正典" },
+    { "id": "chief", "type": "external", "label": "主编 Agent", "sublabel": "Cursor / MCP 客户端", "pos": [40, 380], "size": [140, 60] },
+    { "id": "hermes", "type": "external", "label": "Hermes / LLM", "sublabel": "写作与对话", "pos": [500, 380], "size": [150, 60] },
+    { "id": "mcp", "type": "backend", "label": "MCP scribe3", "sublabel": "s3_* 写工具", "pos": [780, 380], "size": [140, 64], "tag": "WRITE_GATED" }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "scribe3 产品运行时", "wraps": ["web", "api", "live", "surreal", "mcp", "hermes"] },
+    { "kind": "security-group", "label": "写路径门控 · commit_if_approved", "wraps": ["mcp", "surreal"] }
+  ],
+  "connections": [
+    { "id": "author-web", "from": "author", "to": "web", "label": "HTTPS", "variant": "emphasis" },
+    { "id": "web-api", "from": "web", "to": "api", "label": "REST", "labelDy": -26 },
+    { "id": "api-surreal", "from": "api", "to": "surreal", "label": "SurrealStore", "labelDy": -26 },
+    { "id": "live-surreal", "from": "live", "to": "surreal", "label": "LIVE", "variant": "dashed", "fromSide": "bottom", "toSide": "top" },
+    { "id": "chief-mcp", "from": "chief", "to": "mcp", "label": "MCP 调用", "variant": "emphasis", "fromSide": "bottom", "toSide": "bottom", "via": [[110, 480], [850, 480]], "labelDy": 54 },
+    { "id": "mcp-surreal", "from": "mcp", "to": "surreal", "label": "审批写入", "variant": "security", "fromSide": "top", "toSide": "bottom" },
+    { "id": "api-hermes", "from": "api", "to": "hermes", "label": "/chat/write", "fromSide": "bottom", "toSide": "top" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "作者面", "items": ["写作台只读 +「让主编…」种子", "正文经 /chat/write 提案接受"] },
+    { "dot": "rose", "title": "写路径铁律", "items": ["MCP 写经 WRITE_GATED 审批", "REST 世界写默认关"] }
+  ]
+}

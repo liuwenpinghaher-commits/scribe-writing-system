@@ -73,6 +73,16 @@
 
 ## 当前状态
 
+### 万界 · 剧情第一（2026-08-29）
+
+现行方案 [`2026-08-29-PLOT-FIRST.md`](./plans/2026-08-29-PLOT-FIRST.md)。
+[`NOVEL-FIRST`](./plans/2026-08-29-NOVEL-FIRST.md) 的「三章正文试金石 / 人读四问」**作废**。
+先不写正文、不优化文笔；要的是剧情（视角、手段、输赢、关系、不可逆失去）。
+设定线账本自洽（无矛盾、窗口）仍有效，但**测不到打转**；新鲜度/厚度还在反向奖励摊名词。
+`wanjie_v2` 已铺到第 160 章。V1 剧情节奏板已接 Corkboard：章卡四格（视角/动作/输赢/关系），色彩「按剧情」按动作上色。
+**P1/P2 已进契约与提示**（2026-08-29）：卷契约 `alt_focalizers`；章 JSON 标 `focalizer`/`action`；persist 不再写死主角；卷末 `plot_deficits` 查「点名视角有没有自己办事」和「动作是不是全同一类」。不设比例闸。
+**卷八《盲按录》141–160 已重铺验规则**：清掉本卷旧命题/伏笔后重铺。视角 柳岸青 6 / 兰因 4 / 其余 10；动作八类都有（买 4）。`plot_deficits=[]`，`assert_volume_lifetime` 过。1–140 未动，未铺 161+。下一步：P3 输赢 + P4 关系 + P5 失去。本轮不碰文笔。
+
 ### 默认模型切 DeepSeek V4 Flash（2026-08-26）
 
 作者授意全部换成 Flash。代码默认 `llm.model` / `DEFAULT_MODEL` = **`deepseek-v4-flash-0731`**。本机 Hermes 五写作网关 `default:` 同此。TokenPlan 别名 `deepseek-v4-flash` 同钥 **HTTP 403**；快照 `deepseek-v4-flash-0731` 同钥可通。供应商仍 `qwen`，口仍 TokenPlan。兜底 kimi/MiniMax 未动。**demo 未部署，不宣称现网已切。** 运行中 Hermes 需重启才吃新 default。

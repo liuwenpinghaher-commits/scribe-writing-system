@@ -3,6 +3,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { GripVertical, TriangleAlert, Check, Diamond } from 'lucide-react'
 import { chapterLabel } from './chapterLabel'
 import { cardColorVar, wcLabel, povLabel, POV_HINT, LABEL_META } from './outlineColors'
+import { ACTION_TOKEN, OUTCOME_TOKEN, plotBeat } from './plotBeat'
 import { LabelSelect } from './LabelSelect'
 import { seedChiefNarrativeWrite } from './lib/chiefSeed.js'
 
@@ -52,6 +53,8 @@ export function ChapterCard({ chapter, colorMode, onOpen, onPatchLabel, dragHand
         </div>
 
         {/* synopsis:只读展示 · 点 CTA 送主编(禁止表单直填) */}
+        <PlotBeatStrip chapter={chapter} />
+
         {chapter.synopsis ? (
           <button type="button" onClick={askSynopsis} title="让主编写入/更新梗概(章级大纲)"
             data-testid="chapter-card-synopsis-seed"
@@ -81,6 +84,31 @@ export function ChapterCard({ chapter, colorMode, onOpen, onPatchLabel, dragHand
           </span>
         </div>
       </div>
+    </div>
+  )
+}
+
+function PlotBeatStrip({ chapter }) {
+  const b = plotBeat(chapter)
+  const cells = [
+    ['视角', b.focalizer, cardColorVar({ focalizer: b.focalizer }, 'pov')],
+    ['动作', b.action, `var(--color-${ACTION_TOKEN[b.action] || 'faint'})`],
+    ['输赢', b.outcome, `var(--color-${OUTCOME_TOKEN[b.outcome] || 'faint'})`],
+    ['关系', b.relation, `var(--color-${b.relation === '未变' ? 'faint' : 'warn'})`],
+  ]
+  return (
+    <div data-testid="plot-beat" aria-label="剧情节奏 视角 动作 输赢 关系"
+      className="grid grid-cols-4 gap-0.5">
+      {cells.map(([k, v, color]) => (
+        <span key={k} title={`${k}：${v}`}
+          className="min-w-0 truncate rounded-sm px-0.5 py-0.5 text-center text-[10px] leading-tight"
+          style={{
+            color,
+            background: `color-mix(in srgb, ${color} 18%, transparent)`,
+          }}>
+          {v}
+        </span>
+      ))}
     </div>
   )
 }

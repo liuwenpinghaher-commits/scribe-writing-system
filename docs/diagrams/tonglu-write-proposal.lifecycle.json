@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "铜炉 · /chat/write 提案生命周期",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [980, 680]
+  },
+  "lanes": [
+    { "id": "main", "label": "主流程" },
+    { "id": "branch", "label": "分支" },
+    { "id": "terminal", "label": "终态" }
+  ],
+  "states": [
+    { "id": "request", "type": "start", "label": "写作请求", "sublabel": "POST /chat/write", "lane": "main", "col": 0, "step": "01" },
+    { "id": "streaming", "type": "active", "label": "流式生成", "sublabel": "SSE + 限知上下文", "lane": "main", "col": 1, "step": "02" },
+    { "id": "pending", "type": "decision", "label": "提案待批", "sublabel": "DraftCard", "lane": "main", "col": 2, "step": "03", "tag": "作者裁决" },
+    { "id": "applying", "type": "active", "label": "应用落库", "sublabel": "apply + persist", "lane": "main", "col": 3, "step": "04" },
+    { "id": "saved", "type": "success", "label": "已存稿", "sublabel": "save-chapter ok", "lane": "main", "col": 4, "step": "05" },
+    { "id": "discuss", "type": "neutral", "label": "纯讨论", "sublabel": "无 ⟦PROPOSAL⟧", "lane": "branch", "col": 0 },
+    { "id": "rejected", "type": "neutral", "label": "已弃用", "sublabel": "原文不变", "lane": "terminal", "col": 2 }
+  ],
+  "transitions": [
+    { "id": "no-fence", "from": "streaming", "to": "discuss", "label": "无围栏", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "via": [[248, 260], [248, 278]] },
+    { "id": "reject", "from": "pending", "to": "rejected", "label": "弃用", "fromSide": "bottom", "toSide": "top", "via": [[402, 260], [651, 260], [651, 450]] }
+  ]
+}
