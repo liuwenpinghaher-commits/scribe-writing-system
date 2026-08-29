@@ -757,6 +757,109 @@ def test_batch_top3_share_caps_headliners():
     assert HEADLINER_FACT_SHARE_MAX == 0.25
 
 
+def test_persist_skips_holdover_payoff_matched_by_text():
+    """模型不写 ref、拿原文模糊匹配时，声明的长线也不能收。"""
+    from scribe3.tools.expand_wanjie_chapters import persist
+
+    paid = []
+
+    class St:
+        def list_volumes(self):
+            return [{"id": "v4", "charter": {"holdovers": [{"ref": "Labc123", "text": "长线"}]}}]
+
+        def list_promises(self):
+            return [{"id": "promise:abc123", "text": "长线", "status": "open",
+                     "setup_chapter": 4}]
+
+        def save_chapter(self, *a, **k):
+            return None
+
+        def update_chapter_meta(self, *a, **k):
+            return True
+
+        def add_fact(self, *a, **k):
+            return None
+
+        def add_knowledge(self, *a, **k):
+            return None
+
+        def plant_promise(self, *a, **k):
+            return None
+
+        def advance_promise(self, pid, seq):
+            paid.append((pid, seq))
+
+        def entity(self, oid):
+            return True
+
+        def add_entity(self, *a, **k):
+            return None
+
+        def add_faction(self, *a, **k):
+            return None
+
+    persist(St(), [{
+        "seq": 61, "title": "试", "synopsis": "x" * 40,
+        "new_facts": [], "learns": [], "hides": [], "plant": [],
+        "payoff": [{"text": "长线", "how": "不该收"}],
+    }], "v4")
+    assert paid == []
+
+
+def test_holdover_deficit_only_closed_declared_lines():
+    from scribe3.tools.expand_wanjie_chapters import holdover_deficit
+
+    class St:
+        def list_promises(self):
+            return [
+                {"id": "promise:abc123", "text": "长线", "status": "closed",
+                 "setup_chapter": 4, "payoff_chapter": 75},
+                {"id": "promise:open1", "text": "还开", "status": "open",
+                 "setup_chapter": 4},
+            ]
+
+    vol = {"charter": {"holdovers": [
+        {"ref": "Labc123", "text": "长线"},
+        {"ref": "Lopen1", "text": "还开"},
+        {"ref": "Lghost", "text": "库里没有"},
+    ]}}
+    refs = {str(c.get("ref") or "").upper() for c in holdover_deficit(St(), vol)}
+    assert "LABC123" in refs
+    assert "LOPEN1" not in refs
+    assert "LGHOST" not in refs
+
+
+def test_assert_batch_depth_raises_when_holdover_closed_at_volume_end():
+    from scribe3.tools.expand_wanjie_chapters import assert_batch_depth
+
+    restored = []
+
+    class St:
+        def facts_at(self, ch):
+            return []
+
+        def list_promises(self):
+            return [{"id": "promise:abc123", "text": "长线", "status": "closed",
+                     "setup_chapter": 4, "payoff_chapter": 75}]
+
+        def update_promise(self, pid, fields):
+            restored.append((pid, dict(fields)))
+            return True
+
+    vol = {"charter": {
+        "chapter_range": [61, 80], "thickens": [],
+        "holdovers": [{"ref": "Labc123", "text": "长线"}],
+    }}
+    assert_batch_depth(St(), vol, 61, 70, [])
+    try:
+        assert_batch_depth(St(), vol, 71, 80, [])
+        raise AssertionError("卷末长线被收必须抛")
+    except ValueError as e:
+        assert "不许收" in str(e) or "长线" in str(e)
+    assert restored
+    assert restored[0][1].get("status") == "open"
+
+
 def test_chapter_prompt_names_thicken_quota_and_top3_cap():
     from scribe3.ontology import Fact
     from scribe3.tools.expand_wanjie_chapters import build_prompt

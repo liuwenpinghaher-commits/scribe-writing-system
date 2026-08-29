@@ -398,8 +398,44 @@ def batch_top3_share(st, lo: int, hi: int, top3: list[str]) -> tuple[float, int,
     return share, n_top, n_all
 
 
+def holdover_deficit(st, vol: dict) -> list[dict]:
+    """声明为本卷不许收的长线，卷末必须仍 open。被收掉的就是差额。"""
+    from scribe3.charter import normalize_charter
+
+    c = normalize_charter((vol or {}).get("charter"))
+    holds = c.get("holdovers") or []
+    if not holds or not hasattr(st, "list_promises"):
+        return []
+    by_ref = {promise_ref(p).upper(): p for p in (st.list_promises() or [])}
+    closed: list[dict] = []
+    for h in holds:
+        ref = str(h.get("ref") or "").strip().upper()
+        if not ref:
+            continue
+        p = by_ref.get(ref)
+        if p is None:
+            continue
+        if str(p.get("status") or "open") != "open":
+            closed.append({**h, "status": p.get("status"), "id": p.get("id")})
+    return closed
+
+
+def restore_closed_holdovers(st, closed: list[dict]) -> None:
+    """误收的长线先打开，再让该批次带着「不许收」重跑。"""
+    if not hasattr(st, "update_promise"):
+        return
+    for h in closed or []:
+        pid = str(h.get("id") or "")
+        local = pid.split(":")[-1] if ":" in pid else pid
+        if not local:
+            ref = str(h.get("ref") or "")
+            local = ref[1:] if ref[:1] in "Ll" else ref
+        if local:
+            st.update_promise(local, {"status": "open"})
+
+
 def assert_batch_depth(st, vol: dict, lo: int, hi: int, top3: list[str]) -> None:
-    """一批落库后核对写厚差额和前 3 名额。不过就抛，走批次失败那条重试。"""
+    """一批落库后核对写厚差额、前 3 名额、声明长线仍 open。不过就抛，走批次失败那条重试。"""
     from scribe3.charter import normalize_charter
 
     c = normalize_charter((vol or {}).get("charter"))
@@ -412,6 +448,12 @@ def assert_batch_depth(st, vol: dict, lo: int, hi: int, top3: list[str]) -> None
             bits = "、".join(f"{oid}差{n}" for oid, n in deficit.items())
             raise ValueError(
                 f"写厚本卷不足 {THICKEN_FACTS_MIN} 条新 attribute：{bits}")
+    if hi >= vol_hi:
+        closed = holdover_deficit(st, vol)
+        if closed:
+            restore_closed_holdovers(st, closed)
+            bits = "、".join(str(h.get("ref") or "") for h in closed)
+            raise ValueError(f"本卷不许收的长线被收掉了：{bits}")
     share, n_top, n_all = batch_top3_share(st, lo, hi, top3)
     if n_all and share > HEADLINER_FACT_SHARE_MAX:
         raise ValueError(
@@ -814,6 +856,10 @@ def persist(st, chapters: list[dict], vol_id: str | None) -> dict:
                 print(f"  ! 第{seq}章收线认不出：ref={p.get('ref')!r} "
                       f"{str(p.get('text'))[:40]}")
                 continue
+            resolved_ref = ("L" + pid).upper()
+            if resolved_ref in blocked:
+                print(f"  ! 第{seq}章收线 {resolved_ref} 是本卷不许收的长线，跳过")
+                continue
             try:
                 st.advance_promise(pid, seq)
                 n_payoff += 1
@@ -837,6 +883,7 @@ def thicken_named_entities(st, vol: dict, *, llm_fn, persist: bool = True) -> di
     """把这一卷点名的已有实体 + 新引入的角色/势力走 thicken_codex。
 
     不另发明字段。place 没有写厚合同，跳过。
+    卷末顺手给缺 lie 的主角色走 generate_missing_main_anchors，写入 set_char_anchors。
     """
     from scribe3.charter import normalize_charter
     from scribe3.codex_generate import (
@@ -873,7 +920,12 @@ def thicken_named_entities(st, vol: dict, *, llm_fn, persist: bool = True) -> di
             "status": ("skipped_ready" if out.get("skipped")
                        else ("ok" if out.get("ok") else out.get("code") or "fail")),
         })
-    return {"items": items}
+    from scribe3.codex_anchors import generate_missing_main_anchors
+    try:
+        anchors = generate_missing_main_anchors(st, llm_fn=llm_fn, persist=persist)
+    except Exception as e:
+        anchors = {"error": str(e), "items": []}
+    return {"items": items, "anchors": anchors}
 
 
 def plan_batches(st, lo: int, hi: int, batch: int) -> list[tuple[dict, int, int]]:

@@ -18,6 +18,8 @@ def _all_cjk(s: str) -> bool:
 
 def tokenize_for_fts(text: str | None) -> str:
     """返回空格分隔 token 串，供 Surreal FULLTEXT blank analyzer 使用。"""
+    from scribe3.runtime_cache import apply_jieba_cache_env
+    apply_jieba_cache_env()
     import jieba
 
     raw = [

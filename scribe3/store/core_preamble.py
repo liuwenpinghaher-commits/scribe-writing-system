@@ -23,6 +23,9 @@ oid 映射:本体 id(role:焦三 / fact:治眼)↔ SurrealDB record(character:�
 """
 from __future__ import annotations
 
+from scribe3.runtime_cache import apply_jieba_cache_env as _apply_jieba_cache_env
+_apply_jieba_cache_env()
+
 from scribe3.feature_flags import get_flag
 import hashlib
 import json
@@ -583,6 +586,8 @@ def _reciprocal_rank_fusion(*ranked_lists, k: int = 60):
 
 def _keyword_search_propositions(store, query: str, chapter: int, top_k: int = 10):
     """中文分词 → 关键词匹配 proposition.value → 返回 Fact 列表(按命中数排序)"""
+    from scribe3.runtime_cache import apply_jieba_cache_env
+    apply_jieba_cache_env()
     import jieba
     keywords = [w for w in jieba.cut(query) if len(w.strip()) >= 2]
     if not keywords:
@@ -767,6 +772,8 @@ def _proposition_tokens_from_text(text: str) -> str:
     if not raw:
         return ""
     try:
+        from scribe3.runtime_cache import apply_jieba_cache_env
+        apply_jieba_cache_env()
         import jieba
         return " ".join(w for w in jieba.cut(raw) if len(w.strip()) >= 1)[:2000]
     except Exception:

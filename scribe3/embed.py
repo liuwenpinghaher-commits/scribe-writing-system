@@ -51,11 +51,22 @@ def model_version() -> str:
     return _MODEL_NAME
 
 
+def _fastembed_cache_ready(cache: str) -> bool:
+    try:
+        return os.path.isdir(cache) and any(os.scandir(cache))
+    except OSError:
+        return False
+
+
 def _m():
     global _model
     if _model is None:
         from fastembed import TextEmbedding
-        _model = TextEmbedding(model_name=_MODEL_NAME)
+        cache = apply_fastembed_cache_env()
+        kw = {"model_name": _MODEL_NAME, "cache_dir": cache}
+        if _fastembed_cache_ready(cache):
+            kw["local_files_only"] = True
+        _model = TextEmbedding(**kw)
     return _model
 
 
