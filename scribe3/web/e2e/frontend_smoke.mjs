@@ -7,9 +7,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 const r = await withPage(async (p) => {
   await p.goto(BASE, { waitUntil: 'networkidle' }); await sleep(800)
-  // 建临时书(selector 来自 pw.mjs 的 newBook,已验证)
+  // ── 建临时书（空库走 placeholder="如:纸命" 或 getByLabel("书名")；非空库走 placeholder="书名…"） ──
   const title = 'E2E临时书_' + Date.now()
-  const nameInput = p.locator('input[placeholder="书名…"]')
+  const nameInput = p.locator('input[placeholder="书名…"], input[placeholder="如:纸命"], input[aria-label="书名"]').first()
   await nameInput.fill(title); await nameInput.press('Enter'); await sleep(3000)
   // 进书成功标志:三栏布局容器出现(主编 dock / 详情栏)。不硬等 treeitem——新书项目树可能空。
   await p.waitForSelector('[data-testid="chief"], [data-testid="detail"]', { timeout: 12000 })

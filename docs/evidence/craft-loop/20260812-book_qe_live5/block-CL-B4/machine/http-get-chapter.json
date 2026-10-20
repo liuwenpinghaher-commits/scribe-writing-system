@@ -5,7 +5,7 @@
     "ts_end": "2026-08-12T10:48:48.332193+00:00",
     "note": "CL-B4 truth/deductions",
     "method": "GET",
-    "url": "https://tonglu.qing.blue/api/chapter?seq=2&work=book_qe_live5",
+    "url": "https://tonglu.example.com/api/chapter?seq=2&work=book_qe_live5",
     "path": "/api/chapter?seq=2&work=book_qe_live5",
     "request_body": null,
     "status": 200,

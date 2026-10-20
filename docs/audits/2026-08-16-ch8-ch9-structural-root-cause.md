@@ -4,7 +4,7 @@
 |----|-----|
 | **对象** | `book_e415dfeb`（万界概率战争·v6.3.4·真chat全能力·20260816-1026）seq 1–9 现网落盘 |
 | **深挖焦点** | 第八、九章；对照 1–7 证明不是两章偶发 |
-| **入口** | `tonglu.qing.blue` · `GET /api/chapter?work=book_e415dfeb&seq=N` |
+| **入口** | `tonglu.example.com` · `GET /api/chapter?work=book_e415dfeb&seq=N` |
 | **日期** | 2026-08-16 |
 | **性质** | 结构根因。不是文学分、不是「换模型就好」、不是再加一条提示 |
 | **宇宙 SSOT** | `docs/worlds/wanjie-probability-war-v7.md` |

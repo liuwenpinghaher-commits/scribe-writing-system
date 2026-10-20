@@ -10,7 +10,7 @@
 | **前序** | `2026-08-15-clue-density-replace-word-floors.md`；`2026-08-15-outline-beats-spine-density.md` |
 | **验收协议** | `docs/e2e-director-journey-v634-true-chat-full-capability.md` **rev.6** |
 | **验收宇宙** | 《万界概率战争》V7.0 · `docs/worlds/wanjie-probability-war-v7.md`（炉灰记 / `book_c14585d8` / `book_bdfdcdc4` 退役） |
-| **验收书** | **本次新建 slug** · 入口 `tonglu.qing.blue` · **只打已部署栈** |
+| **验收书** | **本次新建 slug** · 入口 `tonglu.example.com` · **只打已部署栈** |
 | **不改** | 宣称公式、GATE-B（`synopsis_min_chars=80`）、`GATE_SAVE_MODE`、WCG；第 6 章定稿整章重写 |
 
 ---
@@ -1086,7 +1086,7 @@ demo 第 7 章冒烟（**不再改** Ice1/Ice2 定义）。
 - **标题：** `docs(session): 第 7 章密度口径冒烟记录`
 - **文件：** `docs/SESSION.md`；可选 evidence 卷宗。**不改** e2e Ice1/Ice2 正文（已在 PR2a）。
 - **依赖：** PR2b 已部署且 **ch6 brief_only overlay 已跑完**；档 B 需 PR3
-- **验收：** `tonglu.qing.blue` / `book_c14585d8`：seq=6 有 `chapter_spine`、prose/synopsis **未变**；第 7 章 outline+beats 冒烟（lines 绑已有 id）。不重写第 6 章正文。
+- **验收：** `tonglu.example.com` / `book_c14585d8`：seq=6 有 `chapter_spine`、prose/synopsis **未变**；第 7 章 outline+beats 冒烟（lines 绑已有 id）。不重写第 6 章正文。
 
 **合入顺序：** PR1 → PR2a → PR2b → PR3 为关键路径。PR4 在 PR2a 后可写 UI，档 B 验收等 PR3。PR5 在 PR3 后。PR6 跟部署走。
 

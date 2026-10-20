@@ -66,7 +66,7 @@ Scribe3 已经把 Hermes Agent 用作模型执行、Responses/Runs、MCP 工具�
 
 ```text
 Hermes Agent v0.18.2 (2026.7.7.2) · upstream 36f2a966
-Install directory: /Users/miaoma/.hermes/hermes-agent
+Install directory: ~/.hermes/hermes-agent
 Install method: git
 Python: 3.11.15
 OpenAI SDK: 2.24.0

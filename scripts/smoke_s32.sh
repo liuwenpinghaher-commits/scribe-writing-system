@@ -11,7 +11,7 @@
 #
 # 用法：
 #   ./scripts/smoke_s32.sh
-#   BASE_URL=https://tonglu.qing.blue SMOKE_WORK=main ./scripts/smoke_s32.sh
+#   BASE_URL=https://tonglu.example.com SMOKE_WORK=main ./scripts/smoke_s32.sh
 #
 # 凭证：SMOKE_USER/SMOKE_PASS，或 DEMO_ENV_FILE / deploy/prod/.env 的
 #       SCRIBE3_BOOTSTRAP_USERS
@@ -19,7 +19,7 @@
 # =============================================================================
 set -euo pipefail
 
-BASE_URL="${BASE_URL:-https://tonglu.qing.blue}"
+BASE_URL="${BASE_URL:-https://tonglu.example.com}"
 API="${BASE_URL%/}/api"
 WORK="${SMOKE_WORK:-main}"
 COOKIE_JAR="${SMOKE_COOKIE_JAR:-$(mktemp -t smoke_s32_XXXXXX.cookies)}"

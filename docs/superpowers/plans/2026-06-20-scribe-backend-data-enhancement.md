@@ -12,7 +12,7 @@
 
 ### 约定
 
-- 工作目录:`/Users/miaoma/Downloads/写作 3.0/scribe`
+- 工作目录:`<repo-root>/scribe`
 - 跑测试:`.venv/bin/python -m pytest tests/<file>::<test> -v`
 - 全量回归:`.venv/bin/python -m pytest tests/ -q`
 - 测试用 `Database(":memory:")`(每用例独立)或 `TestClient(app)` + `{"X-Owner-Id": "u1"}`。

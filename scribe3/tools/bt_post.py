@@ -2,7 +2,7 @@
 """业务测试·第三轮 后处理:① 剥离 ⟦PROPOSAL⟧ 围栏 ② 跨章复读定向去重(系统自带 rewrite_cross_repetitions)
 ③ 重存库 ④ 重验限知泄露/跨章复读/字数。修复 bt_render 两个问题后重新验证。
 
-跑: cd "/Users/miaoma/Downloads/写作 3.0" && scribe3/.venv/bin/python -u scribe3/tools/bt_post.py
+跑: cd "<repo-root>" && scribe3/.venv/bin/python -u scribe3/tools/bt_post.py
 """
 import sys, os, json, re
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))

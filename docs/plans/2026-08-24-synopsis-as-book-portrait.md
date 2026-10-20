@@ -7,7 +7,7 @@
 | **日期** | 2026-08-24 |
 | **状态** | Draft |
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` · 仓库 `/home/admin/projects/scribe-writing-system` |
-| **验收环境** | 只打已部署 demo `https://tonglu.qing.blue`（不另起平行栈） |
+| **验收环境** | 只打已部署 demo `https://tonglu.example.com`（不另起平行栈） |
 | **短名** | `synopsis-as-book-portrait` |
 | **前序** | 2026-08-24 总纲门厅（`SynopsisView` 顶栏第一项，复用 Overview + 抄了旅程五站） |
 | **标识符** | 视图 key 仍是 `synopsis`；旧 `overview` 仍作别名。界面文案禁止把评分卡叫「北极星」 |
@@ -793,7 +793,7 @@ PR-2：`workTitle` 出现在页头；「让主编写入」派发 `s3-right-tab` 
 
 PR-3：点角色 → 设定卡（mock `onNavigateToObject` 收到 `role:` id 或经 `targetNodeToSelection` 的 character 叶）；entities 含 place 时地点不进名单；「主要角色」进主档。
 
-### demo 冒烟（`tonglu.qing.blue`，PR-1 即可）
+### demo 冒烟（`tonglu.example.com`，PR-1 即可）
 
 1. 作品库打开书 → 中区总纲，**左侧目录仍在**，不是空白提示。
 2. 刷新（已记住这本书）→ 仍是总纲 + 目录。

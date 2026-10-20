@@ -8,7 +8,7 @@
 | **日期** | 2026-08-13 |
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` |
 | **仓库** | `/home/admin/projects/scribe-writing-system` |
-| **验证环境** | **仅已部署 demo** `https://tonglu.qing.blue` · SSH `ubuntu@82.157.130.140` · 应用 `/opt/scribe3/app`；禁止 Grok 机全量 `npm ci` / 本机 Surreal / 第二栈 |
+| **验证环境** | **仅已部署 demo** `https://tonglu.example.com` · SSH `ubuntu@203.0.113.10` · 应用 `/opt/scribe3/app`；禁止 Grok 机全量 `npm ci` / 本机 Surreal / 第二栈 |
 | **运维 env 文件** | **`/opt/scribe3/app/.env`**（现网 SSOT；**不是** `.env.production.local`） |
 | **合法写通道** | orch proposal/apply、`save-chapter`、intent-goals、MCP `s3_patch_chapter_*` / `s3_add_chapter`；**禁止** EMERGENCY 默认 |
 | **前序设计** | `docs/plans/2026-08-13-narrative-mainline.md`（R2 技术规格） |
@@ -921,7 +921,7 @@ gantt
 - `docs/plans/2026-08-12-reader-ready-dual-lamp-design.md`  
 - `docs/plans/craft-loop.md`  
 - 代码：`narrative_contract.py` · `story_complete.py` · `reader_ready.py` · `feature_flags.py` · `verify_craft_compliance.py` · `api/routers/write.py` · `misc_routes.py` · `quality.py` · `mcp/tools_write.py` · `store/chapters.py` · `adapter_ops.py` · `write_assemble_v1.py` · `web/.../readerReadyGate.js` · `chapterContractGate.js` · `WriteLayout.jsx` · `ChapterMetaPane.jsx` · `chiefSeed.js` · `scripts/craft_loop_ssot.py` · `tools/craft_gate_cli.py`  
-- demo：`/opt/scribe3/app/.env` · `https://tonglu.qing.blue`
+- demo：`/opt/scribe3/app/.env` · `https://tonglu.example.com`
 
 ---
 

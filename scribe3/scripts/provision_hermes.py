@@ -805,7 +805,10 @@ def provision(hermes_home: Path, repo: Path, *, commit: bool,
         # mcp_servers 是 Scribe 拥有的完整权限清单；深合并会保留旧 server，
         # 而 Hermes 会把它们全部注册，故这里必须以阶段白名单整体替换。
         if profile in _PROFILE_MCP_SERVERS:
-            after["mcp_servers"] = copy.deepcopy(overlay["mcp_servers"])
+            if "mcp_servers" in overlay:
+                after["mcp_servers"] = copy.deepcopy(overlay["mcp_servers"])
+            else:
+                after.pop("mcp_servers", None)
 
         violations = _assert_invariants(profile, after)
         if violations:

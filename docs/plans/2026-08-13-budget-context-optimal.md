@@ -8,7 +8,7 @@
 | 作者 | Grok Design（OQ1 已由用户裁断：全站常驻） |
 | 对照提交 | 预算真源相对 **`bb01748`**（`context_budget.py` 此后未改）；本文入仓 **`56f4eca`**；实现前再 `git show HEAD:scribe3/tests/test_novel_first_injection.py` |
 | 定位 | 写路径 **下一阶段主动升窗** 到 96k；承认现网 48k 钉死；把爆炸半径写全、可回滚 |
-| 验证 | **仅已部署 demo**（`tonglu.qing.blue` / `82.157.130.140`，`/opt/scribe3/app`）；轻量过滤单测；**不**在 Grok 机跑 `npm ci` / 全量 pytest / 本机 Surreal；不写活书正文 |
+| 验证 | **仅已部署 demo**（`tonglu.example.com` / `203.0.113.10`，`/opt/scribe3/app`）；轻量过滤单测；**不**在 Grok 机跑 `npm ci` / 全量 pytest / 本机 Surreal；不写活书正文 |
 | 关联 | 写路径分层：`docs/plans/2026-08-13-scene-contract-unify.md`；审计钉：`docs/audits/ctx-audit-20260813/{FIX-LOOP,MATRIX,CEILINGS}.md` |
 
 ---

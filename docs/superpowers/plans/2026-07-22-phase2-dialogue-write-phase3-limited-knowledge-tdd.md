@@ -62,7 +62,7 @@ Task 13 emergency REST 开关（2D）
 - [ ] **Step 1: 跑 MCP 与相关单测，记录基线**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest scribe3/tests/test_mcp.py -q --tb=no
 ```
 

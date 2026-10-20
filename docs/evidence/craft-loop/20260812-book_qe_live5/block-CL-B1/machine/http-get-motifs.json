@@ -5,7 +5,7 @@
     "ts_end": "2026-08-12T10:48:36.475598+00:00",
     "note": "CL-B1 settings_min source motifs",
     "method": "GET",
-    "url": "https://tonglu.qing.blue/api/motifs?work=book_qe_live5",
+    "url": "https://tonglu.example.com/api/motifs?work=book_qe_live5",
     "path": "/api/motifs?work=book_qe_live5",
     "request_body": null,
     "status": 200,

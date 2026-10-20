@@ -10,7 +10,7 @@
 | **代码根（优先）** | `/home/admin/projects/scribe-ia-verify-wt/scribe3/` |
 | **会话 scratch** | `/tmp/grok-1000/grok-design-doc-40299602.md` |
 | **耐久真源** | `docs/plans/2026-08-10-chapter-writing-ia-optimal.md`（与本文件同步） |
-| **验收环境** | demo 已部署栈 `https://www.qing.blue`；**禁止**默认再起第二 Surreal；Grok 运行机不做全量 npm/pytest/本机 Surreal |
+| **验收环境** | demo 已部署栈 `https://www.example.com`；**禁止**默认再起第二 Surreal；Grok 运行机不做全量 npm/pytest/本机 Surreal |
 | **直接输入** | 内部盘点报告（十面分层结论）· NQ 全链路设计 · Narrative Event Engine rev.2.3 · 命题全链 KD-8 · 全网写作工艺与工具 IA 调研 |
 | **明确不做的宣称** | **不**因本方案单独宣称文学 ≥9.5；**不**把十面合并成单字段；**不**删除 proposition / 不混 scene_truth 与世界真相 |
 

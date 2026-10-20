@@ -10,7 +10,7 @@
 | 作者 | Grok Build · 系统架构 |
 | 关联铁律 | `设计文档/2026-07-22-对话驱动写入-禁表单直填-决策与改造方案.md` |
 | 关联架构 | `docs/CURRENT_ARCHITECTURE.md` · `docs/L1-AUTH-ISOLATION.md` · `设计文档/工程8-HermesAgent复用方案.md` |
-| 验收环境 | demo 已部署栈（`www.qing.blue` · `./scripts/deploy_demo.sh`）；**禁止** Grok 运行机 `npm ci` / 本机 Surreal 作验收 |
+| 验收环境 | demo 已部署栈（`www.example.com` · `./scripts/deploy_demo.sh`）；**禁止** Grok 运行机 `npm ci` / 本机 Surreal 作验收 |
 | UI 文案 | 用户可见中文；技术标识符可保留英文 |
 
 ---

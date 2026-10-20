@@ -329,7 +329,7 @@ Sudowrite / Novelcrafter / Campfire 社区的稳定抱怨（不是偶发差评�
 - 不做 constrained decoding 强迫世界词进 token 流。
 - 不换更大模型当主方案。不把「人每章手改 extra」当主方案。
 - 不重写 / overlay `book_e415dfeb` ch8/9、`book_61a7935e`。
-- 不在 Grok 运行机跑 `npm ci` / 本机 Surreal / 全量 pytest。验收 = 已部署 `tonglu.qing.blue` 冒烟。
+- 不在 Grok 运行机跑 `npm ci` / 本机 Surreal / 全量 pytest。验收 = 已部署 `tonglu.example.com` 冒烟。
 - 钟/地仍是场景坐标，不是 `GET /timeline`，不是地图。
 - extra 可以复述槽位事实，但不得当作者、不得灌垃圾 2-gram、不得抄上章 GCD。
 
@@ -1126,17 +1126,17 @@ surface_paid=1|0 paraphrase=1|0 extra_authors=0 gesture_echo_risk=1|0
 #    （goal/hook 组未付；有大遮蔽+单向可见不够）
 
 # 1. extra 作者权
-curl -sS -X POST https://tonglu.qing.blue/api/generate-stage?work=book_83584141 \
+curl -sS -X POST https://tonglu.example.com/api/generate-stage?work=book_83584141 \
   -d '{"stage":"beats","seq":1,"persist":false,
        "extra":"必须原样使用下列要/挡"}'
 # 期望 422 extra_authors
 
 # 2. 卷宗（任意一次 generate-stage persist 后）
-curl -sS 'https://tonglu.qing.blue/api/debug/pipeline-traces?work=book_83584141'
+curl -sS 'https://tonglu.example.com/api/debug/pipeline-traces?work=book_83584141'
 # 最新链 artifacts 含 gate_input
 
 # 3. 水面（force=1 重跑 final 后）
-curl -sS 'https://tonglu.qing.blue/api/chapter?work=book_83584141&seq=1'
+curl -sS 'https://tonglu.example.com/api/chapter?work=book_83584141&seq=1'
 # prose 须同时：goal 组（成核点|场核）∧ hook 组（成核点|指针态）；仅大遮蔽不够
 ```
 

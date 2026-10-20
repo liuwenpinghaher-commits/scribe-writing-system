@@ -24,14 +24,14 @@
 #   FORCE_SERIALIZE=1 ./scripts/nq_quality_smoke_runbook.sh serialize
 #
 # 环境变量：
-#   BASE_URL          默认 https://tonglu.qing.blue
+#   BASE_URL          默认 https://tonglu.example.com
 #   EVID_DIR          默认 <repo>/docs/evidence/nq-quality-smoke-20260810
 #   FORCE_SERIALIZE   设为 1 才允许真正触发「后续连载提示」外的重路径
 # =============================================================================
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BASE_URL="${BASE_URL:-https://tonglu.qing.blue}"
+BASE_URL="${BASE_URL:-https://tonglu.example.com}"
 EVID_DIR="${EVID_DIR:-$ROOT/docs/evidence/nq-quality-smoke-20260810}"
 FRAG_Q="$ROOT/deploy/prod/env.quality-mode.fragment"
 FRAG_R="$ROOT/deploy/prod/env.quality-mode-rollback.fragment"
@@ -277,7 +277,7 @@ MD
 |----|-----|
 | slug | （连载后填写） |
 | title | 炉灰记·质量模式·PR10·… |
-| base | https://tonglu.qing.blue |
+| base | https://tonglu.example.com |
 | 对照 | book_013bcb3b |
 | 章范围 | ch1–ch2 |
 | 备注 | 同宇宙新卷 · 非无关作者新书 |

@@ -58,7 +58,7 @@ def _bind_seed(mod):
 import scripts.humanrun_wanjie_seed as _default_seed  # noqa: E402
 _bind_seed(_default_seed)
 
-BASE = os.environ.get("API_BASE", "https://tonglu.qing.blue")
+BASE = os.environ.get("API_BASE", "https://tonglu.example.com")
 JAR = os.environ.get("COOKIE_JAR", "/tmp/humanrun_cookie.txt")
 WW_INSTRUCTIONS = (
     "这是 scribe3 会改世界状态的主编任务。"

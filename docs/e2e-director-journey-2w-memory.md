@@ -12,7 +12,7 @@
 | **日期** | 2026-08-09 |
 | **状态** | **必须按 §2.4 真 chat 路径执行** · 每轮新书 · 会话可核对 |
 | **产品** | 铜炉（tonglu）/ 代码目录 `scribe3` |
-| **环境** | **仅 demo 已部署栈**（`www.qing.blue`）；禁止本机 Surreal / 全量 npm |
+| **环境** | **仅 demo 已部署栈**（`www.example.com`）；禁止本机 Surreal / 全量 npm |
 | **继承** | v6.2 纪律全文：[`docs/e2e-director-journey-5w.md`](./e2e-director-journey-5w.md) |
 | **进度** | [`设计文档/2026-08-08-旅程2万字-记忆验收-进度.md`](../设计文档/2026-08-08-旅程2万字-记忆验收-进度.md) |
 | **质量根因方案** | [`docs/plans/2026-08-09-memory-quality-rootcause-plan.md`](./plans/2026-08-09-memory-quality-rootcause-plan.md) |

@@ -7,14 +7,14 @@ Wants=network-online.target
 Type=simple
 User=ubuntu
 Group=ubuntu
-WorkingDirectory=/home/ubuntu/.hermes/profiles/scribe3_plan
-Environment=HOME=/home/ubuntu
-Environment=HERMES_HOME=/home/ubuntu/.hermes/profiles/scribe3_plan
-Environment=VIRTUAL_ENV=/home/ubuntu/.hermes/hermes-agent/venv
-Environment=PATH=/home/ubuntu/.hermes/hermes-agent/venv/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/opt/scribe3-host/.hermes/profiles/scribe3_plan
+Environment=HOME=/opt/scribe3-host
+Environment=HERMES_HOME=/opt/scribe3-host/.hermes/profiles/scribe3_plan
+Environment=VIRTUAL_ENV=/opt/scribe3-host/.hermes/hermes-agent/venv
+Environment=PATH=/opt/scribe3-host/.hermes/hermes-agent/venv/bin:/usr/local/bin:/usr/bin:/bin
 Environment=API_SERVER_PORT=8647
 Environment=API_SERVER_HOST=172.18.0.1
-ExecStart=/home/ubuntu/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main --profile scribe3_plan gateway run --replace
+ExecStart=/opt/scribe3-host/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main --profile scribe3_plan gateway run --replace
 Restart=always
 RestartSec=5
 TimeoutStopSec=240

@@ -39,7 +39,7 @@ def test_scheme_has_million_demo_no_pad_playbook():
     assert "1000000" in text
     assert "pad" in text.lower() or "凑字" in text
     assert "s3_add" in text
-    assert "tonglu.qing.blue" in text
+    assert "tonglu.example.com" in text
     assert "3.2.5" in text
     assert "duty" in text and "design" in text and "deduce" in text
     assert "draft" in text and "final" in text

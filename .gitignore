@@ -11,14 +11,22 @@
 **/*.db
 **/*.db-wal
 **/*.db-shm
+**/*.sqlite*
 
 # 密钥与本地配置(绝不提交)
+.env
+.env.*
 **/.env
 **/.env.*
 **/*.key
 **/*.pem
 secrets/
 config.local.*
+
+# 保留环境变量模板
+!.env.example
+!deploy/prod/.env.example
+!**/.env.example
 
 # 第三方 vendored 源码(本地从 GitHub 安装,自带 .git)
 scribe/vendor/
@@ -35,13 +43,11 @@ scribe/out/
 .claude/worktrees/
 .worktrees/
 
-# e2e 数据快照(本机运行产物,可重建)
+# e2e 数据快照与报告(本机运行产物,可重建)
 scribe3/web/e2e/.snapshots/
-
-# PC UI 只读验收截图(pw_layout.mjs 运行产物,可重建)
 scribe3/web/artifacts/
-
-# 根级/会话 e2e 与运行产物(可重建,勿 git add .)
+playwright-report/
+test-results/
 artifacts/
 **/artifacts/
 
@@ -72,21 +78,14 @@ history.txt
 # split backups (local only)
 **/*.monolith.bak
 
-# 第三方全文（版权，勿提交）。根目录节选 乱世铜炉.md 仍可跟踪。
+# 第三方全文（版权，勿提交）。根目录仅保留短篇示例节选 乱世铜炉.md 供文风评测夹具使用。
 docs/worlds/乱世铜炉-全文.md
 docs/worlds/诡秘之主-全文.md
 
 # craft-eval 模型拆卡原文（可重建，勿入库）
 scribe3/eval/preds/
 
-
-# production secrets on server / local
-deploy/prod/.env
-
-# keep env templates
-!**/.env.example
-!deploy/prod/.env.example
-
+# 部署临时包
 .deploy-artifact/
 scribe3-deploy.tgz
 .venv/

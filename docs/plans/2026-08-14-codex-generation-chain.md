@@ -8,7 +8,7 @@
 | **状态** | Draft（rev.4：批量写厚且无需批准） |
 | **定位** | 给设定库**所有实体**补一条与正文链同构的生成链：必须 LLM、解析合同、persist 闸。生成结果必须**真正起到该 kind 该有的作用**，不是刷字数、不是空壳名字。 |
 | **不改** | 宣称公式、`GATE_SAVE_MODE=soft`、GATE-B 80、secret / chief_only / `backstory_secret` 生成路径 fail-closed、代码默认 48k 窗、`NOVEL_PROMPT_HARD` 常量 |
-| **验证** | 只冒烟已部署 demo（`tonglu.qing.blue` / `82.157.130.140`，`/opt/scribe3/app`）；禁止 Grok 机 `npm ci` / 本机 Surreal / 第二套库 |
+| **验证** | 只冒烟已部署 demo（`tonglu.example.com` / `203.0.113.10`，`/opt/scribe3/app`）；禁止 Grok 机 `npm ci` / 本机 Surreal / 第二套库 |
 | **法律写通道** | 单条手补 / `s3_generate_codex persist=true` 仍走 MCP 待批。**批量** `s3_generate_codex_batch persist=true` **无需批准**，过 L2 闸后直接落库。**禁止** REST 批量/单条直写。 |
 | **相邻 SSOT** | 章冰山 [`2026-08-14-iceberg-complete.md`](./2026-08-14-iceberg-complete.md)；防洪水 [`2026-08-14-antiflood-blast-radius.md`](./2026-08-14-antiflood-blast-radius.md)（点名吃满 / `clip_for` / `codex_named` **已是现状**，本方案不重做注入） |
 

@@ -5,7 +5,7 @@
     "ts_end": "2026-08-12T10:48:57.402598+00:00",
     "note": "regression storyline omit",
     "method": "POST",
-    "url": "https://tonglu.qing.blue/api/storyline/inject-preview?work=book_qe_live5",
+    "url": "https://tonglu.example.com/api/storyline/inject-preview?work=book_qe_live5",
     "path": "/api/storyline/inject-preview?work=book_qe_live5",
     "request_body": {
       "seq": 2

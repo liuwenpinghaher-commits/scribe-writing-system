@@ -141,11 +141,14 @@ def logout(response: Response):
 def me(request: Request):
     username = resolve_username(request)
     if not username:
-        if auth_enabled():
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "authentication required"},
-            )
+        if not auth_enabled():
+            return {
+                "username": "local",
+                "role": "admin",
+                "is_admin": True,
+                "display_name": "Local",
+                "status": "active",
+            }
         return JSONResponse(
             status_code=401,
             content={"detail": "authentication required"},

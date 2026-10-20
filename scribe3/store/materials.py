@@ -427,6 +427,8 @@ class MaterialsMixin:
             f"AND meta::id(id) != $self ORDER BY dist LIMIT {top_k}",
             {"qv": emb, "self": material_id})
         for r in rows:
+            if not r.get("id") or str(r["id"]) == str(material_id):
+                continue
             sim = 1.0 - float(r.get("dist") or 0.0)
             if sim < threshold:
                 continue

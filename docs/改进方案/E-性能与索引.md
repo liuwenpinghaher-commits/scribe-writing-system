@@ -1,6 +1,6 @@
 # 枢纽 E · 性能与索引
 
-> 对象:**scribe3**(AI 小说写作系统,根目录 `/Users/miaoma/Downloads/写作 3.0`)。
+> 对象:**scribe3**(AI 小说写作系统,根目录 `<repo-root>`)。
 > 本枢纽聚合"性能与索引"相关问题,补齐 DEFINE INDEX、预聚合视图、DEFINE EVENT 级联、章节级 RAG、Hybrid Search。
 > 取证基于 `surreal version` 实测(**3.1.5 for macos on aarch64**)+ `scribe3/migrations/*.surql`(9 个迁移)+ `scribe3/store.py` + `scribe3/app.py` + `scribe3/embed.py`,精确到 `文件:行号`/表名/字段名。
 > 配套诊断:[03-问题诊断与整改方案.md](../系统架构/03-问题诊断与整改方案.md) §4、[06-SurrealDB使用深度诊断.md](../系统架构/06-SurrealDB使用深度诊断.md) §2.1/§2.3/§2.4/§4.2/§4.4/§4.5。

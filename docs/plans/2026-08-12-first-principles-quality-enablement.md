@@ -13,7 +13,7 @@
 | **会话 scratch** | `/tmp/grok-1000/grok-design-doc-45fb0716.md` · 摘要 `/tmp/grok-1000/grok-design-summary-45fb0716.md` |
 | **评审真源** | 2026-08-12 第一原则审查（系统输出质量 ~7.5/10；偏防错、欠使能） |
 | **对齐前序** | `docs/plans/2026-08-11-novel-first-injection-quality-optimal.md`（rev.3.1）；`docs/plans/2026-08-11-context-injection-budget-and-quality-optimal.md`（rev.2.1）；`docs/plans/2026-08-10-novel-quality-first-pipeline-optimization.md`；storyline / quality_dim A3（2026-08-12 已合） |
-| **验收环境** | 已部署 demo：`https://tonglu.qing.blue`（主）/ `qing.blue`；SSH `ubuntu@82.157.130.140`，密钥 `~/.ssh/id_tencent_lh`；应用 `/opt/scribe3/app`；**只冒烟已部署栈** |
+| **验收环境** | 已部署 demo：`https://tonglu.example.com`（主）/ `example.com`；SSH `ubuntu@203.0.113.10`，密钥 `~/.ssh/id_tencent_lh`；应用 `/opt/scribe3/app`；**只冒烟已部署栈** |
 | **明确不做的宣称** | **不**宣称 human-blind ≥9.5；**不**默认 hard park 全开；**不** fork Hermes；**不**在 Grok 机全量 npm / 本机 Surreal / 平行第二栈验收 |
 
 ---
@@ -843,7 +843,7 @@ SCENE 表 provenance=0 **已在 PR-1 完成**；本 PR 只做 UI 双档标签 + 
 | PR-6 | DROP 四档 **唯一**落地 + Standard/Novel UI + 记忆瘦身 | 旧 priority map |
 | PR-7 | scorecard 基线笔记（相对采样回填 G1b） | n/a |
 
-部署：`./scripts/deploy_demo.sh` → `tonglu.qing.blue` 冒烟。
+部署：`./scripts/deploy_demo.sh` → `tonglu.example.com` 冒烟。
 
 ---
 

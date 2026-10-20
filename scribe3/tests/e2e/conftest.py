@@ -30,17 +30,21 @@ class LlmStub:
         self._events = list(events)
         self._exc = None
 
-    def complete_stream(self, msg, system=None, history=None, **kw):
+    def hermes_complete_stream(self, msg, system=None, history=None, **kw):
         self.calls.append({"msg": msg, "system": system, "history": history, **kw})
         if self._exc:
             raise self._exc
         return iter(self._reply_deltas)
 
-    def responses_events(self, message, instructions, **kwargs):
+    complete_stream = hermes_complete_stream
+
+    def hermes_responses_events(self, message, instructions, **kwargs):
         self.calls.append({"message": message, "instructions": instructions, **kwargs})
         if self._exc:
             raise self._exc
         return iter(self._events)
+
+    responses_events = hermes_responses_events
 
     @property
     def last_history(self):

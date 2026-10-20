@@ -31,6 +31,7 @@ def s3_semantic_recall(query: str, k: int = 5, chapter: int | None = None,
     return _semantic_recall_impl(query, k, False, work, chapter=chapter)
 
 
+@mcp.tool(annotations=_RO)
 def s3_semantic_recall_reveal(query: str, k: int = 5, chapter: int | None = None,
                               work: str | None = None) -> list[dict]:
     """s3_semantic_recall 的全知孪生:返回明文(secret 命题不掩码)。
@@ -65,6 +66,7 @@ def s3_hybrid_recall(query: str, chapter: int, k: int = 5,
     return _hybrid_recall_impl(query, chapter, k, False, work)
 
 
+@mcp.tool(annotations=_RO)
 def s3_hybrid_recall_reveal(query: str, chapter: int, k: int = 5,
                             work: str | None = None) -> list[dict]:
     """s3_hybrid_recall 的全知孪生:返回明文(secret 命题不掩码)。
@@ -109,6 +111,7 @@ def s3_graph_recall(query: str, chapter: int, k: int = 5,
     return _graph_recall_impl(query, chapter, k, False, work)
 
 
+@mcp.tool(annotations=_RO)
 def s3_graph_recall_reveal(query: str, chapter: int, k: int = 5,
                            work: str | None = None) -> list[dict]:
     """s3_graph_recall 的全知孪生:返回明文(secret 命题不掩码)。供主编全知联查。

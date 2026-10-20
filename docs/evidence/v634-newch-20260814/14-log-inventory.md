@@ -1,6 +1,6 @@
 # book_79c0d45e 第 6–10 章运行日志盘点
 
-数据源：demo `tonglu.qing.blue` 只读（2026-08-14）。  
+数据源：demo `tonglu.example.com` 只读（2026-08-14）。  
 对照：1–5 章盘点 `docs/evidence/v634-true-chat-20260814/14-log-inventory.md`（本轮主集不是 1–5）。
 
 **诚实：141 `pipeline_log` 已通，但仍回放不了装段读值 / 谓词 / 裁剪正文。不是飞行记录仪。**

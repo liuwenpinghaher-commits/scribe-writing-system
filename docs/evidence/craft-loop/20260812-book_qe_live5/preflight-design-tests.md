@@ -11,7 +11,7 @@
 | **状态** | **Accepted Draft 0.3.1** · 用户已决 Q1（B1 全绿才进 B2）· **MVP 会话已跑**（证据 `docs/evidence/craft-loop/20260812-book_qe_live5/` · `craft_loop_mvp_pass`） |
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` |
 | **仓库** | `/home/admin/projects/scribe-writing-system` |
-| **验证环境** | **仅已部署 demo**（`https://tonglu.qing.blue`；本机反代 :3311·:3321）；禁止 Grok 机 `npm ci` / 本机 Surreal 重活 |
+| **验证环境** | **仅已部署 demo**（`https://tonglu.example.com`；本机反代 :3311·:3321）；禁止 Grok 机 `npm ci` / 本机 Surreal 重活 |
 | **新会话怎么提** | `继续 craft-loop` 或 `读 docs/plans/craft-loop.md` |
 
 === discourse tests ===

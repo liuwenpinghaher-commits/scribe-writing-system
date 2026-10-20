@@ -794,7 +794,7 @@
         "13-capability-audit/ready.json"
       ],
       "skip_reason": "",
-      "notes": "health: public qing.blue/api/health ok=true; ready: demo docker /ready ready=true"
+      "notes": "health: public example.com/api/health ok=true; ready: demo docker /ready ready=true"
     },
     {
       "id": "V7",

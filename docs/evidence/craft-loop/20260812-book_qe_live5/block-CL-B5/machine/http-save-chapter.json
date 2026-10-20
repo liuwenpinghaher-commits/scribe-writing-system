@@ -5,7 +5,7 @@
     "ts_end": "2026-08-12T10:48:53.036468+00:00",
     "note": "CL-B5 legal prose path: POST /save-chapter (not emergency world REST)",
     "method": "POST",
-    "url": "https://tonglu.qing.blue/api/save-chapter?work=book_qe_live5",
+    "url": "https://tonglu.example.com/api/save-chapter?work=book_qe_live5",
     "path": "/api/save-chapter?work=book_qe_live5",
     "request_body": {
       "seq": 2,

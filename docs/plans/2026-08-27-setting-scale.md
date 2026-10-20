@@ -119,7 +119,7 @@ WHERE meta::id(id) IN $known.prop_local
 
 ### 失效三：完整度指标在规模下必然归零
 
-```98:104:/Users/miaoma/Downloads/写作 3.0/scribe3/store/character_arc.py
+```98:104:<repo-root>/scribe3/store/character_arc.py
     def setting_completeness(self) -> dict:
         """检查当前书的设定完整度,返回各维度缺项。"""
         chars = self.characters()

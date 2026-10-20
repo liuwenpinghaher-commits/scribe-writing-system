@@ -8,7 +8,7 @@
 | **日期** | 2026-08-13 |
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` |
 | **仓库** | `/home/admin/projects/scribe-writing-system` |
-| **验证环境** | **仅已部署 demo** `https://tonglu.qing.blue` · SSH `ubuntu@82.157.130.140`；禁止 Grok 机全量 `npm ci` / 本机 Surreal / 第二栈 |
+| **验证环境** | **仅已部署 demo** `https://tonglu.example.com` · SSH `ubuntu@203.0.113.10`；禁止 Grok 机全量 `npm ci` / 本机 Surreal / 第二栈 |
 | **合法写通道** | orch proposal/apply、`save-chapter`、intent-goals、MCP `s3_patch_chapter_*` / `s3_add_chapter`；**禁止** EMERGENCY 当默认 |
 | **前序已 ship** | craft-loop 0.3.1（`docs/plans/craft-loop.md`）；dual-lamp（`docs/plans/2026-08-12-reader-ready-dual-lamp-design.md` + `reader_ready.py`）；narrative_drive rev.2.3（`docs/plans/2026-08-10-narrative-event-engine.md`） |
 | **触发证据** | `book_qe_live5`：ch2 验收腔、ch4 道具词节拍+装清冷静物散文仍工程绿；ch5 叙事合同（desire/obstacle/turn/cost + 冲突节拍）人感「好多了」（`docs/evidence/full-chapter-ch5-20260813/`） |
@@ -782,7 +782,7 @@ def get_reader_ack(self, work, seq, kind="reader"):
 **demo migration 运维一句**：
 
 ```text
-SSH ubuntu@82.157.130.140
+SSH ubuntu@203.0.113.10
 # 与既有 demo 迁移惯例一致：在 app 容器/目录执行 migrate 入口
 # （deploy_demo.sh hot 若已含 migrate 则随热更；否则：
 #  cd /opt/scribe3/app && python -m scribe3.migrate   # 以仓库实际入口为准）

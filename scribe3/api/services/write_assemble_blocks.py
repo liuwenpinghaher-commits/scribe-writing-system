@@ -724,6 +724,17 @@ def _editor_system(st, focalizer: str = "", chapter: int = None,
             mode_banner = discussion_omniscient_banner()
     except Exception:
         pass
+    codex_txt = (
+        _codex_block(
+            st,
+            reveal=not focalizer,
+            focalizer=focalizer,
+            chapter=chapter,
+            for_generation=for_generation,
+            request_text=request_text,
+        )
+        or "【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n(尚无设定)"
+    )
     return (
         "你是这部长篇小说的资深主编(责编),与作者面对面讨论创作。\n"
         f"{mode_banner}"
@@ -732,7 +743,7 @@ def _editor_system(st, focalizer: str = "", chapter: int = None,
         f"{constraint}"
         f"【主要角色】{ctx_chars}\n{set_label}\n{ctx_set}\n\n"
         # 主编对话无焦点=全知 reveal；写章有焦点=限知，不把秘密摊给角色。
-        f"{_codex_block(st, reveal=not focalizer, focalizer=focalizer, chapter=chapter, for_generation=for_generation, request_text=request_text) or '【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n(尚无设定)'}\n\n"
+        f"{codex_txt}\n\n"
         "要求:用简体中文,像真正的资深文学编辑那样具体、犀利、可操作;紧扣上面的世界观与北极星,"
         "不空泛、不正确的废话;给剧情/人物建议时给出 2-3 个选项与各自代价;护住限知叙事(别让角色知道其知识帧外的私密)。"
     ) + rem + mat_hint + _author_prefs_block_safe()

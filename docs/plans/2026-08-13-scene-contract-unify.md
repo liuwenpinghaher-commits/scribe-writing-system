@@ -9,7 +9,7 @@
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` |
 | **仓库** | `/home/admin/projects/scribe-writing-system` |
 | **建议落仓** | `docs/plans/2026-08-13-scene-contract-unify.md`（与本文同步） |
-| **验证环境** | **仅已部署 demo** `https://tonglu.qing.blue` · SSH `ubuntu@82.157.130.140` · 应用 `/opt/scribe3/app` · env **`/opt/scribe3/app/deploy/prod/.env`**（热更真源，见 `scripts/deploy_demo.sh`；**不是** `app/.env`） |
+| **验证环境** | **仅已部署 demo** `https://tonglu.example.com` · SSH `ubuntu@203.0.113.10` · 应用 `/opt/scribe3/app` · env **`/opt/scribe3/app/deploy/prod/.env`**（热更真源，见 `scripts/deploy_demo.sh`；**不是** `app/.env`） |
 | **合法写通道** | orch proposal/apply、`save-chapter`、MCP `s3_patch_chapter_plan`（场面合同**仅此产品入口**）；HTTP PATCH 合同只作测试/紧急后门，产品 UI 不调；禁止 EMERGENCY 默认 |
 | **北极星** | 人话、有戏、可续。主编是持工具的编辑。工程灯/GATE 不得回作者主表面。 |
 | **本设计定位** | **全局整合 / 最优化裁断**：把已散落的四义、痕迹、drive、pressure、场面纸、宣称、无人值守 **收成一层场面**。不是再贴一张表，不是再加一个 detector，不是第三套 `may_claim_*`。 |

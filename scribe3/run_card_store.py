@@ -7,6 +7,7 @@ import threading
 import time
 from typing import Any
 
+from scribe3.feature_flags import get_flag
 from scribe3.run_card import (
     ExpectedFacts,
     build_run_card,

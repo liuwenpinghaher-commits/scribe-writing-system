@@ -10,7 +10,7 @@
 | **短名** | `volume-scale-discipline` |
 | **前序** | `docs/playbook/playbook.3.2.2.md`；`docs/plans/2026-08-10-volume-outline-ia-optimal.md`；`docs/plans/2026-08-13-write-path-story-constraints.md`；`docs/plans/2026-08-17-design-book-continuity.md`；`docs/plans/2026-08-18-play-copy-table.md`；`docs/plans/2026-08-21-humanrun-wanjie-v7.5.md` |
 | **输入** | 用户贴来的「百万字层级规划」调研 + 「结构层改造最优方案」（Qoder，2026-08-21）。本文是审查后的可实施方案，不是原文再贴。 |
-| **验收环境** | 只打已部署 demo `tonglu.qing.blue`（SSH `ubuntu@82.157.130.140`，应用 `/opt/scribe3/app`）。禁止 Grok 运行机 `npm ci` / 全量 pytest / 本机 Surreal。 |
+| **验收环境** | 只打已部署 demo `tonglu.example.com`（SSH `ubuntu@203.0.113.10`，应用 `/opt/scribe3/app`）。禁止 Grok 运行机 `npm ci` / 全量 pytest / 本机 Surreal。 |
 | **不改** | 明喻 1/800、对白 15%、糙稿与戏重合 15%；WCG；SPA 三通道；未分卷一等合法；禁止 pad / 禁止 curl `s3_add_*` 灌库；**禁止对已部署万界书 force 重立责任或 overlay 卷纲。** |
 
 ---

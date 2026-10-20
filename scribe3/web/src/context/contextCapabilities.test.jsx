@@ -56,7 +56,7 @@ function ThreadProbe() {
   return (
     <div>
       <div data-testid="tid">{snapshot?.thread_id || 'none'}</div>
-      <button onClick={() => switchThread('t2')}>switch</button>
+      <button onClick={() => Promise.resolve(switchThread('t2')).catch(() => {})}>switch</button>
     </div>
   )
 }

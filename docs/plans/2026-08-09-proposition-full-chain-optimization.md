@@ -780,7 +780,7 @@ rename 表、改 knows 端点类型、删 secret。
 
 ### 阶段与冒烟（demo 已部署 · 可执行）
 
-**通用前置：** `curl -sS https://www.qing.blue/api/health`（或现网 health 路径）→ ok；浏览器登录作者账号。
+**通用前置：** `curl -sS https://www.example.com/api/health`（或现网 health 路径）→ ok；浏览器登录作者账号。
 
 | 阶段 | 内容 | 冒烟清单（3–5 条） |
 |------|------|-------------------|

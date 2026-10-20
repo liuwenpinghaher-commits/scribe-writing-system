@@ -5,7 +5,7 @@
 | **协议** | `docs/plans/craft-loop.md` Accepted Draft **0.3.1** |
 | **session_id** | `20260812-book_qe_live5` |
 | **work** | `book_qe_live5`（铜炉·质量验证两章） |
-| **demo** | https://tonglu.qing.blue |
+| **demo** | https://tonglu.example.com |
 | **焦点章** | seq=2（第二章 · 齿边） |
 | **author_human** | `false`（本会话以认证 HTTP 合法通道驱动；镜像 SPA discuss/world_write+approve/prose_write 路径） |
 | **verdict** | 见 `PASS.md` |

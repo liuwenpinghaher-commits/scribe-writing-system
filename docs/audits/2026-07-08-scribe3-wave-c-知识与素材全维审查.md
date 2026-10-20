@@ -167,25 +167,25 @@ Wave C 不是“能力丢失”，而是 **后端和旧面板能力较完整，�
 已运行：
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q scribe3/tests/test_setting_system.py scribe3/tests/test_ontology.py scribe3/tests/test_ontology_complete.py
 # 26 passed
 ```
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q scribe3/tests/test_promise.py scribe3/tests/test_pulse.py scribe3/tests/test_voice.py
 # 21 passed, 1 warning
 ```
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q scribe3/tests/test_material_import.py scribe3/tests/test_material_recall.py scribe3/tests/test_material_memory.py scribe3/tests/test_material_consume.py scribe3/tests/test_hybrid_recall.py scribe3/tests/test_material_bm25_probe.py
 # 33 passed, 1 warning
 ```
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/__tests__/materials-workbench.test.jsx src/layout/__tests__/directoryPane-capabilities.test.jsx
 # 2 test files passed, 8 tests passed
 ```

@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = os.environ.get("API_BASE", "https://tonglu.qing.blue")
+BASE = os.environ.get("API_BASE", "https://tonglu.example.com")
 JAR = os.environ.get("COOKIE_JAR", "/tmp/q17_cookie.txt")
 
 

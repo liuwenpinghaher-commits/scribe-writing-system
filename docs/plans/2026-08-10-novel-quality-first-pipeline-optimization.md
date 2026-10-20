@@ -8,7 +8,7 @@
 | **状态** | Draft · **rev.2.1**（Open Q1/2/5 用户裁决落盘） |
 | **产品** | scribe-writing-system / scribe3（铜炉） |
 | **文档真源** | 仓库 `docs/plans/2026-08-10-novel-quality-first-pipeline-optimization.md`；`/tmp/grok-1000/grok-design-doc-6ba65db0.md` 为会话 scratch，改设计须同步 commit 耐久路径 |
-| **验收环境** | demo 已部署栈 `https://www.qing.blue`；**禁止**默认再起第二 Surreal；Grok 运行机不做全量 npm/测试 |
+| **验收环境** | demo 已部署栈 `https://www.example.com`；**禁止**默认再起第二 Surreal；Grok 运行机不做全量 npm/测试 |
 | **前序** | `docs/系统文档/03-写作主链路.md` · `docs/plans/2026-08-09-chapter-pipeline-closed-loop-design.md` · `docs/plans/2026-08-10-v633-revalidation-quality-delta.md` · `docs/plans/2026-08-10-verification-capability-audit-and-llm-first-optimization.md` · 记忆质量 rev.4 · **`设计文档/2026-08-09-压力驱动叙事-匀速散步治理.md`（本设计修订：soft-pass 从默认可达性补丁降为显式逃生舱；代码默认仍兼容现网）** |
 | **明确不做的宣称** | **不**因本方案单独宣称文学 ≥9.5；人盲协议未跑前禁止用代理分冒充艺术定级 |
 
@@ -1206,7 +1206,7 @@ def validate_drama_beats(
 | **PR-7** | PDC bootstrap `first_ok(cost,turn,hook,template)` | `pressure_drive` · pilot | 非仅灰印模板 |
 | **PR-8** | UI 节拍 GCD 卡 | web Beats | 手改保存 |
 | **PR-9** | （合并入 2b；保留号作缓冲） | — | — |
-| **PR-10** | demo 质量 env + **铜炉新卷（同宇宙）** 2 章人读/人盲小样 | `www.qing.blue`；对照 `book_013bcb3b` | N1–N3 + E1 + N4/S3 问卷；**非**另开作者无关新书 |
+| **PR-10** | demo 质量 env + **铜炉新卷（同宇宙）** 2 章人读/人盲小样 | `www.example.com`；对照 `book_013bcb3b` | N1–N3 + E1 + N4/S3 问卷；**非**另开作者无关新书 |
 
 **节奏**：PR-0→1→2+2b→3→4∥5→6a→6b（可回滚）→7→8→10。  
 **PR-6+ 依赖**执法真值表落地；未完成 6a 不得宣称「可拦散步」。

@@ -295,7 +295,7 @@ Filesystems must be attached at instance launch time:
   └── outputs/  
   
 # Local SSD (faster, ephemeral)  
-/home/ubuntu/  
+/opt/scribe3-host/  
   └── working/  # Temporary files  
 
 ```

@@ -144,8 +144,9 @@ def main() -> int:
 
     p = Path(a.out)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text("\n".join(lines), encoding="utf-8")
-    print(f"写出 {p}（{len('\n'.join(lines))} 字）")
+    out_text = "\n".join(lines)
+    p.write_text(out_text, encoding="utf-8")
+    print(f"写出 {p}（{len(out_text)} 字）")
     return 0
 
 

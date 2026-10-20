@@ -4,7 +4,7 @@
 |----|-----|
 | 方案 | v6.3 |
 | 书 | book_6340c01f · 炉灰记·v6.3·记忆探针 |
-| 公网 | https://www.qing.blue 切书 book_6340c01f |
+| 公网 | https://www.example.com 切书 book_6340c01f |
 
 ## 实际路径
 

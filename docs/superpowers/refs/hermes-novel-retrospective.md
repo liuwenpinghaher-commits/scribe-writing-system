@@ -1,6 +1,6 @@
 # hermes-novel 深度回顾：技术资产与借鉴方案
 
-> 分析对象：`/Users/miaoma/Downloads/写作/` hermes-novel 系统  
+> 分析对象：`~/Downloads/写作/` hermes-novel 系统  
 > 分析日期：2026-06-23  
 > 目标读者：scribe3 开发者  
 > 用途：提炼可直接复用的 craft 知识与架构设计

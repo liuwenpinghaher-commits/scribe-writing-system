@@ -43,7 +43,7 @@ export function EntityTruthPanel({
   const [showEngine, setShowEngine] = useState(false)
 
   useEffect(() => {
-    if (!entityId) {
+    if (!entityId || typeof api.listEntityTruths !== 'function') {
       setRows([])
       return
     }

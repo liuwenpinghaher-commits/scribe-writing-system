@@ -4,7 +4,7 @@
 
 ---
 
-仓库：`/Users/miaoma/Downloads/写作 3.0`，分支 `craft-eval`（工作区应当是干净的）。
+仓库：`<repo-root>`，分支 `craft-eval`（工作区应当是干净的）。
 与我的一切交互用中文。
 
 先读 `docs/plans/2026-08-28-system-completion.md` 第五节（验证方法论）。

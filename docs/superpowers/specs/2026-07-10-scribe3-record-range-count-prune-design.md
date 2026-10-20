@@ -1,7 +1,7 @@
 # Scribe3 章节 Record Range、COUNT 索引与单书数据收敛设计
 
 **日期：** 2026-07-10  
-**仓库：** `/Users/miaoma/Downloads/写作 3.0`  
+**仓库：** `<repo-root>`  
 **业务子目录：** `scribe3/`  
 **目标书：** 《纸命》（`book_c256380e`）
 

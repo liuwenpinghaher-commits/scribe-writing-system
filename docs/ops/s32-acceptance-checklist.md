@@ -1,7 +1,7 @@
 # SurrealDB 3.2.4 优化轨 · 业务/产品验收清单
 
 > **用途**：结案本优化轨时勾选。仅过「工程脚本」不算交付；**P 产品项须人工或等价 E2E 勾选**。  
-> **环境**：demo `https://www.qing.blue`（已部署栈，不另起库）  
+> **环境**：demo `https://www.example.com`（已部署栈，不另起库）  
 > **对应方案**：`docs/plans/2026-08-08-surrealdb-3.2.4-optimization-plan.md`  
 > **审查说明**：会话内「优化审查」结论：T 强、P/B 弱；本清单补齐 P/O。
 
@@ -22,7 +22,7 @@
 |----|-----|
 | 日期 | YYYY-MM-DD |
 | 验收人 | |
-| demo 入口 | https://www.qing.blue |
+| demo 入口 | https://www.example.com |
 | 后端/库版本备注 | Surreal **v3.2.4**；Hermes 0.20（记忆不在 Hermes） |
 | git / 部署备注 | （可选） |
 
@@ -36,7 +36,7 @@
 
 ```bash
 ./scripts/smoke_s32.sh
-# 或 demo 机：/home/ubuntu/smoke_s32.sh
+# 或 demo 机：/opt/scribe3-host/smoke_s32.sh
 ```
 
 | # | 检查项 | 通过标准 | 结果 |
@@ -124,7 +124,7 @@ python3 -c "from importlib.util import *; ..."  # 或 pytest scribe3/tests/test_
 
 ## P · 产品层（人工 · **门禁**）
 
-> 浏览器打开 **https://www.qing.blue**，使用可用账号（bootstrap admin 或你的作者号）。  
+> 浏览器打开 **https://www.example.com**，使用可用账号（bootstrap admin 或你的作者号）。  
 > 建议新建作品，避免污染长期数据；或使用 `main`。
 
 ### P1 登录与作品 — **门禁**

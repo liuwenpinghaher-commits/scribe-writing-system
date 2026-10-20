@@ -164,10 +164,10 @@ flowchart TD
 
 | 项 | 现网值 |
 |---|---|
-| 写网关 | systemd `hermes-gateway-scribe3-write` **active**；进程 cwd `/home/ubuntu/.hermes/profiles/scribe3_write`；监听 `172.18.0.1:8644`；pid `188206` 自 Aug14 |
-| **ExecStart 解释器（唯一安装目标）** | `/home/ubuntu/.hermes/hermes-agent/venv/bin/python`（3.12.3） |
+| 写网关 | systemd `hermes-gateway-scribe3-write` **active**；进程 cwd `/opt/scribe3-host/.hermes/profiles/scribe3_write`；监听 `172.18.0.1:8644`；pid `188206` 自 Aug14 |
+| **ExecStart 解释器（唯一安装目标）** | `/opt/scribe3-host/.hermes/hermes-agent/venv/bin/python`（3.12.3） |
 | Hermes 元数据版本 | **v0.20.0 (2026.8.3)** |
-| 运行中的 `mcp_tool.py` | `/home/ubuntu/.hermes/src/hermes-agent-0.20.0/tools/mcp_tool.py` |
+| 运行中的 `mcp_tool.py` | `/opt/scribe3-host/.hermes/src/hermes-agent-0.20.0/tools/mcp_tool.py` |
 | clone 目录 | `~/.hermes/hermes-agent/`（**不是 git 仓库**；与运行时 src **不是同一份**） |
 | src 树 extra（**安装钉死这份**） | `mcp==1.28.1` + `starlette==1.3.1`（`dev` extra 同样 1.28.1） |
 | clone `pyproject.toml` extra（**不要抄**） | `mcp==1.26.0` + `starlette==1.0.1` |
@@ -266,12 +266,12 @@ flowchart LR
 **唯一配方（demo 一次性，禁止 cd 进 src 跑 `./venv`）：**
 
 ```bash
-VENV=/home/ubuntu/.hermes/hermes-agent/venv
+VENV=/opt/scribe3-host/.hermes/hermes-agent/venv
 PY="$VENV/bin/python"
 PIP="$VENV/bin/pip"
 
 # 备份
-cp -a "$VENV" /home/ubuntu/.hermes/hermes-agent/venv.bak.<ts>
+cp -a "$VENV" /opt/scribe3-host/.hermes/hermes-agent/venv.bak.<ts>
 
 # extra 以「这个解释器 import 到的树」为准，不要抄 clone
 # 现网应解析到 ~/.hermes/src/hermes-agent-0.20.0/pyproject.toml
@@ -400,11 +400,11 @@ S6 `duty`/`design` 空 phase 走全写 profile；`deduce`/`draft`/`final` 走阶
 目标路径 **必须** 是：
 
 ```bash
-/home/ubuntu/.hermes/hermes-agent/venv/bin/python \
+/opt/scribe3-host/.hermes/hermes-agent/venv/bin/python \
   -c "import tools.mcp_tool as m; print(m.__file__)"
 ```
 
-现网应打印 `/home/ubuntu/.hermes/src/hermes-agent-0.20.0/tools/mcp_tool.py`。
+现网应打印 `/opt/scribe3-host/.hermes/src/hermes-agent-0.20.0/tools/mcp_tool.py`。
 
 **禁止**再写死 `hermes_home / "hermes-agent" / "tools" / "mcp_tool.py"`（那是 clone，demo 上甚至不是 git 仓库，没人 import）。解析失败 → provision `--commit` 拒绝（沿用「锚点不对就拒绝」）。旧 ClosedResource 补丁若仍打 clone，标成已知坑，本 PR 不要复制。
 
@@ -563,7 +563,7 @@ elicit 文案含本次非 None 字段名。
 ### 0. 备份
 
 ```text
-/home/ubuntu/.hermes/hermes-agent/venv → venv.bak.<ts>
+/opt/scribe3-host/.hermes/hermes-agent/venv → venv.bak.<ts>
 各 profile config.yaml → .bak.<ts>
 ```
 
@@ -646,7 +646,7 @@ ExecStart venv + 运行时 extra 1.28.1。断言 `_MCP_AVAILABLE`。重启写/�
 
 1. **正典写通道不改。** 设定：对话 → 写 Run → 审批卡 → `s3_*`。拒绝 REST 种子与 humanrun 灌库。
 
-2. **第一刀是 MCP SDK，不是换模型。** 安装进 **systemd ExecStart 那个 venv**（`/home/ubuntu/.hermes/hermes-agent/venv`）。extra 跟 **该 venv import 到的 pyproject**（现网 `mcp==1.28.1`），不抄 clone 的 1.26.0，不 `cd` src 跑 `./venv`，不对正在跑的 Hermes 再 `pip install -e .`。
+2. **第一刀是 MCP SDK，不是换模型。** 安装进 **systemd ExecStart 那个 venv**（`/opt/scribe3-host/.hermes/hermes-agent/venv`）。extra 跟 **该 venv import 到的 pyproject**（现网 `mcp==1.28.1`），不抄 clone 的 1.26.0，不 `cd` src 跑 `./venv`，不对正在跑的 Hermes 再 `pip install -e .`。
 
 3. **Runs 继续不传 `tools=`。** 今天 POST 带了也会被 `_handle_runs` 静默丢掉。修网关发现，不引入第二套写栈。
 

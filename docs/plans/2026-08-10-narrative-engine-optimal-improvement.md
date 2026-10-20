@@ -10,7 +10,7 @@
 | **工作区** | `/home/admin/projects/scribe-ia-verify-wt` |
 | **文档真源** | 仓库 `docs/plans/2026-08-10-narrative-engine-optimal-improvement.md` |
 | **会话 scratch** | `/tmp/grok-1000/grok-design-doc-40ac17bc.md`（须与真源全文一致） |
-| **验收环境** | demo 已部署栈 `https://www.qing.blue`；**禁止**默认再起第二 Surreal；Grok 运行机不做全量 npm/pytest/本机 Surreal |
+| **验收环境** | demo 已部署栈 `https://www.example.com`；**禁止**默认再起第二 Surreal；Grok 运行机不做全量 npm/pytest/本机 Surreal |
 | **底座（其上的改进层）** | [`docs/plans/2026-08-10-narrative-event-engine.md`](./2026-08-10-narrative-event-engine.md) **rev.2.3**（已合入 main + demo 热更） |
 | **前序 NQ** | [`docs/plans/2026-08-10-novel-quality-first-pipeline-optimization.md`](./2026-08-10-novel-quality-first-pipeline-optimization.md) · 证据 [`docs/evidence/nq-quality-smoke-20260810/12-llm-quality-delta-analysis.md`](../evidence/nq-quality-smoke-20260810/12-llm-quality-delta-analysis.md) |
 | **引擎后读感基线** | **会话输入**（非正式 evidence 文件）；见 Background 证据纪律 |
@@ -493,7 +493,7 @@ targets = targets[:max_seqs]  # hard cap
 | 幂等可选 | `ok=False` 但 `synopsis_fp` + 规范化 compose fingerprint 与库中一致 → **跳过写**（`already_ok_skip` 类计数 `idempotent_skip`） |
 | 串行 | 无并行 ensure；无分布式锁则「勿与 pilot draft 同章并发」运维约定 |
 | 超时 | CLI 建议 per-chapter try/except；全书 max_seqs=200 |
-| **环境** | **仅** demo 已部署栈（SSH `ubuntu@82.157.130.140`，应用目录 `/opt/scribe3/app`，或同机 store 配置指向 demo Surreal）。**禁止** Grok 运行机起 Surreal/第二套 compose |
+| **环境** | **仅** demo 已部署栈（SSH `ubuntu@203.0.113.10`，应用目录 `/opt/scribe3/app`，或同机 store 配置指向 demo Surreal）。**禁止** Grok 运行机起 Surreal/第二套 compose |
 | authz | CLI **不**暴露公网匿名路由；仅运维在已 SSH 会话或本地指向 demo 的 store 执行 |
 
 #### 3.6 单测名
@@ -626,7 +626,7 @@ if thr > 0:
 99-summary.md
 ```
 
-脚本可选：`scripts/ne_oi_ab_compare.sh` —— `curl` **已部署** `https://www.qing.blue`（或内网）API，使用运维 cookie/令牌；**不**在 Grok 机起栈。鉴权与现网 journey/smoke 脚本同级（session cookie），路径示例：`/api/.../chapters/{seq}`（以实现时 routers 为准，脚本内常量）。
+脚本可选：`scripts/ne_oi_ab_compare.sh` —— `curl` **已部署** `https://www.example.com`（或内网）API，使用运维 cookie/令牌；**不**在 Grok 机起栈。鉴权与现网 journey/smoke 脚本同级（session cookie），路径示例：`/api/.../chapters/{seq}`（以实现时 routers 为准，脚本内常量）。
 
 ### 9. 架构与时序
 
@@ -732,7 +732,7 @@ sequenceDiagram
 
 | 威胁 | 严重度 | 缓解 |
 |------|--------|------|
-| volume ensure 未授权 | 中 | REST 须 authz；**CLI 仅** SSH 至 demo（`ubuntu@82.157.130.140`，`/opt/scribe3/app`）或运维员本地配置 **已指向 demo store** 执行；**不**进公网匿名路由 |
+| volume ensure 未授权 | 中 | REST 须 authz；**CLI 仅** SSH 至 demo（`ubuntu@203.0.113.10`，`/opt/scribe3/app`）或运维员本地配置 **已指向 demo store** 执行；**不**进公网匿名路由 |
 | force 覆盖 author | 高 | 默认 force=False；author 跳过；`--include-author` 默认关 |
 | 注入块过长 | 低 | MAX=220 单测锁 |
 | soft 误升 S1 | 中 | type 合同 + 禁止改 blocking.py |

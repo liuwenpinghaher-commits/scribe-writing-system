@@ -6,7 +6,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 PIDS=()
-cleanup() { for pid in "${PIDS[@]:-}"; do kill "$pid" 2>/dev/null || true; done; }
+cleanup() {
+  for pid in "${PIDS[@]:-}"; do kill "$pid" 2>/dev/null || true; done
+  for pid in "${PIDS[@]:-}"; do wait "$pid" 2>/dev/null || true; done
+}
 trap cleanup EXIT
 
 # 安全前置(fail-loud):3311/3321 必须空闲。若被占用,本脚本的临时后端起不来,而 curl 探活会
@@ -40,7 +43,7 @@ fi
 PIDS+=($!)
 
 # 3) 前端 dev :3311(proxy /api → :3321,跨端口 POST 经同源代理不被拦)
-( cd scribe3/web && exec npm run dev ) &
+( cd scribe3/web && exec ./node_modules/.bin/vite ) &
 PIDS+=($!)
 
 # 4) 等后端 + 前端就绪,跑 playwright 冒烟

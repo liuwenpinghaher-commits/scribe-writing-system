@@ -5,7 +5,7 @@
     "ts_end": "2026-08-12T10:48:37.919072+00:00",
     "note": "CL-B1 settings_min source craft-gates-A",
     "method": "GET",
-    "url": "https://tonglu.qing.blue/api/craft-gates?work=book_qe_live5",
+    "url": "https://tonglu.example.com/api/craft-gates?work=book_qe_live5",
     "path": "/api/craft-gates?work=book_qe_live5",
     "request_body": null,
     "status": 200,

@@ -217,7 +217,7 @@ flowchart TB
 ### S5 · WCG 硬门
 
 ```bash
-export API_BASE=https://tonglu.qing.blue
+export API_BASE=https://tonglu.example.com
 python3 scripts/v4_world_complete_gate.py --slug book_xxxxxxxx \
   --out artifacts/humanrun-.../04-world-complete-gate.json
 # 必须 pass=true / exit 0
@@ -298,7 +298,7 @@ flowchart LR
 在 duty 层跑完后，立刻核验模型**到底看见了什么**（三选一，优先第一种）：
 
 ```bash
-BASE=https://tonglu.qing.blue
+BASE=https://tonglu.example.com
 # 【首选】直接查这一层的投入 artifact（生成前渲染的真实 prompt，脱敏截断 4000）
 curl -sS -b $JAR "$BASE/api/debug/pipeline-artifacts?work=$SLUG&kind=prompt&limit=10"
 #   → 找 name=duty.in.1，读 body：里面必须能看到「卷纲」「北极星」「本章责」「相关设定」四栏有真内容

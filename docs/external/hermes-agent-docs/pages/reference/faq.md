@@ -216,7 +216,7 @@ hermes config show
 hermes model  
   
 # Or set directly  
-hermes config set OPENROUTER_API_KEY sk-or-v1-xxxxxxxxxxxx  
+hermes config set OPENROUTER_API_KEY sk_placeholder_or-v1-xxxxxxxxxxxx  
 
 ```
 

@@ -545,9 +545,9 @@ def run_unified_llm_extract(
             return parsed
         if has_kn or has_set:
             return parsed
-        kd = parse_knowledge_delta(reply)
+        from scribe3.ingest import parse_knowledge_delta as _ing_parse_kd, parse_relation_touches
+        kd = _ing_parse_kd(reply)
         if kd is not None:
-            from scribe3.ingest import parse_relation_touches
             parsed["knowledge"] = {**kd, "relation_touches": parse_relation_touches(reply)}
             parsed["format"] = "legacy_knowledge_salvage"
             return parsed
@@ -564,7 +564,11 @@ def ensure_events_in_knowledge(
     """统一包若漏 events，专用第二枪补事件（与 ingest 旧逻辑同构）。"""
     if knowledge is None:
         return None
-    from scribe3.ingest import _build_dedicated_event_extract_prompt, _has_persistable_event
+    from scribe3.ingest import (
+        _build_dedicated_event_extract_prompt,
+        _has_persistable_event,
+        parse_knowledge_delta as _ing_parse_kd,
+    )
     if _has_persistable_event(knowledge):
         return knowledge
     for _ in range(max(1, max_attempts)):
@@ -573,7 +577,7 @@ def ensure_events_in_knowledge(
         except Exception as e:
             _log.warning("event backfill fail: %s", e)
             continue
-        event_delta = parse_knowledge_delta(reply)
+        event_delta = _ing_parse_kd(reply)
         if event_delta is not None and _has_persistable_event(event_delta):
             knowledge = dict(knowledge)
             knowledge["events"] = event_delta["events"]

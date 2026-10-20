@@ -3,7 +3,7 @@
 读 /tmp/bt_chapters.json,跑风格密度维度;并对 book_bfd18b78 验证第三轮读端点修复
 (/post-check degraded、/project-tree 不泄密、/timeline 结构、/outline、/promises/ledger、/factions 屏蔽)。
 
-跑: cd "/Users/miaoma/Downloads/写作 3.0" && scribe3/.venv/bin/python -u scribe3/tools/bt_eval.py
+跑: cd "<repo-root>" && scribe3/.venv/bin/python -u scribe3/tools/bt_eval.py
 """
 import sys, os, json, re, urllib.request, urllib.parse
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))

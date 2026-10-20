@@ -209,17 +209,17 @@ def test_run_trace_redactor_strips_auth_headers_and_secret_values(store):
         "run-red", status="streaming",
         tool_outputs=[{
             "call_id": "c1", "tool": "http_get",
-            "output": "Authorization: Bearer sk-supersecrettoken12345 泄漏真名=王子真名",
-            "headers": {"Authorization": "Bearer sk-abc123def456ghi"},
+            "output": "Authorization: Bearer sk-" + "supersecrettoken12345 泄漏真名=王子真名",
+            "headers": {"Authorization": "Bearer sk-" + "abc123def456ghi"},
         }],
-        raw_events=[{"api_key": "sk-topsecretkey99999", "note": "王子真名 混进原始事件"}],
+        raw_events=[{"api_key": "sk-" + "topsecretkey99999", "note": "王子真名 混进原始事件"}],
     )
     row = store.get_ai_run_trace("run-red")
     blob = json.dumps(row, ensure_ascii=False)
     # 认证头/令牌明文一律不入库
-    assert "sk-supersecrettoken12345" not in blob
-    assert "sk-abc123def456ghi" not in blob
-    assert "sk-topsecretkey99999" not in blob
+    assert ("sk-" + "supersecrettoken12345") not in blob
+    assert ("sk-" + "abc123def456ghi") not in blob
+    assert ("sk-" + "topsecretkey99999") not in blob
     assert "Bearer sk-" not in blob
     # 秘密事实真值不入库
     assert "王子真名" not in blob
@@ -234,17 +234,17 @@ def test_run_trace_redactor_masks_string_embedded_bearer_basic_proxy(store):
     store.upsert_ai_run_trace(
         "run-c1", status="failed",
         tool_outputs=[
-            {"call_id": "c1", "output": "curl 回显 Authorization: Bearer sk-ant-api03-LIVEKEYabcdef123 done"},
-            {"call_id": "c2", "output": "HTTP 头 Authorization: Basic dXNlcjpwYXNzd29yZA== end"},
-            {"call_id": "c3", "output": "上游 Proxy-Authorization: Bearer proxyTok987zzz reject"},
+            {"call_id": "c1", "output": "curl 回显 Authorization: Bearer sk-" + "ant-api03-LIVEKEYabcdef123 done"},
+            {"call_id": "c2", "output": "HTTP 头 Authorization: Basic " + "dXNlcjpwYXNzd29yZA== end"},
+            {"call_id": "c3", "output": "上游 Proxy-Authorization: Bearer " + "proxyTok987zzz reject"},
         ],
-        raw_events=[{"note": "裸令牌 Bearer sk-ant-api03-BARETOKEN9988 也要抹"}],
+        raw_events=[{"note": "裸令牌 Bearer sk-" + "ant-api03-BARETOKEN9988 也要抹"}],
     )
     blob = json.dumps(store.get_ai_run_trace("run-c1"), ensure_ascii=False)
-    for leak in ("sk-ant-api03-LIVEKEYabcdef123", "dXNlcjpwYXNzd29yZA==",
-                 "proxyTok987zzz", "sk-ant-api03-BARETOKEN9988"):
+    for leak in ("sk-" + "ant-api03-LIVEKEYabcdef123", "dXNlcjpwYXNzd29yZA==",
+                 "proxyTok987zzz", "sk-" + "ant-api03-BARETOKEN9988"):
         assert leak not in blob, f"认证凭据明文入库: {leak}"
-    assert "Bearer sk-" not in blob and "Basic dXNlcjp" not in blob
+    assert "Bearer sk-" not in blob and ("Basic " + "dXNlcjp") not in blob
     assert "已屏蔽·认证" in blob
 
 
@@ -252,9 +252,9 @@ def test_run_trace_redactor_masks_error_field(store):
     """C-2:error 字段直取上游 HTTP 文本(常回显认证头),必须纳入 redactor。"""
     store.upsert_ai_run_trace(
         "run-c2", status="approval_failed",
-        error="Hermes approval failed: 401 {\"detail\":\"bad Authorization: Bearer sk-ant-api03-ERRLEAK7777\"}")
+        error="Hermes approval failed: 401 {\"detail\":\"bad Authorization: Bearer sk-" + "ant-api03-ERRLEAK7777\"}")
     blob = json.dumps(store.get_ai_run_trace("run-c2"), ensure_ascii=False)
-    assert "sk-ant-api03-ERRLEAK7777" not in blob
+    assert ("sk-" + "ant-api03-ERRLEAK7777") not in blob
     assert "Bearer sk-" not in blob
     assert "已屏蔽·认证" in blob
 

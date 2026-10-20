@@ -1569,9 +1569,9 @@ Expected: 0 failed tests; build exit 0.
 
 - [ ] **Step 3: 执行运行时与数据库验收**
 
-Run: `/Users/miaoma/.surrealdb/surreal version`
+Run: `~/.surrealdb/surreal version`
 
-Run: `/Users/miaoma/.surrealdb/surreal is-ready --endpoint http://127.0.0.1:8001`
+Run: `~/.surrealdb/surreal is-ready --endpoint http://127.0.0.1:8001`
 
 Run: `hermes --version`
 

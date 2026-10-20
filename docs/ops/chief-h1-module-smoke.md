@@ -1,7 +1,7 @@
 # 主编 H1 能力模型 · demo 冒烟清单
 
 设计：`docs/plans/2026-08-11-chief-module-generation-skill-vs-mcp.md`  
-公网：`https://tonglu.qing.blue`
+公网：`https://tonglu.example.com`
 
 ## 前置
 
@@ -14,7 +14,7 @@
    - 大纲 tab「让主编写大纲」→ 输入/气泡含 `s3_patch_chapter_plan` 且含禁止 `s3_save_chapter` 完脚手架  
 2. **resolve 正向**  
    ```bash
-   curl -sS -X POST 'https://tonglu.qing.blue/api/orchestration/resolve?work=main' \
+   curl -sS -X POST 'https://tonglu.example.com/api/orchestration/resolve?work=main' \
      -H 'Content-Type: application/json' -H "Cookie: …" \
      -d '{"message":"请更新第1章大纲并使用工具 s3_patch_chapter_plan 提交写入提案","chapter":1,"phase":"outline","activate":true}'
    ```  

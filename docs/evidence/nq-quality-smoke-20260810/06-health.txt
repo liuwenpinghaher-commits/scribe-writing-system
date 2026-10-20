@@ -1,4 +1,4 @@
 stamp=2026-08-10T03:54:30Z
-base=https://www.qing.blue
+base=https://www.example.com
 health: {"ok":true,"ns":"scribe3","db":"ok"}
 ready: {"ready":true}

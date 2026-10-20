@@ -11,7 +11,7 @@
 | **前序** | `docs/plans/2026-08-16-fate-dearer-novelist-reform.md` rev.8；`docs/plans/2026-08-16-world-surface-break-the-loop.md` |
 | **宇宙 SSOT** | `docs/worlds/wanjie-probability-war-v7.md` |
 | **最新实跑** | `book_718fe88f` ch1 generate-stage 分两次考；ch2/3 大纲+节拍靠点批金样。审查：`docs/audits/2026-08-17-book718fe88f-ch1-3-quality.md` |
-| **验收环境** | 只打已部署 demo `tonglu.qing.blue`（`ubuntu@82.157.130.140` `/opt/scribe3/app`） |
+| **验收环境** | 只打已部署 demo `tonglu.example.com`（`ubuntu@203.0.113.10` `/opt/scribe3/app`） |
 | **短名** | `outline-beats-merge` / `chapter_design` |
 | **旗** | `SCRIBE3_CHAPTER_DESIGN` 默认 **on** · `audience=author` · `hot` |
 | **规范阶段名** | `design`（URL `stage=design`） |
@@ -1195,7 +1195,7 @@ _ACTIONS = {
 ## Rollout Plan
 
 1. **PR 落地（本机只改代码 + 纯函数单测）。** 不在 Grok 运行机 `npm ci` / 本机 Surreal / 全量 pytest。
-2. **`./scripts/deploy_demo.sh` 热更** 已部署 backend（`ubuntu@82.157.130.140:/opt/scribe3/app`）。
+2. **`./scripts/deploy_demo.sh` 热更** 已部署 backend（`ubuntu@203.0.113.10:/opt/scribe3/app`）。
 3. **设置页确认** `SCRIBE3_CHAPTER_DESIGN=on`（默认；若 DB 被拨过再拨回）。
 4. **新 slug 冒烟（只第 1 章设计节点）：**
    - `s3_set_intent` + 种 1 条 `promise:` / `storyline:`

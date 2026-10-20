@@ -23,14 +23,14 @@ Hermes / 部署到别处,就得手动重建——U-006(速答网关误挂终端�
 
 ## 一次性：给正在跑的写网关装上 MCP 选装
 
-缺这套选装时，主编只会空口说「去调工具」，审批卡出不来。装包装进 **systemd ExecStart 那个 venv**（现网 `/home/ubuntu/.hermes/hermes-agent/venv`），extra 跟 **该 venv import 到的 pyproject**（现网 `mcp==1.28.1` + `starlette==1.3.1`）。不要 `cd` 进 `~/.hermes/src/...` 跑 `./venv`，不要再 `pip install -e .`。
+缺这套选装时，主编只会空口说「去调工具」，审批卡出不来。装包装进 **systemd ExecStart 那个 venv**（现网 `/opt/scribe3-host/.hermes/hermes-agent/venv`），extra 跟 **该 venv import 到的 pyproject**（现网 `mcp==1.28.1` + `starlette==1.3.1`）。不要 `cd` 进 `~/.hermes/src/...` 跑 `./venv`，不要再 `pip install -e .`。
 
 ```bash
 # 备份
-/home/ubuntu/.hermes/hermes-agent/venv/bin/pip freeze > /tmp/hermes-venv-pre-mcp.txt
+/opt/scribe3-host/.hermes/hermes-agent/venv/bin/pip freeze > /tmp/hermes-venv-pre-mcp.txt
 # 安装（版本以 import 到的 extra 为准）
-/home/ubuntu/.hermes/hermes-agent/venv/bin/pip install 'mcp==1.28.1' 'starlette==1.3.1'
-/home/ubuntu/.hermes/hermes-agent/venv/bin/python -c 'import mcp, tools.mcp_tool as m; print(m._MCP_AVAILABLE)'
+/opt/scribe3-host/.hermes/hermes-agent/venv/bin/pip install 'mcp==1.28.1' 'starlette==1.3.1'
+/opt/scribe3-host/.hermes/hermes-agent/venv/bin/python -c 'import mcp, tools.mcp_tool as m; print(m._MCP_AVAILABLE)'
 sudo systemctl restart hermes-gateway-scribe3-write hermes-gateway-scribe3
 ```
 

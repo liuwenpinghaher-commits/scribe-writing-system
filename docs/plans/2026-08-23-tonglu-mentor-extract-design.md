@@ -44,7 +44,7 @@ A chat-only 拆书 does not survive: the host has no cross-session memory (`AGEN
 | 产物 | 路径 | 事实 |
 |---|---|---|
 | 全文（未入 git） | `/home/admin/projects/scribe-writing-system/docs/worlds/乱世铜炉-全文.md` | 35538 行；磁盘 **4 655 101 字节（约 4.6MB）**。三种计数不要混用：`wc -m` ≈ **162.7 万**；非 ASCII ≈ **151.4 万**；CJK 汉字 ≈ **133.8 万**。**未**被 `git ls-files` 跟踪，也**尚未**写入 `.gitignore` |
-| demo 副本 | `ubuntu@82.157.130.140:/opt/scribe3/data/乱世铜炉-全文.md` | 同大小（2026-08-23 SSH 核对）；验收可对这份；工作流默认读工作区副本 |
+| demo 副本 | `ubuntu@203.0.113.10:/opt/scribe3/data/乱世铜炉-全文.md` | 同大小（2026-08-23 SSH 核对）；验收可对这份；工作流默认读工作区副本 |
 | 根目录节选 | `/home/admin/projects/scribe-writing-system/乱世铜炉.md` | 已入 git，约 25.7 万字符。封面自称「引子～第四十三章」，正文约在 L4183 一幕中间结束，**并不是**全文前传到 L7750 第四十三章。**不够**当全文 |
 | 现工作流 | `.grok/workflows/tonglu-mentor-extract.rhai` | 已有五 phase、schemas、`count` 封顶 8、部分 `r != ()` 守卫 |
 | 现提示 | `docs/worlds/乱世铜炉-拆文/PROMPTS.md` | 第 0–4 轮；拆文目录里**只有**这一份，尚无 `00-index.md` / 章卡 / 参照本 |

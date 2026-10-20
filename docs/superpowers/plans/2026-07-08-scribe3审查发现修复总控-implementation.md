@@ -132,7 +132,7 @@ Update `scribe3/web/package.json` scripts to include:
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- --runInBand
 npm run e2e:destructive-manual
 ```
@@ -198,7 +198,7 @@ describe('WriteChat phase', () => {
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/__tests__/writeChat-phase.test.jsx
 ```
 
@@ -260,10 +260,10 @@ def test_final_phase_prompt_keeps_deduction_context(client):
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/__tests__/writeChat-phase.test.jsx
 
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/pytest -q scribe3/tests/test_pulse.py scribe3/tests/test_purpose_contract.py
 ```
 
@@ -308,7 +308,7 @@ it('patches involved_characters only after explicit sync', async () => {
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/__tests__/deduceTree-readonly.test.jsx
 ```
 
@@ -368,7 +368,7 @@ Render a compact suggestion row:
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/__tests__/deduceTree-readonly.test.jsx
 ```
 
@@ -421,7 +421,7 @@ def test_delete_referenced_material_requires_confirm_token(client):
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/pytest -q scribe3/tests/test_object_lifecycle.py
 ```
 
@@ -472,7 +472,7 @@ When user clicks delete:
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/pytest -q scribe3/tests/test_object_lifecycle.py scribe3/tests/test_consistency.py
 ```
 
@@ -535,10 +535,10 @@ it('shows partial import failures instead of full success', async () => {
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/pytest -q scribe3/tests/test_material_import_trust.py
 
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/__tests__/materials-workbench.test.jsx
 ```
 
@@ -612,7 +612,7 @@ Cover:
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/__tests__/insightView-error.test.jsx src/__tests__/containerOutline-errors.test.jsx src/__tests__/materials-workbench.test.jsx
 ```
 
@@ -644,7 +644,7 @@ For each covered point:
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/__tests__/materials-workbench.test.jsx
 npm run build
 ```
@@ -680,7 +680,7 @@ Switch work from `book_a` to `book_b` and assert active entry reads `s3.book_b.l
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/layout/__tests__/entryRail.test.jsx src/layout/__tests__/fourPaneShell.test.jsx
 ```
 
@@ -704,7 +704,7 @@ const CAPABILITY_ENTRIES = [
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/layout/__tests__/entryRail.test.jsx src/layout/__tests__/fourPaneShell.test.jsx
 npm run build
 ```
@@ -740,7 +740,7 @@ For each entry, assert:
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/layout/__tests__/directoryPane-capabilities.test.jsx src/__tests__/detailPane-capabilities.test.jsx
 ```
 
@@ -761,7 +761,7 @@ Map:
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/layout/__tests__/directoryPane-capabilities.test.jsx src/__tests__/detailPane-capabilities.test.jsx
 ```
 
@@ -813,7 +813,7 @@ Run:
 
 ```bash
 scribe3/.venv/bin/pytest -q scribe3/tests/test_global_search.py
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web" && npm test -- src/__tests__/global-search.test.jsx
+cd "<repo-root>/scribe3/web" && npm test -- src/__tests__/global-search.test.jsx
 ```
 
 ---
@@ -859,7 +859,7 @@ Run:
 
 ```bash
 scribe3/.venv/bin/pytest -q scribe3/tests/test_issue_ledger.py
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web" && npm test -- src/__tests__/issue-ledger.test.jsx
+cd "<repo-root>/scribe3/web" && npm test -- src/__tests__/issue-ledger.test.jsx
 ```
 
 ---
@@ -909,7 +909,7 @@ Run:
 
 ```bash
 scribe3/.venv/bin/pytest -q scribe3/tests/test_material_refs_and_paging.py
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web" && npm test -- src/__tests__/materials-workbench.test.jsx
+cd "<repo-root>/scribe3/web" && npm test -- src/__tests__/materials-workbench.test.jsx
 ```
 
 ---
@@ -950,7 +950,7 @@ Map:
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/__tests__/cross-view-navigation.test.jsx src/layout/__tests__/fourPaneShell.test.jsx
 ```
 
@@ -988,7 +988,7 @@ Move already-tested capability route code into domain folders without behavior c
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/layout/__tests__/fourPaneShell.test.jsx src/layout/__tests__/directoryPane-capabilities.test.jsx src/__tests__/detailPane-capabilities.test.jsx
 npm run build
 ```
@@ -1002,12 +1002,12 @@ npm run build
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/pytest -q scribe3/tests/test_security.py scribe3/tests/test_verify.py scribe3/tests/test_purpose_contract.py scribe3/tests/test_setting_system.py
 scribe3/.venv/bin/pytest -q scribe3/tests/test_migrate.py scribe3/tests/test_transaction.py scribe3/tests/test_ingest_idempotency.py
 scribe3/.venv/bin/pytest -q scribe3/tests/test_object_lifecycle.py scribe3/tests/test_material_import_trust.py
 
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/__tests__/writeChat-phase.test.jsx src/__tests__/deduceTree-readonly.test.jsx src/__tests__/materials-workbench.test.jsx
 npm run build
 ```
@@ -1023,7 +1023,7 @@ Browser evidence:
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/layout/__tests__/entryRail.test.jsx src/layout/__tests__/directoryPane-capabilities.test.jsx src/layout/__tests__/fourPaneShell.test.jsx src/__tests__/detailPane-capabilities.test.jsx src/__tests__/global-search.test.jsx src/__tests__/issue-ledger.test.jsx src/__tests__/cross-view-navigation.test.jsx
 npm run build
 ```
@@ -1040,10 +1040,10 @@ Browser evidence:
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/pytest -q scribe3/tests/test_security.py scribe3/tests/test_verify.py scribe3/tests/test_purpose_contract.py scribe3/tests/test_setting_system.py scribe3/tests/test_migrate.py scribe3/tests/test_transaction.py scribe3/tests/test_ingest_idempotency.py
 
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test
 npm run build
 ```

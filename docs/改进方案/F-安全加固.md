@@ -1,6 +1,6 @@
 # 枢纽 F · 安全加固
 
-> 对象:**scribe3**(`/Users/miaoma/Downloads/写作 3.0`),FastAPI(`:3321`)+ 自家 MCP + SurrealDB(`:8001`)。
+> 对象:**scribe3**(`<repo-root>`),FastAPI(`:3321`)+ 自家 MCP + SurrealDB(`:8001`)。
 > 本方案为**方案文档**,不真改代码;所有引用精确到 `文件:行号`,基于 2026-06-24 只读核对源码 + 文档 03 §5 / 文档 06 §2.5。
 > **不打印任何 secret 值。**
 

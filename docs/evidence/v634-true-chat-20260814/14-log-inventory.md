@@ -1,6 +1,6 @@
 # book_79c0d45e 日志盘点
 
-数据源：demo `tonglu.qing.blue` 只读 + `docs/evidence/v634-true-chat-20260814/`。  
+数据源：demo `tonglu.example.com` 只读 + `docs/evidence/v634-true-chat-20260814/`。  
 **没有**逐步中文 `pipeline_log`（`GET /api/debug/pipeline-logs` → 404）。现网主账仍是瘦 `pipeline_chain` + `pipeline_span`。
 
 | # | 类别 | 来源 | 本轮状态 | 能回答什么 | 不能回答什么 |

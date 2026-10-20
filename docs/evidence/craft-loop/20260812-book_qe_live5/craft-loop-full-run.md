@@ -1,8 +1,8 @@
 # craft-loop-full-run · chronological
 
-work=book_qe_live5 demo=https://tonglu.qing.blue
+work=book_qe_live5 demo=https://tonglu.example.com
 
-- `2026-08-12T10:48:30.308317+00:00` **SESSION_START** — `{"work": "book_qe_live5", "demo": "https://tonglu.qing.blue"}`
+- `2026-08-12T10:48:30.308317+00:00` **SESSION_START** — `{"work": "book_qe_live5", "demo": "https://tonglu.example.com"}`
 - `2026-08-12T10:48:30.854036+00:00` **HTTP GET /api/health -> 200** — `{"note": "env health", "http_id": "http-001"}`
 - `2026-08-12T10:48:30.854137+00:00` **BLOCK_START** — `{"block": "CL-B0"}`
 - `2026-08-12T10:48:31.877370+00:00` **HTTP PUT /api/intent-goals?work=book_qe_live5 -> 200** — `{"note": "CL-B0 legal: engineering quota total_word_goal", "http_id": "http-002"}`

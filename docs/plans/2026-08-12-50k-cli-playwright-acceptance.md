@@ -286,7 +286,7 @@ const SELECTORS = {
 人工/并行可跑：
 
 ```bash
-export API_BASE=http://127.0.0.1:3321   # 或 https://tonglu.qing.blue
+export API_BASE=http://127.0.0.1:3321   # 或 https://tonglu.example.com
 export SCRIBE3_BOOTSTRAP_USERS=admin:****
 python3 scripts/v4_world_complete_gate.py --slug book_xxx \
   --out artifacts/e2e-50k-.../quality/wcg.json

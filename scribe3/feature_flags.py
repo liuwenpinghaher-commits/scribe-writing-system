@@ -181,7 +181,7 @@ FLAG_REGISTRY: tuple[Flag, ...] = (
     ),
     Flag(
         "SCRIBE3_BEATS_WRITE_LEGACY",
-        "0",
+        "1",
         "过渡：仍往 chapter.beats/deductions/scene_truth 写（147 已删这些列）",
         "store",
         "danger",

@@ -1,6 +1,6 @@
 # scribe3 生产部署（腾讯云轻量）
 
-目标机示例：`ubuntu@82.157.130.140`（Ubuntu 24.04，Docker 已装）。
+目标机示例：`ubuntu@203.0.113.10`（Ubuntu 24.04，Docker 已装）。
 
 ## 架构
 
@@ -21,18 +21,18 @@
 
 ## 本机 SSH 注意
 
-若本机开了代理/VPN（常见 `utun0` + `198.18.0.0/15`），直连会卡在 SSH banner。本机已写 `~/.ssh/config` 主机 `scribe3-demo`（`BindInterface en0` + `~/.ssh/id_tencent_lh`）：
+若本机开了代理/VPN（常见 `utun0` + `198.18.0.0/15`），直连会卡在 SSH banner。本机已写 `~/.ssh/config` 主机 `scribe3-prod-host`（`BindInterface en0` + `~/.ssh/id_tencent_lh`）：
 
 ```bash
-ssh scribe3-demo
+ssh scribe3-prod-host
 # 等价
-ssh ubuntu@82.157.130.140
+ssh ubuntu@203.0.113.10
 ```
 
 若配置还没写上，可临时绑局域网网卡：
 
 ```bash
-ssh -o BindInterface=en0 -i ~/.ssh/id_tencent_lh -o IdentitiesOnly=yes ubuntu@82.157.130.140
+ssh -o BindInterface=en0 -i ~/.ssh/id_tencent_lh -o IdentitiesOnly=yes ubuntu@203.0.113.10
 ```
 
 私钥需 OpenSSH 格式；腾讯云下载的 PKCS#1 PEM 可用：
@@ -71,7 +71,7 @@ chmod 600 deploy/prod/.env
 
 ```bash
 bash deploy/prod/scripts/deploy.sh
-# 打开 http://82.157.130.140/
+# 打开 http://203.0.113.10/
 curl -fsS http://127.0.0.1/api/health
 ```
 
@@ -82,7 +82,7 @@ curl -fsS http://127.0.0.1/api/health
 ```bash
 bash deploy/prod/scripts/export_local_data.sh
 # 产出 /tmp/scribe3-cloud-migrate-*.tgz
-scp -b <LAN_IP> -i <key> /tmp/scribe3-cloud-migrate-*.tgz ubuntu@82.157.130.140:/tmp/
+scp -b <LAN_IP> -i <key> /tmp/scribe3-cloud-migrate-*.tgz ubuntu@203.0.113.10:/tmp/
 ```
 
 服务器：
@@ -124,7 +124,7 @@ curl -fsS http://127.0.0.1/api/health
 ./scripts/deploy_demo.sh full
 ```
 
-默认：`DEPLOY_HOST=82.157.130.140`，`SSH_KEY=~/.ssh/id_tencent_lh`。
+默认：`DEPLOY_HOST=203.0.113.10`，`SSH_KEY=~/.ssh/id_tencent_lh`。
 
 **不依赖** `git push`、**不依赖** Actions 分钟数 / Runner。GitHub 不通时照常上线。
 
@@ -135,7 +135,7 @@ curl -fsS http://127.0.0.1/api/health
 
 | Secret | 含义 |
 |--------|------|
-| `DEPLOY_HOST` | `82.157.130.140` |
+| `DEPLOY_HOST` | `203.0.113.10` |
 | `DEPLOY_USER` | `ubuntu` |
 | `DEPLOY_SSH_KEY` | runner→服务器私钥全文 |
 | `DEPLOY_PORT` | 可选，默认 22 |

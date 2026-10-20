@@ -12,7 +12,7 @@
 | **状态** | Done · 功能复验 + serialize ch1–5 + score（2026-08-10） |
 | **文档真源** | 本文件 |
 | **前序** | v6.3 记忆旅程 · v6.3.1/6.3.2 · 章节管线 · 命题 Author-UX · 校验 hybrid |
-| **验收环境** | demo `www.qing.blue` 已部署栈；禁止 Grok 机全量重测/第二 Surreal |
+| **验收环境** | demo `www.example.com` 已部署栈；禁止 Grok 机全量重测/第二 Surreal |
 
 ---
 
@@ -57,7 +57,7 @@ v6.3 原聚焦 **记忆可用性 D4–D7**（双真、steer、质量增益）。
 | 证据根 | `docs/evidence/v633-reval-<stamp>/` 或 `/tmp/grok-1000/v633-reval/evidence/` |
 | 记忆锚 | 继承 A1–A7（与 v6.3 同故事宇宙，便于对照） |
 | 连载 | **已完成** ch1–5 pilot finalized · 合计 **22672** 字（IN_BAND）；书 `book_013bcb3b` |
-| API | `API_BASE=https://www.qing.blue` + 登录 cookie |
+| API | `API_BASE=https://www.example.com` + 登录 cookie |
 | 证据 | `docs/evidence/v633-reval-20260810/` · 代理帮助 ~**64%** · 记忆线 **PASS** |
 
 ### 阶段
@@ -139,7 +139,7 @@ Gain_{system} = 0.25 G_{memory} + 0.25 G_{truth} + 0.25 G_{verify} + 0.15 G_{pre
 ## 6. 执行与证据
 
 ```bash
-export API_BASE=https://www.qing.blue
+export API_BASE=https://www.example.com
 # cookie 由脚本登录写入
 python3 scripts/v633_change_revalidation.py --phase all
 ```

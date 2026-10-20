@@ -207,7 +207,7 @@ P1 出口：R1/R2 在留出集上有数，天花板/地板/停机线三个数字
 做完一件立刻做下一件，直到写出 COMPLETE / PARTIAL / BLOCKED / FAIL_LOUD 之一。
 简体中文。等长任务时不要空转轮询：起并行、跑测试、写落盘，或等进程结束事件。
 
-背景：现网空书是 P0 故意 purge，系统仍在线（https://tonglu.qing.blue）。P1 不写小说。
+背景：现网空书是 P0 故意 purge，系统仍在线（https://tonglu.example.com）。P1 不写小说。
 顺序锁死 P0→P1→P2→P3→P4→P5。禁止续跑 2026-08-25-tonglu-force-rebuild-loop.md。
 验证=已部署 demo。禁止本机 Surreal、全量 pytest、npm ci。
 

@@ -5,7 +5,7 @@
     "ts_end": "2026-08-12T10:48:31.877342+00:00",
     "note": "CL-B0 legal: engineering quota total_word_goal",
     "method": "PUT",
-    "url": "https://tonglu.qing.blue/api/intent-goals?work=book_qe_live5",
+    "url": "https://tonglu.example.com/api/intent-goals?work=book_qe_live5",
     "path": "/api/intent-goals?work=book_qe_live5",
     "request_body": {
       "total_word_goal": 45000

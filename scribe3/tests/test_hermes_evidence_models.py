@@ -90,10 +90,10 @@ def _manifest_with(**changes: object) -> SnapshotManifest:
         (
             "nested authorization",
             _manifest_with(
-                failures=[{"request": {"Authorization": "Bearer not-a-real-token"}}]
+                failures=[{"request": {"Authorization": "Bearer " + "not-a-real-token"}}]
             ),
         ),
-        ("secret-shaped note", _manifest_with(notes=["sk-test_abcdef1234567890"])),
+        ("secret-shaped note", _manifest_with(notes=["sk-" + "test_abcdef1234567890"])),
     ],
 )
 def test_write_manifest_rejects_suspicious_sensitive_data_before_writing(

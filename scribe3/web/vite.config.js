@@ -57,12 +57,14 @@ export default defineConfig({
     },
   },
   server: {
-    host: '127.0.0.1', port: 3311, strictPort: true,
+    host: '127.0.0.1',
+    port: Number(process.env.SCRIBE3_WEB_PORT || process.env.VITE_PORT || 3311),
+    strictPort: true,
     // 同源代理:前端请求 /api/* → vite 后台转发到后端 :3321(去掉 /api 前缀)。
     // 消除跨端口/跨源 POST——浏览器扩展/安全策略常拦跨端口 POST,同源后浏览器眼里全是本源请求。
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:3321',
+        target: process.env.SCRIBE3_API_URL || `http://127.0.0.1:${process.env.SCRIBE3_API_PORT || 3321}`,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
         // 选择环 run_selection 同步跑 2-5 分钟(三路真机生成),proxy 默认超时会中途掐断长请求。
@@ -72,7 +74,11 @@ export default defineConfig({
       },
     },
   },
-  preview: { host: '127.0.0.1', port: 3311, strictPort: true },
+  preview: {
+    host: '127.0.0.1',
+    port: Number(process.env.SCRIBE3_WEB_PORT || process.env.VITE_PORT || 3311),
+    strictPort: true,
+  },
   test: {
     environment: 'jsdom',
     globals: true,

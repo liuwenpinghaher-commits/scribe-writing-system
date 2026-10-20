@@ -10,7 +10,7 @@
 | **代码根** | `/home/admin/projects/scribe-writing-system/scribe3/` |
 | **会话交付** | 设计稿 `/tmp/grok-1000/grok-design-doc-5b5437dc.md` · 仓库 `docs/plans/2026-08-12-storyline-fusion-global-design.md`（内容同步） · 摘要 `/tmp/grok-1000/grok-design-summary-5b5437dc.md` |
 | **对齐前序** | `docs/plans/2026-08-12-first-principles-quality-enablement.md`；`docs/plans/2026-08-12-storyline-and-hermes-decisions.md`；`docs/plans/2026-08-12-gap-fix-20-spec.md`；`docs/plans/2026-08-12-storyline-visualization-design.md` |
-| **验收环境** | 已部署 demo：`https://tonglu.qing.blue`；SSH `ubuntu@82.157.130.140`；应用 `/opt/scribe3/app`；**只冒烟已部署栈** |
+| **验收环境** | 已部署 demo：`https://tonglu.example.com`；SSH `ubuntu@203.0.113.10`；应用 `/opt/scribe3/app`；**只冒烟已部署栈** |
 | **明确不做的宣称** | **不**宣称 human-blind / 文学 ≥9.5；scorecard/DTW **仅 advisory**；**不** fork Hermes；**不**默认第二套 tension / 因果图 / 情绪分 |
 | **PO 决策（2026-08-12）** | **OQ6** → 默认交付 **完整方案 A**（PR-SL0…SL6）；方案 E 仅作排期削减应急。**OQ1** → **schema 级 `craft_only`** 为有意交付（非仅截断）；规则见 §数据模型 / KD15 |
 
@@ -669,7 +669,7 @@ inject_notes = (storyline.craft_only is True)
 
 ## 验收定义（demo 冒烟 · 非文学 KPI）
 
-在 **已部署** `tonglu.qing.blue` / `/opt/scribe3/app` 上：
+在 **已部署** `tonglu.example.com` / `/opt/scribe3/app` 上：
 
 | # | 步骤 | 期望 |
 |---|------|------|

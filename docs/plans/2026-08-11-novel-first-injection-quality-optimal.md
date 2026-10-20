@@ -12,7 +12,7 @@
 | **落地路径（PR-0 文档）** | `docs/plans/2026-08-11-novel-first-injection-quality-optimal.md` |
 | **会话 scratch** | `/tmp/grok-1000/grok-design-doc-497b3adf.md` · 摘要 `/tmp/grok-1000/grok-design-summary-497b3adf.md` |
 | **对齐前序** | 全流程指南 `docs/guides/2026-08-11-writing-context-injection-and-data-generation-full-flow.md`；预算 rev.2.1 `docs/plans/2026-08-11-context-injection-budget-and-quality-optimal.md`；章 IA `docs/plans/2026-08-10-chapter-writing-ia-optimal.md`；记忆质量 L1 `docs/plans/2026-08-09-memory-quality-to-9.5-system-design.md` |
-| **验收环境** | demo 已部署栈（铜炉 `tonglu.qing.blue`）；**只冒烟已部署**；禁止 Grok 运行机全量 npm / 本机 Surreal / 再起平行栈 |
+| **验收环境** | demo 已部署栈（铜炉 `tonglu.example.com`）；**只冒烟已部署**；禁止 Grok 运行机全量 npm / 本机 Surreal / 再起平行栈 |
 | **明确不做的宣称** | **不**因本方案宣称文学 ≥9.5；**不**默认 soft→hard park；**不**以「省 token / 降成本」为优化目标或约束；评分卡 ≠ 意图；经验复盘 ≠ `pressure_drive` |
 
 ---

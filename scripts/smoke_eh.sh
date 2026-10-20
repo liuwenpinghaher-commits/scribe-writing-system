@@ -6,8 +6,8 @@
 #   ./scripts/smoke_eh.sh
 #
 # 环境变量（可选）：
-#   PUBLIC_BASE   默认 https://tonglu.qing.blue
-#   DEPLOY_HOST   默认 82.157.130.140
+#   PUBLIC_BASE   默认 https://tonglu.example.com
+#   DEPLOY_HOST   默认 203.0.113.10
 #   DEPLOY_USER   默认 ubuntu
 #   SSH_KEY       默认 ~/.ssh/id_tencent_lh
 #   BACKEND_CONTAINER  默认 prod-backend-1
@@ -15,8 +15,8 @@
 # =============================================================================
 set -euo pipefail
 
-PUBLIC_BASE="${PUBLIC_BASE:-https://tonglu.qing.blue}"
-HOST="${DEPLOY_HOST:-82.157.130.140}"
+PUBLIC_BASE="${PUBLIC_BASE:-https://tonglu.example.com}"
+HOST="${DEPLOY_HOST:-203.0.113.10}"
 USER="${DEPLOY_USER:-ubuntu}"
 KEY="${SSH_KEY:-${DEPLOY_SSH_KEY_FILE:-$HOME/.ssh/id_tencent_lh}}"
 CONTAINER="${BACKEND_CONTAINER:-prod-backend-1}"

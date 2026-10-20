@@ -11,4 +11,4 @@
 
 用户门禁 ≥20000：PASS
 协议清单带 [18000,24000]；本轮合计超过上限，以用户「2万字以上」为准，诚实记账。
-来源：GET https://tonglu.qing.blue/api/chapter?seq=1..5&work=book_79c0d45e
+来源：GET https://tonglu.example.com/api/chapter?seq=1..5&work=book_79c0d45e

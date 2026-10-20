@@ -8,7 +8,7 @@
 | **日期** | 2026-08-20 |
 | **状态** | **Draft rev.13.4.2** · 写章验收按新五层冻结。本轮须**新 slug** 连写第 1–3 章（不 overlay `book_20bab124` / `book_8777aad8`）。宣称 / WCG / SPA **不改** |
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` · 仓库 `/home/admin/projects/scribe-writing-system` |
-| **验收环境** | **仅 demo 已部署栈**（公网主入口 **`https://tonglu.qing.blue`**；`www.qing.blue` / `qing.blue` 301 → 主域） |
+| **验收环境** | **仅 demo 已部署栈**（公网主入口 **`https://tonglu.example.com`**；`www.example.com` / `example.com` 301 → 主域） |
 | **禁止** | Grok 运行机全量 `npm ci` / 本机 Surreal / 第二验收栈 / 脚本灌章冒充体验 PASS |
 | **WCG SSOT** | **`scripts/v4_world_complete_gate.py`**（exit 0 前禁止验收向连载） |
 | **耐久落库建议路径** | `docs/e2e-director-journey-v634-true-chat-full-capability.md` |
@@ -342,7 +342,7 @@
 2. **硬门（主编线）：每章定稿章（1–5）≥1 条「开写」user message**，thread 导出可对 **seq / 时间戳**；缺任一章 → **主编线 FAIL**。  
 3. 正典落库须可追溯到 **chat 原文或 UI 种子**（world_write 审批或 ChangePack `source=discussion` 等）；禁止无追溯 ops。  
 4. `00-author-path.md` 诚实；脚本主写 → 主编线 FAIL。  
-5. `GET https://tonglu.qing.blue/api/capabilities`：`memory_fabric_v1=true`，`emergency_rest_write=false`。  
+5. `GET https://tonglu.example.com/api/capabilities`：`memory_fabric_v1=true`，`emergency_rest_write=false`。  
 6. chat/种子时间 **早于** 对应 apply / finalize。  
 7. **每章 ≥1 次 UI 点批截图**（戏/契约冻结放行 **或** 终选 **或** 候选批准之一）；纯 pilot step+approve 无截图 → 最高 **PARTIAL**，不得体验总 PASS。  
 8. **slug 必须本次新建**：`works.created_at`（或等价）∈ 证据时间窗；禁止旧书改名。旧验收 slug 黑名单示例：`book_7b918ca0`、`book_013bcb3b`、`book_aa57f17e`、`book_052a2adb`、`book_79c0d45e`、`book_b2a72ccb`、`obs-scratch`、`book_qe_live5`、`book_c14585d8`、`book_bdfdcdc4`、`wanjie-fate-r7`——**充分条件是时间窗，名单非穷尽**。
@@ -423,7 +423,7 @@
 **审计命令（只读证据，不代写）：**
 
 ```bash
-export API_BASE=https://tonglu.qing.blue
+export API_BASE=https://tonglu.example.com
 python3 scripts/v4_world_complete_gate.py --slug book_xxx --out .../00-world-complete-gate.json
 # 必须 pass=true / exit 0
 ```
@@ -597,7 +597,7 @@ Wave C ⇔ C-Must（机器可测，全过）∧ C-人评（三身份通读，无
 
 | ID | 能力 | 优先级 | 阶段 | 证据 | 作者动作 | 期望 | PASS | 假绿禁令 |
 |----|------|--------|------|------|----------|------|------|----------|
-| J1 | 登录健康 | Must | S0 | API | 浏览器登录 | 进作品库 | `https://tonglu.qing.blue/api/health` 200 | 假 health |
+| J1 | 登录健康 | Must | S0 | API | 浏览器登录 | 进作品库 | `https://tonglu.example.com/api/health` 200 | 假 health |
 | J2 | 新建真书 | Must | S1 | UI+API | 点新建 | 新 slug∈时间窗 | `01-book.md` | 旧书改名 |
 | J3 | 旅程看板 | Must | S1–S13 | UI | 打开旅程 | 站位可见 | 截图 | 只 curl |
 | J4 | 开书意图 | Must | S2 | UI | chat 主题/红线/2 万可见字 + who_pays/轴/书钟 | 线程有意图；GET /intent 四命运字段非空 | 非空 chat + intent 四字段 | 无 chat set_intent 脚本；只写 reader_feeling |
@@ -879,10 +879,10 @@ docs/evidence/v634-true-chat-<YYYYMMDD>-<slug>/
 
 ```markdown
 # runtime baseline
-- entry: https://tonglu.qing.blue
-- GET https://tonglu.qing.blue/api/health → { ... 贴关键字段 ok/status ... }
-- GET https://tonglu.qing.blue/api/ready → ...
-- GET https://tonglu.qing.blue/api/capabilities → flags.memory_fabric_v1,
+- entry: https://tonglu.example.com
+- GET https://tonglu.example.com/api/health → { ... 贴关键字段 ok/status ... }
+- GET https://tonglu.example.com/api/ready → ...
+- GET https://tonglu.example.com/api/capabilities → flags.memory_fabric_v1,
   flags.emergency_rest_write, flags.ingest_lease, flags.context_inspector_v1, ...
 - demo env / 设置：SCRIBE3_PIPELINE_TRACE=1；SCRIBE3_PIPELINE_RECORDER=1（记录仪默认开）
 - Hermes deduce preview/full 可达性：ok / degraded / unavailable（影响 H* SKIP）

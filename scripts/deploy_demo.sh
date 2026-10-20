@@ -14,7 +14,7 @@
 #   ./scripts/deploy_demo.sh prune        # 仅磁盘卫生：悬空镜像 + build cache + 部署残留
 #
 # 环境变量（均可选）：
-#   DEPLOY_HOST  默认 82.157.130.140
+#   DEPLOY_HOST  默认 203.0.113.10
 #   DEPLOY_USER  默认 ubuntu
 #   SSH_KEY      默认 ~/.ssh/id_tencent_lh
 #   BACKEND_CONTAINER  默认 prod-backend-1
@@ -24,7 +24,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MODE="${1:-hot}"
-HOST="${DEPLOY_HOST:-82.157.130.140}"
+HOST="${DEPLOY_HOST:-203.0.113.10}"
 USER="${DEPLOY_USER:-ubuntu}"
 KEY="${SSH_KEY:-${DEPLOY_SSH_KEY_FILE:-$HOME/.ssh/id_tencent_lh}}"
 # 本机 VPN/utun 会劫持 82.157，SSH banner 超时；绑局域网网卡绕过。

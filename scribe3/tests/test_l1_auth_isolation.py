@@ -44,7 +44,8 @@ class TestPasswordAndSession:
         assert verify_password("s3cret!", h)
         assert not verify_password("wrong", h)
 
-    def test_session_issue_parse(self):
+    def test_session_issue_parse(self, auth_env):
+        create_user("alice", "alice-pass")
         tok = issue_session_token("alice", secret=SECRET)
         data = parse_session_token(tok, secret=SECRET)
         assert data is not None

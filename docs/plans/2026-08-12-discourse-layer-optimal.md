@@ -12,7 +12,7 @@
 | **代码根** | `/home/admin/projects/scribe-writing-system/scribe3/` |
 | **会话交付** | 设计稿 `/tmp/grok-1000/grok-design-doc-caa1cc21.md` · 摘要 `/tmp/grok-1000/grok-design-summary-caa1cc21.md` |
 | **对齐前序** | storyline-fusion · first-principles-quality-enablement · narrative-engine-optimal · engineering-health-closure |
-| **验收环境** | 已部署 demo：`https://tonglu.qing.blue`；SSH `ubuntu@82.157.130.140`；应用 `/opt/scribe3/app`；**只冒烟已部署栈**（禁止 Grok 机全量 npm/pytest/本机 Surreal / 第二验收栈） |
+| **验收环境** | 已部署 demo：`https://tonglu.example.com`；SSH `ubuntu@203.0.113.10`；应用 `/opt/scribe3/app`；**只冒烟已部署栈**（禁止 Grok 机全量 npm/pytest/本机 Surreal / 第二验收栈） |
 | **明确不做的宣称** | **不**宣称文学 ≥9.5；**不**硬阻断形容词；**不**第二套 NLP 情绪库；**不**用实体解决「窒息感」；**不**默认罗生门；**不**替换 must-link/drama_contract/event_drive/brief；**不**重开顶栏故事线 |
 
 ---
@@ -801,7 +801,7 @@ if t.startswith("discourse."):
 | CI 感完整 | Grok 机 **1.6Gi / 无 swap** 易 OOM；违背主机资源规则 |
 | — | 与「demo = 验证环境」冲突 |
 
-**结论**：**否决**。验收 = 已部署 `tonglu.qing.blue` / `/opt/scribe3/app` 冒烟。
+**结论**：**否决**。验收 = 已部署 `tonglu.example.com` / `/opt/scribe3/app` 冒烟。
 
 ---
 
@@ -842,7 +842,7 @@ if t.startswith("discourse."):
 sequenceDiagram
   participant Dev as 工程师
   participant Main as origin/main
-  participant Demo as tonglu.qing.blue
+  participant Demo as tonglu.example.com
   participant Auth as 作者
 
   Dev->>Main: PR-D1..D3,D6 (Week-1 E)
@@ -972,7 +972,7 @@ D0 ∥ D1；D11 随时
 ### Week-1 必达
 
 ```text
-[ ] tonglu.qing.blue 可登录既有 work
+[ ] tonglu.example.com 可登录既有 work
 [ ] REGRESSION：AppRail 无「故事线」顶栏项；仪表盘内 StorylineHub 仍可用（embedded）
 [ ] PR 模板：拒「新增 AppRail storyline tab」
 [ ] GET /debug/flags 含：

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Thicken 主路径冒烟（已部署 demo only · 默认零持久化变更）
 # 用法:
-#   BASE=https://tonglu.qing.blue \
+#   BASE=https://tonglu.example.com \
 #   SMOKE_USER=... SMOKE_PASS=... \
 #   ./scribe3/scripts/smoke_scribe3_thicken.sh
 #
@@ -14,7 +14,7 @@
 #   WORK=main SEQ=1
 set -euo pipefail
 
-BASE="${BASE:-https://tonglu.qing.blue}"
+BASE="${BASE:-https://tonglu.example.com}"
 COOKIE_JAR="${COOKIE_JAR:-/tmp/scribe3_thicken_smoke.ck}"
 WORK="${WORK:-main}"
 SEQ="${SEQ:-1}"

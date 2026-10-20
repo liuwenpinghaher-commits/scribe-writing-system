@@ -5,7 +5,7 @@
     "ts_end": "2026-08-12T10:48:41.589738+00:00",
     "note": "CL-B2 craft-gates at RED (gate_b may still pass)",
     "method": "GET",
-    "url": "https://tonglu.qing.blue/api/craft-gates?work=book_qe_live5&seq=2",
+    "url": "https://tonglu.example.com/api/craft-gates?work=book_qe_live5&seq=2",
     "path": "/api/craft-gates?work=book_qe_live5&seq=2",
     "request_body": null,
     "status": 200,

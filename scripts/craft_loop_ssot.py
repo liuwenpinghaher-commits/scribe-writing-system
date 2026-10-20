@@ -28,7 +28,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="craft-loop SSOT counters (not gate_*.ok)")
     ap.add_argument("--work", required=True)
     ap.add_argument("--seq", type=int, default=1)
-    ap.add_argument("--base", default=os.environ.get("API_BASE", "https://tonglu.qing.blue"))
+    ap.add_argument("--base", default=os.environ.get("API_BASE", "https://tonglu.example.com"))
     ap.add_argument("--cookie-jar", default=os.environ.get("SCRIBE3_COOKIE_JAR", ""))
     ap.add_argument("--out", default="")
     args = ap.parse_args()

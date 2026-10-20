@@ -9,7 +9,7 @@
 | **状态** | Draft（**rev.3** · rev.2 + Issue 17–19：`prose_fp` 对齐 `_prose_fp` 16 位 hex；M2 不写旁表 / M4a 才持久化；OQ1→KD-17） |
 | **文档真源** | **仓库耐久副本** `docs/plans/2026-08-10-verification-capability-audit-and-llm-first-optimization.md`；`/tmp/grok-1000/grok-design-doc-0512a7d0.md` 与摘要仅为会话 scratch，改设计须同步 commit 耐久路径 |
 | **代码根** | `/home/admin/projects/scribe-writing-system`，主实现 `scribe3/` |
-| **验收环境** | demo 已部署栈 `www.qing.blue`；**禁止**默认再起第二 Surreal；Grok 运行机不做全量重测 |
+| **验收环境** | demo 已部署栈 `www.example.com`；**禁止**默认再起第二 Surreal；Grok 运行机不做全量重测 |
 | **明确不做的宣称** | **不**因本方案单独宣称文学质量 ≥9.5；不替代 D1–D7 盲评协议 |
 | **相关设计** | 章节闭环 `docs/plans/2026-08-09-chapter-pipeline-closed-loop-design.md`（loop/post-check/triage 真源）；本文件管 **校验能力审计与 LLM-first 统一**，闭环设计管 **生成→门闩编排**；重叠处（triage 白名单、degraded）以本 rev.2 的 KD 为准并回写闭环文档 follow-up |
 

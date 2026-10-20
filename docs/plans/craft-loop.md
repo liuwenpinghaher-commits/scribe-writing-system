@@ -10,7 +10,7 @@
 | **状态** | **Accepted Draft 0.3.1** · 用户已决 Q1（B1 全绿才进 B2）· **MVP 会话已跑** · **F1/F2 假绿修复中**：gate_b 可写 hard cn_len≥80 与本协议对齐 |
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` |
 | **仓库** | `/home/admin/projects/scribe-writing-system` |
-| **验证环境** | **仅已部署 demo**（`https://tonglu.qing.blue`；本机反代 :3311·:3321）；禁止 Grok 机 `npm ci` / 本机 Surreal 重活 |
+| **验证环境** | **仅已部署 demo**（`https://tonglu.example.com`；本机反代 :3311·:3321）；禁止 Grok 机 `npm ci` / 本机 Surreal 重活 |
 | **新会话怎么提** | `继续 craft-loop` 或 `读 docs/plans/craft-loop.md` |
 
 ---
@@ -290,7 +290,7 @@ MVP / 块 CL-B1 **默认**用本子集（只读 API + 本地计数）。**明确
 **可选加严（full 或清债）：** 对齐整包 WCG（角色≥4 六字段、motifs≥3、promises≥3、volumes≥3…）——调用：
 
 ```bash
-export API_BASE=https://tonglu.qing.blue   # 或本机反代根；脚本会拼 /api/...
+export API_BASE=https://tonglu.example.com   # 或本机反代根；脚本会拼 /api/...
 export SCRIBE3_BOOTSTRAP_USERS='user:pass'  # 与 demo 一致；login 写 cookie jar
 python3 scripts/v4_world_complete_gate.py --slug <work> --out machine/wcg-full.json
 # 仅 --slug / --out；无 --profile。exit 0 ⇔ 整包 pass
@@ -463,7 +463,7 @@ sequenceDiagram
 | 探针 | 用途 |
 |------|------|
 | 脚本内 `docker exec … 127.0.0.1:3321/health` | `deploy_demo.sh` `wait_health` 成功标志 |
-| 公网 `GET https://tonglu.qing.blue/api/health`（或网关等价） | 证据包 `00-env.md` 外部可达 |
+| 公网 `GET https://tonglu.example.com/api/health`（或网关等价） | 证据包 `00-env.md` 外部可达 |
 | ready/capabilities（可选） | 记 `memory_fabric_v1` / `emergency_rest_write` |
 
 二者都写：`deploy_health_container=ok|fail`，`public_health=ok|fail`。
@@ -472,7 +472,7 @@ sequenceDiagram
 
 ```yaml
 work: book_xxx
-api_base: https://tonglu.qing.blue
+api_base: https://tonglu.example.com
 deploy_mode: hot | frontend | server-git | full
 deploy_sha: <git rev-parse HEAD 部署时>
 deploy_time: ISO-8601
@@ -1022,7 +1022,7 @@ cookie jar 复用；所有 /api/* 带 cookie
 
 ```bash
 # 登录（与 WCG 同源凭证环境变量；勿把密码写入证据包）
-export API_BASE=https://tonglu.qing.blue
+export API_BASE=https://tonglu.example.com
 export COOKIE_JAR=/tmp/craft_loop_cookie.txt
 # 例：POST $API_BASE/api/auth/login → 写 jar
 # 然后：
@@ -1065,7 +1065,7 @@ scribe3/.venv/bin/python -m scribe3.tools.craft_gate_cli \
 ./scripts/deploy_demo.sh frontend
 
 # 整包 WCG（仅 full 清债；无 --profile；API+cookie，非本机 Surreal）
-API_BASE=https://tonglu.qing.blue \
+API_BASE=https://tonglu.example.com \
   python3 scripts/v4_world_complete_gate.py --slug <slug> --out machine/wcg-full.json
 ```
 

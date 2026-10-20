@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # SL6：故事线融合 demo 冒烟（已部署栈 · 禁止 budget-probe 作 storyline 证明）
 # 用法：
-#   BASE=https://tonglu.qing.blue/api WORK=main TOKEN=... ./scripts/smoke_storyline_fusion.sh
+#   BASE=https://tonglu.example.com/api WORK=main TOKEN=... ./scripts/smoke_storyline_fusion.sh
 #   或 DEMO_USER/DEMO_PASS 登录后自动取 cookie/token（若环境支持）
 set -euo pipefail
 
-BASE="${BASE:-https://tonglu.qing.blue/api}"
+BASE="${BASE:-https://tonglu.example.com/api}"
 WORK="${WORK:-main}"
 CHAPTER="${CHAPTER:-1}"
 OUT="${OUT:-}"

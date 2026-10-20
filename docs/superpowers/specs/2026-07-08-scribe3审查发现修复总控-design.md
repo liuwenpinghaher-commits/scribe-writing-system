@@ -546,11 +546,11 @@ F1-F5 可以部分并行开发,但必须按顺序合并。F6-F11 共享四栏路
 每批收尾必须跑:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/pytest -q scribe3/tests/test_security.py scribe3/tests/test_verify.py scribe3/tests/test_purpose_contract.py scribe3/tests/test_setting_system.py
 scribe3/.venv/bin/pytest -q scribe3/tests/test_migrate.py scribe3/tests/test_transaction.py scribe3/tests/test_ingest_idempotency.py
 
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/__tests__/materials-workbench.test.jsx src/layout/__tests__/directoryPane-manuscript.test.jsx src/layout/__tests__/fourPaneShell.test.jsx src/__tests__/detailPane-capabilities.test.jsx
 ```
 

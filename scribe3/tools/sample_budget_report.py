@@ -6,7 +6,7 @@
   PYTHONPATH=. python -m scribe3.tools.sample_budget_report --out /tmp/b.json
 
   PYTHONPATH=. python -m scribe3.tools.sample_budget_report \\
-    --url https://tonglu.qing.blue --mode config \\
+    --url https://tonglu.example.com --mode config \\
     --cookie-jar /tmp/smoke.cookies --out /tmp/budget_demo.json
 """
 from __future__ import annotations
@@ -161,7 +161,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="sample budget report headroom")
     ap.add_argument("--out", default="", help="write JSON path")
     ap.add_argument("--beat-type", default="dialogue")
-    ap.add_argument("--url", default="", help="demo base e.g. https://tonglu.qing.blue")
+    ap.add_argument("--url", default="", help="demo base e.g. https://tonglu.example.com")
     ap.add_argument("--mode", default="config", choices=("config", "assemble"))
     ap.add_argument("--work", default="main")
     ap.add_argument("--seq", type=int, default=1)

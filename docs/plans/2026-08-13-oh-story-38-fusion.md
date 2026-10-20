@@ -13,7 +13,7 @@
 | **重叠子集** | `story-setup/references/agent-references/` 25 篇（同名 = 同源，不另开行） |
 | **会话交付** | 设计稿 `/tmp/grok-1000/grok-design-doc-c82c4110.md` · 摘要 `/tmp/grok-1000/grok-design-summary-c82c4110.md` · 落仓 `docs/plans/2026-08-13-oh-story-38-fusion.md` |
 | **对齐并消费（禁止平行第五套库）** | 四层话语 `docs/plans/2026-08-12-discourse-layer-optimal.md` · 招式库 `docs/plans/2026-08-13-move-library-design.md` · 技法 `craft_skills/` · `craft.py` ENGINES · `craft_rule` · `lesson` · critique / `chapter_hooks` / `narrative_contract` |
-| **验收环境** | 已部署 demo `https://tonglu.qing.blue` · SSH `ubuntu@82.157.130.140` · `/opt/scribe3/app`；**只冒烟已部署栈** |
+| **验收环境** | 已部署 demo `https://tonglu.example.com` · SSH `ubuntu@203.0.113.10` · `/opt/scribe3/app`；**只冒烟已部署栈** |
 | **本设计轮不做** | 实现产品代码（本回合只改设计）；文学 KPI；硬拦形容词；第二套 NLP；38 个新文件丢进 `craft_skills/` |
 
 **rev.3 相对 rev.2**：用户闭合全部 Open Questions。交付从「Week-1 MVP / 渐进」改为 **分层一次做满**；38 原文必须组织进现网层（产品内可读）；招式 **卡全集一次交齐**（不是 38 张同构卡）；女频不进默认 UI；`planes.js` 保留 `id='skills'`。
@@ -605,7 +605,7 @@ scribe3/author_method/
 
 ## Acceptance（demo only）
 
-环境：`https://tonglu.qing.blue` · `/opt/scribe3/app`。
+环境：`https://tonglu.example.com` · `/opt/scribe3/app`。
 
 1. 健康 / 登录 / 系统中心三栏。  
 2. 编目按层可浏览 **37** 篇组织文；**无**女频入口。  

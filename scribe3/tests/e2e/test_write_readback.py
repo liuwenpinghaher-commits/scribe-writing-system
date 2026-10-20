@@ -12,7 +12,7 @@ def test_world_rule_write_then_readback_visible(full_stack):
 
 def test_faction_list_no_recordid_crash(full_stack):
     """U-004:写势力 → 列表读回 200 且可见,不因 RecordID 序列化裸 500。"""
-    r = full_stack.post("/factions", json={"name": "青叶门", "ideology": "夺丹"})
+    r = full_stack.post("/factions", json={"name": "青叶门", "ideology": "以活人尸骨炼丹续命之邪道纲领" * 16})
     assert r.status_code == 200, r.text
     resp = full_stack.get("/factions")
     assert resp.status_code == 200, f"列表不得 RecordID 崩溃:{resp.text}"

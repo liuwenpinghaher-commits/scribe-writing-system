@@ -8,7 +8,7 @@
 | **日期** | 2026-08-09 |
 | **状态** | **Accepted rev.4**（Open Questions 全拍板 · 最大化真实分） |
 | **产品** | scribe-writing-system / scribe3（铜炉）· MEMORY_FABRIC + SurrealDB + pilot 写路径 |
-| **验证环境** | demo 已部署栈 `https://www.qing.blue`（不另起 Surreal / 本机全量 npm 验收） |
+| **验证环境** | demo 已部署栈 `https://www.example.com`（不另起 Surreal / 本机全量 npm 验收） |
 | **基线证据** | `artifacts/ab-minimal-book_aa57f17e-ch6-track2-goal/` · 综合 ~7.3 · lead_A−B = **0.5** · `pass_rule_met=false`（heuristic 布尔，**非**人盲） |
 | **前序** | `docs/plans/2026-08-09-memory-quality-rootcause-plan.md` · `docs/plans/2026-08-09-memory-quality-best-plan-v4.md` · PR-A/B/C + Wave 叙事化 must-link |
 | **约束** | 不上 Graphiti 全量产品；不重写 fabric；不做新大框架；**禁止**因 M0–M6 绿或仅 heuristic 宣称任一维 ≥9.5 |

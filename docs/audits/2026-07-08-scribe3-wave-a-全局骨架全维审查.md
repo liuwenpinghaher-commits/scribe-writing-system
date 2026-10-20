@@ -126,25 +126,25 @@ Wave A 当前属于 **可用但有产品级缺口**。
 已运行：
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q scribe3/tests/test_works.py
 # 5 passed in 5.06s
 ```
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/__tests__/appRail-layout.test.jsx src/layout/__tests__/entryRail.test.jsx src/layout/__tests__/fourPaneShell.test.jsx src/__tests__/detailPane-capabilities.test.jsx src/ui/Toast.test.jsx src/ui/Dialog.test.jsx
 # 6 test files passed, 27 tests passed
 ```
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q scribe3/tests/test_pulse.py::test_inbox_empty_book scribe3/tests/test_pilot.py::test_inbox_reports_degraded_sources scribe3/tests/test_app.py::test_post_check_degraded_when_find_leaks_raises scribe3/tests/test_app.py::test_post_check_degraded_when_validate_setting_raises
 # 4 passed, 1 warning
 ```
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm run build
 # built successfully; existing Vite large chunk warning
 ```

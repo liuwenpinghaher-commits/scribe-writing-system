@@ -10,7 +10,7 @@
 | **仓库** | `/home/admin/projects/scribe-writing-system` |
 | **协议 SSOT** | `docs/plans/craft-loop.md` Accepted 0.3.1 |
 | **触发证据** | `docs/evidence/craft-loop/20260812-book_qe_live5/` · 书 `book_qe_live5` 第二章「齿边」 |
-| **验证环境** | **仅已部署 demo**（`https://tonglu.qing.blue`）；禁止 Grok 机全量 `npm ci` / 本机 Surreal / 第二栈 |
+| **验证环境** | **仅已部署 demo**（`https://tonglu.example.com`）；禁止 Grok 机全量 `npm ci` / 本机 Surreal / 第二栈 |
 | **关联 scratch** | craft-loop 设计 `/tmp/grok-1000/grok-design-doc-b066a1b5.md` |
 
 ---

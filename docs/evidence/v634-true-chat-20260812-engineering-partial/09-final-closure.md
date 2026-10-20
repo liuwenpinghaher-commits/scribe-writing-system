@@ -29,6 +29,6 @@
 
 ## 下一步（真人）
 
-打开 https://tonglu.qing.blue（或可达入口），按协议 Wave A→B 新建真书并填本模板复制目录。
+打开 https://tonglu.example.com（或可达入口），按协议 Wave A→B 新建真书并填本模板复制目录。
 
 captured: 2026-08-11T16:51:07Z

@@ -1,7 +1,7 @@
 {
   "session_id": "20260812-book_qe_live5",
   "work": "book_qe_live5",
-  "demo": "https://tonglu.qing.blue",
+  "demo": "https://tonglu.example.com",
   "sequential": true,
   "craft_loop_mvp_pass": true,
   "blocks": {

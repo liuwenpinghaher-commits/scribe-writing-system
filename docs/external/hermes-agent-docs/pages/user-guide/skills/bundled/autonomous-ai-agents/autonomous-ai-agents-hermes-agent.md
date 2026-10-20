@@ -731,7 +731,7 @@ export PYTHONPATH="$(pwd)"
 (POSIX-only tests need skip guards — see the cross-platform guard list in the Contributor section below.)
 ### Path / Filesystem[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-hermes-agent#path--filesystem "Direct link to Path / Filesystem")
 **Line endings.** Git may warn `LF will be replaced by CRLF`. Cosmetic — the repo's `.gitattributes` normalizes. Don't let editors auto-convert committed POSIX-newline files to CRLF.
-**Forward slashes work almost everywhere.** `C:/Users/...` is accepted by every Hermes tool and most Windows APIs. Prefer forward slashes in code and logs — avoids shell-escaping backslashes in bash.
+**Forward slashes work almost everywhere.** `C:/home/...` is accepted by every Hermes tool and most Windows APIs. Prefer forward slashes in code and logs — avoids shell-escaping backslashes in bash.
 * * *
 ## Troubleshooting[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-hermes-agent#troubleshooting "Direct link to Troubleshooting")
 ### Voice not working[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-hermes-agent#voice-not-working "Direct link to Voice not working")

@@ -56,7 +56,7 @@ services:
       HERMES_DRAFT_RUNS_API: ${HERMES_DRAFT_RUNS_API:-http://172.18.0.1:8648/v1}
       HERMES_RESPONSES_PROFILE: ${HERMES_RESPONSES_PROFILE:-scribe3}
       HERMES_RUNS_PROFILE: ${HERMES_RUNS_PROFILE:-scribe3_write}
-      SCRIBE3_CORS_ORIGINS: ${SCRIBE3_CORS_ORIGINS:-http://82.157.130.140,http://127.0.0.1}
+      SCRIBE3_CORS_ORIGINS: ${SCRIBE3_CORS_ORIGINS:-http://203.0.113.10,http://127.0.0.1}
       SCRIBE3_SETTINGS_DB: /var/lib/scribe3/scribe3_settings.sqlite3
       SCRIBE3_LLM_LEDGER: /var/lib/scribe3/scribe3_llm_ledger.sqlite3
       # 生产不强制因网关未 provision 就拒启；装完 Hermes 后再开 STRICT
@@ -74,7 +74,7 @@ services:
       - ${SCRIBE3_DATA_DIR:-/opt/scribe3/data}/models/hf:/models/hf
       - ${SCRIBE3_DATA_DIR:-/opt/scribe3/data}/models/fastembed:/models/fastembed
       # 只读挂载宿主 ~/.hermes，供 /ai/runtime-status 扫 profile 配置（勿写）
-      - ${HERMES_HOME_HOST:-/home/ubuntu/.hermes}:/hermes-host:ro
+      - ${HERMES_HOME_HOST:-/opt/scribe3-host/.hermes}:/hermes-host:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

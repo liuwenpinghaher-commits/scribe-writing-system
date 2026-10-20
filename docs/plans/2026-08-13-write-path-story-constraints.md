@@ -9,7 +9,7 @@
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` |
 | **仓库** | `/home/admin/projects/scribe-writing-system` |
 | **建议落仓** | `docs/plans/2026-08-13-write-path-story-constraints.md` |
-| **验证环境** | **仅已部署 demo** `https://tonglu.qing.blue` · SSH `ubuntu@82.157.130.140` · 应用 `/opt/scribe3/app` |
+| **验证环境** | **仅已部署 demo** `https://tonglu.example.com` · SSH `ubuntu@203.0.113.10` · 应用 `/opt/scribe3/app` |
 | **运维 env SSOT** | **`/opt/scribe3/app/.env`**（不是 `.env.production.local`） |
 | **合法写通道** | orch proposal/apply、`save-chapter`、intent-goals、MCP `s3_patch_chapter_*` / `s3_add_chapter`；**禁止** EMERGENCY 默认。`POST /revise-span` / `s3_revise_span` **v1 只预览，不落库**，不算第三条正文覆写通道 |
 | **最终方案入口** | [`docs/plans/2026-08-13-final-good-novel-plan.md`](./2026-08-13-final-good-novel-plan.md)（北极星） |

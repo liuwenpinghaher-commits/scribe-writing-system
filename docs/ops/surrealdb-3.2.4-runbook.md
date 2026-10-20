@@ -37,7 +37,7 @@
 # 在 demo 机上（可读 /opt/scribe3/app/deploy/prod/.env bootstrap）：
 ./scripts/smoke_s32.sh
 # 或
-BASE_URL=https://www.qing.blue ./scripts/smoke_s32.sh
+BASE_URL=https://www.example.com ./scripts/smoke_s32.sh
 ```
 
 检查项：ready/health、登录、capabilities.memory_fabric_v1、works、chapters、codex/health、memory/pending-claims、容器 3.2.x。

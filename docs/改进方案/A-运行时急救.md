@@ -62,7 +62,7 @@ cron `last_status` 由 `error` 转 `success`;`scribe-novel-v2` 出现在 :8643 �
 **精确定位**(本次实测):
 
 - cron 作业 `dc4bd8e87938`(名「scribe3-体检」)归属 **scribe3 profile**(`hermes cron list` 默认 profile 为 `No scheduled jobs`,`hermes -p scribe3 cron list` 才列出它)。
-- 作业定义 `~/.hermes/profiles/scribe3/cron/jobs.json`:`"script": "scribe3_qc.sh"`(裸文件名)、`"no_agent": true`、`"last_status": "error"`、`"last_error": "Script not found: /Users/miaoma/.hermes/profiles/scribe3/scripts/scribe3_qc.sh"`。
+- 作业定义 `~/.hermes/profiles/scribe3/cron/jobs.json`:`"script": "scribe3_qc.sh"`(裸文件名)、`"no_agent": true`、`"last_status": "error"`、`"last_error": "Script not found: ~/.hermes/profiles/scribe3/scripts/scribe3_qc.sh"`。
 - **脚本实际在全局目录** `~/.hermes/scripts/scribe3_qc.sh`(存在,可执行,内容 = `cd 仓库根 + scribe3/.venv/bin/python -m scribe3.qc_scan`)。
 - **profile 的脚本目录** `~/.hermes/profiles/scribe3/scripts/` **为空**(本次 `ls` 实测 0 文件)。
 
@@ -76,7 +76,7 @@ cp -p ~/.hermes/scripts/scribe3_qc.sh ~/.hermes/profiles/scribe3/scripts/scribe3
 chmod +x ~/.hermes/profiles/scribe3/scripts/scribe3_qc.sh
 ```
 
-**备选 B**(用 CLI 重设而非手挪文件,语义更"官方"):`hermes -p scribe3 cron edit dc4bd8e87938 --script scribe3_qc.sh`(重写 script 字段触发路径重解析)。**备选 C**(诊断 §1.5#1 提到的绝对路径思路):若 Hermes 接受 `script` 为绝对路径,可 `--script /Users/miaoma/.hermes/scripts/scribe3_qc.sh`——但 `--help` 明确写"under `~/.hermes/scripts/`",绝对路径是否被接受 **需人工确认**;**故首选 A**(复制到 profile 目录,确定命中)。
+**备选 B**(用 CLI 重设而非手挪文件,语义更"官方"):`hermes -p scribe3 cron edit dc4bd8e87938 --script scribe3_qc.sh`(重写 script 字段触发路径重解析)。**备选 C**(诊断 §1.5#1 提到的绝对路径思路):若 Hermes 接受 `script` 为绝对路径,可 `--script ~/.hermes/scripts/scribe3_qc.sh`——但 `--help` 明确写"under `~/.hermes/scripts/`",绝对路径是否被接受 **需人工确认**;**故首选 A**(复制到 profile 目录,确定命中)。
 
 **验证命令 + 预期输出**:
 
@@ -99,7 +99,7 @@ hermes -p scribe3 cron list
 
 **精确定位**(本次实测):
 
-- skill 已注册:`~/.hermes/profiles/scribe3/config.yaml:397-398` `skills.external_dirs: ["/Users/miaoma/Downloads/写作 3.0/scribe3/hermes_skills"]`。
+- skill 已注册:`~/.hermes/profiles/scribe3/config.yaml:397-398` `skills.external_dirs: ["<repo-root>/scribe3/hermes_skills"]`。
 - skill 文件存在:`scribe3/hermes_skills/scribe-novel-v2/SKILL.md`(52 行,frontmatter `name: scribe-novel-v2` / `mcp_server: scribe3`),**mtime = 2026-06-23 22:16**。
 - **快照里 0 命中**:`~/.hermes/profiles/scribe3/.skills_prompt_snapshot.json`(54 KB)grep `scribe-novel-v2` = **0 次**、grep `scribe-novel`(模糊)= **0 次**;快照 **mtime = 2026-06-22 19:10**,比 SKILL.md 早 **约 27 小时**。
 

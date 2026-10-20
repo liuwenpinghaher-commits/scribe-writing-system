@@ -3,7 +3,7 @@
 乱世铜炉风:乱世小人物误卷邪物秘局,限知双POV,伏笔回收。
 每类设定≥10条;推演=事实/事件/知识帧/伏笔/弧光/关系,支撑限知生成。
 
-跑: cd "/Users/miaoma/Downloads/写作 3.0" && scribe3/.venv/bin/python tools/bt_seed.py
+跑: cd "<repo-root>" && scribe3/.venv/bin/python tools/bt_seed.py
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))

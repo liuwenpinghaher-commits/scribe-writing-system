@@ -27,7 +27,7 @@ export function WorkflowCapsule({ work, onOpenJourney, onContinue }) {
   }, [])
 
   const load = useCallback(() => {
-    if (!work) { setSnap(null); setStale(false); return }
+    if (!work || typeof api.workflowSnapshot !== 'function') { setSnap(null); setStale(false); return }
     api.workflowSnapshot()
       .then((s) => {
         if (deadRef.current) return

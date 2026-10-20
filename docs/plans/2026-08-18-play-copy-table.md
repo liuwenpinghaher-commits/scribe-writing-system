@@ -10,7 +10,7 @@
 | **短名** | `play-copy-table` |
 | **现网书** | demo `book_b0beed49`《万界概率战争》· 第1章《华山成核》有戏+演绎无排演 · 第2章《四十二度》空章 · 第3章《金縢裂纹》有戏+演绎无排演 |
 | **前序** | 已上线「写戏 → 审戏 → 拆表」：`scribe3/design_play.py` · `thicken_chapter_design` 戏过即可写入、跳过 `evaluate_chapter_design` 当质量嘴 |
-| **验收环境** | 只打已部署 demo `tonglu.qing.blue`（`ubuntu@82.157.130.140` `/opt/scribe3/app`） |
+| **验收环境** | 只打已部署 demo `tonglu.example.com`（`ubuntu@203.0.113.10` `/opt/scribe3/app`） |
 | **合法写入** | 主编 `generate-stage`、点批、`/chat/write`。禁止 REST PATCH 当产品写章 |
 | **不改** | 宣称、GATE-B 80、`GATE_SAVE_MODE`、WCG、SPA、不占用 `chapter_brief` |
 | **不自动** | 不种线、不建户口外人 |

@@ -3,7 +3,7 @@
 | 项 | 值 |
 |----|-----|
 | 时间 | 2026-08-10T00:26:58.433821+00:00 |
-| API | https://www.qing.blue |
+| API | https://www.example.com |
 | prefetch A | http=200 len=2604 |
 | B 近似 | 剥离 must/事实/铁律行后 len=2415 |
 | SCRIBE3_MEMORY_STEER_MODE | (unset→full) |

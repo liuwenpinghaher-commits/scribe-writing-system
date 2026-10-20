@@ -6,7 +6,7 @@
 |------|------|------|
 | 用户可见（中文 UI） | **铜炉** | 正式产品名 |
 | 英文语境短标识 | **tonglu** | 拼音，全小写（title/`application-name` 等） |
-| 公网入口 | **https://tonglu.qing.blue** | 铜炉主域；`www.qing.blue` / `qing.blue` 301 至此 |
+| 公网入口 | **https://tonglu.example.com** | 铜炉主域；`www.example.com` / `example.com` 301 至此 |
 
 ## 范围（刻意收窄）
 

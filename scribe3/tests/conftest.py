@@ -96,6 +96,16 @@ def _finalize_gate_off_by_default(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _codex_thicken_gate_off_by_default(request, monkeypatch):
+    """设定加厚门默认生产开启;存量单测夹具使用简短占位文本,默认关。
+    专门测加厚门的 test_codex_persist_gate / test_tonglu_round2 保持默认开启。"""
+    node = getattr(request.node, "nodeid", "") or ""
+    if "test_codex_persist_gate" in node or "test_tonglu_round2" in node:
+        return
+    monkeypatch.setenv("SCRIBE3_CODEX_THICKEN_GATE", "0")
+
+
+@pytest.fixture(autouse=True)
 def _emergency_rest_write_on_for_tests(monkeypatch):
     """生产默认关 REST 世界写;单测/存量 test_app 写路径需显式开。
     需要测 403 关闸的用例自行 monkeypatch.setenv('SCRIBE3_EMERGENCY_REST_WRITE','0')。"""
@@ -140,7 +150,19 @@ def _clear_context_caches():
     cc.RETRIEVAL_CACHE.clear()
     cc.GLOBAL_CARD_CACHE.clear()
     cc.reset_metrics_for_test()
+    try:
+        from scribe3.mcp import _common as mcp_common
+        mcp_common._store = None
+        mcp_common._stores.clear()
+    except Exception:
+        pass
     yield
+    try:
+        from scribe3.mcp import _common as mcp_common
+        mcp_common._store = None
+        mcp_common._stores.clear()
+    except Exception:
+        pass
 
 
 def _boot_store():

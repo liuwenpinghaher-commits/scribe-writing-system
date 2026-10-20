@@ -1,4 +1,9 @@
-.PHONY: e2e-det e2e-frontend e2e-real e2e-quality-real e2e-craft-gates test-mcp test-web-readonly test-baseline test-author-paths test-craft
+.PHONY: e2e-det e2e-frontend e2e-real e2e-quality-real e2e-craft-gates test-mcp test-web-readonly test-baseline test-author-paths test-craft check-clean
+
+check-clean:        ## 全仓敏感信息零命中扫描(IP/域名/本地家目录/私钥)
+	@! grep -rnI -E '82\.157\.130\.140|10\.144\.144\.[12]|qing\.blue|/home/chris|/home/ubuntu|/Users/miaoma|13601092810|13301042810|(^|[^a-zA-Z0-9_-])(sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{20,}|github_pat_[a-zA-Z0-9_]{20,}|LTAI[a-zA-Z0-9]{12,}|AIza[0-9A-Za-z_-]{30,})' \
+	  --exclude=Makefile --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=dist --exclude-dir=.pytest_cache . \
+	  && echo "ZERO_SENSITIVE_HITS"
 
 test-mcp:           ## MCP 写门控/假绿回归(PR 最低)
 	scribe3/.venv/bin/python -m pytest scribe3/tests/test_mcp.py -q
@@ -16,7 +21,8 @@ test-author-paths:  ## 作者主路径:MCP/emergency/P0 素材结构
 
 test-craft:         ## 工艺卫生 + 内容质量单测(闸绿≠质量过)
 	scribe3/.venv/bin/python -m pytest \
-	  scribe3/tests/test_craft_compliance_gates.py \
+	  scribe3/tests/test_craft.py \
+	  scribe3/tests/test_craft_rule.py \
 	  scribe3/tests/test_content_quality.py -q
 
 e2e-det:            ## 确定性档:六类失效模式(秒级,不烧网关,进 CI)

@@ -9,7 +9,7 @@
 | **产品** | 铜炉（tonglu）/ scribe3 |
 | **代码根（优先）** | `/home/admin/projects/scribe-ia-verify-wt/scribe3/` |
 | **对齐前序** | `docs/plans/2026-08-10-chapter-writing-ia-optimal.md` · `docs/plans/2026-08-10-volume-outline-ia-optimal.md` · `docs/plans/2026-08-10-narrative-rootcause-optimal-execution.md` · `scribe3/AGENTIC_BOUNDARY_DECISION.md` |
-| **验收环境** | demo 已部署栈 `https://tonglu.qing.blue`（及 301 主域）；**只冒烟已部署**；Grok 运行机禁止全量 npm/本机 Surreal |
+| **验收环境** | demo 已部署栈 `https://tonglu.example.com`（及 301 主域）；**只冒烟已部署**；Grok 运行机禁止全量 npm/本机 Surreal |
 | **明确不做的宣称** | **不**因本方案宣称文学 ≥9.5；**不**为每模块新建 MCP server；**不**把评分卡当作品意图；**不**把经验复盘当力学合同；**不**假装 catalog `write_tools` 已过滤 Hermes MCP include |
 
 ---

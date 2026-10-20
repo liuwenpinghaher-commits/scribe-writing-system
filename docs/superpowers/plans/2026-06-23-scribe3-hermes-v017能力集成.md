@@ -55,7 +55,7 @@ def test_ingest_chapter_sync_reuses_ingest_chapter(store, monkeypatch):
 
 - [ ] **Step 2: 跑确认失败**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && scribe3/.venv/bin/python -m pytest scribe3/tests/test_mcp.py -k "ingest_not_gated or ingest_chapter_sync" -v`
+Run: `cd "<repo-root>" && scribe3/.venv/bin/python -m pytest scribe3/tests/test_mcp.py -k "ingest_not_gated or ingest_chapter_sync" -v`
 Expected: FAIL — `s3_ingest_chapter` 仍在 WRITE_GATED;`s3_ingest_chapter` 仍是 async(直调返回 coroutine,res["applied"] 报错)。
 
 - [ ] **Step 3: 改 mcp.py**
@@ -83,7 +83,7 @@ def s3_ingest_chapter(seq: int) -> dict:
 
 - [ ] **Step 4: 跑确认通过(全量防回归)**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && scribe3/.venv/bin/python -m pytest scribe3/tests/test_mcp.py scribe3/tests/test_mcp_elicit.py scribe3/tests/test_ingest.py -v`
+Run: `cd "<repo-root>" && scribe3/.venv/bin/python -m pytest scribe3/tests/test_mcp.py scribe3/tests/test_mcp_elicit.py scribe3/tests/test_ingest.py -v`
 Expected: PASS(含新 2 + drift-guard 更新后全绿;ingest 既有测试不回归)。
 
 - [ ] **Step 5: 提交(经作者批准)**
@@ -121,7 +121,7 @@ def test_save_chapter_triggers_bg_ingest(monkeypatch):
 
 - [ ] **Step 2: 跑确认失败**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && scribe3/.venv/bin/python -m pytest scribe3/tests/test_app.py -k save_chapter_triggers_bg -v`
+Run: `cd "<repo-root>" && scribe3/.venv/bin/python -m pytest scribe3/tests/test_app.py -k save_chapter_triggers_bg -v`
 Expected: FAIL — 响应无 `ingesting` 字段;`_bg_ingest` 不存在(AttributeError on monkeypatch)。
 
 - [ ] **Step 3: 改 app.py**
@@ -160,7 +160,7 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
 
 - [ ] **Step 4: 跑确认通过**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && scribe3/.venv/bin/python -m pytest scribe3/tests/test_app.py -v`
+Run: `cd "<repo-root>" && scribe3/.venv/bin/python -m pytest scribe3/tests/test_app.py -v`
 Expected: PASS(新测试 + 原 test_app 全绿)。
 
 - [ ] **Step 5: 提交(经作者批准)**
@@ -203,7 +203,7 @@ def test_editor_no_full_motif_dump(store):
 
 - [ ] **Step 2: 跑确认失败**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && scribe3/.venv/bin/python -m pytest scribe3/tests/test_app.py -k "reminds_open_promises or no_full_motif" -v`
+Run: `cd "<repo-root>" && scribe3/.venv/bin/python -m pytest scribe3/tests/test_app.py -k "reminds_open_promises or no_full_motif" -v`
 Expected: FAIL — `_editor_system` 当前不注入伏笔提醒("青铜匣"不在输出)。
 
 - [ ] **Step 3: 改 app.py `_editor_system`**
@@ -222,7 +222,7 @@ Expected: FAIL — `_editor_system` 当前不注入伏笔提醒("青铜匣"不�
 
 - [ ] **Step 4: 跑确认通过**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && scribe3/.venv/bin/python -m pytest scribe3/tests/test_app.py -v`
+Run: `cd "<repo-root>" && scribe3/.venv/bin/python -m pytest scribe3/tests/test_app.py -v`
 Expected: PASS。
 
 - [ ] **Step 5: 提交(经作者批准)**
@@ -251,7 +251,7 @@ git commit -m "feat(hermes-D): _editor_system 预注入开着伏笔提醒(详情
 
 - [ ] **Step 2: 验证 SKILL.md 仍可被 Hermes 加载(无语法破坏)**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && hermes --profile scribe3 skills list 2>&1 | grep scribe-novel-v2`
+Run: `cd "<repo-root>" && hermes --profile scribe3 skills list 2>&1 | grep scribe-novel-v2`
 Expected: 仍列出 `scribe-novel-v2`(frontmatter 未破坏)。
 
 - [ ] **Step 3: 提交(经作者批准)**
@@ -269,14 +269,14 @@ git commit -m "feat(hermes-BC): SKILL.md 加后台 delegate 体检 + 章成自�
 
 - [ ] **Step 1: 全量回归**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && scribe3/.venv/bin/python -m pytest scribe3/tests/ -q`
+Run: `cd "<repo-root>" && scribe3/.venv/bin/python -m pytest scribe3/tests/ -q`
 Expected: 全绿(含本期新增 + 既有 115)。任何红=回归,先修。
 
 - [ ] **Step 2: 真机验证 A(后台 ingest 跑通)**
 
 Hermes :8642 在跑。存一章后确认后台 ingest 更新了知识账本:
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0" && scribe3/.venv/bin/python -c "
+cd "<repo-root>" && scribe3/.venv/bin/python -c "
 from scribe3.store import SurrealStore
 from scribe3.ingest import ingest_chapter
 from scribe3.llm import hermes_complete

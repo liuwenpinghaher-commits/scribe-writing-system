@@ -16,7 +16,7 @@
 | **仓库** | `/home/admin/projects/scribe-writing-system` |
 | **入库路径** | `docs/plans/2026-08-14-pipeline-analysis-log.md` |
 | **取代** | `docs/plans/2026-08-14-pipeline-trace.md`（不再是分析账 SSOT）；更早的 `docs/plans/2026-08-13-run-observability.md` 仍是 Run 卡考古 |
-| **验证** | **仅已部署 demo**（`tonglu.qing.blue` / `82.157.130.140` / `/opt/scribe3/app`）。禁止 Grok 运行机 `npm ci` / 全量 pytest / 本机 Surreal / 第二套库 |
+| **验证** | **仅已部署 demo**（`tonglu.example.com` / `203.0.113.10` / `/opt/scribe3/app`）。禁止 Grok 运行机 `npm ci` / 全量 pytest / 本机 Surreal / 第二套库 |
 | **运维 env SSOT** | **`/opt/scribe3/app/deploy/prod/.env`**。不要改 `/opt/scribe3/app/.env`，也不要改 `app/.env.production.local` |
 | **schema** | 140 已存在（`pipeline_chain` / `pipeline_span`）。本设计 **141**：新表 `pipeline_log` + 兼容加列。禁止另起 Surreal |
 | **关联** | 现网实现 `scribe3/pipeline_trace*.py`、`store/pipeline_trace_ops.py`、`migrations/140_pipeline_trace.surql`、`web/src/admin/RunLogsPage.jsx`；装段 `write_assemble_v1.py`；流 `write_stream.py`；目录 `pipeline_trace_catalog.py` / `injection_registry.py`；L1 `docs/L1-AUTH-ISOLATION.md` |

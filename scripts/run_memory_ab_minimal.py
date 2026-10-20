@@ -2,7 +2,7 @@
 """D5/D7：minimal steer 下 A（记忆开）/ B（关 fabric）各写同一章，产出对照与评分表。
 
 用法（demo）：
-  API_BASE=https://tonglu.qing.blue SCRIBE3_BOOTSTRAP_USERS=admin:x \\
+  API_BASE=https://tonglu.example.com SCRIBE3_BOOTSTRAP_USERS=admin:x \\
   python3 scripts/run_memory_ab_minimal.py --work book_3d2df466 --seq 6
 
 流程：
@@ -28,7 +28,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 # 复用 v63 驱动；AB 对照允许略短（minimal 下 3k 级亦可比）
-os.environ.setdefault("API_BASE", "https://tonglu.qing.blue")
+os.environ.setdefault("API_BASE", "https://tonglu.example.com")
 os.environ["SCRIBE3_MEMORY_STEER_MODE"] = "minimal"
 os.environ.setdefault("MIN_CH_CHARS", "2800")
 os.environ.setdefault("MAX_STEPS_PER_CH", "25")
@@ -43,7 +43,7 @@ v63 = importlib.util.module_from_spec(_spec)
 assert _spec.loader is not None
 _spec.loader.exec_module(v63)
 
-BASE = os.environ.get("API_BASE", "https://tonglu.qing.blue")
+BASE = os.environ.get("API_BASE", "https://tonglu.example.com")
 JAR = os.environ.get("COOKIE_JAR", "/tmp/ab_minimal_cookie.txt")
 v63.JAR = JAR
 v63.BASE = BASE

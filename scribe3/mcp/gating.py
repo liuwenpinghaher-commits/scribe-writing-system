@@ -13,9 +13,11 @@ def _store_work(s) -> str | None:
 
 
 def _store_for(work: str | None = None):
-    """返回目标书 store。省略 work 时 fail-closed，禁止回落默认库。"""
+    """返回目标书 store。省略 work 时 fail-closed，禁止回落默认库（单测显式 set_store 注入除外）。"""
     from scribe3.mcp import _common as C
     if not work:
+        if C._store is not None:
+            return C._store
         raise ValueError("work is required (fail-closed: refuse default store)")
     if work in C._stores:
         C._stores.move_to_end(work)

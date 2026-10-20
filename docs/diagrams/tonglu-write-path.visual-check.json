@@ -5,7 +5,7 @@
   "status": "pass",
   "visualReview": "pending",
   "artifact": {
-    "path": "/Users/miaoma/Downloads/写作 3.0/docs/diagrams/tonglu-write-path.html",
+    "path": "<repo-root>/docs/diagrams/tonglu-write-path.html",
     "sha256": "dedfb2ee09f580afa0255f059ad260295a2f0408552e6ec11ca4e6188ed0a256",
     "bytes": 704103
   },

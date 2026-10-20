@@ -8,7 +8,7 @@
 | **Status** | **Ready for implementation**（rev.3 · 用户决议定稿） |
 | **Codebase** | `/home/admin/projects/scribe-writing-system`（`scribe3/` 为主） |
 | **Baseline** | `d49c9ab feat(thicken): 做厚半截能力 H1–H11` |
-| **Demo** | `ubuntu@82.157.130.140` · `/opt/scribe3/app` · `deploy/prod` · 公网 `tonglu.qing.blue` |
+| **Demo** | `ubuntu@203.0.113.10` · `/opt/scribe3/app` · `deploy/prod` · 公网 `tonglu.example.com` |
 
 ---
 
@@ -650,7 +650,7 @@ python -m scribe3.tools.sample_budget_report --out /tmp/b.json
 
 # demo auth
 python -m scribe3.tools.sample_budget_report \
-  --url https://tonglu.qing.blue \
+  --url https://tonglu.example.com \
   --work main --seq 1 \
   --mode config \
   --cookie-jar /tmp/smoke.cookies \

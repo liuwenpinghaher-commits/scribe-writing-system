@@ -11,7 +11,7 @@
 | **对齐前序** | `docs/plans/2026-08-10-chapter-writing-ia-optimal.md`（章 IA · Accepted rev.3.1） |
 | **会话 scratch** | `/tmp/grok-1000/grok-design-doc-f760d399.md` |
 | **耐久真源** | `docs/plans/2026-08-10-volume-outline-ia-optimal.md`（与 scratch 同步） |
-| **验收环境** | demo 已部署栈 `https://www.qing.blue`；**禁止**默认再起第二 Surreal；Grok 运行机不做全量 npm/pytest/本机 Surreal |
+| **验收环境** | demo 已部署栈 `https://www.example.com`；**禁止**默认再起第二 Surreal；Grok 运行机不做全量 npm/pytest/本机 Surreal |
 | **明确不做的宣称** | **不**删 proposition；**不**混 scene_truth 与世界真相；**不**把五阶段合成单字段；**不**因本方案宣称文学 ≥9.5；**不**默认先建卷；**不**把建卷当 GATE-B |
 
 ---
@@ -652,7 +652,7 @@ P-Vol-Signals-UI 的修复是 **UI 串联**，不是缺 store/端点。
 
 ## 成功标准与验收（demo 冒烟 · 非文学分）
 
-**环境：** 已部署 demo（`www.qing.blue` / 约定 SSH 栈）。**禁止** Grok 运行机全量 `npm test` / vitest / 本机 Surreal 验收宣称。
+**环境：** 已部署 demo（`www.example.com` / 约定 SSH 栈）。**禁止** Grok 运行机全量 `npm test` / vitest / 本机 Surreal 验收宣称。
 
 **验收分层：**
 

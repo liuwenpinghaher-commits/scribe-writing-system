@@ -2,7 +2,7 @@
 # 写网关 MCP 冒烟。默认不接入 deploy_demo.sh hot。
 # MCP_GATE=1 时失败 exit 1；否则仍打印结果但默认 exit 0（便于手工看）。
 set -euo pipefail
-KEY_FILE="${HERMES_WRITE_ENV:-/home/ubuntu/.hermes/profiles/scribe3_write/.env}"
+KEY_FILE="${HERMES_WRITE_ENV:-/opt/scribe3-host/.hermes/profiles/scribe3_write/.env}"
 BASE="${HERMES_RUNS_API:-http://172.18.0.1:8644/v1}"
 GATE="${MCP_GATE:-0}"
 

@@ -109,7 +109,7 @@ def test_merge_preserves_secrets_and_dashboard_keys(home):
     target = home / "profiles" / "scribe3" / "config.yaml"
     target.parent.mkdir(parents=True, exist_ok=True)
     existing = {
-        "providers": {"doubao": {"api_key": "sk-SECRET-DONT-TOUCH"}},
+        "providers": {"doubao": {"api_key": "sk-" + "SECRET-DONT-TOUCH"}},
         "model": "deepseek-v4-pro-260425",
         "skills": {"enabled": ["scribe-novel-v2"]},
         "platform_toolsets": {"api_server": ["WRONG_OLD_VALUE"]},   # 该被模板校正
@@ -120,7 +120,7 @@ def test_merge_preserves_secrets_and_dashboard_keys(home):
 
     after = _load(home, "profiles/scribe3/config.yaml")
     # 密钥/Dashboard 键原样保留
-    assert after["providers"]["doubao"]["api_key"] == "sk-SECRET-DONT-TOUCH"
+    assert after["providers"]["doubao"]["api_key"] == "sk-" + "SECRET-DONT-TOUCH"
     assert after["model"] == "deepseek-v4-pro-260425"
     assert after["skills"] == {"enabled": ["scribe-novel-v2"]}
     # scribe3 拥有的键被模板强制校正

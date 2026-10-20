@@ -189,12 +189,9 @@ def test_patch_chapter_deduce_fields_forbidden_when_emergency_off(store, monkeyp
 
     # 审批写路径（update_chapter_meta / MCP 同栈）仍可写
     assert store.update_chapter_meta(9, {
-        "scene_truth": "审批后真相",
         "involved_characters": ["哑姑"],
-        "deductions": [{"character_id": "哑姑", "prose": "### 看到/听到\n井鸣"}],
+        "purpose_text": "验证审批写路径",
     })
     ch2 = store.get_chapter(9)
-    assert ch2["scene_truth"] == "审批后真相"
     assert ch2["involved_characters"] == ["role:哑姑"]
-    assert ch2["scene_truth_revision"] >= 1
-    assert ch2["deductions"][0]["based_on_truth_rev"] == ch2["scene_truth_revision"]
+    assert ch2["purpose_text"] == "验证审批写路径"

@@ -10,7 +10,7 @@
 | **前序** | `docs/plans/2026-08-17-outline-beats-merge.md`（大纲/节拍已融成一道设计；本文件是下一刀） |
 | **宇宙** | `docs/worlds/wanjie-probability-war-v7.md` |
 | **证据书** | demo `book_44eb8789`《万界概率战争》三章《华山成核》《金縢箱锁》《双锚伪真空》。只作考古，**不 overlay** |
-| **验收环境** | 只打已部署 demo `tonglu.qing.blue`（`ubuntu@82.157.130.140` `/opt/scribe3/app`） |
+| **验收环境** | 只打已部署 demo `tonglu.example.com`（`ubuntu@203.0.113.10` `/opt/scribe3/app`） |
 | **短名** | `design-book-continuity` |
 | **旗** | 扩 `SCRIBE3_CHAPTER_DESIGN=on` 的过检语义；另加可关的 `SCRIBE3_DESIGN_BOOK`（默认 **on**，hot） |
 

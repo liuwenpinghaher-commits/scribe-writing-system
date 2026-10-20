@@ -123,7 +123,7 @@ def test_create_upgrade_run_is_private_and_stable(tmp_path: Path):
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q \
   scribe3/tests/test_upgrade_models.py \
   scribe3/tests/test_upgrade_process.py
@@ -252,7 +252,7 @@ The frozen Hermes SHA must have an integrity-passing `main` snapshot from the ev
 - [ ] **Step 4: Add live CLI command**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m scribe3.upgrade_runtime.cli targets \
   --run-root "$HOME/.scribe3-upgrades" \
   --write-current-run-id
@@ -333,7 +333,7 @@ The inventory must use the repository's existing Surreal connection and schema h
 - [ ] **Step 5: Run focused tests, then perform the live no-prune export**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q \
   scribe3/tests/test_surreal_upgrade_backup.py
 SCRIBE3_UPGRADE_RUN_ID="$(tr -d '\r\n' < "$HOME/.scribe3-upgrades/current-run-id")"
@@ -365,7 +365,7 @@ Expected: every current `scribe3` database has a nonempty `.surql` file and SHA-
 
 The test fixture must:
 
-- use `SURREAL_BIN` when set, otherwise `/Users/miaoma/.surrealdb/surreal`;
+- use `SURREAL_BIN` when set, otherwise `~/.surrealdb/surreal`;
 - use an ASCII-only `mktemp` directory under `/tmp`;
 - allocate a random free localhost port;
 - start `surreal start surrealkv:` on that temporary directory;
@@ -422,8 +422,8 @@ For query planner differences, assert the semantic invariant and record the oper
 - [ ] **Step 5: Run the focused real-server suite**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
-SURREAL_BIN=/Users/miaoma/.surrealdb/surreal \
+cd "<repo-root>"
+SURREAL_BIN=~/.surrealdb/surreal \
   scribe3/.venv/bin/python -m pytest -q \
   scribe3/tests/test_surreal_320_acceptance.py \
   scribe3/tests/test_store.py \
@@ -435,7 +435,7 @@ Expected: PASS against a temporary SurrealDB 3.2.0 process; production `127.0.0.
 - [ ] **Step 6: Run the live restore drill from the verified backup**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 SCRIBE3_UPGRADE_RUN_ID="$(tr -d '\r\n' < "$HOME/.scribe3-upgrades/current-run-id")"
 scribe3/.venv/bin/python -m scribe3.upgrade_runtime.cli surreal restore \
   --run-id "$SCRIBE3_UPGRADE_RUN_ID"
@@ -486,7 +486,7 @@ Given a frozen upstream tree, classify each local path as:
 
 - [ ] **Step 3: Implement local-change protection**
 
-For the current checkout `/Users/miaoma/.hermes/hermes-agent`, the live snapshot must explicitly cover:
+For the current checkout `~/.hermes/hermes-agent`, the live snapshot must explicitly cover:
 
 - modified `package-lock.json`;
 - every untracked `skills/meeting-*.md` path;
@@ -517,7 +517,7 @@ Normalize IDs, timestamps, durations and token counts before comparison, but pre
 - [ ] **Step 5: Run focused tests, then the live baseline**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q \
   scribe3/tests/test_hermes_upgrade_state.py
 SCRIBE3_UPGRADE_RUN_ID="$(tr -d '\r\n' < "$HOME/.scribe3-upgrades/current-run-id")"
@@ -616,7 +616,7 @@ Expected: CLI loads, doctor has no blocking issue, security audit has no unresol
 - [ ] **Step 7: Run Scribe3 unit tests and live canary installation**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q scribe3/tests/test_hermes_canary.py
 SCRIBE3_UPGRADE_RUN_ID="$(tr -d '\r\n' < "$HOME/.scribe3-upgrades/current-run-id")"
 scribe3/.venv/bin/python -m scribe3.upgrade_runtime.cli canary install \
@@ -703,7 +703,7 @@ If main changed payload shape, first add the captured failing fixture to `test_h
 - [ ] **Step 5: Run contract tests and live comparison**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q \
   scribe3/tests/test_hermes_upgrade_contracts.py \
   scribe3/tests/test_hermes_runtime.py
@@ -754,10 +754,10 @@ One false or unknown value must produce `allowed=false`.
 The guard must run these read-only checks before updater invocation:
 
 ```bash
-git -C /Users/miaoma/.hermes/hermes-agent fetch origin main
-git -C /Users/miaoma/.hermes/hermes-agent merge-base --is-ancestor \
+git -C ~/.hermes/hermes-agent fetch origin main
+git -C ~/.hermes/hermes-agent merge-base --is-ancestor \
   HEAD "$SCRIBE3_HERMES_TARGET_SHA"
-git -C /Users/miaoma/.hermes/hermes-agent rev-list \
+git -C ~/.hermes/hermes-agent rev-list \
   "$SCRIBE3_HERMES_TARGET_SHA"..HEAD
 ```
 
@@ -790,7 +790,7 @@ It must use `launchctl print`/`bootout`/`bootstrap` with exact user-domain label
 
 Before update, require:
 
-- no Dashboard/Gateway process points into `/Users/miaoma/.hermes/hermes-agent/venv`;
+- no Dashboard/Gateway process points into `~/.hermes/hermes-agent/venv`;
 - no MCP watchdog spawned by those gateways remains;
 - production ports are closed;
 - SurrealDB on `127.0.0.1:8001` remains healthy;
@@ -799,7 +799,7 @@ Before update, require:
 - [ ] **Step 5: Run gate tests and a dry-run decision**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q scribe3/tests/test_hermes_cutover_guard.py
 SCRIBE3_UPGRADE_RUN_ID="$(tr -d '\r\n' < "$HOME/.scribe3-upgrades/current-run-id")"
 scribe3/.venv/bin/python -m scribe3.upgrade_runtime.cli gate \
@@ -847,7 +847,7 @@ Secret-bearing production configuration may be referenced in place and hashed wi
 Sequence:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/scripts/hermes_launchd_control.sh stop
 scribe3/scripts/hermes_launchd_control.sh verify
 SCRIBE3_UPGRADE_RUN_ID="$(tr -d '\r\n' < "$HOME/.scribe3-upgrades/current-run-id")"
@@ -871,9 +871,9 @@ hermes update --backup --yes --branch main
 Immediately after it returns, verify:
 
 ```bash
-git -C /Users/miaoma/.hermes/hermes-agent rev-parse HEAD
+git -C ~/.hermes/hermes-agent rev-parse HEAD
 hermes --version
-/Users/miaoma/.hermes/hermes-agent/venv/bin/python -m pip check
+~/.hermes/hermes-agent/venv/bin/python -m pip check
 ```
 
 HEAD must equal the frozen SHA. A different HEAD, nonzero update, missing backup or failed `pip check` triggers rollback before gateways restart.
@@ -894,7 +894,7 @@ Run the existing provisioner in a dry-run/diff mode first. It may update Scribe3
 - [ ] **Step 7: Restart exact launchd services and verify new executables**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/scripts/hermes_launchd_control.sh start-gateways
 scribe3/scripts/hermes_launchd_control.sh verify
 scribe3/scripts/hermes_launchd_control.sh start-dashboard
@@ -932,8 +932,8 @@ Test the rollback algorithm in a temporary fake install tree. Do not deliberatel
 hermes --version
 hermes doctor
 hermes security audit
-/Users/miaoma/.hermes/hermes-agent/venv/bin/python -m pip check
-git -C /Users/miaoma/.hermes/hermes-agent rev-parse HEAD
+~/.hermes/hermes-agent/venv/bin/python -m pip check
+git -C ~/.hermes/hermes-agent rev-parse HEAD
 ```
 
 Record redacted outputs and hashes. Do not infer any version from `pyproject.toml`, `package.json`, `vendor/` or installed metadata files.
@@ -961,7 +961,7 @@ Every required contract must match the canary result. Allowed additive changes a
 - [ ] **Step 4: Run the production smoke entry point**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/scripts/hermes_smoke.sh --live
 SCRIBE3_UPGRADE_RUN_ID="$(tr -d '\r\n' < "$HOME/.scribe3-upgrades/current-run-id")"
 scribe3/.venv/bin/python -m scribe3.upgrade_runtime.cli postcheck \
@@ -985,8 +985,8 @@ Expected: `postcheck.json` is `passed`, production HEAD equals frozen SHA, all p
 - [ ] **Step 1: Run the focused integration suite first**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
-SURREAL_BIN=/Users/miaoma/.surrealdb/surreal \
+cd "<repo-root>"
+SURREAL_BIN=~/.surrealdb/surreal \
   scribe3/.venv/bin/python -m pytest -q \
   scribe3/tests/test_hermes_runtime.py \
   scribe3/tests/test_provision_hermes.py \
@@ -1008,8 +1008,8 @@ Expected: PASS.
 - [ ] **Step 2: Run the full backend suite against isolated test infrastructure**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
-SURREAL_BIN=/Users/miaoma/.surrealdb/surreal \
+cd "<repo-root>"
+SURREAL_BIN=~/.surrealdb/surreal \
   scribe3/.venv/bin/python -m pytest -q scribe3/tests
 ```
 
@@ -1018,7 +1018,7 @@ Expected: PASS with no production-data test mutation.
 - [ ] **Step 3: Run frontend tests and production build serially**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test
 npm run build
 ```
@@ -1057,7 +1057,7 @@ Generate enough text to cover the established long-form path, but do not claim a
 Run the existing real journey after the backend and frontend are confirmed to be the new processes:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm run e2e:real
 ```
 
@@ -1135,7 +1135,7 @@ Document:
 Run:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 git diff --check
 git status --short
 git diff -- . ':(exclude)cache_surrealdb_docs.py' ':(exclude)surrealdb-docs-cache/**' | \
@@ -1147,7 +1147,7 @@ Expected: `git diff --check` exits zero; the secret scan prints nothing; runtime
 - [ ] **Step 3: Verify no user-owned untracked cache entered the diff**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 git status --short -- cache_surrealdb_docs.py surrealdb-docs-cache
 ```
 
@@ -1175,7 +1175,7 @@ If any item remains open, the final state is `partial` or `rolled_back`, never `
 - [ ] **Step 6: Review staging scope but do not commit or push**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 git diff --name-only
 git status --short
 ```

@@ -18,6 +18,7 @@ def s3_project_frame(focalizer: str, chapter: int, work: str | None = None) -> l
             for f in fr.facts]
 
 
+@mcp.tool(annotations=_RO)
 def s3_find_leaks(prose: str, focalizer: str, chapter: int,
                   work: str | None = None) -> list[dict]:
     """兜底 POV 判官:扫散文里冒出的帧外私密破绽词。"""
@@ -25,18 +26,21 @@ def s3_find_leaks(prose: str, focalizer: str, chapter: int,
             for x in find_leaks_for_chapter(prose, _store_for(work), focalizer, chapter)]
 
 
+@mcp.tool(annotations=_RO)
 def s3_causal_complete(chapter: int, work: str | None = None) -> list[dict]:
     """连贯性查询:每事件须因果入边+目标。返回违规列表(空=干净)。"""
     return [{"event": v.event_id, "reason": v.reason}
             for v in causal_complete(_store_for(work), chapter)]
 
 
+@mcp.tool(annotations=_RO)
 def s3_setting_completeness(work: str | None = None) -> dict:
     """设定完整性检查:返回当前书缺少哪些设定维度(世界规则/势力/地点/角色深描/私密伏线)。
     主编据此引导作者补全设定。"""
     return _store_for(work).setting_completeness()
 
 
+@mcp.tool(annotations=_RO)
 def s3_list_world_rules(category: str | None = None, work: str | None = None) -> list[dict]:
     """列世界规则(Sanderson 式:源头/能力/代价/限制/例外)。可按类别过滤。
     类别:magic/technology/social/physical/economic/political"""
@@ -55,6 +59,7 @@ def _list_factions_impl(reveal_secret: bool, work: str | None) -> list[dict]:
     return _jsonable(result)
 
 
+@mcp.tool(annotations=_RO)
 def s3_list_factions(work: str | None = None) -> list[dict]:
     """列势力/组织(意识形态/领袖/已知成员/公开面目/起源/遗产运作等,CX-Task 3 起含
     codex_schema 注册的全部字段)。
@@ -67,6 +72,7 @@ def s3_list_factions(work: str | None = None) -> list[dict]:
     return _list_factions_impl(False, work)
 
 
+@mcp.tool(annotations=_RO)
 def s3_list_factions_reveal(work: str | None = None) -> list[dict]:
     """s3_list_factions 的全知孪生:所有 secret_capable 字段返回明文(不掩码)。
 
@@ -80,51 +86,60 @@ def s3_list_factions_reveal(work: str | None = None) -> list[dict]:
     return _list_factions_impl(True, work)
 
 
+@mcp.tool(annotations=_RO)
 def s3_character_state(character_id: str, chapter: int, work: str | None = None) -> dict:
     """角色弧光状态查询:返回某角色在某章时刻的完整状态快照
     (能力/关系/性格阶段/弧光时间线)。动静结合:静态基石+动态演变。"""
     return _store_for(work).char_state_at(character_id, chapter)
 
 
+@mcp.tool(annotations=_RO)
 def s3_character_timeline(character_id: str, work: str | None = None) -> list[dict]:
     """角色弧光时间线:列出该角色全部质变点(能力/关系/性格变化),按章排序。"""
     return _store_for(work).list_char_states(character_id)
 
 
+@mcp.tool(annotations=_RO)
 def s3_relations_at(chapter: int, work: str | None = None) -> list[dict]:
     """某章有效的角色关系图(限知时间门:since_chapter <= chapter, until_chapter > chapter or NONE)。
     用于关系图可视化。"""
     return _store_for(work).relations_at(chapter)
 
 
+@mcp.tool(annotations=_RO)
 def s3_get_voice_profile(character_id: str, work: str | None = None) -> dict:
     """获取角色声音指纹(9节:风格/口头禅/句式/用词/语气规则/独白风格/OOC信号/参考例句)。"""
     vp = _store_for(work).get_voice_profile(character_id)
     return vp or {}
 
 
+@mcp.tool(annotations=_RO)
 def s3_check_ooc(character_id: str, dialogue: str, work: str | None = None) -> list[dict]:
     """OOC 检测:对照角色声音指纹的 ooc_signals 规则,检测对话是否违反角色声音。
     返回违规列表 [{signal, line, severity}]。"""
     return _store_for(work).check_ooc(character_id, dialogue)
 
 
+@mcp.tool(annotations=_RO)
 def s3_list_items(state: str | None = None, work: str | None = None) -> list[dict]:
     """列物品/道具(含符号状态 active/lost/destroyed/unknown)。可按状态过滤。"""
     return _jsonable(_store_for(work).list_items(state))
 
 
+@mcp.tool(annotations=_RO)
 def s3_list_terms(work: str | None = None) -> list[dict]:
     """列专有名词/术语(含别名)。"""
     return _jsonable(_store_for(work).list_terms())
 
 
+@mcp.tool(annotations=_RO)
 def s3_resolve_entities(text: str, chapter: int = 9999, work: str | None = None) -> list[dict]:
     """解析文本中出现的实体引用(四路召回:精确名→别名→hint→向量语义)。
     返回相关设定候选 [{id, type, name, score, reason}]。"""
     return _store_for(work).resolve_entities(text, chapter)
 
 
+@mcp.tool(annotations=_RO)
 def s3_validate_setting(chapter: int, prose: str, work: str | None = None) -> list[dict]:
     """设定校验:比对正文与设定圣经,产出冲突线索。
     覆盖:物品状态矛盾/OOC/规则违反。高精确率优先(宁漏不误)。"""
@@ -139,6 +154,7 @@ def _dramatic_irony_impl(focalizer: str, chapter: int, reveal_secret: bool,
             for f in dramatic_irony(_store_for(work), focalizer, chapter)]
 
 
+@mcp.tool(annotations=_RO)
 def s3_dramatic_irony(focalizer: str, chapter: int, work: str | None = None) -> list[dict]:
     """戏剧反讽点:读者已知、而视角角色不知的事实(KNOWS(reader,F)∧¬KNOWS(focal,F))。
     渲染该视角时据此写"角色安心、读者揪心"的张力(但角色台词只能用其帧内信息)。
@@ -149,6 +165,7 @@ def s3_dramatic_irony(focalizer: str, chapter: int, work: str | None = None) -> 
     return _dramatic_irony_impl(focalizer, chapter, False, work)
 
 
+@mcp.tool(annotations=_RO)
 def s3_dramatic_irony_reveal(focalizer: str, chapter: int,
                              work: str | None = None) -> list[dict]:
     """s3_dramatic_irony 的全知孪生:返回明文(secret 命题不掩码)。
@@ -163,16 +180,19 @@ def s3_dramatic_irony_reveal(focalizer: str, chapter: int,
     return _dramatic_irony_impl(focalizer, chapter, True, work)
 
 
+@mcp.tool(annotations=_RO)
 def s3_list_promises(work: str | None = None) -> list[dict]:
     """列伏笔(open/closed/abandoned + 埋/收章;含 kind=red_herring)。"""
     return _store_for(work).list_promises()
 
 
+@mcp.tool(annotations=_RO)
 def s3_list_motifs(work: str | None = None) -> list[dict]:
     """列母题(名/绑定主题/物质回声/隐喻展开)——参照不透支。"""
     return _store_for(work).list_motifs()
 
 
+@mcp.tool(annotations=_RO)
 def s3_get_chapter(seq: int, work: str | None = None) -> dict:
     """读某章（含场面合同，勿与 GATE 齐套混淆）。"""
     return _store_for(work).get_chapter(seq) or {}
@@ -187,16 +207,19 @@ def s3_suggest_scene_contract(seq: int, work: str | None = None) -> dict:
     return sug
 
 
+@mcp.tool(annotations=_RO)
 def s3_list_chapters(work: str | None = None) -> list[dict]:
     """列当前作品章节的序号、标题和结构元数据；建章前用于核实现状。"""
     return _jsonable(_store_for(work).list_chapters())
 
 
+@mcp.tool(annotations=_RO)
 def s3_list_volumes(work: str | None = None) -> list[dict]:
     """列当前作品分卷的 ID、标题和排序；建章前用于选择可选卷归属。"""
     return _jsonable(_store_for(work).list_volumes())
 
 
+@mcp.tool(annotations=_RO)
 def s3_move_retrieve(benyi: str, move_id: str | None = None, work: str | None = None) -> dict:
     """按本意或俗名取一张已批招式卡（三角/羁绊/一字/话死/延宕）。不读散文召回。"""
     from scribe3.story_move import retrieve_story_move
@@ -204,6 +227,7 @@ def s3_move_retrieve(benyi: str, move_id: str | None = None, work: str | None = 
     return {"cards": hits[:1], "count": len(hits[:1])}
 
 
+@mcp.tool(annotations=_RO)
 def s3_skill_read(slug: str, work: str | None = None) -> str:
     """读一篇通用写作技法全文(P1 渐进披露:instructions 只带索引行,触及才取全文)。
     slug 见 instructions 的「写作技法库」索引;未知 slug 抛错并列出可用清单(fail-loud)。"""
@@ -211,6 +235,7 @@ def s3_skill_read(slug: str, work: str | None = None) -> str:
     return read_skill(slug)
 
 
+@mcp.tool(annotations=_RO)
 def s3_qc_chapter(seq: int, work: str | None = None) -> dict:
     """对某章正文跑确定性 QC(复读/排比/升华/AI腔)——渲染层兜底。
     升华检测叠加本书题材正则(craft_rule purple_regex)。"""
@@ -223,6 +248,7 @@ def s3_qc_chapter(seq: int, work: str | None = None) -> dict:
     return quality_flags(ch["prose"], extra_patterns=extra)
 
 
+@mcp.tool(annotations=_RO)
 def s3_recent_phrases(chapter: int, lookback: int = 3, top: int = 40,
                       work: str | None = None) -> dict:
     """【写本章前必调】返回前 lookback 章已用过的独特措辞/意象短语清单——生成时**逐字避开**。
@@ -243,6 +269,7 @@ def s3_recent_phrases(chapter: int, lookback: int = 3, top: int = 40,
     return {"avoid": avoid[: top * lookback], "from_chapters": [c["seq"] for c in priors]}
 
 
+@mcp.tool(annotations=_RO)
 def s3_cross_repetition(seq: int, lookback: int = 8, work: str | None = None) -> dict:
     """某章 vs 前 lookback 章的【跨章逐字复读】(≥8字重叠,剔母题/专名)。逐章 QC 的盲区,长程一致性硬指标。
     返回 {count, phrases:[{phrase, prior_chapters}]};count>0 即本章有跨章搬运,调 s3_dedup_cross 改写。"""
@@ -257,6 +284,7 @@ def s3_cross_repetition(seq: int, lookback: int = 8, work: str | None = None) ->
     return {"count": len(hits), "phrases": hits[:20]}
 
 
+@mcp.tool(annotations=_RO)
 def s3_dedup_cross(seq: int, lookback: int = 8, work: str | None = None) -> dict:
     """【QC治层】确定性事后跨章改写:定位本章含跨章逐字复读的句子→定向 LLM 改写→返回新正文。
 
@@ -274,6 +302,7 @@ def s3_dedup_cross(seq: int, lookback: int = 8, work: str | None = None) -> dict
     return rewrite_cross_repetitions(ch["prose"], priors, hermes_complete, n=8, allow=allow)
 
 
+@mcp.tool(annotations=_RO)
 def s3_emotion_palette(emotion: str = "") -> list | dict:
     """情感词典(引擎层,题材无关):空参返回15种情感名;带参返回该情感的身体信号/内部感觉。
     渲染某情感时查取 2-3 个身体信号编织进叙述(show 不 tell 的命门)。"""
@@ -283,11 +312,13 @@ def s3_emotion_palette(emotion: str = "") -> list | dict:
     return PALETTE.get(emotion, {})
 
 
+@mcp.tool(annotations=_RO)
 def s3_craft_rule_list(work: str | None = None) -> list[dict]:
     """列本书题材层 craft 规则(升华正则/法器写法/角色覆盖动作)。"""
     return _store_for(work).list_craft_rules()
 
 
+@mcp.tool(annotations=_RO)
 def s3_discipline_check(seq: int, brief: str = "", work: str | None = None) -> dict:
     """LLM 纪律判官(走 Hermes):判本章 双高潮/声音崩/解说倾泻(确定性检测的盲区)。
     返回 {ok, violations, cut_after, changed, text(若可截)};不自动写,作者/主编决定是否应用。"""
@@ -299,11 +330,13 @@ def s3_discipline_check(seq: int, brief: str = "", work: str | None = None) -> d
     return discipline_truncate(ch["prose"], brief, hermes_complete)
 
 
+@mcp.tool(annotations=_RO)
 def s3_get_intent(work: str | None = None) -> dict:
     """读取本书北极星意图(读者感受/情感弧/红线/字数目标)。只读。"""
     return _store_for(work).get_intent()
 
 
+@mcp.tool(annotations=_RO)
 def s3_list_entity_relations(entity: str | None = None, chapter: int | None = None,
                              work: str | None = None) -> list[dict]:
     """列通用实体关系(双方认知 perception_a/perception_b + 主编独知 truth,任意实体
@@ -316,6 +349,7 @@ def s3_list_entity_relations(entity: str | None = None, chapter: int | None = No
     return _list_entity_relations_impl(entity, chapter, False, work)
 
 
+@mcp.tool(annotations=_RO)
 def s3_list_entity_relations_reveal(entity: str | None = None, chapter: int | None = None,
                                     work: str | None = None) -> list[dict]:
     """s3_list_entity_relations 的全知孪生:truth 字段返回明文(不掩码)。
@@ -330,6 +364,7 @@ def s3_list_entity_relations_reveal(entity: str | None = None, chapter: int | No
     return _list_entity_relations_impl(entity, chapter, True, work)
 
 
+@mcp.tool(annotations=_RO)
 def s3_list_voice_flags(status: str = "open", work: str | None = None) -> list[dict]:
     """列声音演变 flag(默认 open;读,放行)。
     flag 由 ingest/add_char_state 在 affects_voice=True 时自动创建;
@@ -337,6 +372,7 @@ def s3_list_voice_flags(status: str = "open", work: str | None = None) -> list[d
     return _store_for(work).list_voice_flags(status)
 
 
+@mcp.tool(annotations=_RO)
 def s3_promise_timeline(promise_id: str, work: str | None = None) -> dict:
     """读单条伏笔时间线(setup/clue/touch/closed/abandoned 按章排序)。只读放行。"""
     pid = (promise_id or "").strip()

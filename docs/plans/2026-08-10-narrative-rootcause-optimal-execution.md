@@ -10,7 +10,7 @@
 | **工作区** | `/home/admin/projects/scribe-ia-verify-wt` |
 | **文档真源** | 仓库 `docs/plans/2026-08-10-narrative-rootcause-optimal-execution.md` |
 | **会话 scratch** | `/tmp/grok-1000/grok-design-doc-e1097c4c.md`（须与真源全文一致） |
-| **验收环境** | demo 已部署栈 `https://www.qing.blue`；**禁止**默认再起第二 Surreal；Grok 运行机不做全量 npm/pytest/本机 Surreal |
+| **验收环境** | demo 已部署栈 `https://www.example.com`；**禁止**默认再起第二 Surreal；Grok 运行机不做全量 npm/pytest/本机 Surreal |
 | **底座（其上）** | NQ · 叙事引擎 rev.2.3 · OI rev.1.1（均已落地或主链合入） |
 | **证据** | [`docs/evidence/ne-oi-ab-20260810/`](../evidence/ne-oi-ab-20260810/)（ch3 A/pass1/pass2 + ANALYSIS） |
 | **明确不做的宣称** | **不**宣称文学 ≥9.5；**不**默认 GATE/DETECT 硬拦；**不**重写 Pilot 拓扑；**不**第二 Surreal |

@@ -1,11 +1,11 @@
 # runtime baseline · v6.3.4 engineering window
 
-- entry (protocol): https://tonglu.qing.blue
-- entry (working from executor host): https://qing.blue
+- entry (protocol): https://tonglu.example.com
+- entry (working from executor host): https://example.com
 - captured_at_utc: 2026-08-11T17:06:21Z
 - evidence window: 2026-08-11T16:00:00Z → 2026-08-11T17:06:21Z (start ≤ end)
 
-## GET https://qing.blue/api/health
+## GET https://example.com/api/health
 - HTTP 200
 - body.ok: **True**
 ```json
@@ -56,5 +56,5 @@ Full: `13-capability-audit/ready.json`
 - H* not SKIP (gateway available); unexercised parallel → FAIL
 
 ## deploy
-- stack: prod-backend-1 / prod-surreal-1 on 82.157.130.140
+- stack: prod-backend-1 / prod-surreal-1 on 203.0.113.10
 - no second Surreal / no Grok-local Surreal for acceptance

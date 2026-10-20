@@ -9,7 +9,7 @@
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` |
 | **仓库** | `/home/admin/projects/scribe-writing-system` |
 | **建议落仓路径** | `docs/plans/2026-08-13-move-library-design.md` |
-| **验证环境** | **仅已部署 demo** `https://tonglu.qing.blue` · SSH `ubuntu@82.157.130.140` · 应用 `/opt/scribe3/app`；运维 env SSOT **`/opt/scribe3/app/.env`** |
+| **验证环境** | **仅已部署 demo** `https://tonglu.example.com` · SSH `ubuntu@203.0.113.10` · 应用 `/opt/scribe3/app`；运维 env SSOT **`/opt/scribe3/app/.env`** |
 | **合法写通道** | orch proposal/apply、`save-chapter`、intent-goals、MCP `s3_patch_chapter_*` / `s3_add_chapter`。招式计划 **只** 扩 `s3_patch_chapter_plan(story_move_plan=)`；**不** 新增 Hermes 写工具。use 人批走登录 REST（对标 `POST /story-ack`）。**禁止** EMERGENCY 默认 |
 | **Surreal** | **3.x only**（demo 3.2.4）；NS=`scribe3`，一书一 `db=<work slug>`；禁止 `type::thing` |
 | **完成/宣称 SSOT** | **`docs/plans/2026-08-13-narrative-engine-product-mainline.md`**（`may_claim_story`）。本设计 **不** 改宣称公式、**不** 复活工程 PASS 话术 |
@@ -1265,7 +1265,7 @@ v1 种子 **≤1 张实卡**（三角）+ JSON 模板。文档允许总数 ≤20
 前端（**必须**在 demo 机构建，PR-4/6）：
 
 ```bash
-# 在 ubuntu@82.157.130.140、/opt/scribe3/app
+# 在 ubuntu@203.0.113.10、/opt/scribe3/app
 ./scripts/deploy_demo.sh frontend
 ```
 

@@ -1,5 +1,5 @@
 # 00-runtime-baseline
-- API: https://tonglu.qing.blue
+- API: https://tonglu.example.com
 - health 200 / ready 200
 - memory_fabric_v1=true
 - emergency_rest_write=false

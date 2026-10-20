@@ -9,7 +9,7 @@
 | **修订** | **rev.D** · active-hold 优先于 W2 checkpoint；PR-1 migration + bg 独立连接；force→distill |
 | **状态** | Proposed · 复审 3 open 已收口；可按 PR-1→2 开工 |
 | **产品** | scribe-writing-system / scribe3 |
-| **验证环境** | demo 已部署栈 `https://www.qing.blue`（不另起 Surreal / 本机全量 npm） |
+| **验证环境** | demo 已部署栈 `https://www.example.com`（不另起 Surreal / 本机全量 npm） |
 | **前序** | `docs/CURRENT_ARCHITECTURE.md` · `docs/plans/2026-08-09-memory-quality-best-plan-v4.md` · `docs/plans/2026-08-09-memory-quality-to-9.5-system-design.md` (rev.4 Accepted) · F2 主路径审计结论 |
 | **约束** | 不上 Graphiti 全量；不重写 fabric；不换 Surreal；工程可关 open loop，文学 9.5 须人评 |
 

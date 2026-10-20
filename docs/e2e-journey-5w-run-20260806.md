@@ -12,7 +12,7 @@
 |----|-----|
 | slug | `book_d3052625` |
 | 标题 | 旅程五站·20260806 |
-| 环境 | demo compose（www.qing.blue） |
+| 环境 | demo compose（www.example.com） |
 | 正文合计（去空白） | **50270** |
 | 章数 | 10（均 ≥5000） |
 

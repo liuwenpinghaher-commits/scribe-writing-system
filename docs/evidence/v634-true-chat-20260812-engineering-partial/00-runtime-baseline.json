@@ -1,13 +1,13 @@
 {
-  "entry_primary_protocol": "https://tonglu.qing.blue",
-  "entry_working_from_grok_host": "https://qing.blue",
+  "entry_primary_protocol": "https://tonglu.example.com",
+  "entry_working_from_grok_host": "https://example.com",
   "captured_at_utc": "2026-08-11T17:06:21Z",
   "evidence_window": {
     "start_utc": "2026-08-11T16:00:00Z",
     "end_utc": "2026-08-11T17:06:21Z"
   },
   "health": {
-    "source": "GET https://qing.blue/api/health",
+    "source": "GET https://example.com/api/health",
     "http": 200,
     "body": {
       "ok": true,
@@ -73,7 +73,7 @@
     "policy": "H* SKIP not justified; unexercised → FAIL"
   },
   "notes": [
-    "health: public https://qing.blue/api/health 200 ok=true",
+    "health: public https://example.com/api/health 200 ok=true",
     "ready: demo docker /ready 200 ready=true (public /api/ready flaky from Grok host)",
     "capabilities: demo session flags (fabric=true, emergency_rest_write=false)",
     "No SPA human journey → engineering PARTIAL only"

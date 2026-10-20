@@ -7,7 +7,7 @@
 | **日期** | 2026-08-15 |
 | **状态** | Draft · 审查结论（本轮只出方案，不改代码、不重跑章） |
 | **书 / 章** | `book_c14585d8`《炉灰记》seq=6《第六章 · 炉冷之前》 |
-| **验收环境** | 仅已部署 demo `https://tonglu.qing.blue` |
+| **验收环境** | 仅已部署 demo `https://tonglu.example.com` |
 | **协议** | `docs/e2e-director-journey-v634-true-chat-full-capability.md` **rev.4**（OpSeq / Ice7 / KD-25） |
 | **证据根** | `/tmp/grok-goal-9f6336fb1f07/implementer/ch6-review/`（章 JSON + 10 条链原文） |
 | **禁止** | 改宣称 / GATE-B / `GATE_SAVE_MODE`；本机 `npm ci` / Surreal / 第二套库；把 contrast red 或 HTTP 200 当质量 PASS |

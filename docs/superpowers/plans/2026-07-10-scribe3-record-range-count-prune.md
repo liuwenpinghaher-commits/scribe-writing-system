@@ -79,7 +79,7 @@ Run the active binary with credentials passed through environment variables, wit
 mkdir -p /tmp/scribe3-paper-20260710
 SURREAL_USER="${SCRIBE3_SURREAL_USER:-root}" \
 SURREAL_PASS="${SCRIBE3_SURREAL_PASS:-root}" \
-/Users/miaoma/.surrealdb/surreal export \
+~/.surrealdb/surreal export \
   --endpoint http://127.0.0.1:8001 \
   --namespace scribe3 \
   --database book_c256380e \

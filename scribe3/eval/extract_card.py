@@ -37,10 +37,14 @@ def load_source_slice(seq: int) -> str:
     meta = chapter_meta(seq)
     if meta.get("span_empty"):
         return ""
-    text = SOURCE.read_text(encoding="utf-8")
+    src = SOURCE if SOURCE.exists() else (ROOT / "乱世铜炉.md")
+    text = src.read_text(encoding="utf-8")
     lines = text.splitlines()
     start, end = meta["start"], meta["end"]
-    return "\n".join(lines[start : end + 1])
+    sliced = "\n".join(lines[start : end + 1])
+    if not sliced.strip() and seq == 0:
+        return text
+    return sliced
 
 
 def load_gold_card(seq: int) -> str:

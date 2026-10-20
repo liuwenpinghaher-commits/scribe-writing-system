@@ -48,7 +48,7 @@ rm -rf /opt/scribe3/app/scribe3/web/node_modules
 ## 监控建议
 
 ```bash
-ssh ubuntu@82.157.130.140 'df -h /; docker system df; docker images -f dangling=true -q | wc -l'
+ssh ubuntu@203.0.113.10 'df -h /; docker system df; docker images -f dangling=true -q | wc -l'
 ```
 
 - `/` 使用率 **>85%**：先 `prune` 再部署。  

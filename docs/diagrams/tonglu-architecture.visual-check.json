@@ -5,7 +5,7 @@
   "status": "pass",
   "visualReview": "pending",
   "artifact": {
-    "path": "/Users/miaoma/Downloads/写作 3.0/docs/diagrams/tonglu-architecture.html",
+    "path": "<repo-root>/docs/diagrams/tonglu-architecture.html",
     "sha256": "d6aeaa20dab5c8af5b98d1f8f6b683f04dcce710ab0ba9ab0ba8481137ffea50",
     "bytes": 711780
   },

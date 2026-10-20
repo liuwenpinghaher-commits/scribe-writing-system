@@ -13,7 +13,7 @@
 ---
 
 ### 约定
-- 工作目录:`/Users/miaoma/Downloads/写作 3.0/scribe`
+- 工作目录:`<repo-root>/scribe`
 - 新包:`scribe2/`(`__init__.py` 空);测试:`scribe2/tests/`
 - 跑测试:`.venv/bin/python -m pytest scribe2/tests/<f> -v`
 - **本任务不删旧代码**(旧 `scribe_mcp/` 留着对照,最后一段计划再清,符合 spec"跑通前不删可参考旧码")。

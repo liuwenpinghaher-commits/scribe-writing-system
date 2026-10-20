@@ -11,7 +11,7 @@
 | **代码根（已核实）** | `/home/admin/projects/scribe-ia-verify-wt` |
 | **对齐前序** | `docs/guides/2026-08-11-writing-context-injection-and-data-generation-full-flow.md`；章 IA `docs/plans/2026-08-10-chapter-writing-ia-optimal.md`；记忆质量 L1 `docs/plans/2026-08-09-memory-quality-to-9.5-system-design.md`；主编 H1 `docs/plans/2026-08-11-chief-module-generation-skill-vs-mcp.md` |
 | **会话 scratch** | `/tmp/grok-1000/grok-design-doc-f84f38a4.md` |
-| **验收环境** | demo 已部署栈（铜炉 `tonglu.qing.blue`）；**只冒烟已部署**；禁止 Grok 运行机全量 npm / 本机 Surreal / 再起平行栈 |
+| **验收环境** | demo 已部署栈（铜炉 `tonglu.example.com`）；**只冒烟已部署**；禁止 Grok 运行机全量 npm / 本机 Surreal / 再起平行栈 |
 | **明确不做的宣称** | **不**因本方案宣称文学 ≥9.5；**不**默认把 soft advisory 升 hard park；**不**把评分卡当意图、经验复盘当 `pressure_drive`；成本**不是**约束——以注意力质量与戏剧优先为硬指标 |
 
 ---

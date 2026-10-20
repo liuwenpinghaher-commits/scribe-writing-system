@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # 话语层 Week-1 方案 E · demo 冒烟（已部署栈）
-# BASE=https://tonglu.qing.blue/api WORK=main ./scripts/smoke_discourse_week1.sh
+# BASE=https://tonglu.example.com/api WORK=main ./scripts/smoke_discourse_week1.sh
 set -euo pipefail
-BASE="${BASE:-https://tonglu.qing.blue/api}"
+BASE="${BASE:-https://tonglu.example.com/api}"
 WORK="${WORK:-main}"
 CJ="${CJ:-/tmp/discourse-smoke-cj.txt}"
 

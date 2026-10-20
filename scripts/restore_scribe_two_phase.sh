@@ -48,7 +48,7 @@ if [[ -z "$STRIP" ]]; then
     "$(dirname "$0")/surreal_export_data_only.py" \
     /opt/scribe3/app/scripts/surreal_export_data_only.py \
     /tmp/surreal_export_data_only.py \
-    /home/ubuntu/surreal_export_data_only.py
+    /opt/scribe3-host/surreal_export_data_only.py
   do
     [[ -f "$c" ]] && STRIP="$c" && break
   done

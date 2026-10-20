@@ -3,7 +3,7 @@
 # 说明：GET /workflow/snapshot 在 AUTH 开启时返回 401，故用 in-process build_workflow_snapshot。
 set -euo pipefail
 KEY="${SSH_KEY:-$HOME/.ssh/id_tencent_lh}"
-HOST="${DEPLOY_HOST:-82.157.130.140}"
+HOST="${DEPLOY_HOST:-203.0.113.10}"
 USER="${DEPLOY_USER:-ubuntu}"
 WORK="${1:-main}"
 ssh -i "$KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=15 "${USER}@${HOST}" \

@@ -72,7 +72,7 @@ docker compose up
 | `SCRIBE3_AUTH_DB` | 与 settings 同目录 | 用户表 SQLite 路径 |
 | `SCRIBE3_SESSION_SECURE` | (HTTPS 建议 1) | Cookie `Secure` 标志 |
 
-公网域名假设：`https://tonglu.qing.blue`（旧 `www.qing.blue` / `qing.blue` 301 至主域）。规格：`docs/L1-AUTH-ISOLATION.md`。
+公网域名假设：`https://tonglu.example.com`（旧 `www.example.com` / `example.com` 301 至主域）。规格：`docs/L1-AUTH-ISOLATION.md`。
 | `SCRIBE3_MAX_CONCURRENT` | `3` | LLM 并发上限 |
 | `SCRIBE3_DAILY_CALL_CAP` | `500` | LLM 日调用上限 |
 | `SCRIBE3_NOVEL_WIDE` | (空=auto) | 空：模型窗 ≥192000 则 96k。`1` 强制升窗（窗不够会炸）。`0` 强制 48k。改窗/旗必须 compose recreate |

@@ -6,7 +6,7 @@
 | **地位** | **产品方案 SSOT / 北极星**（2026-08-13）。**实施入口**改指 [`2026-08-13-final-improvement-r8.md`](./2026-08-13-final-improvement-r8.md)（R8 裁断作者默认 / 无人值守 / 逃生封堵） |
 | **日期** | 2026-08-13 |
 | **产品** | 铜炉 · `scribe3/` |
-| **验证** | 仅已部署 demo `https://tonglu.qing.blue` · `/opt/scribe3/app` · env **`/opt/scribe3/app/.env`** |
+| **验证** | 仅已部署 demo `https://tonglu.example.com` · `/opt/scribe3/app` · env **`/opt/scribe3/app/.env`** |
 | **合法写** | orch / `save-chapter` / MCP `s3_*`；禁止 EMERGENCY 默认 |
 | **本轮范围** | 方案与排期；**不**自动开工写代码 |
 

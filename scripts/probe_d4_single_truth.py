@@ -2,7 +2,7 @@
 """D4 质量地板探针：同键 supersede 后 facts/prefetch 不得把旧值当真相。
 
 用法（demo）:
-  export API_BASE=https://tonglu.qing.blue
+  export API_BASE=https://tonglu.example.com
   export SCRIBE3_BOOTSTRAP_USERS=admin:xxx
   python3 scripts/probe_d4_single_truth.py --work book_xxx
 
@@ -19,7 +19,7 @@ import sys
 import time
 from pathlib import Path
 
-BASE = os.environ.get("API_BASE", "https://tonglu.qing.blue")
+BASE = os.environ.get("API_BASE", "https://tonglu.example.com")
 JAR = os.environ.get("COOKIE_JAR", "/tmp/d4_probe_cookie.txt")
 
 

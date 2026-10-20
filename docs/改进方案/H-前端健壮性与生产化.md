@@ -1,6 +1,6 @@
 # 枢纽 H · 前端健壮性与生产化
 
-> 对象:**scribe3**(根 `/Users/miaoma/Downloads/写作 3.0`)。前端 React 18 / Vite 6(`scribe3/web/`),后端 FastAPI(`scribe3/app.py`,:3321)。
+> 对象:**scribe3**(根 `<repo-root>`)。前端 React 18 / Vite 6(`scribe3/web/`),后端 FastAPI(`scribe3/app.py`,:3321)。
 > 本枢纽聚合**前端健壮性 + 工程化/部署**两条线,把"原型能跑"推进到"可交付他人、可生产部署"。
 > 来源诊断:[03-问题诊断与整改方案.md](../系统架构/03-问题诊断与整改方案.md) §6/§7、[05-HermesAgent使用深度诊断.md](../系统架构/05-HermesAgent使用深度诊断.md)。所有问题带 `文件:行号`,可直接定位。
 > **这是方案文档,不在本文真改代码。** 文中所有代码/配置为目标示例(jsx/yaml/python),供后续 TDD 实施参照。

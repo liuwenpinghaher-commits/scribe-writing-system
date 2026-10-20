@@ -12,6 +12,7 @@ def set_store(s, work: str | None = None) -> None:
     C._stores.move_to_end(w)
     if C._store is None or work is None or w == _default_work():
         C._store = s
+        C._stores[_default_work()] = s
 
 
 

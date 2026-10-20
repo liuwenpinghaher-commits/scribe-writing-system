@@ -7,7 +7,7 @@
   3) 打印对照协议 pass_rule
 
 用法：
-  API_BASE=https://tonglu.qing.blue SCRIBE3_BOOTSTRAP_USERS=admin:x \\
+  API_BASE=https://tonglu.example.com SCRIBE3_BOOTSTRAP_USERS=admin:x \\
   python3 scripts/probe_d7_memory_gain.py --work book_6340c01f
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-BASE = os.environ.get("API_BASE", "https://tonglu.qing.blue")
+BASE = os.environ.get("API_BASE", "https://tonglu.example.com")
 JAR = os.environ.get("COOKIE_JAR", "/tmp/d7_probe_cookie.txt")
 
 

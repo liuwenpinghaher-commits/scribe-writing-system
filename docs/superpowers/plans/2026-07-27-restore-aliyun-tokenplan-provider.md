@@ -51,10 +51,10 @@
 ### Task 2: 恢复四个 Hermes profile 并做真实最小探测
 
 **Files:**
-- Modify: `/Users/miaoma/.hermes/profiles/scribe3/config.yaml`
-- Modify: `/Users/miaoma/.hermes/profiles/scribe3_write/config.yaml`
-- Modify: `/Users/miaoma/.hermes/profiles/scribe3_deduce/config.yaml`
-- Modify: `/Users/miaoma/.hermes/profiles/scribe3_deduce_preview/config.yaml`
+- Modify: `~/.hermes/profiles/scribe3/config.yaml`
+- Modify: `~/.hermes/profiles/scribe3_write/config.yaml`
+- Modify: `~/.hermes/profiles/scribe3_deduce/config.yaml`
+- Modify: `~/.hermes/profiles/scribe3_deduce_preview/config.yaml`
 
 **Interfaces:**
 - Consumes: TokenPlan 的现有 API 凭证与 Hermes `alibaba-coding-plan`/自定义 OpenAI 兼容配置能力。

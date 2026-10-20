@@ -28,14 +28,14 @@
    ```yaml
    mcp_servers:
      scribe3_read:
-       command: "/Users/miaoma/Downloads/写作 3.0/scribe3/run_mcp.sh"
+       command: "<repo-root>/scribe3/run_mcp.sh"
        enabled: true
        tools:
          include: [s3_list_works, ...]
          resources: false
          prompts: false
      scribe3_write:
-       command: "/Users/miaoma/Downloads/写作 3.0/scribe3/run_mcp.sh"
+       command: "<repo-root>/scribe3/run_mcp.sh"
        enabled: true
        tools:
          include: [s3_save_chapter, ...]

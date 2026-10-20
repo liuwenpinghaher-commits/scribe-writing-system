@@ -100,7 +100,7 @@ This is the part that trips up the most people. There are **two filesystems** , 
 ### The two directions[​](https://hermes-agent.nousresearch.com/docs/user-guide/windows-wsl-quickstart#the-two-directions "Direct link to The two directions")  
 | Direction  | Path inside  | Path you use  |  
 | --- | --- | --- |  
-| Windows disk, seen from WSL  | `C:\Users\you\Documents`  | `/mnt/c/Users/you/Documents`  |  
+| Windows disk, seen from WSL  | `C:\Users\you\Documents`  | `/mnt/c/home/you/Documents`  |  
 | WSL disk, seen from Windows  | `/home/you/code`  |  `\\wsl$\Ubuntu\home\you\code` (or `\\wsl.localhost\Ubuntu\...` on newer builds)  |  
 Both are real, both work, but they are **not the same filesystem** — they're bridged by a 9P network protocol under the hood. That has real performance and semantic consequences.
 ### Where to put Hermes and your projects[​](https://hermes-agent.nousresearch.com/docs/user-guide/windows-wsl-quickstart#where-to-put-hermes-and-your-projects "Direct link to Where to put Hermes and your projects")
@@ -120,14 +120,14 @@ Put things on `/mnt/c` only when you **need** a file to live on the Windows side
 **From Windows → into WSL:** easiest is to open Explorer and type `\\wsl.localhost\Ubuntu` in the address bar. You can then drag-drop into `\home\<you>\...`. Or from PowerShell:
 
 ```
-wsl cp /mnt/c/Users/you/Downloads/file.pdf ~/incoming/  
+wsl cp /mnt/c/home/you/Downloads/file.pdf ~/incoming/  
 
 ```
 
-**From WSL → into Windows:** copy to `/mnt/c/Users/<you>/...` and it shows up in Windows Explorer immediately:
+**From WSL → into Windows:** copy to `/mnt/c/home/<you>/...` and it shows up in Windows Explorer immediately:
 
 ```
-cp ~/reports/output.pdf /mnt/c/Users/you/Desktop/  
+cp ~/reports/output.pdf /mnt/c/home/you/Desktop/  
 
 ```
 
@@ -144,7 +144,7 @@ explorer.exe .                  # opens the current WSL dir in Windows Explorer
 
 ```
 wslpath -w ~/code/project        # → \\wsl.localhost\Ubuntu\home\you\code\project  
-wslpath -u 'C:\Users\you'        # → /mnt/c/Users/you  
+wslpath -u 'C:\Users\you'        # → /mnt/c/home/you  
 
 ```
 
@@ -167,7 +167,7 @@ dos2unix path/to/script.sh
 ```
 
 ### "Clone inside WSL or on `/mnt/c`?"[​](https://hermes-agent.nousresearch.com/docs/user-guide/windows-wsl-quickstart#clone-inside-wsl-or-on-mntc "Direct link to clone-inside-wsl-or-on-mntc")
-Clone inside WSL. Always, unless you have a specific reason not to. A typical Hermes workflow (`hermes chat`, tool calls that `rg`/`ripgrep` the repo, file watchers, background gateway) will be dramatically faster and more reliable against `~/code/myrepo` than `/mnt/c/Users/you/myrepo`.
+Clone inside WSL. Always, unless you have a specific reason not to. A typical Hermes workflow (`hermes chat`, tool calls that `rg`/`ripgrep` the repo, file watchers, background gateway) will be dramatically faster and more reliable against `~/code/myrepo` than `/mnt/c/home/you/myrepo`.
 One exception: **MCP bridges that launch Windows binaries.** If you're using `chrome-devtools-mcp` through `cmd.exe` (see [MCP guide: WSL → Windows Chrome](https://hermes-agent.nousresearch.com/docs/guides/use-mcp-with-hermes#wsl2-bridge-hermes-in-wsl-to-windows-chrome)), Windows may complain with a `UNC` warning if Hermes's current working directory is `~`. In that case, start Hermes from somewhere under `/mnt/c/` so the Windows process has a drive-letter cwd.
 ## Networking: WSL ↔ Windows[​](https://hermes-agent.nousresearch.com/docs/user-guide/windows-wsl-quickstart#networking-wsl--windows "Direct link to Networking: WSL ↔ Windows")
 WSL2 runs in a lightweight VM with its own network stack. That means `localhost` inside WSL is **not the same as** `localhost` on Windows — they're two separate hosts from the network's point of view. You need to decide, for each service, which direction traffic flows and pick the right bridge.

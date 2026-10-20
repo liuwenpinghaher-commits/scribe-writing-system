@@ -5,7 +5,7 @@
 | **日期** | 2026-08-10 |
 | **PR** | PR-10 · demo 质量 env + 铜炉新卷 2 章人读/人盲小样 |
 | **设计真源** | [`docs/plans/2026-08-10-novel-quality-first-pipeline-optimization.md`](../plans/2026-08-10-novel-quality-first-pipeline-optimization.md) §Rollout / PR Plan |
-| **验收环境** | 已部署 demo `https://www.qing.blue`（`82.157.130.140` · `/opt/scribe3/app`） |
+| **验收环境** | 已部署 demo `https://www.example.com`（`203.0.113.10` · `/opt/scribe3/app`） |
 | **对照书** | `book_013bcb3b`（炉灰记·v6.3.3 · ch1–5 · soft-pass 基线） |
 | **证据根** | [`docs/evidence/nq-quality-smoke-20260810/`](../evidence/nq-quality-smoke-20260810/) |
 | **脚本** | `scripts/nq_quality_smoke_runbook.sh` |
@@ -67,8 +67,8 @@ SCRIBE3_PDC_BLOCKING=1
 ### 1.4 在 demo 应用（操作员）
 
 ```bash
-# SSH: ubuntu@82.157.130.140 ，密钥 ~/.ssh/id_tencent_lh
-ssh -i ~/.ssh/id_tencent_lh ubuntu@82.157.130.140
+# SSH: ubuntu@203.0.113.10 ，密钥 ~/.ssh/id_tencent_lh
+ssh -i ~/.ssh/id_tencent_lh ubuntu@203.0.113.10
 cd /opt/scribe3/app
 
 # 1) 备份
@@ -90,8 +90,8 @@ docker compose -f deploy/prod/docker-compose.yml --env-file deploy/prod/.env up 
 # 或：docker restart prod-backend-1
 
 # 5) 存活
-curl -fsS https://www.qing.blue/api/health
-curl -fsS https://www.qing.blue/api/ready
+curl -fsS https://www.example.com/api/health
+curl -fsS https://www.example.com/api/ready
 ```
 
 ### 1.5 回滚
@@ -167,7 +167,7 @@ SQL
 | 对照 | `book_013bcb3b` ch1–5 · `docs/evidence/v633-reval-20260810/` |
 | 章数 | **2**（PR-10 最小人读包；可后续加章） |
 | 标题模板 | `炉灰记·质量模式·PR10·YYYYMMDD` |
-| API | `API_BASE=https://www.qing.blue` |
+| API | `API_BASE=https://www.example.com` |
 
 ### 3.2 前置
 
@@ -183,7 +183,7 @@ SQL
 
 ```bash
 # 开发机/demo 机（凭证勿提交）
-export API_BASE=https://www.qing.blue
+export API_BASE=https://www.example.com
 export SCRIBE3_BOOTSTRAP_USERS='user:pass'   # 或 BOOT_FILE
 export EVID_DIR=docs/evidence/nq-quality-smoke-20260810
 

@@ -57,7 +57,7 @@ def test_build_craft_block_appends_themed_rules():
 
 def test_default_metaphor_keeps_quota_substring(monkeypatch):
     """flag 关：保留既有「每章 2-4 个」配额声口。"""
-    monkeypatch.delenv("SCRIBE3_CRAFT_NOVEL", raising=False)
+    monkeypatch.setenv("SCRIBE3_CRAFT_NOVEL", "0")
     monkeypatch.delenv("SCRIBE3_PDC", raising=False)
     block = build_craft_block()
     assert "2-4" in block
@@ -105,7 +105,7 @@ def test_craft_novel_and_pdc_no_double_inject(monkeypatch):
 
 def test_pdc_only_keeps_default_metaphor(monkeypatch):
     """仅 PDC：idle/sensory 偏科，metaphor 仍为默认配额串。"""
-    monkeypatch.delenv("SCRIBE3_CRAFT_NOVEL", raising=False)
+    monkeypatch.setenv("SCRIBE3_CRAFT_NOVEL", "0")
     monkeypatch.setenv("SCRIBE3_PDC", "1")
     block = build_craft_block()
     assert "闲笔偏科" in block

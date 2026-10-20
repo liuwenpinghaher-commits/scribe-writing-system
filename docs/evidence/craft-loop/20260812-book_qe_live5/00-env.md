@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 |----|-----|
-| demo | https://tonglu.qing.blue |
+| demo | https://tonglu.example.com |
 | health | `GET /api/health` → ok=true, ns=scribe3 |
 | emergency_rest_write | **false**（capabilities flags） |
 | auth | session cookie `s3_session`（admin） |

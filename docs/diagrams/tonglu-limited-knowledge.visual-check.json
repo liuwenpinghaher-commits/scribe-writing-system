@@ -5,7 +5,7 @@
   "status": "pass",
   "visualReview": "pending",
   "artifact": {
-    "path": "/Users/miaoma/Downloads/写作 3.0/docs/diagrams/tonglu-limited-knowledge.html",
+    "path": "<repo-root>/docs/diagrams/tonglu-limited-knowledge.html",
     "sha256": "3e2bfb711983e8e0731a6dda4b97180fa87093e90b2ebf534371b3fc0bff8e76",
     "bytes": 705175
   },

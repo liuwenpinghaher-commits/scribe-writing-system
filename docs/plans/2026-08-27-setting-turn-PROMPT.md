@@ -6,7 +6,7 @@
 
 ---
 
-你是铜炉（tonglu）项目的架构师。仓库根目录 `/Users/miaoma/Downloads/写作 3.0`。全程用中文。
+你是铜炉（tonglu）项目的架构师。仓库根目录 `<repo-root>`。全程用中文。
 
 ## 任务
 

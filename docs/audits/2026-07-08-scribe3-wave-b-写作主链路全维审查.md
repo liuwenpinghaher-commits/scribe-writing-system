@@ -185,19 +185,19 @@ Wave B 当前是 **主链路可写、测试基础较强，但产品闭环仍有 
 已运行：
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q scribe3/tests/test_manuscript.py scribe3/tests/test_timeline.py scribe3/tests/test_ingest.py scribe3/tests/test_ingest_idempotency.py
 # 85 passed, 1 warning
 ```
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q scribe3/tests/test_chat_message.py scribe3/tests/test_llm_stream.py scribe3/tests/test_brief.py scribe3/tests/test_pilot.py scribe3/tests/test_selection.py scribe3/tests/test_loop_endpoint.py
 # 119 passed, 1 warning
 ```
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/layout/__tests__/directoryPane-manuscript.test.jsx src/__tests__/chapterStudio-topbar.test.jsx src/__tests__/appRail-layout.test.jsx src/__tests__/deduceStage-layout.test.jsx src/editor/markdown.test.js src/editor/guardIssues.test.js src/editor/applyProposal.test.js
 # 7 test files passed, 31 tests passed
 ```

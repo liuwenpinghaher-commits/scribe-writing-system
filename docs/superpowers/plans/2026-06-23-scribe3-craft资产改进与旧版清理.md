@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11、FastMCP、SurrealDB(NS=scribe3)、pytest。依据 spec:`docs/superpowers/specs/2026-06-23-scribe3-craft资产改进与旧版清理-design.md`。
 
-**提交约定(用户红线):** 每个 Task 末尾的 commit 步骤须经作者明确批准后执行;未获批准则只留改动不提交。所有命令在仓库根 `/Users/miaoma/Downloads/写作 3.0` 下、scribe3 venv 激活后运行。
+**提交约定(用户红线):** 每个 Task 末尾的 commit 步骤须经作者明确批准后执行;未获批准则只留改动不提交。所有命令在仓库根 `<repo-root>` 下、scribe3 venv 激活后运行。
 
 ---
 
@@ -86,7 +86,7 @@ def test_build_craft_block_appends_themed_rules():
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && python -m pytest scribe3/tests/test_craft.py -v`
+Run: `cd "<repo-root>" && python -m pytest scribe3/tests/test_craft.py -v`
 Expected: FAIL,`ModuleNotFoundError: No module named 'scribe3.craft'`
 
 - [ ] **Step 3: 实现 craft.py**
@@ -195,7 +195,7 @@ def build_craft_block(rules: list[dict] | None = None) -> str:
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && python -m pytest scribe3/tests/test_craft.py -v`
+Run: `cd "<repo-root>" && python -m pytest scribe3/tests/test_craft.py -v`
 Expected: PASS(5 passed)。若 `test_palette_fifteen_complete` 失败=11 种没搬全;若 `test_no_scifi_residue` 失败=清洗没干净。
 
 - [ ] **Step 5: 提交(经作者批准)**
@@ -252,7 +252,7 @@ def test_soak_calls_model():
 
 - [ ] **Step 2: 运行确认失败**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && python -m pytest scribe3/tests/test_soak.py -v`
+Run: `cd "<repo-root>" && python -m pytest scribe3/tests/test_soak.py -v`
 Expected: FAIL,`ModuleNotFoundError: No module named 'scribe3.soak'`
 
 - [ ] **Step 3: 实现 soak.py**
@@ -305,7 +305,7 @@ def soak(world, chapter: int, focalizer: str, complete_fn) -> dict:
 
 - [ ] **Step 4: 运行确认通过**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && python -m pytest scribe3/tests/test_soak.py -v`
+Run: `cd "<repo-root>" && python -m pytest scribe3/tests/test_soak.py -v`
 Expected: PASS(4 passed)
 
 - [ ] **Step 5: 提交(经作者批准)**
@@ -362,7 +362,7 @@ def test_quality_flags_includes_ai_tics():
 
 - [ ] **Step 2: 运行确认失败**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && python -m pytest scribe3/tests/test_critique.py -v`
+Run: `cd "<repo-root>" && python -m pytest scribe3/tests/test_critique.py -v`
 Expected: FAIL — `ImportError: cannot import name 'find_ai_tics'`,且 `test_purple_themed_via_extra_patterns` 失败(当前 `天地为炉` 仍硬编码命中)。
 
 - [ ] **Step 3: 修改 critique.py**
@@ -425,7 +425,7 @@ def quality_flags(text: str, extra_patterns: list[str] | None = None) -> dict:
 
 - [ ] **Step 4: 运行确认通过(含原有测试不回归)**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && python -m pytest scribe3/tests/test_critique.py -v`
+Run: `cd "<repo-root>" && python -m pytest scribe3/tests/test_critique.py -v`
 Expected: PASS(原 4 + 新 5 = 9 passed)
 
 - [ ] **Step 5: 提交(经作者批准)**
@@ -476,7 +476,7 @@ def test_seed_craft_rules_luanshi(store):
 
 - [ ] **Step 2: 运行确认失败**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && python -m pytest scribe3/tests/test_craft_rule.py -v`
+Run: `cd "<repo-root>" && python -m pytest scribe3/tests/test_craft_rule.py -v`
 Expected: FAIL — `AttributeError: 'SurrealStore' object has no attribute 'add_craft_rule'`
 
 - [ ] **Step 3a: 建 migration**
@@ -527,7 +527,7 @@ DEFINE FIELD IF NOT EXISTS note ON craft_rule TYPE option<string>;
 
 - [ ] **Step 4: 运行确认通过**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && python -m pytest scribe3/tests/test_craft_rule.py -v`
+Run: `cd "<repo-root>" && python -m pytest scribe3/tests/test_craft_rule.py -v`
 Expected: PASS(3 passed)
 
 - [ ] **Step 5: 提交(经作者批准)**
@@ -595,7 +595,7 @@ def test_render_runs_soak_then_renders():
 
 - [ ] **Step 2: 运行确认失败**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && python -m pytest scribe3/tests/test_render.py -v`
+Run: `cd "<repo-root>" && python -m pytest scribe3/tests/test_render.py -v`
 Expected: FAIL — `build_render_prompt() got an unexpected keyword argument 'craft_block'`
 
 - [ ] **Step 3a: ontology.py World 加空实现(124 行末尾)**
@@ -685,7 +685,7 @@ def render(world: World, chapter: int, focalizer: str,
 
 - [ ] **Step 4: 运行确认通过(全量,防回归)**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && python -m pytest scribe3/tests/test_render.py scribe3/tests/test_craft.py scribe3/tests/test_soak.py -v`
+Run: `cd "<repo-root>" && python -m pytest scribe3/tests/test_render.py scribe3/tests/test_craft.py scribe3/tests/test_soak.py -v`
 Expected: PASS(原 render 测试 + 新 4 条 + craft/soak 全绿)
 
 - [ ] **Step 5: 提交(经作者批准)**
@@ -728,7 +728,7 @@ def test_craft_rule_gated_in_write_set():
 
 - [ ] **Step 2: 运行确认失败**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && python -m pytest scribe3/tests/test_mcp.py -k "palette or craft_rule" -v`
+Run: `cd "<repo-root>" && python -m pytest scribe3/tests/test_mcp.py -k "palette or craft_rule" -v`
 Expected: FAIL — `AttributeError: module 'scribe3.mcp' has no attribute 's3_emotion_palette'`
 
 - [ ] **Step 3a: WRITE_GATED 登记(mcp.py:30-31)**
@@ -779,7 +779,7 @@ async def s3_craft_rule_remove(ctx: Context, rule_id: str) -> dict:
 
 - [ ] **Step 4: 运行确认通过**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && python -m pytest scribe3/tests/test_mcp.py -v`
+Run: `cd "<repo-root>" && python -m pytest scribe3/tests/test_mcp.py -v`
 Expected: PASS(原有 + 新 2 条全绿)
 
 - [ ] **Step 5: 提交(经作者批准)**
@@ -813,7 +813,7 @@ def test_qc_chapter_uses_themed_purple(store, monkeypatch):
 
 - [ ] **Step 2: 运行确认失败**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && python -m pytest scribe3/tests/test_mcp.py -k qc_chapter_uses_themed -v`
+Run: `cd "<repo-root>" && python -m pytest scribe3/tests/test_mcp.py -k qc_chapter_uses_themed -v`
 Expected: FAIL（`s3_qc_chapter` 当前不传题材正则,`天地为炉` 已从通用层移走 → purple 为空）
 
 - [ ] **Step 3a: 改 s3_qc_chapter(mcp.py:124-129)**
@@ -846,7 +846,7 @@ def s3_qc_chapter(seq: int) -> dict:
 
 - [ ] **Step 4: 运行确认通过**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && python -m pytest scribe3/tests/test_mcp.py -v`
+Run: `cd "<repo-root>" && python -m pytest scribe3/tests/test_mcp.py -v`
 Expected: PASS
 
 - [ ] **Step 5: 提交(经作者批准)**
@@ -864,7 +864,7 @@ git commit -m "feat(craft): qc接本书题材正则 + SKILL.md craft段扩展(�
 
 - [ ] **Step 1: 全量测试**
 
-Run: `cd "/Users/miaoma/Downloads/写作 3.0" && python -m pytest scribe3/tests/ -v`
+Run: `cd "<repo-root>" && python -m pytest scribe3/tests/ -v`
 Expected: 全绿(含原有所有测试 + 本期新增 test_craft/test_soak/test_craft_rule + 改动的 test_critique/test_render/test_mcp)。任何红=回归,先修。
 
 - [ ] **Step 2: 给主书 main 落题材种子(一次性,连真库)**
@@ -872,7 +872,7 @@ Expected: 全绿(含原有所有测试 + 本期新增 test_craft/test_soak/test_
 scribe3 真库须在跑(`~/.surrealdb/surreal` 或既有实例,`SCRIBE3_SURREAL_URL` 默认 `ws://127.0.0.1:8001/rpc`)。
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0" && python -c "
+cd "<repo-root>" && python -c "
 from scribe3.store import SurrealStore
 s = SurrealStore(ns='scribe3', db='main'); s.apply_schema(); s.seed_craft_rules()
 print('craft_rule 种子:', len(s.list_craft_rules()), '条'); s.close()
@@ -900,7 +900,7 @@ git commit -m "test(craft): 阶段一全量回归绿 + 主书 craft 题材种子
 Hermes 与 scribe3 真库在跑。渲染主书第 1 章老道视角:
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0" && python -c "
+cd "<repo-root>" && python -c "
 from scribe3.store import SurrealStore
 from scribe3.render import build_render_prompt, render
 s = SurrealStore(ns='scribe3', db='main'); s.apply_schema()
@@ -917,7 +917,7 @@ Expected: 打印 `[OK] craft 注入`。**人工再读 prompt 确认**:含七引�
 - [ ] **Step 2: 实跑一次带浸泡的渲染(连 Hermes)**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0" && python -c "
+cd "<repo-root>" && python -c "
 from scribe3.store import SurrealStore
 from scribe3.render import render
 s = SurrealStore(ns='scribe3', db='main'); s.apply_schema()
@@ -945,25 +945,25 @@ Expected: 输出一段散文(非元叙述)。**人工核验**:身体先行/克�
 - [ ] **Step 1: 删前快照(可回滚保险)**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0" && git rev-parse HEAD && git status --short
-du -sh scribe/ "/Users/miaoma/Downloads/写作/hermes-novel" "/Users/miaoma/Downloads/写作/.agents" ~/.scribe 2>/dev/null
+cd "<repo-root>" && git rev-parse HEAD && git status --short
+du -sh scribe/ "~/Downloads/写作/hermes-novel" "~/Downloads/写作/.agents" ~/.scribe 2>/dev/null
 ```
 Expected: 记录当前 HEAD(scribe/ 删除走 git,可 `git revert`/`checkout` 找回代码;数据库 data.db 删除不可逆)。
 
 - [ ] **Step 2: 删 scribe2 代码(git 追踪,用 git rm)**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0" && git rm -r scribe/ && git status --short | head
+cd "<repo-root>" && git rm -r scribe/ && git status --short | head
 ```
 Expected: 143 个追踪文件 staged for deletion;`scribe/out/`、`scribe/vendor/`(gitignore)随目录一并消失。
 
 - [ ] **Step 3: 删 hermes-novel(独立 repo 内,直接 rm)**
 
 ```bash
-rm -rf "/Users/miaoma/Downloads/写作/hermes-novel" \
-       "/Users/miaoma/Downloads/写作/.agents/wiki" \
-       "/Users/miaoma/Downloads/写作/.agents/wiki-backup-v3"
-ls "/Users/miaoma/Downloads/写作/" | head    # 确认开源副本/备份仍在
+rm -rf "~/Downloads/写作/hermes-novel" \
+       "~/Downloads/写作/.agents/wiki" \
+       "~/Downloads/写作/.agents/wiki-backup-v3"
+ls "~/Downloads/写作/" | head    # 确认开源副本/备份仍在
 ```
 Expected: hermes-novel 与 craft wiki 消失;`novel-engine/book-genesis-master/备份` 等**保留**。
 
@@ -987,14 +987,14 @@ Expected: `[OK] 全局 config 已无旧版引用`;profile scribe3 skills 仍只�
 - [ ] **Step 6: 删除后回归(确保 scribe3 不依赖被删项)**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0" && python -m pytest scribe3/tests/ -v 2>&1 | tail -20
+cd "<repo-root>" && python -m pytest scribe3/tests/ -v 2>&1 | tail -20
 ```
 Expected: 全绿。`migrate.py`/`test_migrate.py` 若依赖 scribe2 库会失败——确认 migrate 仅连 NS 不依赖 `scribe/` 目录(已核:`migrate.py` 连 SurrealDB,不 import scribe2 代码);若 test_migrate 连旧库则按需 skip 并记录。
 
 - [ ] **Step 7: 提交(经作者批准)**
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0" && git add -A
+cd "<repo-root>" && git add -A
 git commit -m "chore: 删除 scribe2 + hermes-novel 旧系统(craft 已提取进 scribe3,九原渡不留档)"
 ```
 

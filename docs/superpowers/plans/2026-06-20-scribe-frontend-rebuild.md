@@ -13,7 +13,7 @@
 ### 前置(执行前必做)
 
 - [ ] **暂存旧前端 WIP**:`git stash push -m "pre-rebuild dual-mode WIP" web-app/src/` 后确认 `git status` 工作树干净(WIP 可后续 `git stash list`/`pop` 找回)。
-- 工作目录:`/Users/miaoma/Downloads/写作 3.0/scribe/web-app`
+- 工作目录:`<repo-root>/scribe/web-app`
 - 真源参考(不要照搬旧 UI,按 spec 重做):[前端 spec](../specs/2026-06-20-scribe-ui-rebuild-design.md)
 - 设计令牌真值见 spec §5;后端新字段(关系 typed / quality history)已就位,可直接调。
 

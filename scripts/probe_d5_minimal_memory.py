@@ -2,7 +2,7 @@
 """D5 地板探针：prefetch/组装含 must-link；作者粘贴圣经可被检出。
 
 不代替质量 9.5 人评。用法：
-  API_BASE=https://tonglu.qing.blue SCRIBE3_BOOTSTRAP_USERS=admin:x \\
+  API_BASE=https://tonglu.example.com SCRIBE3_BOOTSTRAP_USERS=admin:x \\
   python3 scripts/probe_d5_minimal_memory.py --work book_6340c01f
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-BASE = os.environ.get("API_BASE", "https://tonglu.qing.blue")
+BASE = os.environ.get("API_BASE", "https://tonglu.example.com")
 JAR = os.environ.get("COOKIE_JAR", "/tmp/d5_probe_cookie.txt")
 
 

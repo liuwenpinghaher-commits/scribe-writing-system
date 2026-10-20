@@ -151,7 +151,7 @@ Wave E 的核心结论是：Scribe3 的限知和 work 隔离底座已经接近�
 ## 验证
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/pytest -q scribe3/tests/test_security.py scribe3/tests/test_verify.py scribe3/tests/test_purpose_contract.py scribe3/tests/test_setting_system.py
 # 35 passed, 1 warning
 
@@ -161,7 +161,7 @@ scribe3/.venv/bin/pytest -q scribe3/tests/test_migrate.py scribe3/tests/test_tra
 scribe3/.venv/bin/pytest -q scribe3/tests/test_soak.py scribe3/tests/test_observability.py
 # 9 passed
 
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/__tests__/materials-workbench.test.jsx src/layout/__tests__/directoryPane-manuscript.test.jsx src/layout/__tests__/fourPaneShell.test.jsx src/__tests__/detailPane-capabilities.test.jsx
 # 4 test files passed, 21 tests passed
 ```

@@ -8,7 +8,7 @@
 | **状态** | Draft · **rev.2.3**（产品纠偏：**引导优先、少硬拦**；冲突/事件驱动为主，允许服务戏的 POV 跟随） |
 | **产品** | scribe-writing-system / scribe3（铜炉） |
 | **文档真源** | 仓库 `docs/plans/2026-08-10-narrative-event-engine.md`；`/tmp/grok-1000/grok-design-doc-5a3d3922.md` 为会话 scratch，改设计须同步 commit 耐久路径 |
-| **验收环境** | demo 已部署栈 `https://www.qing.blue`；**禁止**默认再起第二 Surreal；Grok 运行机不做全量 npm/测试 |
+| **验收环境** | demo 已部署栈 `https://www.example.com`；**禁止**默认再起第二 Surreal；Grok 运行机不做全量 npm/测试 |
 | **前序（其上的引擎层）** | [`docs/plans/2026-08-10-novel-quality-first-pipeline-optimization.md`](./2026-08-10-novel-quality-first-pipeline-optimization.md)（beats.v2 GCD、drama gate、craft novel、park_stroll、pressure soft 双旗）· 证据 [`docs/evidence/nq-quality-smoke-20260810/12-llm-quality-delta-analysis.md`](../evidence/nq-quality-smoke-20260810/12-llm-quality-delta-analysis.md) · [`docs/系统文档/03-写作主链路.md`](../系统文档/03-写作主链路.md) · 压力设计 `设计文档/2026-08-09-压力驱动叙事-匀速散步治理.md` |
 | **明确不做的宣称** | **不**因本方案单独宣称文学 ≥9.5；换 POV **≠** 叙事引擎；**不**把 deduce 改成写戏 |
 

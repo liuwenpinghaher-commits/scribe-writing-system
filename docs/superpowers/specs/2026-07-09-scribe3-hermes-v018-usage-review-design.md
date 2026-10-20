@@ -126,7 +126,7 @@
 
 ```text
 Hermes Agent v0.18.0 (2026.7.1) · upstream daedf4f6
-Project: /Users/miaoma/.hermes/hermes-agent
+Project: ~/.hermes/hermes-agent
 Python: 3.11.15
 OpenAI SDK: 2.24.0
 Update available: 837 commits behind — run 'hermes update'
@@ -191,12 +191,12 @@ Update available: 837 commits behind — run 'hermes update'
 运行时配置证据:
 
 - `~/.hermes/profiles/scribe3/config.yaml`
-  - `mcp_servers.scribe3_read.command=/Users/miaoma/Downloads/写作 3.0/scribe3/run_mcp.sh`
-  - `mcp_servers.scribe3_write.command=/Users/miaoma/Downloads/写作 3.0/scribe3/run_mcp.sh`
+  - `mcp_servers.scribe3_read.command=<repo-root>/scribe3/run_mcp.sh`
+  - `mcp_servers.scribe3_write.command=<repo-root>/scribe3/run_mcp.sh`
   - `mcp_servers.scribe3_read.tools.include` 共 32 个只读工具。
   - `mcp_servers.scribe3_write.tools.include` 共 24 个写/状态变更工具。
   - `platform_toolsets.api_server=["scribe3_read"]`
-  - `skills.external_dirs=["/Users/miaoma/Downloads/写作 3.0/scribe3/hermes_skills"]`
+  - `skills.external_dirs=["<repo-root>/scribe3/hermes_skills"]`
   - `memory.memory_enabled=true`
   - `memory.write_approval=true`
   - `skills.write_approval=true`
@@ -219,7 +219,7 @@ Update available: 837 commits behind — run 'hermes update'
 
 ### 0.4 Hermes API server 源码结论
 
-本次补查了 `/Users/miaoma/.hermes/hermes-agent/gateway/platforms/api_server.py` 与官方 API Server 文档:
+本次补查了 `~/.hermes/hermes-agent/gateway/platforms/api_server.py` 与官方 API Server 文档:
 
 - 官方文档写明 Runs 只接受 `input` 与可选 `session_id`、`instructions`、`conversation_history`、`previous_response_id`。
 - `_handle_runs()` 源码确实只读取这些字段和 `model`;没有读取 `tools`、`toolsets`、`enabled_toolsets`。

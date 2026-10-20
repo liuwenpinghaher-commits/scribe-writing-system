@@ -5,7 +5,7 @@
     "ts_end": "2026-08-12T10:48:48.880217+00:00",
     "note": "CL-B4 gates B3-B6 fields",
     "method": "GET",
-    "url": "https://tonglu.qing.blue/api/craft-gates?work=book_qe_live5&seq=2",
+    "url": "https://tonglu.example.com/api/craft-gates?work=book_qe_live5&seq=2",
     "path": "/api/craft-gates?work=book_qe_live5&seq=2",
     "request_body": null,
     "status": 200,

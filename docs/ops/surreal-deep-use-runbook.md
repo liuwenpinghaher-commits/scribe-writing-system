@@ -78,7 +78,7 @@ print('writable_ok', ch.get('title'), ch.get('focalizer'), len(ch.get('prose') o
 ## 健康检查
 
 ```bash
-curl -sS https://tonglu.qing.blue/api/health | jq .
+curl -sS https://tonglu.example.com/api/health | jq .
 # changefeed.alive、cursors 含真表、surreal_flags 全 true（demo）
 ```
 

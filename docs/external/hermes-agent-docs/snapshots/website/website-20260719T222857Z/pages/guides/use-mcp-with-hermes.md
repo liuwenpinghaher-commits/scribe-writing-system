@@ -155,7 +155,7 @@ Common reasons:
 
 In those cases, keep `/browser connect` for same-environment setups and use MCP for WSL-to-Windows browser bridging.
 ### Known pitfalls[​](https://hermes-agent.nousresearch.com/docs/guides/use-mcp-with-hermes#known-pitfalls "Direct link to Known pitfalls")
-  * Start Hermes from a Windows-mounted path like `/mnt/c/Users/<you>` or `/mnt/c/workspace/...` when using Windows stdio executables through MCP.
+  * Start Hermes from a Windows-mounted path like `/mnt/c/home/<you>` or `/mnt/c/workspace/...` when using Windows stdio executables through MCP.
   * If you start Hermes from `/root` or `/home/...`, Windows may emit a `UNC` current-directory warning before the MCP server starts.
   * If `chrome-devtools-mcp --autoConnect` times out while enumerating pages, reduce background/frozen tabs in Chrome and retry.
 

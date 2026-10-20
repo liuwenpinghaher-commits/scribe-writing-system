@@ -29,8 +29,7 @@ def commit_if_approved(name, accepted, do_write, args=None):  # noqa: F811
     return _gate_commit_if_approved(name, accepted, do_write, args=args)
 
 
-@mcp.tool(annotations=_RO)
-
+@mcp.tool(annotations=_RW)
 def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None = None,
                     work: str | None = None, danger_draft: bool = False,
                     skip_craft_gate: bool = False) -> dict:
@@ -418,7 +417,8 @@ async def s3_add_character_relation(ctx: Context, src_oid: str, dst_oid: str,
       兼容旧英文: ally/enemy/kin/master_disciple/lover
       自定义: custom
     """
-    if note is not None and str(note).strip() and len(str(note).strip()) < 10:
+    from scribe3.iceberg import codex_thicken_gate_enabled
+    if codex_thicken_gate_enabled() and note is not None and str(note).strip() and len(str(note).strip()) < 10:
         return {"status": "error", "tool": "s3_add_character_relation", "code": "note_thin",
                 "error": "关系备注过短（<10）"}
     ok = await _ask(ctx, f"添加角色关系 {src_oid}→{dst_oid} [{relation}](章{since_chapter})")
@@ -436,7 +436,8 @@ async def s3_evolve_relation(ctx: Context, src_oid: str, dst_oid: str,
     用于表达敌变友、师徒决裂、盟友反目等弧线。
     new_relation 受控词表同 s3_add_character_relation。
     """
-    if note is not None and str(note).strip() and len(str(note).strip()) < 10:
+    from scribe3.iceberg import codex_thicken_gate_enabled
+    if codex_thicken_gate_enabled() and note is not None and str(note).strip() and len(str(note).strip()) < 10:
         return {"status": "error", "tool": "s3_evolve_relation", "code": "note_thin",
                 "error": "关系备注过短（<10）"}
     ok = await _ask(ctx, f"关系演变 {src_oid}→{dst_oid} 变为 [{new_relation}](章{since_chapter})")
@@ -807,8 +808,9 @@ async def s3_plant_promise(ctx: Context, text: str, setup_chapter: int,
     留白;tier=chapter 短期悬念(本章内起落即兑现)豁免,向后兼容不传此字段的
     既有调用方。非法 tier 由 store 层 raise ValueError。
     成功时 result 含稳定 id,供 s3_advance_promise / s3_add_clue / s3_touch_promise 使用。"""
+    from scribe3.iceberg import codex_thicken_gate_enabled
     blob = (text or "").strip()
-    if len(blob) < 20:
+    if codex_thicken_gate_enabled() and len(blob) < 20:
         return {"status": "error", "tool": "s3_plant_promise", "code": "promise_thin",
                 "error": "伏笔正文至少 20 字"}
     if tier in ("book", "arc") and not resolution.strip():
@@ -956,6 +958,7 @@ async def s3_fold_voice_flags(ctx: Context, character_id: str, work: str | None 
         lambda: _store_for(work).fold_voice_flags(character_id, hermes_complete))
 
 
+@mcp.tool(annotations=_RW)
 def s3_ingest_chapter(seq: int, work: str | None = None, force: bool = False,
                       confirm_token: str | None = None) -> dict:
     """章节回写(客观回写,不待批):读定稿抽"谁新知道什么/做了什么"→更新知识账本。
@@ -978,8 +981,8 @@ def s3_ingest_chapter(seq: int, work: str | None = None, force: bool = False,
             retries_override=0,
         )
 
-    w = (work or "main").strip() or "main"
-    st = _store_for(w)
+    st = _store_for(work)
+    w = (work or _store_work(st) or "main").strip() or "main"
     ch = st.get_chapter(int(seq)) or {}
     prose = ch.get("prose") or ""
     src = "confirm" if confirm_token else "mcp_ingest"

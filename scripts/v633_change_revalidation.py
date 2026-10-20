@@ -5,7 +5,7 @@
 
 用法：
   # boot.env 一行 user:pass（勿提交 git）
-  export API_BASE=https://tonglu.qing.blue
+  export API_BASE=https://tonglu.example.com
   export BOOT_FILE=/tmp/grok-1000/v633-reval/boot.env
   python3 scripts/v633_change_revalidation.py --phase all
 
@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = os.environ.get("API_BASE", "https://tonglu.qing.blue").rstrip("/")
+BASE = os.environ.get("API_BASE", "https://tonglu.example.com").rstrip("/")
 BOOT_FILE = Path(os.environ.get("BOOT_FILE", "/tmp/grok-1000/v633-reval/boot.env"))
 COOKIE = Path(os.environ.get("COOKIE_JAR", "/tmp/grok-1000/v633-reval/cookie.txt"))
 TITLE = os.environ.get(

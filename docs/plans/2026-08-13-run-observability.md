@@ -14,7 +14,7 @@
 | **产品** | 铜炉 / tonglu · 代码 `scribe3/` |
 | **仓库** | `/home/admin/projects/scribe-writing-system` |
 | **建议入库路径** | `docs/plans/2026-08-13-run-observability.md` |
-| **验证** | **仅已部署 demo**（`tonglu.qing.blue` / `82.157.130.140` / `/opt/scribe3/app`）。禁止 Grok 运行机 `npm ci` / 全量 pytest / 本机 Surreal / 第二套库 |
+| **验证** | **仅已部署 demo**（`tonglu.example.com` / `203.0.113.10` / `/opt/scribe3/app`）。禁止 Grok 运行机 `npm ci` / 全量 pytest / 本机 Surreal / 第二套库 |
 | **运维 env SSOT** | **`/opt/scribe3/app/deploy/prod/.env`**（compose 目录相对 `env_file: .env`；容器 `working_dir=/opt/scribe3/app/deploy/prod`）。**不要**改 `/opt/scribe3/app/.env`（现网只有叙事小旗，不是 backend 进程环境），也**不要**改 `app/.env.production.local` |
 | **关联** | 升窗 `docs/plans/2026-08-13-budget-context-optimal.md`；场面头 `scribe3/story_constraint_prompt.py`；注册表 `scribe3/injection_registry.py`；Outcome `scribe3/context_outcome.py` |
 

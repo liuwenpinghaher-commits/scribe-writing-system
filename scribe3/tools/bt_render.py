@@ -3,7 +3,7 @@
 复用 app 的写作 prompt 装配(含第三轮修复的 _editor_write_system 限知屏蔽),
 hermes 续写循环到目标字数;每章 find_leaks 零泄露验证 + 跨章复读度量 + 真 ingest 反哺。
 
-跑: cd "/Users/miaoma/Downloads/写作 3.0" && scribe3/.venv/bin/python -u scribe3/tools/bt_render.py
+跑: cd "<repo-root>" && scribe3/.venv/bin/python -u scribe3/tools/bt_render.py
 """
 import sys, os, json, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))

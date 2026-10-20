@@ -9,7 +9,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-BASE = os.environ.get("API_BASE", "https://tonglu.qing.blue")
+BASE = os.environ.get("API_BASE", "https://tonglu.example.com")
 SLUG = os.environ.get("WANJIE_SLUG", "book_36177e20")
 TITLES = ("华山成核", "四十二度", "金縢裂纹", "灭活边缘")
 

@@ -181,25 +181,25 @@ Wave D 的底座强弱分化明显：**图谱和时间线已经接近可承诺�
 已运行：
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q scribe3/tests/test_qd.py scribe3/tests/test_causal_directives.py
 # 18 passed, 1 warning
 ```
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q scribe3/tests/test_hybrid_recall.py scribe3/tests/test_semantic.py scribe3/tests/test_indexes.py
 # 11 passed
 ```
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q scribe3/tests/test_verify.py scribe3/tests/test_critique.py scribe3/tests/test_qc_fix.py
 # 200 passed
 ```
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q scribe3/tests/test_timeline.py scribe3/tests/test_pulse.py \
   scribe3/tests/test_app.py::test_quality_endpoint \
   scribe3/tests/test_app.py::test_progress_endpoint_basic \
@@ -209,7 +209,7 @@ scribe3/.venv/bin/python -m pytest -q scribe3/tests/test_timeline.py scribe3/tes
 ```
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q \
   scribe3/tests/test_app.py::test_tension_deterministic_items \
   scribe3/tests/test_app.py::test_tension_check_no_prose \
@@ -223,19 +223,19 @@ scribe3/.venv/bin/python -m pytest -q \
 ```
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0"
+cd "<repo-root>"
 scribe3/.venv/bin/python -m pytest -q scribe3/tests/test_event_graph.py
 # 4 passed
 ```
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/__tests__/deduceStage-layout.test.jsx src/__tests__/appRail-layout.test.jsx src/__tests__/detailPane-routing.test.jsx src/layout/__tests__/directoryPane-tools.test.jsx
 # 4 test files passed, 6 tests passed
 ```
 
 ```bash
-cd "/Users/miaoma/Downloads/写作 3.0/scribe3/web"
+cd "<repo-root>/scribe3/web"
 npm test -- src/editor/guardIssues.test.js src/editor/GuardDecoration.test.js
 # 2 test files passed, 15 tests passed
 ```

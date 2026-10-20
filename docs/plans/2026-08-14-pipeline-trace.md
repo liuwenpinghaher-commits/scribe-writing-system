@@ -14,7 +14,7 @@
 | **仓库** | `/home/admin/projects/scribe-writing-system` |
 | **入库路径** | `docs/plans/2026-08-14-pipeline-trace.md` |
 | **取代** | `docs/plans/2026-08-13-run-observability.md` **不再是 SSOT**（见 §与旧 Run 卡的关系） |
-| **验证** | **仅已部署 demo**（`tonglu.qing.blue` / `82.157.130.140` / `/opt/scribe3/app`）。禁止 Grok 运行机 `npm ci` / 全量 pytest / 本机 Surreal / 第二套库 |
+| **验证** | **仅已部署 demo**（`tonglu.example.com` / `203.0.113.10` / `/opt/scribe3/app`）。禁止 Grok 运行机 `npm ci` / 全量 pytest / 本机 Surreal / 第二套库 |
 | **运维 env SSOT** | **`/opt/scribe3/app/deploy/prod/.env`**。不要改 `/opt/scribe3/app/.env`，也不要改 `app/.env.production.local` |
 | **关联** | 旧卡 `docs/plans/2026-08-13-run-observability.md`；注册表 `scribe3/injection_registry.py`；出卡点 `write_assemble_v1.py` / `write_stream.py` / `misc_routes.save_chapter` / `write.reader_claim_ep`；L1 `docs/L1-AUTH-ISOLATION.md` |
 

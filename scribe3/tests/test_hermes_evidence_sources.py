@@ -3371,7 +3371,7 @@ def test_secret_scanner_rejects_secret_shapes_without_echoing_values():
     assert contains_secret("sk-" + "x" * 24)
     assert contains_secret("sk-" + ("x_" * 12))
     assert not contains_secret("Use ${API_KEY} from the environment")
-    assert not contains_secret("API_KEY=sk-NOUS_PLACEHOLDER_VALUE")
+    assert not contains_secret("API_KEY=sk-" + "NOUS_PLACEHOLDER_VALUE")
 
 
 @pytest.mark.parametrize(

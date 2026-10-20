@@ -8,8 +8,8 @@
 | **修订** | Rev D · 用户拍板 OQ（rule_of_three 计入；永久扩维+REVISION；仅 body.platform） |
 | **状态** | **Ready for implementation**（下一步：`PR-W0-1`） |
 | **仓库** | `/home/admin/projects/scribe-writing-system` |
-| **产品** | scribe3 / 铜炉（tonglu.qing.blue） |
-| **验证定义** | **只冒烟已部署 demo**（`ubuntu@82.157.130.140` · `/opt/scribe3/app`）；禁止 Grok 机全量 npm / Surreal / pytest；禁止另起第二验收栈 |
+| **产品** | scribe3 / 铜炉（tonglu.example.com） |
+| **验证定义** | **只冒烟已部署 demo**（`ubuntu@203.0.113.10` · `/opt/scribe3/app`）；禁止 Grok 机全量 npm / Surreal / pytest；禁止另起第二验收栈 |
 
 > **成功标准（交付门）**：P0–P1 可测项 **A1 / A2 / A5** 合 main + demo 冒烟绿。  
 > **A4** 为 W1 **强烈建议**（范围仅 `sources_skipped` chips + 可选 CTA；**coverage 横幅/诚实空态已接，勿重做**）。  
@@ -721,7 +721,7 @@ API 已返回 `mutates_hermes_timer: false` 与 `note_zh`；CronPanel 已读 not
 
 ```bash
 # 本机仅 SSH/curl；不跑 npm/Surreal
-BASE=https://tonglu.qing.blue   # 或 SSH 机内 curl
+BASE=https://tonglu.example.com   # 或 SSH 机内 curl
 ```
 
 ### 冒烟清单

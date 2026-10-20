@@ -10,7 +10,7 @@
 | **协议** | `docs/e2e-director-journey-v634-true-chat-full-capability.md` **v6.3.4 rev.6** |
 | **宇宙 SSOT** | `docs/worlds/wanjie-probability-war-v7.md`（《万界概率战争》V7.0） |
 | **前序（已落地，不推倒）** | `docs/plans/2026-08-15-chapter-spine-closed-loop.md`；`docs/plans/2026-08-15-outline-beats-craft-reform.md` |
-| **验收书** | **本次新建 slug** · 入口 `tonglu.qing.blue` · **只打已部署栈** |
+| **验收书** | **本次新建 slug** · 入口 `tonglu.example.com` · **只打已部署栈** |
 | **短名** | `fate-dearer` |
 
 > **口语「13 槽」** = 前序对外合同。实现 `SPINE_SLOTS` 为 **14 键**（`hook` + 可空 `forbid`）。本轮不新增第 15 键。世界命题走 `beats_meta.world_fact`（与 clock/place 同构）。

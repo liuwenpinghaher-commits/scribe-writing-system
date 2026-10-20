@@ -1,5 +1,5 @@
 # 00-env-lockdown
-- API_BASE: https://tonglu.qing.blue
+- API_BASE: https://tonglu.example.com
 - health: 200 ok
 - ready: 200
 - login: admin 200
